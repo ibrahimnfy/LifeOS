@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import __version__, claude, sessions
+from . import __version__, capable, claude, sessions
 from .claude import ClaudeError
 from .config import Settings
 
@@ -84,6 +84,14 @@ def read_prompt(data: dict) -> str:
     return prompt
 
 
+def read_mode(data: dict) -> str:
+    """``read_only`` unless the request explicitly asks for ``capable``."""
+    mode = data.get("mode", "read_only")
+    if mode not in ("read_only", "capable"):
+        raise ClaudeError("bad_request", 400, "`mode` must be `read_only` or `capable`")
+    return mode
+
+
 def sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
 
@@ -130,16 +138,23 @@ def create_app(settings: Settings) -> FastAPI:
     async def run_prompt(data: dict, *, session_id: str, resume: bool, cwd: Path):
         """Shared by /ask and session resume: limits, in-use check, run or stream."""
         prompt = read_prompt(data)
+        is_capable = read_mode(data) == "capable"
         run_args = {"session_id": session_id, "resume": resume, "cwd": cwd}
         streaming = bool(data.get("stream"))
+        watch = None
         slots.acquire(session_id)
+        started = False
         try:
             # Never write into a conversation that is open somewhere else.
             if resume and session_id in await claude.sessions_in_use(settings):
                 raise ClaudeError(
                     "session_in_use", 409, "this session is open on the computer right now"
                 )
-            if not streaming:
+            if is_capable:
+                await capable.check_available(settings)
+                watch = capable.AuditWatch(session_id)
+                run_args |= {"policy": capable.build_policy(settings, cwd), "observer": watch}
+            elif not streaming:
                 result = await claude.run(settings, prompt, **run_args)
                 return {
                     "answer": result.answer,
@@ -148,23 +163,40 @@ def create_app(settings: Settings) -> FastAPI:
                     "num_turns": result.num_turns,
                     "denied_tools": result.denied_tools,
                 }
-        except BaseException:
-            streaming = False  # nothing will stream; release below
-            raise
+            started = True
         finally:
-            if not streaming:
+            if not started:
                 slots.release(session_id)
 
-        async def events() -> AsyncIterator[bytes]:
+        async def run_events() -> AsyncIterator[tuple[str, dict]]:
+            """The run as events; releases the slot when it ends or is abandoned."""
             try:
-                yield sse("session", {"session_id": session_id})
-                try:
-                    async for event, payload in claude.stream(settings, prompt, **run_args):
-                        yield sse(event, payload)
-                except ClaudeError as error:
-                    yield sse("error", {"error": error.code, "message": error.message})
+                async for event, payload in claude.stream(settings, prompt, **run_args):
+                    if event == "done" and watch is not None:
+                        payload["refused_actions"] = watch.refused_actions()
+                    yield event, payload
+            except ClaudeError as error:
+                yield "error", {"error": error.code, "message": error.message}
             finally:
                 slots.release(session_id)
+
+        if not streaming:  # capable run for a client that wants one JSON answer
+            final: tuple[str, dict] = ("error", {"error": "bad_output", "message": ""})
+            async for event, payload in run_events():
+                if event in ("done", "error"):
+                    final = (event, payload)
+            if final[0] == "error":
+                raise ClaudeError(
+                    final[1]["error"],
+                    504 if final[1]["error"] == "timeout" else 502,
+                    final[1].get("message", ""),
+                )
+            return final[1]
+
+        async def events() -> AsyncIterator[bytes]:
+            yield sse("session", {"session_id": session_id})
+            async for event, payload in run_events():
+                yield sse(event, payload)
 
         return StreamingResponse(
             events(),
@@ -181,6 +213,7 @@ def create_app(settings: Settings) -> FastAPI:
         """
         data = await read_json_object(request)
         read_prompt(data)
+        read_mode(data)
         resume = data.get("session_id") is not None
         if resume:
             session_id = data["session_id"]
@@ -202,6 +235,7 @@ def create_app(settings: Settings) -> FastAPI:
         """
         data = await read_json_object(request)
         read_prompt(data)
+        read_mode(data)
         info = sessions.find_session(session_id, settings.allowed_roots)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")

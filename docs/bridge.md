@@ -95,6 +95,7 @@ Request body (JSON):
 | `prompt` | string, required | The prompt, at most 100 000 characters |
 | `session_id` | string, optional | Continue an earlier `/ask` conversation |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
+| `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
 
 Response:
 
@@ -130,8 +131,11 @@ Errors are JSON `{"error": "<code>", "message": "<text>"}`:
 | 409 | `session_in_use` | That session is already answering a prompt |
 | 413 | `prompt_too_large`, `too_large` | Prompt or request body too big |
 | 429 | `busy` | Too many runs are active; try again shortly |
+| 403 | `folder_not_allowed` | Capable mode: the folder may never be used for capable runs |
+| 502 | `audit_mismatch` | Capable mode: a tool ran without an audit record; the run was stopped |
 | 502 | `claude_failed`, `bad_output`, `claude_error`, `error_…` | The Claude run failed (e.g. `error_max_turns`) |
 | 503 | `claude_not_found`, `working_directory_missing` | Set-up problem on the computer |
+| 503 | `capable_mode_unavailable` | Capable mode is switched off on this computer |
 | 504 | `timeout` | The run took too long and was stopped |
 
 With `"stream": true` the response is `text/event-stream`:
@@ -144,6 +148,38 @@ event: error        data: {"error": "...", "message": "..."}     instead of done
 ```
 
 Closing the connection stops the run.
+
+### Capable mode
+
+Every request is read-only unless it says `"mode": "capable"`. The capable
+mode lets Claude edit files and run shell commands inside guardrails; the
+full design is in [`permission-policy.md`](permission-policy.md).
+
+**It is switched off.** The bridge answers `503 capable_mode_unavailable`
+until the guardrail check has passed on this computer for the installed
+Claude Code version (a marker file `~/.config/lifeos/capable-mode.json`,
+written only by the check). A Claude Code update switches it off again.
+
+What a capable run looks like once enabled:
+
+- It works in the run's folder and the memory folder; other allowed folders
+  are readable. The home folder, the private settings, keys and browser
+  profiles are hidden from it, and its commands have no network.
+- It requires Claude Code's OS sandbox and refuses to start without it.
+- Every tool call is written to the audit log
+  `~/.config/lifeos/audit/YYYY-MM.jsonl` **before** it runs (commands in
+  full; for file tools the path, never the content). If the log cannot be
+  written, nothing runs.
+- Actions that need the owner's approval (deleting, force operations,
+  pushing, installing packages, network and messaging commands) are refused
+  with an explanation; the response lists them in `refused_actions`, e.g.
+  `["push"]`. `sudo` and system-setting commands are always refused.
+- The mode belongs to the request, not the session: the next request without
+  `"mode": "capable"` is read-only again.
+
+Folders that can never be allowed, whatever `allowed_paths` says: the home
+folder itself, anything outside it, hidden folders, the LifeOS program
+folder and the private settings folder. Symbolic links are resolved first.
 
 ### `GET /sessions`
 

@@ -158,11 +158,14 @@ def test_read_allowed_paths(tmp_path):
     assert read_allowed_paths(tmp_path / "missing") == ()
 
 
-def test_load_settings_reads_allowed_paths(isolated_config):
+def test_load_settings_reads_allowed_paths_and_applies_the_limits(isolated_config, tmp_path):
     env = isolated_config / "env"
     env.write_text("LIFEOS_BRIDGE_TOKEN=" + "t" * 40 + "\n")
     env.chmod(0o600)
-    (isolated_config / "allowed_paths").write_text("/srv/projects/one\n")
+    good = tmp_path / "home" / "project"
+    good.mkdir(parents=True)
+    (isolated_config / "allowed_paths").write_text(f"/srv/projects/one\n{good}\n~\n~/.ssh\n")
     settings = load_settings()
-    assert settings.allowed_paths == (Path("/srv/projects/one"),)
-    assert settings.allowed_roots == (settings.ask_dir.resolve(), Path("/srv/projects/one"))
+    assert Path("/srv/projects/one") in settings.allowed_paths
+    # Outside home, home itself and hidden folders never become roots.
+    assert settings.allowed_roots == (settings.ask_dir.resolve(), good)

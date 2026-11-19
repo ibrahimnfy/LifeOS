@@ -53,9 +53,14 @@ class Settings:
     @property
     def allowed_roots(self) -> tuple[Path, ...]:
         """Folders whose sessions may be listed and resumed: ask folder + allowed paths."""
-        roots: list[Path] = []
-        for path in (self.ask_dir, *self.allowed_paths):
-            resolved = path.resolve()
+        from .paths import refusal_reason  # local import: paths needs nothing from here
+
+        roots: list[Path] = [self.ask_dir.resolve()]
+        for path in self.allowed_paths:
+            # The fixed limits apply here too, so a hand-edited file cannot widen them.
+            if refusal_reason(path) is not None:
+                continue
+            resolved = path.expanduser().resolve()
             if resolved not in roots:
                 roots.append(resolved)
         return tuple(roots)

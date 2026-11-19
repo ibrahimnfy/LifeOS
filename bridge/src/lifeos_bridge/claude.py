@@ -15,7 +15,7 @@ import json
 import os
 import re
 import signal
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,6 +42,24 @@ ENV_ALLOW_LIST = (
     "XDG_RUNTIME_DIR",
     "DBUS_SESSION_BUS_ADDRESS",
 )
+
+CAPABLE_TOOLS = "Read,Glob,Grep,Edit,Write,Bash"
+# Not passed to capable runs: they point commands at the desktop session bus.
+SESSION_BUS_VARS = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
+
+
+@dataclass(frozen=True)
+class Policy:
+    """What one run may do. The default is the read-only policy."""
+
+    tools: str = READ_ONLY_TOOLS
+    capable: bool = False
+    # Capable runs: one JSON carrying the sandbox requirement and all grants.
+    settings_json: str | None = None
+    add_dirs: tuple[Path, ...] = ()
+
+
+READ_ONLY = Policy()
 
 STREAM_LINE_LIMIT = 32 * 1024 * 1024
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -80,9 +98,10 @@ def session_exists(cwd: Path, session_id: str, home: Path | None = None) -> bool
     return is_session_id(session_id) and (project_dir(cwd, home) / f"{session_id}.jsonl").is_file()
 
 
-def child_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+def child_env(environ: Mapping[str, str] | None = None, *, capable: bool = False) -> dict[str, str]:
     environ = os.environ if environ is None else environ
-    return {name: environ[name] for name in ENV_ALLOW_LIST if name in environ}
+    names = [n for n in ENV_ALLOW_LIST if not (capable and n in SESSION_BUS_VARS)]
+    return {name: environ[name] for name in names if name in environ}
 
 
 def build_command(
@@ -92,6 +111,7 @@ def build_command(
     resume: bool,
     stream: bool,
     name: str | None = None,
+    policy: Policy = READ_ONLY,
 ) -> list[str]:
     command = [settings.claude_bin, "-p"]
     if stream:
@@ -102,14 +122,22 @@ def build_command(
         # Nobody is at the computer: never wait for an approval, deny instead.
         "--permission-mode", "dontAsk",
         "--permission-prompts", "none",
-        # No command-running tools, file tools confined to the working
-        # directory, user/project settings files ignored.
+        # File tools confined to the working directories; user and project
+        # settings files ignored; only the tools named below exist.
         "--restricted",
-        "--tools", READ_ONLY_TOOLS,
+        "--tools", policy.tools,
         "--strict-mcp-config",
         "--disable-slash-commands",
         "--max-turns", str(settings.max_turns),
     ]  # fmt: skip
+    if policy.capable:
+        # Everything a capable run is granted lives in this one JSON, next to
+        # the sandbox requirement. Nothing is granted on the command line.
+        if not policy.settings_json:
+            raise ClaudeError("capable_mode_unavailable", 503, "capable run without settings")
+        command += ["--settings", policy.settings_json]
+        for folder in policy.add_dirs:
+            command += ["--add-dir", str(folder)]
     if settings.claude_model:
         command += ["--model", settings.claude_model]
     if resume:
@@ -121,14 +149,16 @@ def build_command(
     return command
 
 
-async def _start(settings: Settings, command: list[str], cwd: Path) -> asyncio.subprocess.Process:
+async def _start(
+    settings: Settings, command: list[str], cwd: Path, *, capable: bool = False
+) -> asyncio.subprocess.Process:
     if not cwd.is_dir():
         raise ClaudeError("working_directory_missing", 503, "the configured folder does not exist")
     try:
         return await asyncio.create_subprocess_exec(
             *command,
             cwd=cwd,
-            env=child_env(),
+            env=child_env(capable=capable),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -244,7 +274,7 @@ async def run(
     name: str | None = None,
     grace: float = 5.0,
 ) -> RunResult:
-    """Run one prompt to completion and return the answer."""
+    """Run one read-only prompt to completion and return the answer."""
     command = build_command(settings, session_id=session_id, resume=resume, stream=False, name=name)
     process = await _start(settings, command, cwd or settings.ask_dir)
     try:
@@ -275,14 +305,18 @@ async def stream(
     cwd: Path | None = None,
     name: str | None = None,
     grace: float = 5.0,
+    policy: Policy = READ_ONLY,
+    observer: Callable[[dict], None] | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run one prompt and yield ``(event, data)`` pairs as the answer is written.
 
     Events: ``delta`` (``{"text": ...}``), then exactly one ``done`` (the
     final result) or ``error`` (``{"error": code, "message": ...}``).
     """
-    command = build_command(settings, session_id=session_id, resume=resume, stream=True, name=name)
-    process = await _start(settings, command, cwd or settings.ask_dir)
+    command = build_command(
+        settings, session_id=session_id, resume=resume, stream=True, name=name, policy=policy
+    )
+    process = await _start(settings, command, cwd or settings.ask_dir, capable=policy.capable)
     assert process.stdin and process.stdout and process.stderr  # noqa: S101
     final: dict | None = None
     try:
@@ -298,6 +332,8 @@ async def stream(
                     continue
                 if not isinstance(event, dict):
                     continue
+                if observer is not None:
+                    observer(event)  # may raise ClaudeError to stop the run
                 if event.get("type") == "stream_event":
                     inner = event.get("event") or {}
                     delta = inner.get("delta") or {}
@@ -312,6 +348,10 @@ async def stream(
     except TimeoutError:
         await _stop(process, grace)
         yield "error", {"error": "timeout", "message": "the run took too long and was stopped"}
+        return
+    except ClaudeError as error:  # raised by the observer
+        await _stop(process, grace)
+        yield "error", {"error": error.code, "message": error.message}
         return
     except BaseException:
         await _stop(process, grace)

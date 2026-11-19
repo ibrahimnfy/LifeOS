@@ -22,6 +22,10 @@ from pathlib import Path
 
 args = sys.argv[1:]
 
+if args == ["--version"]:
+    print("fake-claude 1.0")
+    sys.exit(0)
+
 if args[:2] == ["agents", "--json"]:
     # Active sessions: taken from ~/.fake-claude-agents.json when present.
     state = Path.home() / ".fake-claude-agents.json"
@@ -87,6 +91,54 @@ if prompt.startswith("FAKE_DENIED"):
         {"tool_name": "Write", "tool_use_id": "y", "tool_input": {}},
     ]
 
+tool_events = []
+if prompt.startswith(("FAKE_TOOL ", "FAKE_SKIPHOOK ")):
+    # Simulate one Bash tool call, with the PreToolUse hook from --settings.
+    import subprocess
+
+    command = prompt.split(" ", 1)[1]
+    tool_events.append(
+        {
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": command}}
+                ]
+            },
+        }
+    )
+    blocked = None
+    if prompt.startswith("FAKE_TOOL "):
+        hook = json.loads(option("--settings"))["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        payload = {
+            "session_id": session_id,
+            "cwd": os.getcwd(),
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+        }
+        done = subprocess.run(  # noqa: S602
+            hook, shell=True, input=json.dumps(payload), text=True, capture_output=True
+        )
+        if done.returncode == 2:
+            blocked = done.stderr.strip()
+    tool_events.append(
+        {
+            "type": "user",
+            "message": {
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "t1",
+                        "is_error": blocked is not None,
+                        "content": blocked or "ran",
+                    }
+                ]
+            },
+        }
+    )
+    result["result"] = f"blocked: {blocked}" if blocked else "ran the command"
+
 if streaming:
     if "--verbose" not in args:
         print("stream-json requires --verbose", file=sys.stderr)
@@ -96,6 +148,8 @@ if streaming:
         print(json.dumps(obj), flush=True)
 
     emit({"type": "system", "subtype": "init", "session_id": session_id})
+    for tool_event in tool_events:
+        emit(tool_event)
     if not result["is_error"]:
         for piece in ("echo: ", prompt):
             emit(

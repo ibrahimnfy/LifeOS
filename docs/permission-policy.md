@@ -65,6 +65,7 @@ refuses capable requests and stays read-only.
 | `PreToolUse` hook passed in `--settings`, restricted mode | **runs** before the tool call and receives the tool input |
 | `PreToolUse` hook in the folder's own `.claude/settings.json`, restricted mode | **does not run** (project settings are ignored) |
 | Tool calls in `stream-json` output | visible as `tool_use` blocks with name and input |
+| Gate program as `PreToolUse` hook, real Claude Code | the call is written to the audit log first and then runs; with an unwritable audit log the call is **blocked** and the model reports the given reason |
 
 Not testable yet (the sandbox cannot start): everything in section 5 marked
 "to verify". Those checks are the probe suite of section 7.
@@ -141,8 +142,8 @@ and its children; **CC** = enforced by Claude Code for its own file tools;
 | 7 | Approval needed: any network action that sends data out; pushes; package installs; message or e-mail sending | OS: commands have **no network at all** (empty allow-list, strict). pattern: clear refusal naming the reason | to verify |
 | 8 | Approval needed: force operations on remotes | same as 7 (no network) | to verify |
 | 9 | Approval needed: permanent deletion; local force operations (hard reset, branch deletion, clean) | pattern only. **Cannot be enforced by the OS**: a shell that may write a folder may also delete in it, by many routes | **not enforceable → human decision issue** |
-| 10 | Refusal with a clear explanation until the app has an approval screen | bridge: the `PreToolUse` gate program answers with the reason ("needs the owner's approval; approvals are not available yet"); the response lists refused actions | buildable now; tested with the hook mechanism |
-| 11 | Every command is written to a local audit log outside the repository | bridge: the gate program appends each tool call to `~/.config/lifeos/audit/` **before** it runs and blocks the call if the write fails; the bridge cross-checks against the tool calls seen in the stream and stops the run on a mismatch | buildable now; mechanism tested |
+| 10 | Refusal with a clear explanation until the app has an approval screen | bridge: the `PreToolUse` gate program answers with the reason ("needs the owner's approval; approvals are not available yet"); the response lists refused actions | **built**; blocking through the hook tested with the real CLI; command patterns unit-tested |
+| 11 | Every command is written to a local audit log outside the repository | bridge: the gate program appends each tool call to `~/.config/lifeos/audit/` **before** it runs and blocks the call if the write fails; the bridge cross-checks against the tool calls seen in the stream and stops the run on a mismatch | **built**; log-before-run and block-on-failure tested with the real CLI (file tool); shell commands to verify with the sandbox |
 | 12 | Nothing about prompts in the public repository | the audit log and all logs live under `~/.config/lifeos/`; the repository ships code and templates only | enforced by layout |
 
 ### Honest limits
