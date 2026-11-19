@@ -11,7 +11,7 @@ from datetime import datetime
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import __version__, claude
+from . import __version__, claude, sessions
 from .claude import ClaudeError
 from .config import Settings
 
@@ -181,5 +181,15 @@ def create_app(settings: Settings) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
+
+    @app.get("/sessions")
+    async def list_sessions(limit: int = 50):
+        """Claude Code sessions in the allowed folders, newest first."""
+        limit = max(1, min(limit, 200))
+        found = sessions.list_sessions(settings.allowed_roots)
+        return {
+            "sessions": [s.as_json(in_use=s.id in slots.active) for s in found[:limit]],
+            "total": len(found),
+        }
 
     return app

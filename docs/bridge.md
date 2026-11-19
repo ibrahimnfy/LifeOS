@@ -46,6 +46,7 @@ uv run lifeos-bridge
 | GET | `/health` | no | Liveness check; returns `{"status":"ok"}` and nothing else |
 | GET | `/whoami` | yes | Lets a client verify its token; returns the bridge version |
 | POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
+| GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders |
 
 ### `POST /ask`
 
@@ -106,6 +107,31 @@ event: error        data: {"error": "...", "message": "..."}     instead of done
 
 Closing the connection stops the run.
 
+### `GET /sessions`
+
+Lists the Claude Code sessions stored on the computer whose folder is the
+ask folder or one of the folders in `~/.config/lifeos/allowed_paths` (one
+absolute path per line, `#` for comments), including their sub-folders.
+Sessions of any other folder are never opened or listed.
+
+Query: `limit` (default 50, at most 200). Response, newest first:
+
+```json
+{"sessions": [{"id": "…", "title": "…", "folder": "/path/to/folder",
+               "last_activity": "2027-01-15T08:08:20Z", "in_use": false}],
+ "total": 1}
+```
+
+- `title` is the session's own title when it has one, otherwise the
+  beginning of its first prompt. Titles are conversation content: they are
+  sent to the authenticated client only and never logged.
+- `in_use` is true while the bridge itself is running a prompt in that
+  session.
+- Claude Code deletes old sessions by itself (after 30 days by default), so
+  a listed session can disappear later.
+- Session files are an internal format of Claude Code; files the bridge
+  cannot read are skipped. After a Claude Code update, re-run the check below.
+
 ## Manual check
 
 With the bridge running in another terminal:
@@ -130,6 +156,13 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 # continue the same conversation: add "session_id":"<id from above>"
 # read-only check: ask it to create a file -> the answer says it cannot, and no file appears
 # streaming: add "stream":true and use `curl -N`
+```
+
+List sessions (after at least one `/ask` call there is one to show):
+
+```
+curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" http://127.0.0.1:8787/sessions
+# {"sessions":[{"id":"...","title":"Which files are in this folder? ...","folder":"...",...}],"total":1}
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

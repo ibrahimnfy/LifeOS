@@ -16,6 +16,7 @@ from pathlib import Path
 
 CONFIG_DIR_VAR = "LIFEOS_CONFIG_DIR"
 ENV_FILE_NAME = "env"
+ALLOWED_PATHS_FILE_NAME = "allowed_paths"
 MIN_TOKEN_LENGTH = 32
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
@@ -46,6 +47,18 @@ class Settings:
     max_turns: int = DEFAULT_MAX_TURNS
     claude_bin: str = "claude"
     claude_model: str | None = None
+    # Extra folders the owner allowed (from ~/.config/lifeos/allowed_paths).
+    allowed_paths: tuple[Path, ...] = ()
+
+    @property
+    def allowed_roots(self) -> tuple[Path, ...]:
+        """Folders whose sessions may be listed and resumed: ask folder + allowed paths."""
+        roots: list[Path] = []
+        for path in (self.ask_dir, *self.allowed_paths):
+            resolved = path.resolve()
+            if resolved not in roots:
+                roots.append(resolved)
+        return tuple(roots)
 
     def __repr__(self) -> str:  # never leak the token into logs or tracebacks
         return f"Settings(token=<hidden>, host={self.host!r}, port={self.port!r})"
@@ -142,7 +155,24 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         max_turns=_int_setting(values, "LIFEOS_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 200),
         claude_bin=values.get("LIFEOS_CLAUDE_BIN") or "claude",
         claude_model=values.get("LIFEOS_CLAUDE_MODEL") or None,
+        allowed_paths=read_allowed_paths(config_dir(environ) / ALLOWED_PATHS_FILE_NAME),
     )
+
+
+def read_allowed_paths(path: Path) -> tuple[Path, ...]:
+    """One absolute folder per line; ``#`` comments; ``~`` allowed. Others are ignored."""
+    if not path.exists():
+        return ()
+    folders: list[Path] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        folder = Path(line).expanduser()
+        # The filesystem root or a relative path would allow far too much.
+        if folder.is_absolute() and folder != Path(folder.anchor):
+            folders.append(folder)
+    return tuple(folders)
 
 
 def _int_setting(values: Mapping[str, str], name: str, default: int, low: int, high: int) -> int:
