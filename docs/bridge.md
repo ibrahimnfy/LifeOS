@@ -47,6 +47,7 @@ uv run lifeos-bridge
 | GET | `/whoami` | yes | Lets a client verify its token; returns the bridge version |
 | POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
 | GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders |
+| POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
 
 ### `POST /ask`
 
@@ -132,6 +133,28 @@ Query: `limit` (default 50, at most 200). Response, newest first:
 - Session files are an internal format of Claude Code; files the bridge
   cannot read are skipped. After a Claude Code update, re-run the check below.
 
+### `POST /sessions/{id}/messages`
+
+Continues a session from the list with a new message. Body:
+`{"prompt": "...", "stream": false}`; response, streaming and errors are the
+same as for `/ask`.
+
+- The run starts in the folder the session was created in, with the same
+  read-only policy as `/ask` (files of that folder only).
+- Only sessions inside the allowed folders can be resumed; anything else is
+  `404 session_not_found`.
+- **A session that is open on the computer is refused** with
+  `409 session_in_use`, because two writers would damage the conversation.
+  The bridge asks Claude Code which sessions are active
+  (`claude agents --json`) right before starting. If that check itself fails,
+  nothing is resumed (`503 in_use_check_failed`).
+- `409 folder_missing` when the session's folder no longer exists.
+
+Limits of the in-use check: there is a short gap between the check and the
+start of the run, and sessions held by other Claude apps (desktop or editor
+extensions) may not be reported. Close a session on the computer before
+continuing it from the phone.
+
 ## Manual check
 
 With the bridge running in another terminal:
@@ -163,6 +186,16 @@ List sessions (after at least one `/ask` call there is one to show):
 ```
 curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" http://127.0.0.1:8787/sessions
 # {"sessions":[{"id":"...","title":"Which files are in this folder? ...","folder":"...",...}],"total":1}
+```
+
+Resume a session from the list:
+
+```
+curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"prompt":"What did I ask before? One line."}' \
+  http://127.0.0.1:8787/sessions/<id from the list>/messages
+# in-use check: open the same session in a terminal (`claude --resume <id>`), repeat the
+# request -> 409 {"error":"session_in_use",...}
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

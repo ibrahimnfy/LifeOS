@@ -21,6 +21,16 @@ import time
 from pathlib import Path
 
 args = sys.argv[1:]
+
+if args[:2] == ["agents", "--json"]:
+    # Active sessions: taken from ~/.fake-claude-agents.json when present.
+    state = Path.home() / ".fake-claude-agents.json"
+    content = state.read_text() if state.exists() else "[]"
+    if content.strip() == "FAIL":
+        sys.exit(1)
+    print(content)
+    sys.exit(0)
+
 prompt = sys.stdin.read()
 
 

@@ -1,5 +1,8 @@
 import json
+import os
+import re
 import sys
+import uuid
 from pathlib import Path
 
 import pytest
@@ -67,3 +70,26 @@ def client(settings):
 @pytest.fixture
 def auth():
     return {"Authorization": f"Bearer {TEST_TOKEN}"}
+
+
+def user_line(cwd, text, **extra):
+    return {"type": "user", "cwd": str(cwd), "message": {"role": "user", "content": text}, **extra}
+
+
+@pytest.fixture
+def write_session(tmp_path):
+    """Create a synthetic transcript the way Claude Code would store it."""
+
+    def write(cwd: Path, lines: list, *, mtime: int = 1_800_000_000, project: str | None = None):
+        session_id = str(uuid.uuid4())
+        name = project or re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+        folder = tmp_path / "home" / ".claude" / "projects" / name
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / f"{session_id}.jsonl"
+        path.write_text(
+            "".join((line if isinstance(line, str) else json.dumps(line)) + "\n" for line in lines)
+        )
+        os.utime(path, (mtime, mtime))
+        return session_id
+
+    return write

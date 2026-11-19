@@ -160,6 +160,49 @@ def _startup_failure(returncode: int | None, stderr: bytes) -> ClaudeError:
     return ClaudeError("claude_failed", 502, f"claude exited with status {returncode}")
 
 
+async def sessions_in_use(settings: Settings, timeout: float = 20.0) -> set[str]:
+    """Ids of sessions that a live Claude Code process holds right now.
+
+    Uses ``claude agents --json``, the supported way to read session state
+    from outside. Fails closed: when the answer cannot be obtained, a
+    ClaudeError is raised and the caller must not resume anything.
+    """
+    failure = ClaudeError(
+        "in_use_check_failed", 503, "could not check whether the session is in use"
+    )
+    try:
+        process = await asyncio.create_subprocess_exec(
+            settings.claude_bin,
+            "agents",
+            "--json",
+            env=child_env(),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except (FileNotFoundError, PermissionError) as exc:
+        raise ClaudeError("claude_not_found", 503, "the claude command is not available") from exc
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except TimeoutError as exc:
+        await _stop(process, 1.0)
+        raise failure from exc
+    if process.returncode != 0:
+        raise failure
+    try:
+        entries = json.loads(stdout)
+    except ValueError as exc:
+        raise failure from exc
+    if not isinstance(entries, list):
+        raise failure
+    return {
+        entry["sessionId"]
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("sessionId"), str)
+    }
+
+
 def parse_result(payload: object) -> RunResult:
     """Turn the final ``result`` object of a run into a RunResult or raise."""
     if not isinstance(payload, dict) or payload.get("type") != "result":

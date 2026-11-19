@@ -6,6 +6,7 @@ import hmac
 import json
 import uuid
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -126,41 +127,33 @@ def create_app(settings: Settings) -> FastAPI:
     async def claude_error_handler(request: Request, error: ClaudeError) -> JSONResponse:
         return error_response(error)
 
-    @app.post("/ask")
-    async def ask(request: Request):
-        """Run a prompt through headless Claude in the configured folder.
-
-        Body: ``{"prompt": str, "session_id": str?, "stream": bool?}``.
-        ``session_id`` continues an earlier ``/ask`` conversation.
-        """
-        data = await read_json_object(request)
+    async def run_prompt(data: dict, *, session_id: str, resume: bool, cwd: Path):
+        """Shared by /ask and session resume: limits, in-use check, run or stream."""
         prompt = read_prompt(data)
-        resume = data.get("session_id") is not None
-        if resume:
-            session_id = data["session_id"]
-            if not isinstance(session_id, str) or not claude.session_exists(
-                settings.ask_dir, session_id
-            ):
-                raise ClaudeError("session_not_found", 404, "unknown session")
-        else:
-            session_id = str(uuid.uuid4())
-        # No --name: a fixed name would hide the first prompt, which is the
-        # more useful title in the session list.
-        run_args = {"session_id": session_id, "resume": resume}
-
+        run_args = {"session_id": session_id, "resume": resume, "cwd": cwd}
+        streaming = bool(data.get("stream"))
         slots.acquire(session_id)
-        if not data.get("stream"):
-            try:
+        try:
+            # Never write into a conversation that is open somewhere else.
+            if resume and session_id in await claude.sessions_in_use(settings):
+                raise ClaudeError(
+                    "session_in_use", 409, "this session is open on the computer right now"
+                )
+            if not streaming:
                 result = await claude.run(settings, prompt, **run_args)
-            finally:
+                return {
+                    "answer": result.answer,
+                    "session_id": result.session_id or session_id,
+                    "duration_ms": result.duration_ms,
+                    "num_turns": result.num_turns,
+                    "denied_tools": result.denied_tools,
+                }
+        except BaseException:
+            streaming = False  # nothing will stream; release below
+            raise
+        finally:
+            if not streaming:
                 slots.release(session_id)
-            return {
-                "answer": result.answer,
-                "session_id": result.session_id or session_id,
-                "duration_ms": result.duration_ms,
-                "num_turns": result.num_turns,
-                "denied_tools": result.denied_tools,
-            }
 
         async def events() -> AsyncIterator[bytes]:
             try:
@@ -178,6 +171,43 @@ def create_app(settings: Settings) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
+
+    @app.post("/ask")
+    async def ask(request: Request):
+        """Run a prompt through headless Claude in the configured folder.
+
+        Body: ``{"prompt": str, "session_id": str?, "stream": bool?}``.
+        ``session_id`` continues an earlier ``/ask`` conversation.
+        """
+        data = await read_json_object(request)
+        read_prompt(data)
+        resume = data.get("session_id") is not None
+        if resume:
+            session_id = data["session_id"]
+            if not isinstance(session_id, str) or not claude.session_exists(
+                settings.ask_dir, session_id
+            ):
+                raise ClaudeError("session_not_found", 404, "unknown session")
+        else:
+            # No --name: a fixed name would hide the first prompt, which is the
+            # more useful title in the session list.
+            session_id = str(uuid.uuid4())
+        return await run_prompt(data, session_id=session_id, resume=resume, cwd=settings.ask_dir)
+
+    @app.post("/sessions/{session_id}/messages")
+    async def resume_session(session_id: str, request: Request):
+        """Continue a listed session with a new message, in its original folder.
+
+        Body: ``{"prompt": str, "stream": bool?}``.
+        """
+        data = await read_json_object(request)
+        read_prompt(data)
+        info = sessions.find_session(session_id, settings.allowed_roots)
+        if info is None:
+            raise ClaudeError("session_not_found", 404, "unknown session")
+        if not info.folder.is_dir():
+            raise ClaudeError("folder_missing", 409, "the session's folder no longer exists")
+        return await run_prompt(data, session_id=info.id, resume=True, cwd=info.folder)
 
     @app.get("/sessions")
     async def list_sessions(limit: int = 50):

@@ -2,40 +2,15 @@
 
 import dataclasses
 import json
-import os
-import re
 import uuid
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
+from conftest import user_line
 from lifeos_bridge import sessions
 from lifeos_bridge.app import create_app
 from lifeos_bridge.config import load_settings, read_allowed_paths
-
-
-def user_line(cwd, text, **extra):
-    return {"type": "user", "cwd": str(cwd), "message": {"role": "user", "content": text}, **extra}
-
-
-@pytest.fixture
-def write_session(tmp_path):
-    """Create a synthetic transcript the way Claude Code would store it."""
-
-    def write(cwd: Path, lines: list, *, mtime: int = 1_800_000_000, project: str | None = None):
-        session_id = str(uuid.uuid4())
-        name = project or re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
-        folder = tmp_path / "home" / ".claude" / "projects" / name
-        folder.mkdir(parents=True, exist_ok=True)
-        path = folder / f"{session_id}.jsonl"
-        path.write_text(
-            "".join((line if isinstance(line, str) else json.dumps(line)) + "\n" for line in lines)
-        )
-        os.utime(path, (mtime, mtime))
-        return session_id
-
-    return write
 
 
 def get_sessions(client, auth, **params):
