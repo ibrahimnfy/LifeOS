@@ -1,0 +1,39 @@
+# Secrets and personal settings never belong in this repo
+.env
+.env.*
+*.local.*
+!*.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.tools/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Android / Gradle
+.gradle/
+local.properties
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+*.jks
+app/build/
+app/**/build/
+
+# Editors / OS
+.vscode/
+.DS_Store
+*.swp

@@ -15,3 +15,8 @@ a new entry is added that says what changed and why.
 - **Language of repo and memory files: English.**
 - **Sleep data: manual entry first, fallback to screen-off / first-unlock times.**
 - **Workflow: planning in Claude chat, building with Claude Code on the Ubuntu machine.**
+
+## 2026-11-20
+- **Owner notifications: local only for now.** `scripts/notify.sh` prints a visible line and shows a desktop notification when available; no third-party notification service. Phone push will be added behind the same script once the app exists.
+- **Commits use the hosting platform's no-reply address**, set in this repository's local git config, so no personal e-mail address enters the public history.
+- **Issue dependencies are machine-checked.** `scripts/sync-blocked.py` derives the `blocked` label from each issue's `Blocked by:` line, so labels cannot drift from the dependency text.
