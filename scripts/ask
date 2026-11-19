@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Terminal client for the LifeOS bridge.
+
+  scripts/ask "What is in this folder?"       ask a new question
+  scripts/ask -c "And the largest file?"      continue the last conversation
+  scripts/ask -s <session-id> "..."           continue a specific /ask session
+  scripts/ask --resume <session-id> "..."     continue a session from --sessions
+  scripts/ask --stream "..."                  print the answer as it is written
+  scripts/ask --sessions                      list sessions
+  scripts/ask --health                        check that the bridge is reachable
+  echo "long prompt" | scripts/ask -          read the prompt from standard input
+
+Reads the bridge address and token from ~/.config/lifeos/env (or the folder
+in LIFEOS_CONFIG_DIR). The token is never printed. Needs only Python 3.
+
+Exit status: 0 ok, 1 the bridge reported an error, 2 usage or configuration
+error, 3 bridge not reachable, 4 token rejected.
+"""
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+
+def config_dir() -> Path:
+    override = os.environ.get("LIFEOS_CONFIG_DIR")
+    return Path(override) if override else Path.home() / ".config" / "lifeos"
+
+
+def read_env() -> dict:
+    values = {}
+    path = config_dir() / "env"
+    if path.exists():
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            key, sep, value = line.partition("=")
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            if sep:
+                values[key.strip()] = value
+    values.update({k: v for k, v in os.environ.items() if k.startswith("LIFEOS_")})
+    return values
+
+
+def fail(message: str, status: int) -> "NoReturn":  # noqa: F821
+    print(f"ask: {message}", file=sys.stderr)
+    sys.exit(status)
+
+
+class Bridge:
+    def __init__(self, env: dict) -> None:
+        self.token = env.get("LIFEOS_BRIDGE_TOKEN", "")
+        host = env.get("LIFEOS_BRIDGE_HOST") or "127.0.0.1"
+        if ":" in host:
+            host = f"[{host}]"
+        port = env.get("LIFEOS_BRIDGE_PORT") or "8787"
+        self.url = (env.get("LIFEOS_BRIDGE_URL") or f"http://{host}:{port}").rstrip("/")
+        self.timeout = int(env.get("LIFEOS_ASK_TIMEOUT") or 300) + 30
+
+    def open(self, method: str, path: str, body: dict | None = None, auth: bool = True):
+        if auth and not self.token:
+            fail(f"LIFEOS_BRIDGE_TOKEN is not set in {config_dir() / 'env'}", 2)
+        request = urllib.request.Request(self.url + path, method=method)  # noqa: S310
+        if auth:
+            request.add_header("Authorization", f"Bearer {self.token}")
+        data = None
+        if body is not None:
+            data = json.dumps(body).encode()
+            request.add_header("Content-Type", "application/json")
+        try:
+            return urllib.request.urlopen(request, data=data, timeout=self.timeout)  # noqa: S310
+        except urllib.error.HTTPError as error:
+            if error.code == 401:
+                fail("the bridge rejected the token (check LIFEOS_BRIDGE_TOKEN)", 4)
+            try:
+                detail = json.loads(error.read())
+                text = f"{detail.get('error')}: {detail.get('message')}"
+            except ValueError:
+                text = f"HTTP {error.code}"
+            fail(text, 1)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
+            reason = getattr(error, "reason", error)
+            fail(f"cannot reach the bridge at {self.url} ({reason}). Is it running?", 3)
+
+    def json(self, method: str, path: str, body: dict | None = None, auth: bool = True) -> dict:
+        with self.open(method, path, body, auth) as response:
+            return json.loads(response.read())
+
+
+def remember(session_id: str) -> None:
+    try:
+        path = config_dir() / "ask_last_session"
+        path.write_text(session_id + "\n", encoding="utf-8")
+        path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def last_session() -> str:
+    path = config_dir() / "ask_last_session"
+    if not path.exists():
+        fail("there is no earlier conversation to continue", 2)
+    return path.read_text(encoding="utf-8").strip()
+
+
+def print_stream(response) -> dict:
+    event, final = None, {}
+    for raw in response:
+        line = raw.decode().rstrip("\n")
+        if line.startswith("event: "):
+            event = line[7:]
+        elif line.startswith("data: "):
+            data = json.loads(line[6:])
+            if event == "delta":
+                print(data.get("text", ""), end="", flush=True)
+            elif event == "done":
+                final = data
+            elif event == "error":
+                print()
+                fail(f"{data.get('error')}: {data.get('message')}", 1)
+    print()
+    if not final:
+        fail("the answer stream ended unexpectedly", 1)
+    return final
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="ask",
+        description="Terminal client for the LifeOS bridge.",
+        epilog=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("prompt", nargs="*", help="the prompt; '-' reads standard input")
+    parser.add_argument(
+        "-c",
+        "--continue",
+        dest="cont",
+        action="store_true",
+        help="continue the last conversation started with this tool",
+    )
+    parser.add_argument("-s", "--session", help="continue this /ask session")
+    parser.add_argument("--resume", metavar="ID", help="continue a session shown by --sessions")
+    parser.add_argument("--stream", action="store_true", help="print the answer as it is written")
+    parser.add_argument("--json", action="store_true", help="print the raw JSON response")
+    parser.add_argument("--sessions", action="store_true", help="list sessions")
+    parser.add_argument("--health", action="store_true", help="check the bridge and the token")
+    args = parser.parse_args()
+    bridge = Bridge(read_env())
+
+    if args.health:
+        bridge.json("GET", "/health", auth=False)
+        info = bridge.json("GET", "/whoami")
+        print(f"ok: bridge {info.get('version')} at {bridge.url}, token accepted")
+        return 0
+
+    if args.sessions:
+        data = bridge.json("GET", "/sessions")
+        if args.json:
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+        for item in [] if args.json else data["sessions"]:
+            mark = " (in use)" if item.get("in_use") else ""
+            print(
+                f"{item['id']}  {item['last_activity'][:16].replace('T', ' ')}  "
+                f"{item['title']}{mark}\n    {item['folder']}"
+            )
+        if not args.json and not data["sessions"]:
+            print("no sessions")
+        return 0
+
+    prompt = " ".join(args.prompt)
+    if prompt == "-":
+        prompt = sys.stdin.read()
+    if not prompt.strip():
+        parser.print_usage(sys.stderr)
+        return 2
+
+    body = {"prompt": prompt}
+    if args.stream:
+        body["stream"] = True
+    if args.resume:
+        path = f"/sessions/{args.resume}/messages"
+    else:
+        path = "/ask"
+        if args.cont or args.session:
+            body["session_id"] = args.session or last_session()
+
+    with bridge.open("POST", path, body) as response:
+        result = print_stream(response) if args.stream else json.loads(response.read())
+    if not args.resume and result.get("session_id"):
+        remember(result["session_id"])
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+    elif not args.stream:
+        print(result.get("answer", ""))
+    if result.get("denied_tools") and not args.json:
+        print(f"[not permitted: {', '.join(result['denied_tools'])}]", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

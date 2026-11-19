@@ -192,6 +192,26 @@ start of the run, and sessions held by other Claude apps (desktop or editor
 extensions) may not be reported. Close a session on the computer before
 continuing it from the phone.
 
+## Terminal client
+
+`scripts/ask` talks to the bridge from a terminal. It needs only Python 3
+and reads address and token from `~/.config/lifeos/env`; the token is never
+printed.
+
+```
+scripts/ask --health                          # bridge reachable, token accepted?
+scripts/ask "Which files are in this folder?" # ask
+scripts/ask -c "And the newest one?"          # continue the last conversation
+scripts/ask --stream "Explain it step by step"
+scripts/ask --sessions                        # list sessions
+scripts/ask --resume <session-id> "Go on"     # continue a listed session
+echo "a long prompt" | scripts/ask -
+```
+
+`--json` prints the raw response. Exit status: 0 ok, 1 the bridge reported
+an error, 2 usage or configuration error, 3 bridge not reachable, 4 token
+rejected.
+
 ## Manual check
 
 With the bridge running in another terminal:
