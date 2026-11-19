@@ -24,3 +24,8 @@ a new entry is added that says what changed and why.
 - **Bridge Python version: 3.12 or newer, using the interpreter already on the machine.** `uv` is configured never to download an interpreter, so setup needs no extra installs; newer Pythons work unchanged.
 - **Bridge auth is default-deny.** A middleware rejects every path except `/health` without the bearer token, including unknown paths; API docs/schema endpoints are disabled.
 - **Bind addresses are validated.** Only localhost or a Tailscale-range address is accepted; wildcard and public addresses stop the bridge at start-up.
+- **Headless runs set every flag explicitly and use the CLI's restricted mode.** `/ask` runs `claude -p` with `--permission-mode dontAsk --permission-prompts none --restricted --tools Read,Glob,Grep`, strict MCP config and no slash commands, so a changed CLI default or a personal settings file cannot widen what a phone prompt may do. Confirmed with a real run: reading outside the folder is denied.
+- **The Claude child process gets an allow-listed environment.** Prevents a stray API key from silently switching billing and keeps bridge secrets away from the model's process.
+- **`/ask` continues only its own sessions.** A `session_id` is accepted only if it belongs to the configured ask folder; other sessions on the computer are reachable only through the sessions endpoints with their own checks.
+- **Streaming is implemented** as server-sent events on the same `/ask` endpoint (`"stream": true`).
+- **Concurrency: at most two runs at a time by default, one per session**; extra requests are refused immediately (429/409) rather than queued, so the phone always gets a prompt answer.

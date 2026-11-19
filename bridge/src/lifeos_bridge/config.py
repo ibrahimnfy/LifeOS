@@ -11,7 +11,7 @@ import ipaddress
 import os
 import stat
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 CONFIG_DIR_VAR = "LIFEOS_CONFIG_DIR"
@@ -19,6 +19,9 @@ ENV_FILE_NAME = "env"
 MIN_TOKEN_LENGTH = 32
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+DEFAULT_ASK_TIMEOUT = 300
+DEFAULT_MAX_CONCURRENT = 2
+DEFAULT_MAX_TURNS = 25
 
 # Tailscale hands out addresses from these ranges.
 _TAILSCALE_NETWORKS = (
@@ -36,6 +39,13 @@ class Settings:
     token: str
     host: str = DEFAULT_HOST
     port: int = DEFAULT_PORT
+    # Folder in which prompts from the phone run. Checked when a prompt arrives.
+    ask_dir: Path = field(default_factory=lambda: Path.home() / "brain")
+    ask_timeout: int = DEFAULT_ASK_TIMEOUT
+    max_concurrent: int = DEFAULT_MAX_CONCURRENT
+    max_turns: int = DEFAULT_MAX_TURNS
+    claude_bin: str = "claude"
+    claude_model: str | None = None
 
     def __repr__(self) -> str:  # never leak the token into logs or tracebacks
         return f"Settings(token=<hidden>, host={self.host!r}, port={self.port!r})"
@@ -113,12 +123,34 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
 
     host = validate_host(values.get("LIFEOS_BRIDGE_HOST") or DEFAULT_HOST)
 
-    raw_port = values.get("LIFEOS_BRIDGE_PORT") or str(DEFAULT_PORT)
-    try:
-        port = int(raw_port)
-    except ValueError as exc:
-        raise ConfigError(f"LIFEOS_BRIDGE_PORT must be a number, got {raw_port!r}") from exc
-    if not 1024 <= port <= 65535:
-        raise ConfigError("LIFEOS_BRIDGE_PORT must be between 1024 and 65535")
+    port = _int_setting(values, "LIFEOS_BRIDGE_PORT", DEFAULT_PORT, 1024, 65535)
 
-    return Settings(token=token, host=host, port=port)
+    raw_ask_dir = values.get("LIFEOS_ASK_DIR") or "~/brain"
+    ask_dir = Path(raw_ask_dir).expanduser()
+    if not ask_dir.is_absolute():
+        raise ConfigError(
+            f"LIFEOS_ASK_DIR must be an absolute path or start with ~, got {raw_ask_dir!r}"
+        )
+
+    return Settings(
+        token=token,
+        host=host,
+        port=port,
+        ask_dir=ask_dir,
+        ask_timeout=_int_setting(values, "LIFEOS_ASK_TIMEOUT", DEFAULT_ASK_TIMEOUT, 5, 3600),
+        max_concurrent=_int_setting(values, "LIFEOS_MAX_CONCURRENT", DEFAULT_MAX_CONCURRENT, 1, 16),
+        max_turns=_int_setting(values, "LIFEOS_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 200),
+        claude_bin=values.get("LIFEOS_CLAUDE_BIN") or "claude",
+        claude_model=values.get("LIFEOS_CLAUDE_MODEL") or None,
+    )
+
+
+def _int_setting(values: Mapping[str, str], name: str, default: int, low: int, high: int) -> int:
+    raw = values.get(name) or str(default)
+    try:
+        number = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be a number, got {raw!r}") from exc
+    if not low <= number <= high:
+        raise ConfigError(f"{name} must be between {low} and {high}")
+    return number

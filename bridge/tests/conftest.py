@@ -1,3 +1,7 @@
+import json
+import sys
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,8 +27,36 @@ def isolated_config(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def settings():
-    return Settings(token=TEST_TOKEN)
+def ask_dir(tmp_path):
+    folder = tmp_path / "home" / "brain"
+    folder.mkdir(parents=True)
+    return folder
+
+
+@pytest.fixture
+def fake_claude(tmp_path):
+    """A launcher for tests/fake_claude.py that works without PATH lookups."""
+    launcher = tmp_path / "claude"
+    script = Path(__file__).with_name("fake_claude.py")
+    launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
+    launcher.chmod(0o755)
+    return launcher
+
+
+@pytest.fixture
+def settings(ask_dir, fake_claude):
+    return Settings(token=TEST_TOKEN, ask_dir=ask_dir, claude_bin=str(fake_claude), ask_timeout=10)
+
+
+@pytest.fixture
+def calls(ask_dir):
+    """Returns the recorded invocations of the fake claude."""
+
+    def read():
+        log = ask_dir / ".fake-claude-calls.jsonl"
+        return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+
+    return read
 
 
 @pytest.fixture

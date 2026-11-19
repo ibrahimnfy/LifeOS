@@ -45,6 +45,66 @@ uv run lifeos-bridge
 |---|---|---|---|
 | GET | `/health` | no | Liveness check; returns `{"status":"ok"}` and nothing else |
 | GET | `/whoami` | yes | Lets a client verify its token; returns the bridge version |
+| POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
+
+### `POST /ask`
+
+Request body (JSON):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `prompt` | string, required | The prompt, at most 100 000 characters |
+| `session_id` | string, optional | Continue an earlier `/ask` conversation |
+| `stream` | boolean, optional | Send the answer as it is written (see below) |
+
+Response:
+
+```json
+{"answer": "...", "session_id": "...", "duration_ms": 3400, "num_turns": 2, "denied_tools": []}
+```
+
+`denied_tools` names the tools Claude tried to use but was not allowed to
+(for example `["Write"]`); the run still completes.
+
+How a prompt runs:
+
+- In the folder `LIFEOS_ASK_DIR` (default `~/brain`), through
+  `claude -p` with every flag set explicitly.
+- **Read-only for now**: Claude may read and search files inside that folder
+  and nothing else — no shell commands, no edits, no web access, no files
+  outside the folder. This stays until the owner decides the permission
+  policy.
+- The prompt is passed on standard input, never on the command line, and is
+  never logged.
+- The Claude process gets a minimal environment; API keys and other
+  variables of the bridge's own environment are not passed on, so runs use
+  the Claude Code login of the owner's account.
+- At most `LIFEOS_MAX_CONCURRENT` runs at a time, and one per session.
+- A run that exceeds `LIFEOS_ASK_TIMEOUT` seconds is stopped.
+
+Errors are JSON `{"error": "<code>", "message": "<text>"}`:
+
+| Status | `error` | Meaning |
+|---|---|---|
+| 400 | `bad_request` | Body is not a JSON object or `prompt` is missing/empty |
+| 404 | `session_not_found` | `session_id` is not an `/ask` session of this folder |
+| 409 | `session_in_use` | That session is already answering a prompt |
+| 413 | `prompt_too_large`, `too_large` | Prompt or request body too big |
+| 429 | `busy` | Too many runs are active; try again shortly |
+| 502 | `claude_failed`, `bad_output`, `claude_error`, `error_…` | The Claude run failed (e.g. `error_max_turns`) |
+| 503 | `claude_not_found`, `working_directory_missing` | Set-up problem on the computer |
+| 504 | `timeout` | The run took too long and was stopped |
+
+With `"stream": true` the response is `text/event-stream`:
+
+```
+event: session      data: {"session_id": "..."}      once, first
+event: delta        data: {"text": "..."}            many: pieces of the answer
+event: done         data: {same fields as the normal response}
+event: error        data: {"error": "...", "message": "..."}     instead of done
+```
+
+Closing the connection stops the run.
 
 ## Manual check
 
@@ -56,6 +116,20 @@ curl -s http://127.0.0.1:8787/health                      # {"status":"ok"}
 curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8787/whoami    # 401
 curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" http://127.0.0.1:8787/whoami
                                                           # {"status":"ok","version":"..."}
+```
+
+Ask a question (this uses the owner's Claude plan; keep it small). The
+folder in `LIFEOS_ASK_DIR` must exist and contain a file to ask about:
+
+```
+curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"prompt":"Which files are in this folder? Answer in one line."}' \
+  http://127.0.0.1:8787/ask
+# {"answer":"...","session_id":"...","duration_ms":...,"num_turns":...,"denied_tools":[]}
+
+# continue the same conversation: add "session_id":"<id from above>"
+# read-only check: ask it to create a file -> the answer says it cannot, and no file appears
+# streaming: add "stream":true and use `curl -N`
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):
