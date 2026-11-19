@@ -1,7 +1,10 @@
 # App concept
 
-Status: **proposal, waiting for the owner's review.** No app code is written
-before this is approved. Examples below are generic placeholders.
+Status: **in review.** Navigation, chat behaviour and the screen list are
+agreed with the owner; the visual direction is still open and will be chosen
+from the mockups in [`docs/design/mockups/`](design/mockups/). No app code is
+written before the review issue is closed. Examples below are generic
+placeholders.
 
 The Android app is the owner's remote control and window into LifeOS. It is
 a thin client: the computer does the thinking and holds the data, the phone
@@ -28,7 +31,7 @@ shows it, captures new input fast and reports phone activity.
 
 ## 2. Navigation
 
-A bottom bar with four destinations, plus a capture button that is always
+*Approved by the owner.* A bottom bar with four destinations, plus a capture button that is always
 visible. Less-used screens live under "More" so the bar stays uncluttered.
 
 ```
@@ -42,7 +45,7 @@ visible. Less-used screens live under "More" so the bar stays uncluttered.
 │   Today      Chat      Tasks      More   │
 └──────────────────────────────────────────┘
 
-More → Sessions · Calendar · Courses · Activity · Settings
+More → Sessions · Notes · Projects · Calendar · Courses · Activity · Settings
 ```
 
 Why this shape:
@@ -51,8 +54,8 @@ Why this shape:
 - **Chat** and **Tasks** are the two things used many times a day.
 - **Capture** is a button, not a tab, because it is an action available
   everywhere, not a place.
-- Sessions, Calendar, Courses and Activity are opened a few times a day at
-  most; one extra tap is acceptable. Today links directly into each of them.
+- Sessions, Notes, Projects, Calendar, Courses and Activity are opened a few
+  times a day at most; one extra tap is acceptable. Today links directly into each of them.
 
 The connection dot in the top bar opens a small sheet: bridge reachable or
 not, last successful sync, and a shortcut to settings.
@@ -81,7 +84,8 @@ decided in the issue that builds them.
 - **Content:** conversation as message bubbles; assistant replies rendered as
   Markdown (code blocks, lists, tables); a composer with send button.
 - **Behaviour:** a conversation continues the same session until the owner
-  starts a new one ("New chat" in the top bar). While the computer works, a
+  presses "New chat" in the top bar, also across closing and reopening the
+  app (*confirmed by the owner*). While the computer works, a
   progress indicator shows elapsed time, with a cancel button. If streaming is
   available the answer appears as it is written.
 - **States:** empty (three example prompts as chips) · sending · working ·
@@ -125,7 +129,36 @@ decided in the issue that builds them.
   ticks made offline are queued like captures.
 - **Endpoints:** list tasks, complete task, add task *(planned, Phase 3)*.
 
-### 3.6 Calendar
+### 3.6 Notes
+
+- **Purpose:** find, read and tidy what was captured.
+- **Content:** captured notes, newest first, each with its first lines, date
+  and where it was filed (inbox, a project, a course, a topic). Search field
+  on top; filter chips for the place.
+- **Actions:** open a note to read it in full; edit its text; move it to a
+  project, course or topic; add a new note (through Capture).
+- **States:** loading · saved copy · empty ("Nothing captured yet") · no
+  search results · error with retry; edits made offline are queued like
+  captures and marked "waiting to sync".
+- **Endpoints:** list, search, read and update notes *(planned, Phase 3)*.
+
+### 3.7 Projects
+
+- **Purpose:** see where each tracked project stands.
+- **Content:** list of projects with status (active, paused, done) and the
+  date of the last activity. A project page shows: a short summary and
+  status; recent activity (latest notes, sessions and changes); open tasks of
+  the project; where it lives on the computer (folder name from the context
+  map).
+- **Actions:** tick a task; open a related note or session; **"Ask about
+  this project"** opens Chat with the project as context (and, where the
+  folder is allowed, runs in the project's folder).
+- **States:** loading · saved copy · empty ("No projects tracked yet") ·
+  error with retry.
+- **Endpoints:** projects list and project detail from the memory *(planned,
+  Phase 3)*; tasks; sessions.
+
+### 3.8 Calendar
 
 - **Purpose:** see the schedule and add events.
 - **Content:** agenda list by default (grouped by day), with a month strip on
@@ -134,7 +167,7 @@ decided in the issue that builds them.
 - **States:** loading · saved copy · empty day · error with retry.
 - **Endpoints:** list, create, update events *(planned, Phase 4)*.
 
-### 3.7 Courses
+### 3.9 Courses
 
 - **Purpose:** courses, materials and deadlines from the university Moodle.
 - **Content:** list of courses with the next deadline of each; a course page
@@ -147,7 +180,7 @@ decided in the issue that builds them.
 - **Endpoints:** courses, sections, files, assignments, deadlines
   *(planned, Phase 5)*.
 
-### 3.8 Activity
+### 3.10 Activity
 
 - **Purpose:** an honest picture of sleep and phone use.
 - **Content:** two tabs.
@@ -162,7 +195,7 @@ decided in the issue that builds them.
 - **Endpoints:** daily upload of usage and sleep *(planned, Phase 6)*. Charts
   are drawn from data stored on the phone, so they always work offline.
 
-### 3.9 Settings
+### 3.11 Settings
 
 - **Connection:** bridge address and token (pasted or scanned from a QR code
   shown on the computer), "Test connection" button with a clear result.
@@ -173,7 +206,7 @@ decided in the issue that builds them.
   owner, session reports, reminders).
 - **About:** app version, bridge version, link to the project.
 
-### 3.10 First run
+### 3.12 First run
 
 Three short steps, skippable and repeatable from settings: choose language →
 connect to the computer (address + token, test) → optional usage-access
@@ -197,7 +230,9 @@ least 48 dp; charts have a text summary; colour is never the only signal
 
 ## 5. Visual direction
 
-Three directions to choose from. All share: Material 3 components, light and
+Three directions to choose from. Static mockups of all three (Today, Chat
+and Activity; light and dark; English and Turkish) are in
+[`docs/design/mockups/`](design/mockups/): open `index.html` in a browser. All share: Material 3 components, light and
 dark themes, generous spacing, large readable type, edge-to-edge layout,
 subtle motion (short fades and slides, nothing bouncy).
 
@@ -242,12 +277,11 @@ The owner may also mix: for example direction A with the dynamic colours of B.
 - One screen per issue where possible; each ships with its states (loading,
   saved copy, empty, error) and both languages.
 
-## 7. Open points for the review
+## 7. Review status
 
-1. Is the bottom bar right: **Today · Chat · Tasks · More**? (Alternative:
-   Calendar instead of Tasks on the bar.)
-2. Which visual direction: **A**, **B**, **C**, or a mix?
-3. Should Chat keep one continuing conversation by default, or start a new
-   one each time the app is opened?
-4. Anything missing from the screen list, or anything to drop for a first
-   version?
+| Point | Status |
+|---|---|
+| Bottom bar **Today · Chat · Tasks · More** | approved |
+| Chat keeps one conversation until "New chat" | confirmed |
+| Screen list | Notes and Projects added under More |
+| Visual direction **A**, **B**, **C** or a mix | **open**: to be chosen from the mockups |
