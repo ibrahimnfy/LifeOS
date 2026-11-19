@@ -1,0 +1,23 @@
+# systemd user unit for the LifeOS bridge (template).
+# scripts/install-service.sh replaces @BRIDGE_DIR@ and installs the result as
+# ~/.config/systemd/user/lifeos-bridge.service. Do not install this file as is.
+
+[Unit]
+Description=LifeOS bridge (private HTTP server that runs Claude Code headless)
+
+[Service]
+Type=simple
+WorkingDirectory=@BRIDGE_DIR@
+ExecStart=@BRIDGE_DIR@/.venv/bin/lifeos-bridge
+# The claude command usually lives in ~/.local/bin, which services do not have in PATH.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=on-failure
+RestartSec=5
+# Exit status 2 = configuration error: restarting cannot fix it.
+RestartPreventExitStatus=2
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

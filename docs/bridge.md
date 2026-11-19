@@ -39,6 +39,43 @@ cd bridge
 uv run lifeos-bridge
 ```
 
+## Run as a service
+
+The bridge can run as a systemd **user** service, so it starts by itself and
+is restarted if it crashes. No `sudo` is involved.
+
+```
+scripts/install-service.sh              # install or update, enable and start
+loginctl enable-linger "$USER"          # once: keep it running after logout and start it at boot
+```
+
+| Task | Command |
+|---|---|
+| Status | `systemctl --user status lifeos-bridge` |
+| Start / stop / restart | `systemctl --user start\|stop\|restart lifeos-bridge` |
+| Logs (follow) | `journalctl --user -u lifeos-bridge -f` |
+| Logs (last hour) | `journalctl --user -u lifeos-bridge --since "1 hour ago"` |
+| Disable autostart | `systemctl --user disable lifeos-bridge` |
+| Remove | `scripts/install-service.sh --uninstall` |
+
+Notes:
+
+- After changing `~/.config/lifeos/env`, restart the service. After pulling
+  new code, run `scripts/install-service.sh` again.
+- The service looks for the `claude` command in `~/.local/bin`,
+  `/usr/local/bin` and `/usr/bin`. If it is installed elsewhere, set
+  `LIFEOS_CLAUDE_BIN` to its full path.
+- A configuration error (exit status 2) is not retried; fix the config and
+  start the service again. The reason is in the logs.
+- The logs contain start-up messages and one line per request (method, path,
+  status). They never contain prompts or answers.
+- The unit template is `bridge/systemd/lifeos-bridge.service.in`; the install
+  script fills in the repository location.
+
+Check after installing: `systemctl --user status lifeos-bridge` shows
+`active (running)`, and the manual check below works without starting the
+bridge by hand.
+
 ## Endpoints
 
 | Method | Path | Auth | Purpose |
