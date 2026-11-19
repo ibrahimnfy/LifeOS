@@ -85,6 +85,7 @@ bridge by hand.
 | POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
 | GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders |
 | POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
+| GET / POST / DELETE | `/allowed-paths` | yes | Lists, adds or removes an allowed folder |
 
 ### `POST /ask`
 
@@ -228,6 +229,27 @@ start of the run, and sessions held by other Claude apps (desktop or editor
 extensions) may not be reported. Close a session on the computer before
 continuing it from the phone.
 
+### `/allowed-paths`
+
+The folders Claude may work in besides the memory folder, stored in
+`~/.config/lifeos/allowed_paths`. The list starts empty.
+
+- `GET` → `{"paths": [{"path": "...", "active": true, "reason": null}]}`.
+  An entry written into the file by hand that breaks the limits is shown
+  with `active: false` and the reason, and is never used.
+- `POST` with `{"path": "/home/.../folder"}` adds a folder; `DELETE` with the
+  same body removes it. Both answer with the new list.
+- Changes apply immediately, without restarting the bridge.
+- **Never addable** (`400 path_not_allowed` with the reason): the home
+  folder itself; anything outside the home folder, which includes all system
+  folders; hidden folders or anything inside one (settings, keys,
+  credentials); the LifeOS program folder; the private settings folder;
+  paths that do not exist or are not folders. Symbolic links are resolved
+  before checking.
+- Every change is written to `~/.config/lifeos/allowed_paths.log` and
+  announced on the computer through `scripts/notify.sh`. The notification
+  says that a folder was added or removed, never which one.
+
 ## Terminal client
 
 `scripts/ask` talks to the bridge from a terminal. It needs only Python 3
@@ -289,6 +311,17 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
   http://127.0.0.1:8787/sessions/<id from the list>/messages
 # in-use check: open the same session in a terminal (`claude --resume <id>`), repeat the
 # request -> 409 {"error":"session_in_use",...}
+```
+
+Allowed folders (the refusals are safe to try; they change nothing):
+
+```
+curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" http://127.0.0.1:8787/allowed-paths
+curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"path":"~/.ssh"}' http://127.0.0.1:8787/allowed-paths
+# {"error":"path_not_allowed","message":"hidden folders (settings, keys, credentials) cannot be allowed"}
+# add a real folder with -d '{"path":"/home/<you>/<folder>"}'  -> a desktop notification appears
+# remove it again with  -X DELETE  and the same body
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

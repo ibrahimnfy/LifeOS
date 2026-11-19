@@ -47,8 +47,12 @@ class Settings:
     max_turns: int = DEFAULT_MAX_TURNS
     claude_bin: str = "claude"
     claude_model: str | None = None
-    # Extra folders the owner allowed (from ~/.config/lifeos/allowed_paths).
+    # Extra folders the owner allowed. The file is re-read on every use, so
+    # changes made through the bridge apply without a restart.
     allowed_paths: tuple[Path, ...] = ()
+    allowed_paths_file: Path | None = None
+    # Overrides scripts/notify.sh (used by tests).
+    notify_script: Path | None = None
 
     @property
     def allowed_roots(self) -> tuple[Path, ...]:
@@ -56,7 +60,8 @@ class Settings:
         from .paths import refusal_reason  # local import: paths needs nothing from here
 
         roots: list[Path] = [self.ask_dir.resolve()]
-        for path in self.allowed_paths:
+        listed = read_allowed_paths(self.allowed_paths_file) if self.allowed_paths_file else ()
+        for path in (*self.allowed_paths, *listed):
             # The fixed limits apply here too, so a hand-edited file cannot widen them.
             if refusal_reason(path) is not None:
                 continue
@@ -160,7 +165,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         max_turns=_int_setting(values, "LIFEOS_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 200),
         claude_bin=values.get("LIFEOS_CLAUDE_BIN") or "claude",
         claude_model=values.get("LIFEOS_CLAUDE_MODEL") or None,
-        allowed_paths=read_allowed_paths(config_dir(environ) / ALLOWED_PATHS_FILE_NAME),
+        allowed_paths_file=config_dir(environ) / ALLOWED_PATHS_FILE_NAME,
     )
 
 

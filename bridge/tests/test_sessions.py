@@ -166,6 +166,6 @@ def test_load_settings_reads_allowed_paths_and_applies_the_limits(isolated_confi
     good.mkdir(parents=True)
     (isolated_config / "allowed_paths").write_text(f"/srv/projects/one\n{good}\n~\n~/.ssh\n")
     settings = load_settings()
-    assert Path("/srv/projects/one") in settings.allowed_paths
+    assert settings.allowed_paths_file == isolated_config / "allowed_paths"
     # Outside home, home itself and hidden folders never become roots.
     assert settings.allowed_roots == (settings.ask_dir.resolve(), good)

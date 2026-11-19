@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import __version__, capable, claude, sessions
+from . import __version__, allowed, capable, claude, sessions
 from .claude import ClaudeError
 from .config import Settings
 
@@ -242,6 +242,36 @@ def create_app(settings: Settings) -> FastAPI:
         if not info.folder.is_dir():
             raise ClaudeError("folder_missing", 409, "the session's folder no longer exists")
         return await run_prompt(data, session_id=info.id, resume=True, cwd=info.folder)
+
+    def allowed_file() -> Path:
+        if settings.allowed_paths_file is None:
+            raise ClaudeError("not_configured", 503, "no allowed-paths file is configured")
+        return settings.allowed_paths_file
+
+    def read_path(data: dict) -> str:
+        path = data.get("path")
+        if not isinstance(path, str) or not path.strip() or "\n" in path or len(path) > 4096:
+            raise ClaudeError("bad_request", 400, "`path` must be a folder path")
+        return path.strip()
+
+    @app.get("/allowed-paths")
+    async def list_allowed_paths():
+        """The folders Claude may work in besides the memory folder."""
+        return {"paths": allowed.listing(allowed_file())}
+
+    @app.post("/allowed-paths")
+    async def add_allowed_path(request: Request):
+        """Allow a folder. Body: ``{"path": "/home/.../folder"}``."""
+        path = read_path(await read_json_object(request))
+        added = allowed.add(allowed_file(), path, settings.notify_script)
+        return {"added": added, "paths": allowed.listing(allowed_file())}
+
+    @app.delete("/allowed-paths")
+    async def remove_allowed_path(request: Request):
+        """Stop allowing a folder. Body: ``{"path": "/home/.../folder"}``."""
+        path = read_path(await read_json_object(request))
+        allowed.remove(allowed_file(), path, settings.notify_script)
+        return {"removed": True, "paths": allowed.listing(allowed_file())}
 
     @app.get("/sessions")
     async def list_sessions(limit: int = 50):
