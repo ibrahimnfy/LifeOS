@@ -57,6 +57,8 @@ Early development. Work is tracked in
 | `docs/research/` | Research notes |
 | `config/env.example` | Template for personal settings (the real file lives in `~/.config/lifeos/`) |
 | `scripts/notify.sh` | Notifies the owner on the computer |
+| `bridge/` | Bridge server (see `docs/bridge.md`) |
+| `scripts/init-config.sh` | Creates the private config file with a random bridge token |
 | `scripts/sync-blocked.py` | Keeps `blocked` issue labels in sync with issue dependencies |
 
 ## Decisions
