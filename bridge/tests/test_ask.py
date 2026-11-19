@@ -52,7 +52,7 @@ def test_ask_uses_explicit_read_only_flags(client, auth, calls, ask_dir):
     assert "--strict-mcp-config" in args
     assert "--disable-slash-commands" in args
     assert option(args, "--max-turns") == "25"
-    assert option(args, "--name").startswith("LifeOS phone ")
+    assert "--name" not in args
     for forbidden in ("--dangerously-skip-permissions", "--bare", "--allowedTools"):
         assert forbidden not in args
     assert "bypassPermissions" not in args

@@ -6,7 +6,6 @@ import hmac
 import json
 import uuid
 from collections.abc import AsyncIterator
-from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -145,11 +144,9 @@ def create_app(settings: Settings) -> FastAPI:
                 raise ClaudeError("session_not_found", 404, "unknown session")
         else:
             session_id = str(uuid.uuid4())
-        run_args = {
-            "session_id": session_id,
-            "resume": resume,
-            "name": f"LifeOS phone {datetime.now():%Y-%m-%d %H:%M}",
-        }
+        # No --name: a fixed name would hide the first prompt, which is the
+        # more useful title in the session list.
+        run_args = {"session_id": session_id, "resume": resume}
 
         slots.acquire(session_id)
         if not data.get("stream"):
