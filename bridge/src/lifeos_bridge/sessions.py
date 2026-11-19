@@ -53,6 +53,8 @@ def projects_dir(home: Path | None = None) -> Path:
 
 
 def _is_inside(folder: Path, roots: tuple[Path, ...]) -> bool:
+    # Resolve first: ".." parts or a symlink must not make an outside folder look inside.
+    folder = folder.resolve()
     return any(folder == root or folder.is_relative_to(root) for root in roots)
 
 

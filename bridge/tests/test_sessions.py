@@ -169,3 +169,16 @@ def test_load_settings_reads_allowed_paths_and_applies_the_limits(isolated_confi
     assert settings.allowed_paths_file == isolated_config / "allowed_paths"
     # Outside home, home itself and hidden folders never become roots.
     assert settings.allowed_roots == (settings.ask_dir.resolve(), good)
+
+
+def test_recorded_folder_is_resolved_before_the_root_check(
+    client, auth, ask_dir, tmp_path, write_session
+):
+    private = tmp_path / "home" / "private"
+    private.mkdir()
+    sneaky = ask_dir / ".." / "private"
+    write_session(sneaky, [user_line(sneaky, "dot-dot")], project=sessions.encode_folder(ask_dir))
+    (ask_dir / "link").symlink_to(private)
+    linked = ask_dir / "link"
+    write_session(linked, [user_line(linked, "symlink")], project=sessions.encode_folder(ask_dir))
+    assert get_sessions(client, auth)["sessions"] == []

@@ -148,7 +148,8 @@ event: done         data: {same fields as the normal response}
 event: error        data: {"error": "...", "message": "..."}     instead of done
 ```
 
-Closing the connection stops the run.
+Closing the connection is meant to stop the run; this is not covered by a
+test yet, so rely on the timeout as the hard limit.
 
 ### Capable mode
 
