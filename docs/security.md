@@ -243,7 +243,7 @@ holds:
 | `tool` | When | `detail` |
 |---|---|---|
 | a tool name (`Bash`, `Edit`, …) | every tool call of a capable run, written by the gate **before** the call runs | command or file path, and the category of a refusal |
-| `FileOffer` / `FileDownload` | the assistant offers a file, or the phone fetches it | name and size (plus `course_id` for a course file) |
+| `FileOffer` / `FileDownload` | the assistant offers a file, or the phone fetches it | name and size (plus `course_id` for a course file, `release` for the app release) |
 | `CourseFileAddress` | the bridge gives the phone a direct download address of a course file | `course_id`, file name, size |
 | `RelayRequest` | every request a paired phone sends through the relay, after it was answered | device id, method, route template (for example `/notes/{note_id}`, or `(refused)` for a path outside the list), status |
 | `DevicePaired` / `DeviceRevoked` | a phone is paired or revoked | device id |
@@ -251,6 +251,7 @@ holds:
 | `MoodleSignIn` | a new Moodle token is stored | nothing but the fact |
 | `ResourceDownload` | the bridge fetches a document proposed by the course-resources run | course id, host, the file name it chose (or none), size, result (`downloaded`, `not_a_document`, `too_large`, `download_failed`) |
 | `ResourcesRun` | a course-resources run ends | course id, result, counts (proposed, new, retried, downloaded, listed, refused piracy) |
+| `AppRelease` | a new release of the app is registered (`lifeos-bridge release`) | version code and name, size, SHA-256 of the file and of the signing certificate |
 | `ModelRouting` | the owner changes a job's model, effort or advisor from the app (`PUT /models/routing`) | the job, its choice before and after |
 
 Never recorded: file contents, note or task text, prompts and answers,

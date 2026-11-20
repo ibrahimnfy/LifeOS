@@ -33,6 +33,7 @@ from . import (
     moodle_watch,
     push,
     relay,
+    release,
     reminders,
     resources,
     routing,
@@ -555,6 +556,23 @@ def create_app(settings: Settings) -> FastAPI:
         """Each model job: its model, effort and advisor, and the plan usage of its runs
         today and this week. Never starts a run."""
         return await asyncio.to_thread(routing.overview, settings)
+
+    @app.get("/app/release")
+    async def app_release():
+        """The registered release of the app (``lifeos-bridge release``); 404 when none."""
+        return await asyncio.to_thread(release.view)
+
+    @app.post("/app/release/offer")
+    async def offer_app_release():
+        """Offer the release APK, fetched with ``GET /files/{offer}?session_id=app-release``
+        (through the relay: sealed chunks). The phone checks hash and certificate."""
+        current = await asyncio.to_thread(release.view)
+        stored = await asyncio.to_thread(release.current)
+        path = await asyncio.to_thread(release.apk_path, stored)
+        offer = await asyncio.to_thread(
+            offers.for_release, path, release.SESSION, current["version_code"]
+        )
+        return {**offer.card(), "session_id": release.SESSION, **current}
 
     @app.put("/models/routing")
     async def change_model_routing(request: Request):

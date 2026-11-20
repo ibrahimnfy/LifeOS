@@ -42,9 +42,26 @@ class Offer:
     size: int
     type: str
     expires_at: float
+    # Which rule the file is checked by: the allowed folders ("file"), or the
+    # release rules (the bridge's own copy of the registered app release).
+    rule: str = "file"
 
     def card(self) -> dict:
         return {"offer": self.id, "name": self.name, "type": self.type, "size": self.size}
+
+
+def release_refusal(settings: Settings, path: Path) -> str | None:
+    """Why the release file may not be sent: only a regular file in the release folder."""
+    from . import release  # local import: release needs the notifications
+
+    folder = (release.config_dir() / release.FOLDER).resolve()
+    if path.parent != folder or not path.name.endswith(".apk"):
+        return "not the registered release"
+    if not path.is_file():
+        return "not a regular file"
+    if path.stat().st_size > release.MAX_BYTES:
+        return "larger than the release limit"
+    return None
 
 
 def refusal(settings: Settings, path: Path) -> str | None:
@@ -154,6 +171,31 @@ class Offers:
         self._offers[offer.id] = offer
         return offer
 
+    def for_release(self, path: Path, session_id: str, version_code: int) -> Offer:
+        """Offer the registered app release (#138): its own folder and size limit.
+
+        It lies in the private config folder, not an allowed folder, and may be
+        larger than ``LIFEOS_MAX_FILE_MB``; the sealed transfer sends it in the
+        same chunks as any file. Audited like every offer.
+        """
+        now = time.time()
+        self._sweep(now)
+        try:
+            path = path.resolve()
+            reason = release_refusal(self.settings, path)
+        except (OSError, ValueError, RuntimeError):
+            reason = "not a usable path"
+        if reason is not None:
+            raise ClaudeError("file_unavailable", 409, f"the file cannot be sent: {reason}")
+        offer = Offer(
+            secrets.token_urlsafe(18), session_id, path, path.name, path.stat().st_size,
+            "application/vnd.android.package-archive", now + OFFER_SECONDS, "release",
+        )  # fmt: skip
+        _audit("FileOffer", session_id, {"release": version_code, "name": offer.name,
+                                         "size": offer.size})  # fmt: skip
+        self._offers[offer.id] = offer
+        return offer
+
     def take(self, offer_id: str, session_id: str) -> Offer:
         """The offer, checked again: it must be unexpired, of this session, and still sendable."""
         self._sweep(time.time())
@@ -164,9 +206,8 @@ class Offers:
             )
         try:
             current = offer.path.resolve()
-            reason = (
-                "the file changed" if current != offer.path else refusal(self.settings, current)
-            )
+            check = release_refusal if offer.rule == "release" else refusal
+            reason = "the file changed" if current != offer.path else check(self.settings, current)
             if reason is None and current.stat().st_size != offer.size:
                 reason = "the file changed"
         except OSError:

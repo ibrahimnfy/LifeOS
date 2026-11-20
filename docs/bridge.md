@@ -103,6 +103,8 @@ documented here as they are built.
 | GET | `/models` | yes | Models and effort levels the app may offer, and the defaults |
 | GET | `/models/routing` | yes | Model, effort and advisor of each job, and its plan usage today and this week |
 | PUT | `/models/routing` | yes | Changes one job's model, effort or advisor (audited, no restart) |
+| GET | `/app/release` | yes | The registered release of the app: version, size, SHA-256, certificate |
+| POST | `/app/release/offer` | yes | Offers the release APK for `GET /files/{offer}?session_id=app-release` |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
@@ -1348,6 +1350,7 @@ are used, so it works while the app is closed.
   | `coach` | `coach` | `coach` | message id of `GET /coach/plan` | the coach's daily note, and further nudges (frequency `"3"`) |
   | `reminder` | `reminders` | `reminder` | reminder id | a session reminder is due |
   | `notice` | `reminders` | `notice` | – (`t`, `l`) | `scripts/notify.sh` (for example a new owner issue) |
+  | `update` | `reminders` | `app_update` | version code | a new app release was registered (`lifeos-bridge release`) |
 
 - **Courses: one push per sync.** Every change one sync finds (new or
   changed files, new or changed pages and books, new assignments, new
@@ -1371,6 +1374,54 @@ are used, so it works while the app is closed.
   $B/push/notify` answers `{"phones_reached": 1}`; after a course refresh
   that found something, the bridge log shows no course names, and the
   phone (once the app side exists) shows one "courses" notification.
+
+## App releases for the phone
+
+`lifeos-bridge release` registers a new release build of the app; the
+paired phones are told and can install it with one tap (#138, app side
+separate). No third-party update service.
+
+```
+uv run lifeos-bridge release --build     # Gradle builds and signs (it reads the key itself), then registers
+uv run lifeos-bridge release             # registers the existing build output instead
+uv run lifeos-bridge release --apk FILE --version-code N --version-name X   # another APK
+```
+
+- **What it checks and records:** the APK from Gradle's release output
+  (`app/app/build/outputs/apk/release/`, with version code and name from
+  `output-metadata.json`), its size (at most 200 MB), the SHA-256 of the
+  file, and the SHA-256 of its signing certificate, read from the APK
+  Signature Scheme v3/v2 block; an unsigned APK is refused. The first
+  registered certificate is pinned: an APK signed with another key is
+  refused unless `--new-certificate` is given. The version code must be
+  newer than the current release. The command never asks for or reads the
+  keystore password: Gradle reads `~/.config/lifeos/release/` itself.
+- **Where:** a private copy in `~/.config/lifeos/app-release/lifeos-<code>.apk`
+  (mode 600; only the current one is kept) and the record in
+  `~/.config/lifeos/app-release.json`. The `AppRelease` audit record (version,
+  size, hashes) is written first; without it nothing is registered.
+- **Push:** one sealed hint `update` (channel `reminders`, opens
+  `app_update`, `r` = version code) to every paired phone.
+- `GET /app/release` → `{"version_code": int, "version_name": str, "size":
+  int, "sha256": hex, "cert_sha256": hex, "registered_at": iso}`; `404
+  no_release` when none is registered.
+- `POST /app/release/offer` → `{"offer", "name", "type":
+  "application/vnd.android.package-archive", "size", "session_id":
+  "app-release", "version_code", "version_name", "sha256", "cert_sha256",
+  "registered_at"}`. The phone fetches it with `GET
+  /files/{offer}?session_id=app-release` (through the relay: sealed chunks
+  of 700 KB, three waiting at a time, the SHA-256 of the whole file with
+  the last message), within 15 minutes. The release has its own size limit
+  (200 MB), independent of `LIFEOS_MAX_FILE_MB` (50 MB for ordinary file
+  offers), and it is offered only from its own folder; the offer and the
+  download are audited like every file. The phone checks the hash and the
+  certificate before it opens the installer.
+
+Manual check: `uv run lifeos-bridge release --build` prints "Registered
+release …; the paired phones were told"; `curl -s -H "$H"
+$B/app/release` shows the same version and hashes; `curl -s -X POST -H
+"$H" $B/app/release/offer` gives a card; `grep AppRelease
+~/.config/lifeos/audit/*.jsonl | tail -n 1`.
 
 ## Moodle sign-in
 

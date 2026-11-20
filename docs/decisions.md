@@ -234,3 +234,7 @@ a new entry is added that says what changed and why.
 
 ### Implementation choices for coach nudges (agent, #72, 2026-11-21; cheap to change)
 - **Nudges after the daily note come from the same morning batch in its order**, two hours apart, only for today's batch, never in quiet hours (dropped that day), never about a task done meanwhile or a blocked question. Each push carries the message id (sealed); the visible text is fixed. `"low"` and `"normal"` are accepted for `"1"` and `"3"`.
+
+### Implementation choices for app releases (agent, #138 bridge side, 2026-11-21; cheap to change)
+- **`lifeos-bridge release`** takes Gradle's release output (or builds it with `--build`; Gradle reads the signing key, the bridge never sees the password), reads version from `output-metadata.json` and the certificate from the v3/v2 signing block, pins the first certificate (another key needs `--new-certificate`), requires a newer version code, keeps one private copy, audits, and sends the sealed hint `update`.
+- **Its own size limit (200 MB)** instead of the 50 MB of ordinary file offers, and only from its own folder in the private config; transferred by the existing sealed chunks.
