@@ -126,8 +126,8 @@ def test_the_routing_endpoint(owner, auth):
     body = client.get("/models/routing", headers=auth).json()
     assert [job["job"] for job in body["jobs"]] == list(routing.JOBS)
     coach = body["jobs"][1]
-    assert set(coach) == {"job", "label", "model", "effort", "advisor", "source", "per_session",
-                          "usage"}  # fmt: skip
+    assert set(coach) == {"job", "label", "model", "effort", "advisor", "source", "default",
+                          "per_session", "usage"}  # fmt: skip
     assert (coach["model"], coach["effort"], coach["advisor"]) == ("opus", "high", None)
     chat = body["jobs"][0]
     assert (chat["model"], chat["effort"], chat["per_session"]) == ("opus", "high", True)
@@ -221,3 +221,96 @@ def test_notifications_never_start_a_run(client, auth, no_runs, tmp_path, calls)
     notifications.send("LifeOS: test", "text", "", script)
     assert client.get("/models/routing", headers=auth).status_code == 200
     assert calls() == []
+
+
+# ---- the owner's choices from the app (PUT /models/routing) ------------------------------
+
+
+def put(client, auth, body):
+    return client.put("/models/routing", headers=auth, json=body)
+
+
+def jobs_of(body):
+    return {job["job"]: job for job in body["jobs"]}
+
+
+def audited(config):
+    return [
+        json.loads(line)["detail"]
+        for path in sorted((config / "audit").glob("*.jsonl"))
+        for line in path.read_text().splitlines()
+        if json.loads(line)["tool"] == "ModelRouting"
+    ]
+
+
+def test_the_app_changes_a_job_without_a_restart(owner, auth, calls, isolated_config):
+    client = owner
+    changed = put(client, auth, {"job": "chat", "model": "haiku", "effort": "low"})
+    assert changed.status_code == 200 and changed.json()["changed"] == "chat"
+    chat = jobs_of(changed.json())["chat"]
+    assert (chat["model"], chat["effort"], chat["source"]) == ("haiku", "low", "app")
+    assert chat["default"] == {"model": "opus", "effort": "high", "advisor": None,
+                               "source": "default"}  # fmt: skip
+    assert client.post("/ask", headers=auth, json={"prompt": "hi"}).status_code == 200
+    args = args_of(calls()[-1])
+    assert (value(args, "--model"), value(args, "--effort")) == ("haiku", "low")
+    stored = json.loads((isolated_config / routing.CHOICES_FILE).read_text())
+    assert stored == {"jobs": {"chat": {"model": "haiku", "effort": "low"}}}
+    # null returns a field to the default underneath; reset returns the whole job.
+    back = jobs_of(put(client, auth, {"job": "chat", "effort": None}).json())["chat"]
+    assert (back["model"], back["effort"]) == ("haiku", "high")
+    reset = jobs_of(put(client, auth, {"job": "chat", "reset": True}).json())["chat"]
+    assert (reset["model"], reset["source"]) == ("opus", "default")
+    assert json.loads((isolated_config / routing.CHOICES_FILE).read_text()) == {"jobs": {}}
+    assert [entry["after"] for entry in audited(isolated_config)] == [
+        {"model": "haiku", "effort": "low"}, {"model": "haiku"}, {}
+    ]  # fmt: skip
+    assert audited(isolated_config)[1]["before"] == {"model": "haiku", "effort": "low"}
+
+
+def test_the_environment_setting_stays_underneath(settings, isolated_config):
+    configured = dataclasses.replace(
+        settings, model_routing=routing.parse("summaries=haiku/low+none")
+    )
+    efforts = ("low", "medium", "high")
+    routing.change(configured, {"job": "summaries", "model": "opus", "advisor": "sonnet"}, efforts)
+    chosen = routing.route(configured, "summaries")
+    assert (chosen.model, chosen.effort, chosen.advisor, chosen.source) == (
+        "opus", "low", "sonnet", "app"
+    )  # fmt: skip
+    assert routing.run_options(configured, "summaries")["model"] == "opus"
+    routing.change(configured, {"job": "summaries", "advisor": "none"}, efforts)
+    assert routing.route(configured, "summaries").advisor is None
+    routing.change(configured, {"job": "summaries", "reset": True}, efforts)
+    under = routing.route(configured, "summaries")
+    assert (under.model, under.advisor, under.source) == ("haiku", None, "routing")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"job": "nothing", "model": "opus"},
+        {"model": "opus"},
+        {"job": "chat"},
+        {"job": "chat", "model": "gpt-x"},
+        {"job": "chat", "model": "claude-bad name"},
+        {"job": "chat", "effort": "turbo"},
+        {"job": "chat", "advisor": "someone"},
+        {"job": "chat", "model": "opus", "colour": "red"},
+        {"job": "chat", "model": 5},
+    ],
+)
+def test_bad_changes_are_refused(owner, auth, body, isolated_config):
+    refused = put(owner, auth, body)
+    assert refused.status_code == 400, body
+    assert not (isolated_config / routing.CHOICES_FILE).exists()
+
+
+def test_no_change_without_its_audit_record(owner, auth, isolated_config):
+    (isolated_config / "audit").write_text("not a folder")
+    refused = put(owner, auth, {"job": "coach_plan", "model": "sonnet"})
+    assert refused.status_code == 503 and refused.json()["error"] == "audit_unavailable"
+    assert routing.app_choices() == {}
+    assert owner.put("/models/routing", json={"job": "chat", "model": "opus"}).status_code == 401
+    full = put(owner, auth, {"job": "chat", "model": "claude-sonnet-5-5"})
+    assert full.status_code == 503  # a full model name is accepted, the audit still blocks

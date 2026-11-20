@@ -220,3 +220,6 @@ a new entry is added that says what changed and why.
 ### Implementation choices for the coach conversation (agent, #110, 2026-11-21; cheap to change)
 - **One session in the memory folder, through the chat path:** the coach conversation is a normal session (either runner) recognised by its id, always on the `coach_chat` job, read-only, its model fixed; shown as "Coach", pinned. The SDK runner now records usage per job too.
 - **Compaction at about 400 KB of transcript**, before the next message: one turn in the old session proposes at most ten facts and a summary; the bridge writes checked `[owner …]`/`[inferred …]` lines into existing profile, project or course files and the summary into `coach/conversation.md`, one commit. A failed compaction renews the session anyway (no unbounded growth), keeping the previous summary.
+
+### Implementation choices for routing changes from the app (agent, #143, 2026-11-21; cheap to change)
+- **The app's choices sit on top** of `LIFEOS_MODEL_ROUTING`, `LIFEOS_BACKGROUND_MODEL` and the defaults, per job and per field, in `~/.config/lifeos/model-routing.json`; read on every run, so no restart. `null` returns a field to the default underneath, `reset` the whole job. Models from `LIFEOS_MODELS` or a full `claude-…` name. Audited before the change; no record, no change.

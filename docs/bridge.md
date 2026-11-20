@@ -102,6 +102,7 @@ documented here as they are built.
 | POST | `/sessions/{id}/queue/resume` | yes | Sends the waiting messages after a hold |
 | GET | `/models` | yes | Models and effort levels the app may offer, and the defaults |
 | GET | `/models/routing` | yes | Model, effort and advisor of each job, and its plan usage today and this week |
+| PUT | `/models/routing` | yes | Changes one job's model, effort or advisor (audited, no restart) |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
@@ -648,8 +649,9 @@ prompt is answered with a plain-text question.
   name, without advisor. Saving notes and tasks, the course sync and
   notifications use no model.
 - `GET /models/routing` → `{"jobs": [{"job", "label", "model", "effort",
-  "advisor", "source": "default" | "routing" | "background_model",
-  "per_session", "usage": {"today": U, "week": U}}], "no_model", "today",
+  "advisor", "source": "app" | "routing" | "background_model" | "default",
+  "default": {"model", "effort", "advisor", "source"}, "per_session",
+  "usage": {"today": U, "week": U}}], "no_model", "today",
   "week_from", "note"}` with `U` = `{"runs", "input_tokens",
   "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
   "cost_usd", "models"}`: the plan usage the runs reported themselves
@@ -660,8 +662,27 @@ prompt is answered with a plain-text question.
   counts from its first resume on). Token counts are the main model's
   (advisor tokens are not in them). Kept per day for two months in
   `~/.config/lifeos/usage.json`, no text. Never starts a run.
-- Precedence for chat sessions: the session's own choice, then
-  `LIFEOS_MODEL_ROUTING`'s `chat=…`, then `LIFEOS_DEFAULT_MODEL`/`_EFFORT`.
+- `PUT /models/routing` (from the app) changes one job. Body: `{"job":
+  "<job>", "model"?: "<model>" | null, "effort"?: "<level>" | null,
+  "advisor"?: "<model>" | "none" | null}` or `{"job": "<job>", "reset":
+  true}`. A field left out stays as it is, `null` returns it to the default
+  underneath, `"none"` switches the advisor off, `reset` returns the whole
+  job. Models are those of `GET /models` (`LIFEOS_MODELS`) or a full
+  `claude-…` name; efforts those of `GET /models`. The answer is the
+  overview of `GET /models/routing` plus `"changed": "<job>"`; the job's
+  `"source"` is then `"app"`, and its `"default"` shows what it would use
+  without the choice. Stored in `~/.config/lifeos/model-routing.json`,
+  applied from the next run (no restart). `LIFEOS_MODEL_ROUTING`,
+  `LIFEOS_BACKGROUND_MODEL` and the built-in defaults stay underneath.
+  Every change is written to the audit log first (`ModelRouting`, with
+  the job's choice before and after); when it cannot be, nothing changes
+  (`503 audit_unavailable`). `400` for an unknown job, model, effort,
+  advisor or field. Manual check: `curl -s -X PUT -H "$H" -H "$J" -d
+  '{"job":"summaries","model":"haiku"}' $B/models/routing`, then `GET`
+  shows `"source": "app"`; `-d '{"job":"summaries","reset":true}'` undoes it.
+- Precedence for chat sessions: the session's own choice, then the app's
+  choice for `chat`, then `LIFEOS_MODEL_ROUTING`'s `chat=…`, then
+  `LIFEOS_DEFAULT_MODEL`/`_EFFORT`.
   `LIFEOS_CLAUDE_MODEL` (the guardrail probes' fixed model) replaces every
   job's model and switches the advisor off.
 

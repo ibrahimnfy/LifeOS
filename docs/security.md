@@ -249,6 +249,7 @@ holds:
 | `DevicePaired` / `DeviceRevoked` | a phone is paired or revoked | device id |
 | `AllowedPathAdded` / `AllowedPathRemoved` | the list of allowed folders changes | the folder |
 | `MoodleSignIn` | a new Moodle token is stored | nothing but the fact |
+| `ModelRouting` | the owner changes a job's model, effort or advisor from the app (`PUT /models/routing`) | the job, its choice before and after |
 
 Never recorded: file contents, note or task text, prompts and answers,
 request bodies and query values, the raw request path (it may carry ids or
@@ -258,7 +259,8 @@ secret. Records the bridge writes on its own have an empty `session_id` (or
 never confuse them with tool calls.
 
 Writing the record is a condition for: offering or sending a file, handing
-out a course download address, and changing the allowed folders; when the
+out a course download address, changing the allowed folders, and changing
+the model routing; when the
 record cannot be written these answer `503 audit_unavailable` and nothing
 happens. Relay requests, pairing, revocation and sign-ins are recorded best
 effort: they already happened (a revocation must never be blocked).
