@@ -37,7 +37,7 @@ def marker(isolated_config):
             "scope": "all_allowed_folders",
         } | fields
         data = {k: v for k, v in data.items() if v is not None}
-        capable.marker_path(runner).write_text(json.dumps(data))
+        capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
 
     return write
 
@@ -75,7 +75,7 @@ def test_each_runner_needs_its_own_marker(settings, marker):
 
 def test_a_marker_from_before_runners_counts_for_cli_only(settings, isolated_config):
     legacy = {"claude_version": VERSION, "all_passed": True, "scope": "all_allowed_folders"}
-    (isolated_config / "capable-mode.json").write_text(json.dumps(legacy))
+    (isolated_config / "capable-mode.json").write_text(json.dumps(capable.sign_marker(legacy)))
     check(settings, "cli")
     with pytest.raises(ClaudeError):
         check(settings, "sdk")
@@ -96,7 +96,7 @@ def test_the_sdk_marker_must_match_runner_and_both_versions(settings, isolated_c
     data = {"runner": "sdk", "claude_version": VERSION, "sdk_version": capable.sdk_version(),
             "all_passed": True, "scope": "all_allowed_folders"} | fields  # fmt: skip
     data = {k: v for k, v in data.items() if v is not None}
-    capable.marker_path("sdk").write_text(json.dumps(data))
+    capable.marker_path("sdk").write_text(json.dumps(capable.sign_marker(data)))
     with pytest.raises(ClaudeError) as caught:
         check(settings, "sdk")
     assert caught.value.code == "capable_mode_unavailable"

@@ -24,6 +24,7 @@ from . import (
     commands,
     contextmap,
     files,
+    guardcheck,
     history,
     memory,
     moodle_api,
@@ -163,6 +164,9 @@ def create_app(settings: Settings) -> FastAPI:
         task = asyncio.create_task(watch_reminders())
         # SDK runner: live sessions close after a while without messages.
         reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
+        # After an update of Claude Code or the Agent SDK the guardrail check reruns by itself.
+        guard = guardcheck.GuardCheck(settings)
+        guarding = asyncio.create_task(guard.run_forever())
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
         phone_relay = await asyncio.to_thread(
@@ -178,6 +182,10 @@ def create_app(settings: Settings) -> FastAPI:
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await pending
+            guarding.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await guarding
+            await guard.close()  # a running check is stopped; the mode stays off
             if sdk_pool is not None:
                 await sdk_pool.close_all()  # the transcripts keep every conversation
 

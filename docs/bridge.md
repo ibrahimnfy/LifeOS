@@ -248,6 +248,33 @@ request:
 
 An update of the Agent SDK switches the SDK path off, just as a Claude
 Code update switches both off.
+
+**After an update the check reruns by itself (#107).**
+
+- Every capable request compares the installed versions with the marker,
+  read at that moment: the Claude Code version, and for the SDK runner
+  also the Agent SDK version loaded and the one on disk. A mismatch
+  refuses the request.
+- The marker is signed with a key kept next to it (`guardrail-key`), so a
+  marker changed by hand is ignored. While a check runs, the mode of that
+  runner is off.
+- At bridge start and every 15 minutes, the bridge looks for runners that
+  were checked on this computer before (`sdk` only while it is selected)
+  and whose marker no longer matches. It then starts
+  `scripts/verify-guardrails` for them by itself, once per version pair.
+  It notifies the owner when the check starts and when it ends, with fixed
+  texts: passed (the mode is on again), failed (a probe failed; final for
+  these versions), or incomplete (it could not complete after 3 attempts,
+  30 minutes apart).
+- **Plan usage:** one automatic check costs about twenty short runs on the
+  small model per runner and update (the suite in the terminal and in the
+  service environment).
+- State: `~/.config/lifeos/guardrail-check.json`.
+- `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
+  still goes off after an update; run the check by hand then.
+- A marker written before #107 has no signature. After this update the
+  mode is therefore off once, until the check reruns by itself (or by
+  hand).
 After the check, restart the service (`systemctl --user restart
 lifeos-bridge`) if the bridge code changed since it was started.
 

@@ -223,7 +223,8 @@ Not a setting someone can flip by accident:
    `capable-mode-sdk.json`, which also records the SDK version (section 9.7).
 4. The bridge accepts `"mode": "capable"` only when the marker exists **and**
    its version equals the installed Claude Code version. After a Claude Code
-   update the mode is off until the probes are run again.
+   update the mode is off until the probes are run again; the bridge reruns
+   them by itself and notifies the owner (section 9.8).
 5. The probes run in a scratch folder inside the memory folder, so the
    marker records `"scope": "memory_folder"`: capable runs in other allowed
    folders stay refused until the suite also covers such a folder (no folder
@@ -396,3 +397,38 @@ Built on the SDK runner; the `claude -p` path is unchanged.
     repository is used with the capable mode.
   - No marker was written for the owner. The service environment was not
     run (it would use the real memory folder).
+
+### 9.8 The check reruns by itself after every update (#107)
+
+Condition (2) of the owner's decision #84: "whenever the Claude Code or SDK
+version changes, the guardrail checks rerun by themselves, the capable mode
+is off until they pass, and the owner is notified".
+
+- **Off at once.** Every capable request compares the versions read at that
+  moment with the marker: the Claude Code version, and on the SDK runner
+  also the SDK version loaded and the one installed on disk. Nothing has to
+  run first for the mode to be off.
+- **No other way in.** The mode is also refused when:
+  - the marker is missing;
+  - the marker is not signed with the check's key (`guardrail-key`, mode
+    600, written by the check), for example after an edit by hand;
+  - the marker belongs to another runner;
+  - the marker says anything but a full pass;
+  - a check of that runner is running. The check removes the old marker
+    and sets a running flag before its first probe.
+  Tests cover an updated CLI, an updated SDK (also on disk under a running
+  bridge), a check running, a check failed, a marker removed, and a marker
+  edited by hand.
+- **Rerun by itself** (`bridge/src/lifeos_bridge/guardcheck.py`):
+  - When: at bridge start and every 15 minutes.
+  - Which runners: those checked on this computer before; `sdk` only while
+    it is selected.
+  - How often: once per version pair. A probe failure is final for that
+    pair. A check that could not complete is retried up to 3 times, 30
+    minutes apart.
+  - The bridge never writes a marker itself; only a full pass of the
+    check does.
+- **Notified** at the start and at the end (passed, failed, incomplete),
+  with fixed texts that carry no versions, paths or results.
+- **Plan usage:** about twenty short runs on the small model per runner and
+  update.

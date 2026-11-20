@@ -679,6 +679,19 @@ def main(argv: list[str] | None = None) -> int:
         f"Guardrail probes, {'service' if args.suite_only else 'terminal'} environment, "
         f"{version}, runner {args.runner}" + (f" (Agent SDK {sdk_version})" if sdk_version else "")
     )
+    if not args.suite_only:
+        with contextlib.suppress(OSError):
+            capable.marker_path(args.runner).unlink()  # off until this check passed completely
+        capable.set_check_running(args.runner, True)
+    try:
+        return finish(args, settings, version, sdk_version)
+    finally:
+        if not args.suite_only:
+            capable.set_check_running(args.runner, False)
+
+
+def finish(args: argparse.Namespace, settings: Settings, version: str, sdk_version) -> int:
+    """Run the suite (terminal, then service) and write results and, on a full pass, the marker."""
     results = [dataclasses.asdict(p) for p in Suite(settings, args.runner).run_all()]
     if args.suite_only:
         if args.out:
@@ -686,8 +699,6 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if all(r["passed"] for r in results) else 1
 
     marker = capable.marker_path(args.runner)
-    with contextlib.suppress(OSError):
-        marker.unlink()  # the mode is off until this check has passed completely
     environments = {"terminal": results}
     if not args.no_service:
         service = service_suite(
@@ -719,7 +730,7 @@ def main(argv: list[str] | None = None) -> int:
     results_file.chmod(0o600)
     print(f"\nResults: {results_file}")
     if complete:
-        marker.write_text(json.dumps(report, indent=1))
+        marker.write_text(json.dumps(capable.sign_marker(report), indent=1))
         marker.chmod(0o600)
         print(
             f"All probes passed in both environments. The capable mode is switched ON for the {args.runner} runner with these versions."

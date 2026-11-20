@@ -18,9 +18,8 @@ def enable(isolated_config):
     """Write the marker file the way scripts/verify-guardrails will."""
 
     def write(version="fake-claude 1.0", all_passed=True, scope="all_allowed_folders"):
-        (isolated_config / "capable-mode.json").write_text(
-            json.dumps({"claude_version": version, "all_passed": all_passed, "scope": scope})
-        )
+        marker = {"claude_version": version, "all_passed": all_passed, "scope": scope}
+        (isolated_config / "capable-mode.json").write_text(json.dumps(capable.sign_marker(marker)))
 
     return write
 

@@ -28,6 +28,8 @@ def isolated_config(tmp_path, monkeypatch):
     # Tests must never notify the owner: no real notification script, ever.
     monkeypatch.setenv("LIFEOS_NOTIFY_SCRIPT", "off")
     monkeypatch.setenv("LIFEOS_NOTIFY_PUSH", "off")
+    # Tests never start a real guardrail check by themselves (test_guardcheck opts in).
+    monkeypatch.setenv("LIFEOS_GUARD_AUTOCHECK", "off")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return config
 

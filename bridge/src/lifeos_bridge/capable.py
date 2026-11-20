@@ -5,14 +5,25 @@ unless a marker file says that the guardrail probes passed for exactly the
 installed Claude Code version, on the runner that would run it. Each runner
 has its own marker: ``claude -p`` (``cli``) and the Agent SDK (``sdk``,
 which also records the SDK version).
+
+The marker is signed with a key that only the check and the bridge read
+(``guardrail-key`` in the private settings folder), so a marker changed by
+hand switches the mode off instead of on. While a check runs (started by
+hand or by ``guardcheck``), the mode is off. Every capable request checks
+all of this again, with the versions read at that moment (#107).
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
+import os
+import secrets
 import shlex
 import sys
+from importlib import metadata
 from pathlib import Path
 
 from . import claude
@@ -23,6 +34,8 @@ from .paths import refusal_reason
 MARKER_FILE_NAME = "capable-mode.json"  # the cli runner (the name it always had)
 MARKER_FILE_NAMES = {"cli": MARKER_FILE_NAME, "sdk": "capable-mode-sdk.json"}
 AUDIT_DIR_NAME = "audit"
+KEY_FILE_NAME = "guardrail-key"
+SDK_PACKAGE = "claude-agent-sdk"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
 # home folder from commands anyway.
@@ -41,10 +54,70 @@ def marker_path(runner: str = "cli") -> Path:
 
 
 def sdk_version() -> str:
-    """Version of the installed Agent SDK package."""
+    """Version of the Agent SDK this bridge process has loaded."""
     import claude_agent_sdk  # imported here: the cli runner does not need it
 
     return str(claude_agent_sdk.__version__)
+
+
+def installed_sdk_version() -> str:
+    """Version of the Agent SDK package on disk now (an update shows here before a restart)."""
+    try:
+        return metadata.version(SDK_PACKAGE)
+    except metadata.PackageNotFoundError:
+        return ""
+
+
+def running_flag(runner: str) -> Path:
+    return config_dir() / f"guardrail-check-running-{runner}"
+
+
+def set_check_running(runner: str, running: bool) -> None:
+    """Mark that a check of ``runner`` runs; the mode of that runner is off meanwhile."""
+    flag = running_flag(runner)
+    if running:
+        config_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+        flag.write_text("running\n", encoding="utf-8")
+    else:
+        flag.unlink(missing_ok=True)
+
+
+def _key(create: bool) -> bytes | None:
+    path = config_dir() / KEY_FILE_NAME
+    try:
+        return bytes.fromhex(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        if not create:
+            return None
+    config_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+    key = secrets.token_bytes(32)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as handle:
+        handle.write(key.hex() + "\n")
+    return key
+
+
+def _digest(key: bytes, marker: dict) -> str:
+    body = {k: v for k, v in marker.items() if k != "signature"}
+    text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hmac.new(key, text.encode(), hashlib.sha256).hexdigest()
+
+
+def sign_marker(marker: dict) -> dict:
+    """The marker with its signature; used by the guardrail check only."""
+    key = _key(create=True)
+    assert key is not None  # noqa: S101
+    return {**marker, "signature": _digest(key, marker)}
+
+
+def signature_valid(marker: dict) -> bool:
+    key = _key(create=False)
+    signature = marker.get("signature")
+    return (
+        key is not None
+        and isinstance(signature, str)
+        and hmac.compare_digest(signature, _digest(key, marker))
+    )
 
 
 def audit_dir() -> Path:
@@ -82,11 +155,14 @@ async def check_available(
     """Raise unless the guardrail probes passed for the installed versions, on ``runner``.
 
     The probes run in the memory folder. Unless the marker says they also
-    covered other allowed folders, capable runs elsewhere stay refused. A
-    marker written before markers named their runner counts for ``cli`` only.
+    covered other allowed folders, capable runs elsewhere stay refused. The
+    marker must carry a valid signature and must not be older than a check
+    that is running now.
     """
     if runner not in MARKER_FILE_NAMES:
         raise unavailable("unknown runner")
+    if running_flag(runner).exists():
+        raise unavailable("the guardrail check is running")
     try:
         marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -96,9 +172,13 @@ async def check_available(
     recorded = marker.get("claude_version") if isinstance(marker, dict) else None
     if not isinstance(recorded, str) or marker.get("all_passed") is not True:
         raise unavailable("the guardrail check has not passed on this computer yet")
+    if not signature_valid(marker):
+        raise unavailable("the guardrail marker was not written by the check; it is ignored")
     if marker.get("runner", "cli") != runner:
         raise unavailable(f"the guardrail check did not cover the {runner} runner")
-    if runner == "sdk" and marker.get("sdk_version") != sdk_version():
+    if runner == "sdk" and not (
+        marker.get("sdk_version") == sdk_version() == installed_sdk_version()
+    ):
         raise unavailable(
             "the Agent SDK was updated since the guardrail check; run scripts/verify-guardrails"
         )
