@@ -67,6 +67,16 @@ MESSAGES = [
         {"status": 404, "error": "not_found"},
     ),
     ("push_hint", e2e.PUSH, 7, e2e.PUSH_HINT, "", {"kind": "answer", "session": "s1"}),
+    ("hint_answer", e2e.PUSH, 8, e2e.PUSH_HINT, "", {"e": "answer", "r": "session-1"}),
+    (
+        "hint_notice",
+        e2e.PUSH,
+        9,
+        e2e.PUSH_HINT,
+        "",
+        {"e": "notice", "t": "Örnek başlık", "l": "https://example.invalid/issue/1"},
+    ),
+    ("hint_coach", e2e.PUSH, 10, e2e.PUSH_HINT, "", {"e": "coach"}),
 ]
 
 
