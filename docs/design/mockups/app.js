@@ -2,7 +2,8 @@
  * LifeOS visual-direction mockups.
  * One content model, one EN/TR string table, four direction skins.
  * D is the chosen skin and comes in three token variants (D1, D2, D3) that
- * share every layout rule; A, B and C are kept for reference.
+ * share every layout rule. D3 is the approved variant and the default; D1,
+ * D2 and the earlier directions A, B and C are kept for reference.
  * Everything shown is invented placeholder content. No network, no build step.
  */
 (function () {
@@ -19,7 +20,7 @@
       ctlView: "View", viewSingle: "One direction", viewCompare: "Compare D1 · D2 · D3", viewDirections: "Earlier directions",
       ctlDir: "Direction", ctlScreen: "Screen", ctlTheme: "Theme", ctlLang: "Language",
       light: "Light", dark: "Dark", both: "Both",
-      notChosen: "not chosen",
+      notChosen: "not chosen", chosen: "chosen",
       dirName: { A: "Calm paper", B: "Material You", C: "Dark console", D1: "Blue night", D2: "Warm glow", D3: "Balanced" },
       dirBlurb: {
         D1: "Cool and calm: a soft blue-white in light, a deep blue-black in dark. The accent is led by blue and runs through violet to pink; the ring is thin.",
@@ -39,8 +40,11 @@
       adviceText: "Finish the Project Alpha outline before anything else. The rest of the week builds on it.",
       why: "Why",
       adviceWhy: "Due today, and two other tasks wait for it.",
-      secTop: "Top three", topNote: "chosen by the assistant",
-      secToday: "Today", todayNote: "4 tasks · 1 done",
+      secTop: "Assistant's picks",
+      secToday: "Today",
+      todayNote: function (n, done) { return n + " tasks · " + done + " done"; },
+      openConversation: "Open conversation",
+      moreCount: function (n) { return n + " more"; },
       task1: "Draft the Project Alpha outline", task1Why: "Due today; two tasks depend on it", task1Sub: "Today · Project Alpha",
       task2: "Submit Example assignment 1", task2Why: "One day late; about 30 minutes of work", task2Sub: "Yesterday · Example course",
       task3: "Reply about the seminar topic", task3Why: "Waiting for 6 days", task3Sub: "No date · Example seminar",
@@ -48,6 +52,7 @@
       task5: "Buy printer paper", task5Sub: "Done",
       task6: "Review the check-in notes", task6Sub: "Thursday · Project Alpha",
       task7: "Renew the library book", task7Sub: "Friday",
+      task8: "Send the meeting notes", task8Sub: "Today · Project Alpha",
       overdue: "Overdue",
       secImportant: "Most important", importantNote: "ordered by the assistant",
       showAll: function (n) { return "Show all (" + n + ")"; },
@@ -60,9 +65,63 @@
       chatLi3: "Write the milestone summary by Tuesday",
       chatA2: "The notes are in the project folder:",
       codeLabel: "shell",
-      chatQ2: "Add the summary as a task for Monday.",
-      coach: "Coach", skip: "Skip", answer: "Answer",
+      chatQ2: "Add the summary as a task for Monday and clear out the old drafts.",
+      coach: "Coach",
       coachQ: "“Reply about the seminar topic” has been waiting for 6 days. What is hard about it?",
+      // Chat tab: list state, folder choice, coach conversation, approval card.
+      cap: {
+        chatlist: "Chat · list", newchat: "New chat · folder", coach: "Coach conversation", chat: "Chat · conversation",
+        course: "Course · Materials", "course-announcements": "Course · Announcements",
+        "course-assignments": "Course · Assignments", "course-grades": "Course · Grades"
+      },
+      usageToday: function (n) { return "Today: " + n + " runs"; },
+      recent: "Recent", allSessions: "All sessions",
+      whereRun: "Where should this chat run?",
+      memoryDefault: "Memory (default)", memorySub: "Notes, tasks and daily logs",
+      allowedFolder: "Allowed folder", start: "Start", close: "Close",
+      summarised: "Earlier messages were summarised",
+      coachM1: "Good morning. Today's focus is the Project Alpha outline; two other tasks wait for it.",
+      coachU1: "I'll start on it right after breakfast.",
+      question: "Question",
+      optA: "I haven't picked a topic yet", optB: "I don't know what to write", optC: "It isn't important any more",
+      ownAnswer: "Or write your own answer",
+      approvalLabel: "Approval needed",
+      approvalText: ["The assistant wants to delete 3 files in ", ""],
+      allow: "Allow", deny: "Don't allow",
+      keptNote: "Changes already made are kept.",
+      // Courses
+      courses: "Courses", lastSync: "Last sync 2 h ago", refresh: "Refresh",
+      secDeadlines: "Upcoming deadlines", deadlinesNote: "next 2 weeks",
+      dueIn: function (n) { return "in " + n + " days"; },
+      allGrades: "All grades",
+      secCourses: "All courses",
+      courseCount: function (n) { return n + " courses"; },
+      courseName: function (letter) { return "Example course " + letter; },
+      next: "Next:", noDeadline: "No upcoming deadline",
+      newCount: function (n) { return n + " new"; },
+      item: {
+        as1: "Assignment 1", as2: "Assignment 2", quiz1: "Quiz 1", report: "Project report",
+        lab1: "Lab report 1", summary: "Reading summary", midterm: "Midterm exam", talk: "Short presentation"
+      },
+      tabMaterials: "Materials", tabAnnouncements: "Announcements", tabAssignments: "Assignments", tabGrades: "Grades",
+      week: function (n, title) { return "Week " + n + " · " + title; },
+      weekTitle: { intro: "Introduction", core: "Core concepts" },
+      file: { slides1: "Lecture 1 slides", outline: "Course outline", slides2: "Lecture 2 slides", sheet1: "Exercise sheet 1", data: "Example data set" },
+      newTag: "New", download: "Download", saved: "Saved to Downloads", downloaded: "Downloaded",
+      links: "Links", open: "Open",
+      link: { recording: "Lecture 2 recording", reading: "Reading list" },
+      video: "Video", externalLink: "External link",
+      ann: {
+        a1: "Lecture 2 slides are up", a1Body: function () { return "The slides and the first exercise sheet are in Week 2."; },
+        a2: "Assignment 2 published", a2Body: function (d) { return "Due on " + d + ". Hand in one PDF file."; },
+        a3: "Room change this week", a3Body: function () { return "Thursday's lecture moves to room B-12."; },
+        a4: "Welcome to the course", a4Body: function () { return "The outline and the grading scheme are under Materials."; }
+      },
+      due: function (d) { return "Due " + d; },
+      st: { open: "Not submitted", later: "Not open yet", submitted: "Submitted", graded: "Graded" },
+      range: function (lo, hi) { return "Range " + lo + "–" + hi; },
+      notGraded: "Not graded yet", noGrades: "No grades yet",
+      total: "Total", courseTotal: "Course total so far",
       working: "Working…", cancel: "Cancel",
       composer: "Message LifeOS", send: "Send",
       tabSleep: "Sleep", tabScreen: "Screen time",
@@ -94,7 +153,7 @@
       ctlView: "Görünüm", viewSingle: "Tek yön", viewCompare: "D1 · D2 · D3'ü karşılaştır", viewDirections: "Önceki yönler",
       ctlDir: "Yön", ctlScreen: "Ekran", ctlTheme: "Tema", ctlLang: "Dil",
       light: "Açık", dark: "Koyu", both: "İkisi de",
-      notChosen: "seçilmedi",
+      notChosen: "seçilmedi", chosen: "seçildi",
       dirName: { A: "Sakin kâğıt", B: "Material You", C: "Koyu konsol", D1: "Mavi gece", D2: "Sıcak ışıltı", D3: "Dengeli" },
       dirBlurb: {
         D1: "Serin ve sakin: açık temada yumuşak mavimsi beyaz, koyu temada derin lacivert-siyah. Vurguyu mavi taşır; geçiş maviden mora, oradan pembeye uzanır. Halka incedir.",
@@ -114,8 +173,11 @@
       adviceText: "Her şeyden önce Alfa Projesi taslağını bitir. Haftanın geri kalanı ona dayanıyor.",
       why: "Neden",
       adviceWhy: "Son günü bugün; iki görev de onu bekliyor.",
-      secTop: "İlk üç", topNote: "asistanın seçimi",
-      secToday: "Bugün", todayNote: "4 görev · 1 tamam",
+      secTop: "Asistanın seçtikleri",
+      secToday: "Bugün",
+      todayNote: function (n, done) { return n + " görev · " + done + " tamam"; },
+      openConversation: "Sohbeti aç",
+      moreCount: function (n) { return n + " tane daha"; },
       task1: "Alfa Projesi taslağını hazırla", task1Why: "Son gün bugün; iki görev buna bağlı", task1Sub: "Bugün · Alfa Projesi",
       task2: "Örnek ödev 1'i teslim et", task2Why: "Bir gün gecikti; yaklaşık 30 dakikalık iş", task2Sub: "Dün · Örnek ders",
       task3: "Seminer konusu için yanıt yaz", task3Why: "6 gündür bekliyor", task3Sub: "Tarihsiz · Örnek seminer",
@@ -123,6 +185,7 @@
       task5: "Yazıcı kâğıdı al", task5Sub: "Tamamlandı",
       task6: "Görüşme notlarını gözden geçir", task6Sub: "Perşembe · Alfa Projesi",
       task7: "Kütüphane kitabının süresini uzat", task7Sub: "Cuma",
+      task8: "Toplantı notlarını gönder", task8Sub: "Bugün · Alfa Projesi",
       overdue: "Gecikti",
       secImportant: "En önemliler", importantNote: "asistan sıraladı",
       showAll: function (n) { return "Tümünü göster (" + n + ")"; },
@@ -135,9 +198,61 @@
       chatLi3: "Salıya kadar aşama özetini yaz",
       chatA2: "Notlar proje klasöründe:",
       codeLabel: "kabuk",
-      chatQ2: "Özeti pazartesiye görev olarak ekle.",
-      coach: "Koç", skip: "Geç", answer: "Yanıtla",
+      chatQ2: "Özeti pazartesiye görev olarak ekle, eski taslakları da temizle.",
+      coach: "Koç",
       coachQ: "“Seminer konusu için yanıt yaz” 6 gündür bekliyor. Seni zorlayan ne?",
+      cap: {
+        chatlist: "Sohbet · liste", newchat: "Yeni sohbet · klasör", coach: "Koç sohbeti", chat: "Sohbet · konuşma",
+        course: "Ders · Materyaller", "course-announcements": "Ders · Duyurular",
+        "course-assignments": "Ders · Ödevler", "course-grades": "Ders · Notlar"
+      },
+      usageToday: function (n) { return "Bugün: " + n + " çalıştırma"; },
+      recent: "Son sohbetler", allSessions: "Tüm oturumlar",
+      whereRun: "Bu sohbet nerede çalışsın?",
+      memoryDefault: "Hafıza (varsayılan)", memorySub: "Notlar, görevler ve günlükler",
+      allowedFolder: "İzin verilen klasör", start: "Başlat", close: "Kapat",
+      summarised: "Önceki mesajlar özetlendi",
+      coachM1: "Günaydın. Bugünün odağı Alfa Projesi taslağı; iki görev de onu bekliyor.",
+      coachU1: "Kahvaltıdan hemen sonra başlayacağım.",
+      question: "Soru",
+      optA: "Henüz konu seçmedim", optB: "Ne yazacağımı bilmiyorum", optC: "Artık önemli değil",
+      ownAnswer: "Ya da kendi yanıtını yaz",
+      approvalLabel: "Onay gerekiyor",
+      approvalText: ["Asistan ", " içinde 3 dosyayı silmek istiyor"],
+      allow: "İzin ver", deny: "İzin verme",
+      keptNote: "Yapılmış değişiklikler kalır.",
+      courses: "Dersler", lastSync: "Son eşitleme 2 sa önce", refresh: "Yenile",
+      secDeadlines: "Yaklaşan teslimler", deadlinesNote: "önümüzdeki 2 hafta",
+      dueIn: function (n) { return n + " gün kaldı"; },
+      allGrades: "Tüm notlar",
+      secCourses: "Tüm dersler",
+      courseCount: function (n) { return n + " ders"; },
+      courseName: function (letter) { return "Örnek ders " + letter; },
+      next: "Sıradaki:", noDeadline: "Yaklaşan teslim yok",
+      newCount: function (n) { return n + " yeni"; },
+      item: {
+        as1: "Ödev 1", as2: "Ödev 2", quiz1: "Kısa sınav 1", report: "Proje raporu",
+        lab1: "Deney raporu 1", summary: "Okuma özeti", midterm: "Ara sınav", talk: "Kısa sunum"
+      },
+      tabMaterials: "Materyaller", tabAnnouncements: "Duyurular", tabAssignments: "Ödevler", tabGrades: "Notlar",
+      week: function (n, title) { return n + ". hafta · " + title; },
+      weekTitle: { intro: "Giriş", core: "Temel kavramlar" },
+      file: { slides1: "1. ders slaytları", outline: "Ders izlencesi", slides2: "2. ders slaytları", sheet1: "Alıştırma kâğıdı 1", data: "Örnek veri seti" },
+      newTag: "Yeni", download: "İndir", saved: "İndirilenler'e kaydedildi", downloaded: "İndirildi",
+      links: "Bağlantılar", open: "Aç",
+      link: { recording: "2. ders kaydı", reading: "Okuma listesi" },
+      video: "Video", externalLink: "Dış bağlantı",
+      ann: {
+        a1: "2. ders slaytları yüklendi", a1Body: function () { return "Slaytlar ve ilk alıştırma kâğıdı 2. hafta bölümünde."; },
+        a2: "Ödev 2 yayımlandı", a2Body: function (d) { return "Son teslim tarihi " + d + ". Tek bir PDF dosyası yükleyin."; },
+        a3: "Bu hafta derslik değişti", a3Body: function () { return "Perşembe günkü ders B-12 numaralı derslikte yapılacak."; },
+        a4: "Derse hoş geldiniz", a4Body: function () { return "Ders izlencesi ve değerlendirme ölçütleri Materyaller sekmesinde."; }
+      },
+      due: function (d) { return "Teslim: " + d; },
+      st: { open: "Teslim edilmedi", later: "Henüz açılmadı", submitted: "Teslim edildi", graded: "Notlandı" },
+      range: function (lo, hi) { return "Aralık " + lo + "–" + hi; },
+      notGraded: "Henüz notlanmadı", noGrades: "Henüz not yok",
+      total: "Toplam", courseTotal: "Şimdiye kadarki ders toplamı",
       working: "Çalışıyor…", cancel: "İptal",
       composer: "LifeOS'a yaz", send: "Gönder",
       tabSleep: "Uyku", tabScreen: "Ekran süresi",
@@ -183,8 +298,11 @@
       { title: "task1", sub: "task1Sub" },
       { title: "task2", sub: "task2Sub", overdue: true },
       { title: "task4", sub: "task4Sub" },
+      // Drawn in D only, where the card scrolls; A, B and C keep the short list.
+      { title: "task8", sub: "task8Sub", extra: true },
       { title: "task5", sub: "task5Sub", done: true }
     ],
+    todayVisible: 3, // rows the Today card shows before it scrolls
     // Tasks: the assistant's short list out of all open tasks.
     important: [
       { title: "task1", sub: "task1Sub" },
@@ -212,6 +330,64 @@
         { folder: "scripts", items: [{ title: "ses6", when: "lastWeek" }] }
       ]
     },
+    // Chat tab: the pinned coach conversation, recent conversations, folder choice.
+    coachRuns: 2,
+    recent: [
+      { title: "ses2", folder: "thesis", when: "ago2h", unread: 1 },
+      { title: "ses4", folder: "project-alpha", when: "yesterday" },
+      { title: "ses5", folder: "course-notes", when: "ago3d" }
+    ],
+    allowedFolders: ["project-alpha", "course-notes"],
+    approval: { path: "notes/drafts", files: ["plan-old.md", "outline-v1.md", "scratch.md"] },
+    // Courses: day offsets are relative to the invented "today".
+    courses: [
+      { letter: "A", next: "as2", inDays: 2, fresh: 3, total: 86 },
+      { letter: "B", next: "report", inDays: 9, total: 74 },
+      { letter: "C", next: "lab1", inDays: 5, fresh: 1, total: 90 },
+      { letter: "D" },
+      { letter: "E", next: "quiz1", inDays: 16 }
+    ],
+    materials: [
+      { week: 1, title: "intro", files: [
+        { name: "slides1", type: "PDF", mb: 2.4, day: -9, saved: true },
+        { name: "outline", type: "PDF", mb: 0.2, day: -9 }
+      ] },
+      { week: 2, title: "core", files: [
+        { name: "slides2", type: "PDF", mb: 3.1, day: -2, fresh: true },
+        { name: "sheet1", type: "PDF", mb: 0.1, day: -2 },
+        { name: "data", type: "ZIP", mb: 12.6, day: -2 }
+      ] }
+    ],
+    links: [
+      { name: "recording", kind: "video", minutes: 48 },
+      { name: "reading", kind: "external" }
+    ],
+    announcements: [
+      { key: "a1", day: -2, fresh: true },
+      { key: "a2", day: -5, dueDay: 2 },
+      { key: "a3", day: -7 },
+      { key: "a4", day: -13 }
+    ],
+    assignments: [
+      { item: "as2", day: 2, status: "open" },
+      { item: "quiz1", day: 16, status: "later" },
+      { item: "as1", day: -12, status: "graded", grade: 85, hi: 100 },
+      { item: "summary", day: -19, status: "submitted" }
+    ],
+    courseGrades: [
+      { item: "as1", grade: 85, hi: 100 },
+      { item: "talk", grade: 18, hi: 20 },
+      { item: "summary", hi: 20 },
+      { item: "as2", hi: 100 },
+      { item: "midterm", hi: 100 }
+    ],
+    allGrades: [
+      { letter: "A", total: 86, rows: [{ item: "as1", grade: 85, hi: 100 }, { item: "talk", grade: 18, hi: 20 }] },
+      { letter: "B", total: 74, rows: [{ item: "quiz1", grade: 7, hi: 10 }, { item: "as1", grade: 72, hi: 100 }] },
+      { letter: "C", total: 90, rows: [{ item: "lab1", grade: 9, hi: 10 }] },
+      { letter: "D", total: 92, rows: [{ item: "as1", grade: 92, hi: 100 }] },
+      { letter: "E", rows: [] }
+    ],
     lastNight: { bed: "23:40", wake: "07:05", minutes: 445 },
     // Seven nights ending last night, oldest first. Minutes asleep.
     sleep: [
@@ -235,7 +411,7 @@
   var OPTIONS = {
     view: ["single", "compare", "directions"],
     dir: ["D1", "D2", "D3", "A", "B", "C"],
-    screen: ["today", "chat", "tasks", "sessions", "activity"],
+    screen: ["today", "chatlist", "newchat", "coach", "chat", "tasks", "sessions", "activity", "courses", "course", "grades"],
     theme: ["light", "dark", "both"],
     lang: ["en", "tr"]
   };
@@ -243,15 +419,26 @@
   // layout rules, different custom-property values.
   var VARIANTS = ["D1", "D2", "D3"];
   function skinOf(dir) { return VARIANTS.indexOf(dir) === -1 ? dir : "D"; }
-  // Screens drawn per skin. Tasks and Sessions exist only in the chosen skin.
+  // Screens drawn per skin, one array per row of the single view. Everything
+  // except Today, the conversation and Activity exists only in the chosen
+  // skin. The course page is drawn once per tab; only its first tab
+  // ("course") can be picked in the comparison views.
   var SKIN_SCREENS = {
-    A: ["today", "chat", "activity"],
-    B: ["today", "chat", "activity"],
-    C: ["today", "chat", "activity"],
-    D: ["today", "chat", "tasks", "sessions", "activity"]
+    A: [["today", "chat", "activity"]],
+    B: [["today", "chat", "activity"]],
+    C: [["today", "chat", "activity"]],
+    D: [
+      ["today", "chatlist", "newchat", "coach", "chat"],
+      ["tasks", "sessions", "activity", "courses", "grades"],
+      ["course", "course-announcements", "course-assignments", "course-grades"]
+    ]
   };
-  var CHOSEN = "D1"; // the default variant
-  var ALIASES = { dir: { d: "D1" } }; // links made before D was split still work
+  function hasScreen(dir, screen) {
+    return SKIN_SCREENS[skinOf(dir)].some(function (row) { return row.indexOf(screen) !== -1; });
+  }
+  var CHOSEN = "D3"; // the approved variant and the default
+  // A bare "D" means the chosen variant; hyphenated screen names are accepted.
+  var ALIASES = { dir: { d: CHOSEN }, screen: { "chat-list": "chatlist", chats: "chatlist", "new-chat": "newchat" } };
   var state = { view: "single", dir: CHOSEN, screen: "today", theme: "light", lang: "en" };
 
   function readUrl() {
@@ -346,6 +533,15 @@
     bell: '<path d="M6.5 17v-6a5.5 5.5 0 0 1 11 0v6M4.5 17h15M10 20h4"/>',
     pin: '<path d="M9 3.5h6l-1 6 3 3.5H7l3-3.5zM12 13v7.5"/>',
     clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.2 2"/>',
+    refresh: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M18 3v4.4h-4.4"/>',
+    download: '<path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19.5h14"/>',
+    chevron: '<path d="M9 5l7 7-7 7"/>',
+    down: '<path d="M5 9l7 7 7-7"/>',
+    file: '<path d="M7 3.5h6.5L18 8v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M13.5 3.5V8H18"/>',
+    link: '<path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M13.5 10.5a4 4 0 0 0-5.7 0L5 13.3A4 4 0 0 0 10.7 19l1-1"/>',
+    play: '<circle cx="12" cy="12" r="8.5"/><path d="M10.2 8.4l5.4 3.6-5.4 3.6z"/>',
+    out: '<path d="M10 5.5H6.5A1.5 1.5 0 0 0 5 7v10.5A1.5 1.5 0 0 0 6.5 19H17a1.5 1.5 0 0 0 1.5-1.5V14"/><path d="M14 4.5h5.5V10M19.5 4.5l-8 8"/>',
+    spark: '<path d="M12 4l2.1 5.9L20 12l-5.9 2.1L12 20l-2.1-5.9L4 12l5.9-2.1z"/>',
     folder: '<path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/>'
   };
 
@@ -373,9 +569,11 @@
     if (opts.back) {
       html += '<span class="tb-btn tb-back" role="button" aria-label="' + esc(s.back) + '">' + icon("back") + "</span>";
     }
-    html += '<h2 class="tb-title">' + (dir === "C" ? '<span class="prompt" aria-hidden="true">&gt;</span>' : "") +
-      esc(title) + "</h2>";
+    if (opts.mark) { html += '<span class="thumb is-featured tb-mark" aria-hidden="true">' + icon(opts.mark) + "</span>"; }
+    html += '<div class="tb-titles"><h2 class="tb-title">' + (dir === "C" ? '<span class="prompt" aria-hidden="true">&gt;</span>' : "") +
+      esc(title) + "</h2>" + (opts.sub ? '<span class="tb-sub">' + esc(opts.sub) + "</span>" : "") + "</div>";
     html += '<span class="tb-spacer"></span>';
+    if (opts.note) { html += '<span class="tb-note">' + esc(opts.note) + "</span>"; }
     if (opts.newChat && dir !== "D") {
       html += '<span class="tb-action" role="button">' + icon(dir === "C" ? "plus" : "compose") +
         '<span class="tb-action-lbl">' + esc(s.newChat) + "</span></span>";
@@ -386,7 +584,7 @@
     if (dir === "D") {
       // Icon-only actions, each named for screen readers. The bell can carry a count.
       (opts.icons || []).forEach(function (name) {
-        var label = { bell: s.reminders, clock: s.sessions, compose: s.newChat, search: s.search }[name];
+        var label = { bell: s.reminders, clock: s.sessions, compose: s.newChat, search: s.search, refresh: s.refresh }[name];
         var count = name === "bell" ? opts.bellCount : 0;
         if (count) { label += " (" + s.newReminders(count) + ")"; }
         html += '<span class="tb-icon" role="button" aria-label="' + esc(label) + '" title="' + esc(label) + '">' + icon(name) +
@@ -432,6 +630,13 @@
       (note ? '<span class="sec-meta">' + note + "</span>" : "") + "</div>" + body + "</section>";
   }
 
+  /** A section drawn as one visible card, heading included (direction D). */
+  function panel(label, note, body, extraClass) {
+    return '<section class="panel ' + (extraClass || "") + '"><div class="sec-head"><h3>' + esc(label) + "</h3>" +
+      '<span class="sec-rule" aria-hidden="true"></span>' +
+      (note ? '<span class="sec-meta">' + note + "</span>" : "") + "</div>" + body + "</section>";
+  }
+
   /** A task as a checkbox row: title, then one line of context. */
   function taskRow(s, t) {
     var cls = "row task" + (t.done ? " done" : "") + (t.overdue ? " overdue" : "");
@@ -449,10 +654,12 @@
   function screenToday(dir, lang) {
     var s = STRINGS[lang];
 
-    // The featured "coach card". In D it carries the coach label and the accent ring.
-    var advice = '<section class="card advice"><div class="advice-k">' +
+    // The featured "coach card". In D it carries the coach label and the accent
+    // ring, and it opens the coach conversation.
+    var advice = '<section class="card advice"' + (dir === "D" ? ' role="link"' : "") + '><div class="advice-k">' +
       (dir === "D" ? '<span class="coach-tag">' + esc(s.coach) + "</span>" : "") +
-      "<span>" + esc(s.adviceLabel) + "</span></div>" +
+      "<span>" + esc(s.adviceLabel) + "</span>" +
+      (dir === "D" ? '<span class="advice-open">' + esc(s.openConversation) + icon("chevron") + "</span>" : "") + "</div>" +
       '<p class="advice-t">' + esc(s.adviceText) + "</p>" +
       '<p class="advice-why"><b>' + esc(s.why) + "</b> " + esc(s.adviceWhy) + "</p></section>";
 
@@ -461,12 +668,29 @@
         '<div class="main"><div class="row-t">' + esc(s[t.title]) + '</div><div class="row-s"><span>' + esc(s[t.why]) + "</span></div></div></div>";
     }).join("");
 
-    var tasks = DATA.today.map(function (t) { return taskRow(s, t); }).join("");
+    var list = DATA.today.filter(function (t) { return dir === "D" || !t.extra; });
+    var tasks = list.map(function (t) { return taskRow(s, t); }).join("");
+    var note = esc(s.todayNote(list.length, list.filter(function (t) { return t.done; }).length));
+    var body;
+
+    if (dir === "D") {
+      // Three cards. The Today card shows three tasks and scrolls inside
+      // itself; a fade and a count say that there is more below.
+      var more = list.length - DATA.todayVisible;
+      body = advice +
+        panel(s.secTop, "", '<div class="list">' + top + "</div>", "sec-top") +
+        panel(s.secToday, note,
+          '<div class="scroll-box"><div class="scroll-list" tabindex="0" role="group" aria-label="' + esc(s.secToday) + '">' + tasks + "</div>" +
+          '<span class="scroll-fade" aria-hidden="true"></span></div>' +
+          '<div class="scroll-more">' + esc(s.moreCount(more)) + icon("down") + "</div>", "sec-today");
+    } else {
+      body = advice +
+        section(s.secTop, "", '<div class="card list">' + top + "</div>", "sec-top") +
+        section(s.secToday, note, '<div class="card list">' + tasks + "</div>", "sec-today");
+    }
 
     return topBar(dir, s, s.today, { icons: ["bell"], bellCount: DATA.newReminders }) +
-      '<div class="content content-today">' + advice +
-      section(s.secTop, esc(s.topNote), '<div class="card list">' + top + "</div>", "sec-top") +
-      section(s.secToday, esc(s.todayNote), '<div class="card list">' + tasks + "</div>", "sec-today") +
+      '<div class="content content-today">' + body +
       "</div>" + floatingFab(dir, s) + bottomBar(dir, s, "today");
   }
 
@@ -484,17 +708,19 @@
     return '<span class="spin spin-dots" aria-hidden="true"><i></i><i></i><i></i></span>';
   }
 
+  function composer(dir, s) {
+    return '<div class="composer"><div class="field">' +
+      (dir === "C" ? '<span class="prompt" aria-hidden="true">&gt;</span>' : "") +
+      '<span class="placeholder">' + esc(s.composer) + "</span></div>" +
+      '<span class="send" role="button" aria-label="' + esc(s.send) + '">' +
+      (dir === "C" ? '<span class="send-lbl">' + esc(s.send) + "</span>" : icon(dir === "B" ? "plane" : "up")) + "</span></div>";
+  }
+
   function screenChat(dir, lang) {
     var s = STRINGS[lang];
     function userMsg(text) {
       return '<div class="msg msg-user"><div class="who">' + esc(s.you) + '</div><div class="bubble"><p>' + esc(text) + "</p></div></div>";
     }
-    // A question the assistant asks on its own initiative: labelled, and skippable.
-    var coach = '<div class="msg msg-bot msg-coach"><div class="coach-head"><span class="coach-tag">' + esc(s.coach) + "</span>" +
-      '<span class="coach-time num">08:30</span></div>' +
-      '<div class="bubble"><p>' + esc(s.coachQ) + "</p></div>" +
-      '<div class="coach-acts"><span class="coach-answer" role="button">' + esc(s.answer) + "</span>" +
-      '<span class="coach-skip" role="button">' + esc(s.skip) + "</span></div></div>";
     var answer = '<div class="msg msg-bot"><div class="who" lang="en">' + esc(s.assistant) + '</div><div class="bubble">' +
       "<p>" + esc(s.chatA1) + "</p><ul><li>" + esc(s.chatLi1) + "</li><li>" + esc(s.chatLi2) + "</li><li>" + esc(s.chatLi3) + "</li></ul>" +
       "<p>" + esc(s.chatA2) + "</p>" +
@@ -504,15 +730,202 @@
     var working = '<div class="working" role="status">' + spinner(dir) +
       '<span class="w-text">' + esc(s.working) + ' <span class="num">0:12</span></span>' +
       '<span class="w-cancel" role="button">' + esc(s.cancel) + "</span></div>";
-    var composer = '<div class="composer"><div class="field">' +
-      (dir === "C" ? '<span class="prompt" aria-hidden="true">&gt;</span>' : "") +
-      '<span class="placeholder">' + esc(s.composer) + "</span></div>" +
-      '<span class="send" role="button" aria-label="' + esc(s.send) + '">' +
-      (dir === "C" ? '<span class="send-lbl">' + esc(s.send) + "</span>" : icon(dir === "B" ? "plane" : "up")) + "</span></div>";
+    // In D the run is paused by an approval card: what will happen and where,
+    // two answers, and the fixed note about changes that were already made.
+    var ap = DATA.approval;
+    var approval = '<div class="ask-card approval" role="group" aria-label="' + esc(s.approvalLabel) + '">' +
+      '<div class="ask-k">' + esc(s.approvalLabel) + "</div>" +
+      '<p class="ask-t">' + esc(s.approvalText[0]) + '<span class="path">' + esc(ap.path) + "</span>" + esc(s.approvalText[1]) + "</p>" +
+      '<p class="ask-files path">' + ap.files.map(esc).join(" · ") + "</p>" +
+      '<div class="ask-acts"><span class="btn" role="button">' + esc(s.allow) + "</span>" +
+      '<span class="btn btn-quiet" role="button">' + esc(s.deny) + "</span></div>" +
+      '<p class="ask-note">' + esc(s.keptNote) + "</p></div>";
 
-    return topBar(dir, s, s.chat, { newChat: true, icons: ["clock", "compose"] }) +
-      '<div class="content content-chat"><div class="thread">' + coach + userMsg(s.chatQ1) + answer + userMsg(s.chatQ2) + working + "</div></div>" +
-      composer + floatingFab(dir, s) + bottomBar(dir, s, "chat");
+    return topBar(dir, s, s.chat, { back: dir === "D", newChat: true, icons: ["clock", "compose"] }) +
+      '<div class="content content-chat"><div class="thread">' + userMsg(s.chatQ1) + answer + userMsg(s.chatQ2) +
+      (dir === "D" ? approval : working) + "</div></div>" +
+      composer(dir, s) + floatingFab(dir, s) + bottomBar(dir, s, "chat");
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Screens: Chat tab list, folder choice, coach conversation (D only)  */
+  /* ------------------------------------------------------------------ */
+
+  function chatListBody(s) {
+    // The coach conversation is pinned first: ring mark, last message, usage.
+    var coach = '<section class="panel coach-pin" role="link"><div class="row session">' +
+      '<span class="thumb is-featured" aria-hidden="true">' + icon("spark") + "</span>" +
+      '<div class="main"><div class="row-t">' + esc(s.coach) + '</div><div class="row-s"><span class="clip">' + esc(s.coachQ) + "</span></div>" +
+      '<div class="row-s row-usage"><span>' + esc(s.usageToday(DATA.coachRuns)) + "</span></div></div>" +
+      '<span class="row-side"><span class="row-when num">08:30</span>' +
+      '<span class="row-icon row-pin" role="img" aria-label="' + esc(s.pinned) + '" title="' + esc(s.pinned) + '">' + icon("pin") + "</span></span></div></section>";
+    var rows = DATA.recent.map(function (ses) { return sessionRow(s, ses, "", false); }).join("");
+    return coach +
+      section(s.recent, '<span class="sec-link" role="link">' + esc(s.allSessions) + "</span>", '<div class="card list">' + rows + "</div>", "sec-recent") +
+      '<span class="btn btn-wide" role="button">' + icon("compose") + esc(s.newChat) + "</span>";
+  }
+
+  function screenChatList(dir, lang) {
+    var s = STRINGS[lang];
+    return topBar(dir, s, s.chat, { icons: ["clock", "compose"] }) +
+      '<div class="content content-chatlist">' + chatListBody(s) + "</div>" +
+      bottomBar(dir, s, "chat");
+  }
+
+  /** Starting a new chat: a sheet over the list asks where it should run. */
+  function screenNewChat(dir, lang) {
+    var s = STRINGS[lang];
+    function choice(name, sub, isPath, on) {
+      return '<div class="row choice" role="radio" aria-checked="' + on + '"><span class="thumb" aria-hidden="true">' + icon("folder") + "</span>" +
+        '<div class="main"><div class="row-t' + (isPath ? " path" : "") + '">' + esc(name) + '</div><div class="row-s"><span>' + esc(sub) + "</span></div></div>" +
+        '<span class="radio' + (on ? " on" : "") + '" aria-hidden="true"></span></div>';
+    }
+    var sheet = '<div class="scrim" aria-hidden="true"></div>' +
+      '<section class="sheet" role="dialog" aria-label="' + esc(s.whereRun) + '"><span class="sheet-grip" aria-hidden="true"></span>' +
+      '<h3 class="sheet-title">' + esc(s.whereRun) + "</h3>" +
+      '<div class="list" role="radiogroup" aria-label="' + esc(s.whereRun) + '">' + choice(s.memoryDefault, s.memorySub, false, true) +
+      DATA.allowedFolders.map(function (f) { return choice(f, s.allowedFolder, true, false); }).join("") + "</div>" +
+      '<span class="btn btn-wide" role="button">' + esc(s.start) + "</span>" +
+      '<span class="gesture" aria-hidden="true"></span></section>';
+    return topBar(dir, s, s.chat, { icons: ["clock", "compose"] }) +
+      '<div class="content content-chatlist" aria-hidden="true">' + chatListBody(s) + "</div>" +
+      bottomBar(dir, s, "chat") + sheet;
+  }
+
+  /** The coach conversation: usage in the header, a question card in the run. */
+  function screenCoach(dir, lang) {
+    var s = STRINGS[lang];
+    function option(letter, text, on) {
+      return '<div class="opt' + (on ? " on" : "") + '" role="radio" aria-checked="' + on + '"><span class="opt-k" aria-hidden="true">' + letter + "</span>" +
+        '<span class="opt-t">' + esc(text) + '</span><span class="radio' + (on ? " on" : "") + '" aria-hidden="true"></span></div>';
+    }
+    var question = '<div class="ask-card question" role="group" aria-label="' + esc(s.question) + '">' +
+      '<div class="ask-k"><span class="coach-tag">' + esc(s.coach) + "</span><span>" + esc(s.question) + "</span></div>" +
+      '<p class="ask-t">' + esc(s.coachQ) + "</p>" +
+      '<div class="opts" role="radiogroup">' + option("A", s.optA, true) + option("B", s.optB, false) + option("C", s.optC, false) + "</div>" +
+      '<div class="ask-own"><div class="field"><span class="placeholder">' + esc(s.ownAnswer) + "</span></div>" +
+      '<span class="btn" role="button">' + esc(s.send) + "</span></div></div>";
+    return topBar(dir, s, s.coach, { back: true, mark: "spark", sub: s.usageToday(DATA.coachRuns), icons: ["clock"] }) +
+      '<div class="content content-chat"><div class="thread">' +
+      '<div class="sys-line"><span>' + esc(s.summarised) + "</span></div>" +
+      '<div class="msg msg-bot"><div class="bubble"><p>' + esc(s.coachM1) + "</p></div></div>" +
+      '<div class="msg msg-user"><div class="bubble"><p>' + esc(s.coachU1) + "</p></div></div>" +
+      question + "</div></div>" +
+      composer(dir, s) + bottomBar(dir, s, "chat");
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Screens: Courses, course page, all grades (D only)                  */
+  /* ------------------------------------------------------------------ */
+
+  function shortDate(offset, lang) { return fmtDate(addDays(TODAY, offset), { day: "numeric", month: "short" }, lang); }
+  function longDate(offset, lang) { return fmtDate(addDays(TODAY, offset), { day: "numeric", month: "long" }, lang); }
+  function fileSize(mb, lang) { return mb < 1 ? Math.round(mb * 1000) + " KB" : fmtNum(mb, lang, 1) + " MB"; }
+
+  function screenCourses(dir, lang) {
+    var s = STRINGS[lang];
+    var soon = DATA.courses.filter(function (c) { return c.next; })
+      .sort(function (a, b) { return a.inDays - b.inDays; }).slice(0, 3);
+    var deadlines = soon.map(function (c) {
+      return '<div class="row plain"><div class="main"><div class="row-t">' + esc(s.item[c.next]) + '</div><div class="row-s"><span>' +
+        esc(s.courseName(c.letter)) + '</span></div></div><span class="due num">' + esc(s.dueIn(c.inDays)) + "</span></div>";
+    }).join("");
+    var summary = panel(s.secDeadlines, esc(s.deadlinesNote),
+      '<div class="list">' + deadlines + "</div>" +
+      '<span class="btn btn-wide" role="button">' + esc(s.allGrades) + "</span>", "sec-deadlines");
+
+    var rows = DATA.courses.map(function (c) {
+      var sub = c.next ? s.next + " " + s.item[c.next] + " · " + s.dueIn(c.inDays) : s.noDeadline;
+      return '<div class="row course" role="link"><span class="thumb" aria-hidden="true">' + c.letter + "</span>" +
+        '<div class="main"><div class="row-t">' + esc(s.courseName(c.letter)) + '</div><div class="row-s"><span>' + esc(sub) + "</span></div></div>" +
+        (c.fresh ? '<span class="badge num" role="img" aria-label="' + esc(s.newCount(c.fresh)) + '" title="' + esc(s.newCount(c.fresh)) + '">' + c.fresh + "</span>" : "") +
+        '<span class="row-icon" aria-hidden="true">' + icon("chevron") + "</span></div>";
+    }).join("");
+
+    return topBar(dir, s, s.courses, { back: true, note: s.lastSync, icons: ["refresh"] }) +
+      '<div class="content content-courses">' + summary +
+      section(s.secCourses, esc(s.courseCount(DATA.courses.length)), '<div class="card list">' + rows + "</div>", "sec-courses") +
+      "</div>" + bottomBar(dir, s, "more");
+  }
+
+  function gradeRow(s, g) {
+    var graded = typeof g.grade === "number";
+    return '<div class="row plain grade"><div class="main"><div class="row-t">' + esc(s.item[g.item]) + '</div><div class="row-s"><span>' +
+      esc(graded ? s.range(0, g.hi) : s.notGraded) + '</span></div></div><span class="grade-v num' + (graded ? "" : " is-empty") + '">' +
+      (graded ? g.grade : "–") + "</span></div>";
+  }
+
+  var COURSE_TABS = ["tabMaterials", "tabAnnouncements", "tabAssignments", "tabGrades"];
+
+  function courseTab(s, lang, tab) {
+    if (tab === 0) {
+      var sections = DATA.materials.map(function (m) {
+        var files = m.files.map(function (f) {
+          var meta = f.type + " · " + fileSize(f.mb, lang) + " · " + shortDate(f.day, lang);
+          return '<div class="row file"><span class="thumb" aria-hidden="true">' + icon("file") + "</span>" +
+            '<div class="main"><div class="row-t"><span class="clip">' + esc(s.file[f.name]) + "</span>" +
+            (f.fresh ? '<span class="new-tag">' + esc(s.newTag) + "</span>" : "") + "</div>" +
+            '<div class="row-s">' + (f.saved ? '<span class="saved">' + icon("check") + esc(s.saved) + "</span>" : "<span>" + esc(meta) + "</span>") + "</div></div>" +
+            '<span class="icon-btn' + (f.saved ? " is-done" : "") + '" role="button" aria-label="' + esc((f.saved ? s.downloaded : s.download) + ": " + s.file[f.name]) + '" title="' +
+            esc(f.saved ? s.downloaded : s.download) + '">' + icon(f.saved ? "check" : "download") + "</span></div>";
+        }).join("");
+        return section(s.week(m.week, s.weekTitle[m.title]), "", '<div class="card list">' + files + "</div>", "sec-files");
+      }).join("");
+      var links = DATA.links.map(function (l) {
+        var video = l.kind === "video";
+        return '<div class="row file link-row" role="link"><span class="thumb" aria-hidden="true">' + icon(video ? "play" : "link") + "</span>" +
+          '<div class="main"><div class="row-t">' + esc(s.link[l.name]) + '</div><div class="row-s"><span>' +
+          esc(video ? s.video + " · " + durText(l.minutes, lang) : s.externalLink) + "</span></div></div>" +
+          '<span class="row-icon" role="img" aria-label="' + esc(s.open) + '">' + icon("out") + "</span></div>";
+      }).join("");
+      return sections + section(s.links, "", '<div class="card list">' + links + "</div>", "sec-files sec-links");
+    }
+    if (tab === 1) {
+      return DATA.announcements.map(function (a) {
+        var body = s.ann[a.key + "Body"](typeof a.dueDay === "number" ? longDate(a.dueDay, lang) : "");
+        return '<article class="panel ann"><div class="ann-head"><h3 class="row-t">' + esc(s.ann[a.key]) + "</h3>" +
+          (a.fresh ? '<span class="new-tag">' + esc(s.newTag) + "</span>" : "") +
+          '<span class="ann-date num">' + esc(shortDate(a.day, lang)) + "</span></div>" +
+          '<p class="ann-body">' + esc(body) + "</p></article>";
+      }).join("");
+    }
+    if (tab === 2) {
+      var rows = DATA.assignments.map(function (a) {
+        var when = s.due(shortDate(a.day, lang)) + (a.day > 0 ? " · " + s.dueIn(a.day) : "");
+        return '<div class="row plain assignment"><div class="main"><div class="row-t">' + esc(s.item[a.item]) + '</div><div class="row-s"><span>' + esc(when) + "</span></div></div>" +
+          '<span class="chip chip-' + a.status + '"><span class="chip-mark" aria-hidden="true">' + (a.status === "submitted" || a.status === "graded" ? icon("check") : "") + "</span>" +
+          esc(s.st[a.status]) + (a.status === "graded" ? ' <span class="num">' + a.grade + "/" + a.hi + "</span>" : "") + "</span></div>";
+      }).join("");
+      return '<section class="panel"><div class="list">' + rows + "</div></section>";
+    }
+    var total = DATA.courses[0].total;
+    return '<section class="panel total"><div class="row plain grade"><div class="main"><div class="row-t">' + esc(s.courseTotal) + '</div><div class="row-s"><span>' +
+      esc(s.range(0, 100)) + '</span></div></div><span class="grade-v grade-total num">' + total + "</span></div></section>" +
+      '<section class="panel"><div class="list">' + DATA.courseGrades.map(function (g) { return gradeRow(s, g); }).join("") + "</div></section>";
+  }
+
+  function screenCourse(tab) {
+    return function (dir, lang) {
+      var s = STRINGS[lang];
+      var tabs = '<div class="tabs tabs-4" role="tablist">' + COURSE_TABS.map(function (key, i) {
+        return '<span class="tab' + (i === tab ? " on" : "") + '" role="tab" aria-selected="' + (i === tab) + '">' + esc(s[key]) + "</span>";
+      }).join("") + "</div>";
+      return topBar(dir, s, s.courseName("A"), { back: true, icons: ["refresh"] }) +
+        '<div class="content content-course">' + tabs + courseTab(s, lang, tab) + "</div>" +
+        bottomBar(dir, s, "more");
+    };
+  }
+
+  function screenGrades(dir, lang) {
+    var s = STRINGS[lang];
+    var groups = DATA.allGrades.map(function (c) {
+      var body = c.rows.length ? c.rows.map(function (g) { return gradeRow(s, g); }).join("") :
+        '<p class="empty-line">' + esc(s.noGrades) + "</p>";
+      return panel(s.courseName(c.letter), typeof c.total === "number" ? esc(s.total) + ' <b class="num">' + c.total + "</b>" : "",
+        '<div class="list">' + body + "</div>", "sec-grades");
+    }).join("");
+    return topBar(dir, s, s.allGrades, { back: true }) +
+      '<div class="content content-grades">' + groups + "</div>" + bottomBar(dir, s, "more");
   }
 
   /* ------------------------------------------------------------------ */
@@ -729,7 +1142,15 @@
   /* Page assembly                                                       */
   /* ------------------------------------------------------------------ */
 
-  var SCREENS = { today: screenToday, chat: screenChat, tasks: screenTasks, sessions: screenSessions, activity: screenActivity };
+  var SCREENS = {
+    today: screenToday, chatlist: screenChatList, newchat: screenNewChat, coach: screenCoach, chat: screenChat,
+    tasks: screenTasks, sessions: screenSessions, activity: screenActivity,
+    courses: screenCourses, grades: screenGrades,
+    course: screenCourse(0), "course-announcements": screenCourse(1),
+    "course-assignments": screenCourse(2), "course-grades": screenCourse(3)
+  };
+  // Name of a screen in the switcher and under a phone.
+  function screenLabel(s, key) { return s.cap[key] || (key === "grades" ? s.allGrades : s[key]); }
 
   function phone(dir, screen, theme, lang, caption, sub) {
     var skin = skinOf(dir);
@@ -750,7 +1171,7 @@
   }
 
   function dirLabel(s, d) {
-    return d + " · " + s.dirName[d] + (skinOf(d) === "D" ? "" : " (" + s.notChosen + ")");
+    return d + " · " + s.dirName[d] + " (" + (d === CHOSEN ? s.chosen : s.notChosen) + ")";
   }
 
   function render() {
@@ -771,15 +1192,15 @@
       segmented("view", s.ctlView, [{ value: "single", label: s.viewSingle }, { value: "compare", label: s.viewCompare },
         { value: "directions", label: s.viewDirections }]) +
       segmented("dir", s.ctlDir, OPTIONS.dir.map(function (d) { return { value: d, label: dirLabel(s, d) }; }), !single) +
-      segmented("screen", s.ctlScreen, OPTIONS.screen.map(function (k) { return { value: k, label: s[k] }; }), single) +
+      segmented("screen", s.ctlScreen, OPTIONS.screen.map(function (k) { return { value: k, label: screenLabel(s, k) }; }), single) +
       segmented("theme", s.ctlTheme, [{ value: "light", label: s.light }, { value: "dark", label: s.dark }, { value: "both", label: s.both }]) +
       segmented("lang", s.ctlLang, [{ value: "en", label: "EN" }, { value: "tr", label: "TR" }]) +
       "</div>";
 
-    // compare: the three variants of the chosen skin. directions: the default
+    // compare: the three variants of the chosen skin. directions: the chosen
     // variant next to the earlier directions that have this screen.
     var dirs = state.view === "compare" ? VARIANTS : [CHOSEN, "A", "B", "C"].filter(function (d) {
-      return SKIN_SCREENS[skinOf(d)].indexOf(state.screen) !== -1;
+      return hasScreen(d, state.screen);
     });
 
     var stage = "";
@@ -790,8 +1211,10 @@
       stage += '<section class="band" data-page-theme="' + theme + '">';
       if (themes.length > 1) { stage += '<h2 class="band-title">' + esc(s[theme]) + "</h2>"; }
       if (single) {
-        SKIN_SCREENS[skinOf(state.dir)].forEach(function (k) {
-          stage += phone(state.dir, k, theme, state.lang, s[k], "");
+        SKIN_SCREENS[skinOf(state.dir)].forEach(function (row) {
+          stage += '<div class="band-row">';
+          row.forEach(function (k) { stage += phone(state.dir, k, theme, state.lang, screenLabel(s, k), ""); });
+          stage += "</div>";
         });
       } else {
         dirs.forEach(function (d) {
@@ -812,6 +1235,14 @@
     state[btn.getAttribute("data-key")] = btn.getAttribute("data-value");
     render();
   });
+
+  // The Today card scrolls inside itself; at its end the "more" hint goes away.
+  document.addEventListener("scroll", function (event) {
+    var list = event.target;
+    if (!list.classList || !list.classList.contains("scroll-list")) { return; }
+    var atEnd = list.scrollTop + list.clientHeight >= list.scrollHeight - 2;
+    list.parentNode.parentNode.classList.toggle("at-end", atEnd);
+  }, true);
 
   readUrl();
   render();

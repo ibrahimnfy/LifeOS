@@ -3,19 +3,20 @@
 Static HTML mockups of the visual directions for the Android app
 (see [`docs/app-design.md`](../../app-design.md), section 5).
 
-- **D — the chosen direction, in three variants (D1 is shown by default).**
+- **D — the chosen direction, in three variants. The owner approved D3,
+  with the light theme as the default; the page opens on D3 in light.**
   A compact top bar with a bold title on the left and one or two line icons
   on the right; a slim icon-only bottom bar with the capture button in the
   centre; thin line icons (1.5 px stroke); list rows with a round mark on
   the left; full-width rounded buttons; the system sans-serif font. Every
   icon and button is drawn by hand for this project as inline SVG and CSS.
-  - **D1 — Blue night:** a soft blue-white in light and a deep blue-black in
+  - **D1 — Blue night (not chosen):** a soft blue-white in light and a deep blue-black in
     dark. The accent is led by blue and runs through violet to pink. Thin
     ring (2 px).
-  - **D2 — Warm glow:** a warm off-white in light and charcoal in dark. The
+  - **D2 — Warm glow (not chosen):** a warm off-white in light and charcoal in dark. The
     accent is led by the gradient, from orange through pink to violet.
     Widest ring (4 px).
-  - **D3 — Balanced:** neutral soft greys in light and a blue-tinted
+  - **D3 — Balanced (chosen):** neutral soft greys in light and a blue-tinted
     charcoal in dark. The accent runs from violet through pink to orange.
     Medium ring (3 px).
 - **A — Calm paper (not chosen):** warm paper tones, serif titles, hairline
@@ -25,30 +26,73 @@ Static HTML mockups of the visual directions for the Android app
 - **C — Dark console (not chosen):** near-black, high contrast, monospace
   headings and numbers, one amber accent.
 
-A, B and C are kept for reference only. All content is invented placeholder
-data and is the same in every direction, so only the design differs.
+D1, D2, A, B and C are kept for reference only and are labelled "(not
+chosen)" in the switcher. All content is invented placeholder data and is
+the same in every direction that draws a screen, so only the design differs.
+
+### What changed after the owner's review of D
+
+The owner approved D3 and asked for changes to the content of the screens.
+The colours, the tokens and the coach card's ring are as they were.
+
+- **D3 is the default** direction, in the light theme. Bare `dir=D` now
+  means D3.
+- **Today is three clearly separate cards**, each on the soft card surface
+  with a hairline border and a faint shadow:
+  1. the coach card, which keeps its gradient ring and now says "Open
+     conversation", because tapping it opens the coach conversation;
+  2. "Assistant's picks" (this name replaces the earlier heading), the
+     three tasks with a one-line reason each;
+  3. "Today", which shows three tasks and scrolls inside the card. A fourth
+     row fades out at the lower edge and a line below it counts the rest
+     ("2 more"). The list really scrolls in the mockup (mouse wheel, touch
+     or keyboard); at the end of the list the hint disappears.
+- **Chat has a list state.** The coach conversation is pinned at the top
+  (ring mark, last message, a usage line), recent conversations follow with
+  their folder name, and "New chat" opens a sheet that asks in which folder
+  the chat should run. The coach conversation is drawn too: usage in the
+  header, a line saying that earlier messages were summarised, and a
+  question card with options A/B/C and a free-text answer.
+- **The ordinary conversation no longer contains a coach message.** In D it
+  shows an approval card instead: what the assistant wants to do and where,
+  "Allow" and "Don't allow", and the fixed note that changes already made
+  are kept.
+- **Courses are new:** a summary card with the upcoming deadlines and the
+  "All grades" button, the course list with a red count where a course has
+  new content, the course page with four tabs (Materials, Announcements,
+  Assignments, Grades) and the "All grades" screen. The section is called
+  "Courses" and is not named after any platform.
+- **New icons**, drawn by hand like the others: refresh, download, chevrons,
+  file, link, play, open-outside and the coach mark.
+
+The new screens (Chat list, New chat, Coach conversation, Courses, Course,
+All grades) and the approval card are drawn in D only.
 
 ### Why D changed
 
 The first D was a flat monochrome: pure white or pure black, neutral greys
 and almost no colour. The owner's feedback was that the structure is good
 but the look is flat and too stark. That version was replaced by D1, D2 and
-D3. The layout, the five screens and their content are unchanged; what
-changed is the colour:
+D3. That step left the layout, the screens and their content unchanged;
+what changed was the colour:
 
 - **A softer base.** A slightly soft white in light and a blue-black or
   charcoal in dark, soft grey card surfaces, subtle dividers.
-- **Blue for actions.** Primary buttons ("Show all (23)" on Tasks, "Answer"
-  on the coach message, the send button) are filled with a vivid blue;
-  links ("Cancel" in Chat) are blue text. "Skip" stays neutral.
+- **Blue for actions.** Primary buttons ("Show all (23)" on Tasks, "All
+  grades" on Courses, "Start", "Allow", the send button) are filled with a
+  vivid blue; links ("Open conversation" on the coach card, "All sessions"
+  in the Chat list) are blue text. "Don't allow" stays neutral.
 - **Red for counts.** The bell on Today carries a count, the chat icon in
-  the bottom bar carries an unread count while another screen is open, and
-  one session row shows an unread count. The overdue dot uses the same red.
+  the bottom bar carries an unread count while another screen is open, one
+  session row shows an unread count, and a course with new content shows
+  how many items are new. The overdue dot and the "New" marker use the same
+  red.
 - **A warm gradient for what is featured or active.** A three-stop gradient
   is drawn as a ring around the coach card (the top card on Today), around
-  the "Coach" label, around the round mark of a pinned session and around
-  the capture button, and as a short bar under the active bottom-bar item
-  and under the active tab on Activity.
+  the pinned coach conversation in the Chat list, around the "Coach" label,
+  around the round mark of a pinned session and around the capture button,
+  and as a short bar under the active bottom-bar item and under the active
+  tab on Activity and on a course page.
 
 The three variants differ only in token values (next section); every layout
 and component rule is shared.
@@ -86,6 +130,13 @@ check and the capture button are filled with `--text`, the charts are drawn
 in `--text` on `--bg` with `--divider` grid lines and `--surface-2` tracks,
 and the overdue dot uses `--badge`.
 
+A visible card (the three cards on Today, the summary card on Courses, the
+cards on the course page and on All grades, question and approval cards) is
+`--surface` with a 1 px `--divider` border, a 20 px radius and one shared
+soft shadow (`--card-shadow`, two layers of black at 5–6 % opacity). In the
+dark theme the shadow is practically invisible and the border and the
+surface carry the card. Round marks inside a card use `--surface-2`.
+
 ## Contrast
 
 WCAG 2 contrast ratios, computed from the hex values above (relative
@@ -107,6 +158,9 @@ Every pair with a requirement passes in every variant and theme.
 | Badge on background | 3:1 | 4.69 | 3.93 | 4.71 | 3.87 | 4.74 | 3.96 |
 | Primary on background | 3:1 | 4.98 | 3.67 | 5.14 | 3.54 | 5.11 | 3.64 |
 | Status green on background | 3:1 | 5.06 | 9.95 | 5.03 | 9.64 | 5.08 | 10.00 |
+| Badge on surface | 3:1 | 4.32 | 3.54 | 4.28 | 3.45 | 4.35 | 3.56 |
+| Primary on surface | 3:1 | 4.59 | 3.31 | 4.67 | 3.15 | 4.68 | 3.28 |
+| Status green on surface | 3:1 | 4.67 | 8.96 | 4.57 | 8.57 | 4.65 | 9.00 |
 | Icon (text colour) on surface-2 | 3:1 | 14.00 | 12.41 | 12.92 | 11.92 | 13.97 | 12.44 |
 | Gradient stop 1 on background | – | 4.23 | 5.51 | 3.20 | 8.31 | 4.47 | 5.42 |
 | Gradient stop 2 on background | – | 4.47 | 5.45 | 3.66 | 5.87 | 3.73 | 6.10 |
@@ -121,6 +175,10 @@ Notes:
   bold) are small text, so both are held to 4.5:1. This is why the blue fill
   is the same strength in dark as in light, and why links use a separate,
   lighter blue (`--link`) in dark.
+- The cards added after the owner's review put a few things on the card
+  surface instead of the background: the red overdue dot and "New" marker,
+  the blue buttons and the green check. Their rows ("… on surface") were
+  added to the table.
 - The gradient ring is decorative: the coach card is also set apart by its
   surface and its "Coach" label, a pinned session by its section title and
   pin icon, and the active bottom-bar item by its heavier icon and
@@ -132,13 +190,19 @@ Notes:
 
 ## Screens
 
-| Screen | What it shows | Directions |
-|---|---|---|
-| Today | The coach card (what to focus on today, with a short "why" line), "Top three" (the three tasks the assistant ranks highest, each with a one-line reason) and "Today" (the tasks that belong to today, as checkbox rows). No events. In D the bell carries a red count. | A, B, C, D1–D3 |
-| Chat | A conversation and the composer. One message is a question the assistant asks on its own initiative; it carries a small "Coach" label and "Answer" / "Skip" actions. | A, B, C, D1–D3 |
-| Tasks | "Most important": five tasks ordered by the assistant, then a full-width "Show all (23)" button. | D1–D3 |
-| Sessions | A search field, a "Pinned" section, groups made by the owner, then automatic "By folder" groups for the remaining sessions. A row shows title, folder name and last activity; one row has an "In use" tag, one a bell for a reminder and one a red unread count. | D1–D3 |
-| Activity | Sleep and screen-time charts. | A, B, C, D1–D3 |
+| Screen | `screen=` | What it shows | Directions |
+|---|---|---|---|
+| Today | `today` | Three cards. The coach card (what to focus on today, with a short "why" line; it opens the coach conversation), "Assistant's picks" (the three tasks the assistant ranks highest, each with a one-line reason) and "Today" (the tasks that belong to today as checkbox rows; three are visible and the rest scroll inside the card). No events. In D the bell carries a red count. In A, B and C the same content is drawn in the older layout, without the inner scrolling. | A, B, C, D1–D3 |
+| Chat · list | `chatlist` | The Chat tab before a conversation is opened: the coach conversation pinned at the top (ring mark, last message, "Today: 2 runs"), three recent conversations with folder name and last activity, a link to all sessions and the "New chat" button. | D1–D3 |
+| New chat · folder | `newchat` | The sheet that opens from "New chat": "Where should this chat run?", with the memory folder (default, selected) and two allowed folders as radio rows, and the "Start" button. | D1–D3 |
+| Coach conversation | `coach` | The coach conversation: "Coach" and the usage line in the header, the line "Earlier messages were summarised", a few messages, and a question card with options A, B and C, a free-text field and "Send". | D1–D3 |
+| Chat · conversation | `chat` | An ordinary conversation and the composer. In D it ends with an approval card ("The assistant wants to delete 3 files in notes/drafts", "Allow", "Don't allow", "Changes already made are kept."); in A, B and C it ends with the "Working…" line. | A, B, C, D1–D3 |
+| Tasks | `tasks` | "Most important": five tasks ordered by the assistant, then a full-width "Show all (23)" button. | D1–D3 |
+| Sessions | `sessions` | A search field, a "Pinned" section, groups made by the owner, then automatic "By folder" groups for the remaining sessions. A row shows title, folder name and last activity; one row has an "In use" tag, one a bell for a reminder and one a red unread count. | D1–D3 |
+| Activity | `activity` | Sleep and screen-time charts. | A, B, C, D1–D3 |
+| Courses | `courses` | A summary card with the three nearest deadlines (item, course, days left) and the "All grades" button; then five courses, each with its next deadline, two of them with a red count of new items. The top bar shows the last sync time and a refresh icon. | D1–D3 |
+| Course | `course` | A course page with four tabs. Materials (the tab shown in the comparison views): sections with file rows (name; type, size and date; a "New" marker on one; a download button on each; one row in the "Saved to Downloads" state) and a "Links" group with a video and an external link. In the *One direction* view the other three tabs are drawn as three more phones: Announcements (newest first), Assignments (due date and a status chip) and Grades (item, grade, range). | D1–D3 |
+| All grades | `grades` | The grades of all courses, one card per course, with the course total in the card's heading. | D1–D3 |
 
 In D the bottom bar has no text labels: Today, Chat, the capture (+) button,
 Tasks and More. Each item has an `aria-label` (and a tooltip) with its name;
@@ -156,9 +220,9 @@ depend on the fonts present on the machine.
 
 | Control | What it does |
 |---|---|
-| View | *One direction* shows every screen of one direction or variant. *Compare D1 · D2 · D3* shows one screen in the three variants side by side. *Earlier directions* shows one screen in D1 next to A, B and C (those that have the screen). |
-| Direction | D1, D2, D3, A, B or C (used in the *One direction* view). |
-| Screen | Today, Chat, Tasks, Sessions or Activity (used in the two comparison views). |
+| View | *One direction* shows every screen of one direction or variant, in rows: Today and the four Chat screens; Tasks, Sessions, Activity, Courses and All grades; the four tabs of a course. *Compare D1 · D2 · D3* shows one screen in the three variants side by side. *Earlier directions* shows one screen in D3 next to A, B and C (those that have the screen). |
+| Direction | D3 (chosen), or D1, D2, A, B, C (each labelled "not chosen"); used in the *One direction* view. |
+| Screen | One of the eleven screens in the table above (used in the two comparison views). |
 | Theme | Light, dark, or both. *Both* draws a light band and, below it, a dark band with the same phones. |
 | Language | English or Turkish, for every visible string, date and number. |
 
@@ -171,26 +235,29 @@ unknown falls back to the default.
 | Parameter | Values | Default |
 |---|---|---|
 | `view` | `single`, `compare`, `directions` | `single` |
-| `dir` | `D1`, `D2`, `D3`, `A`, `B`, `C` (`D` is read as `D1`) | `D1` |
-| `screen` | `today`, `chat`, `tasks`, `sessions`, `activity` | `today` |
+| `dir` | `D1`, `D2`, `D3`, `A`, `B`, `C` (`D` is read as `D3`) | `D3` |
+| `screen` | `today`, `chatlist`, `newchat`, `coach`, `chat`, `tasks`, `sessions`, `activity`, `courses`, `course`, `grades` (`chat-list` and `new-chat` are also accepted) | `today` |
 | `theme` | `light`, `dark`, `both` | `light` |
 | `lang` | `en`, `tr` | `en` |
 
-### Comparing D1, D2 and D3
+### Examples
 
 ```
+index.html                                      (D3, light, English, all screens)
+index.html?theme=dark
+index.html?lang=tr&theme=both
 index.html?view=compare&screen=today&theme=both
-index.html?view=compare&screen=chat&theme=light
-index.html?view=compare&screen=sessions&theme=dark&lang=tr
-index.html?dir=D2&theme=dark
-index.html?dir=D3&theme=both
+index.html?view=compare&screen=courses&theme=light
+index.html?view=compare&screen=coach&theme=dark&lang=tr
+index.html?dir=D1&theme=dark
 index.html?view=directions&screen=today&theme=light
 ```
 
 For screenshots, three phones side by side need a window about 1400 px
 wide; allow about 1320 px of height for one theme and about 2380 px for
-`theme=both`. The five screens of one variant fit in a window about 2250 px
-wide and 1250 px high.
+`theme=both`. All screens of one D variant (three rows, five phones in the
+widest) fit in a window about 2250 px wide and 3200 px high; narrower
+windows wrap the rows.
 
 ## Editing
 
@@ -198,7 +265,8 @@ wide and 1250 px high.
   templates and the inline SVG icons and charts. Screens are built once and
   shared by all directions; the few structural differences are keyed on the
   skin (A, B, C or D). `VARIANTS` lists the variants of D, `SKIN_SCREENS`
-  the screens of each skin, and `CHOSEN` names the default variant.
+  the screens of each skin (one array per row of the *One direction* view),
+  and `CHOSEN` names the approved variant, which is the default (`D3`).
 - `styles.css` — page chrome, the shared phone skeleton, then one block per
   direction: CSS custom properties per direction and theme, followed by that
   direction's component styles. For D there is one token block per variant
@@ -207,5 +275,6 @@ wide and 1250 px high.
   the contrast table above.
 
 All placeholder content is invented. Keep it generic: no real names,
-institutions, addresses or paths. Do not add third-party logos, icon sets,
-fonts or other assets.
+institutions, course titles, addresses or paths, and no names of other
+apps or platforms. Do not add third-party logos, icon sets, fonts or other
+assets.
