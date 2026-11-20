@@ -30,6 +30,7 @@ TS = int(NOW.timestamp())
 DAY = 86400
 A, B = 5, 7
 FOLDER_A, FOLDER_B = "ex-101-5", "ex-102-7"
+COMMIT = "Sync courses from the university platform"
 
 
 def file_url(name):
@@ -132,6 +133,7 @@ class Site:
 
     def __init__(self):
         self.calls, self.asked = [], []
+        self.submitted, self.status_asked = {43}, []
         self.down = False
         self.refuse = set()
         self.token = TOKEN
@@ -245,7 +247,8 @@ class Site:
         if function == "mod_book_get_books_by_courses":
             return {"books": copy.deepcopy(self.books), "warnings": []}
         if function == "mod_assign_get_submission_status":
-            status = "submitted" if fields["assignid"] == "43" else "new"
+            self.status_asked.append(int(fields["assignid"]))
+            status = "submitted" if int(fields["assignid"]) in self.submitted else "new"
             return {"lastattempt": {"submission": {"status": status}, "graded": False,
                                     "gradingstatus": "notgraded"}}  # fmt: skip
         raise AssertionError(function)
@@ -553,6 +556,82 @@ def test_upcoming_deadlines_become_calendar_events(site, configured, folder, bra
     assert not any("Old example" in e.title or "is due" in e.title for e in events)
 
 
+def homework_task(brain):
+    return memory.task_with_field(brain, "assignment", "moodle-41")
+
+
+def test_open_assignments_become_tasks_once(site, configured, folder, brain, monkeypatch):
+    from lifeos_bridge import claude
+
+    async def refuse(*args, **kwargs):
+        raise AssertionError("the sync started a model run")
+
+    monkeypatch.setattr(claude, "_start", refuse)
+    result = sync(folder, brain=brain)
+    assert result["tasks_written"] == 1 and commits(brain)[0] == COMMIT
+    (task,) = memory.list_tasks(brain)  # the past one and the submitted one get none
+    due = datetime.fromtimestamp(TS + 3 * DAY).astimezone().date().isoformat()
+    assert task.title == "EX 101: Example homework [part 1]"
+    assert task.fields == {"due": due, "course": FOLDER_A, "assignment": "moodle-41",
+                           "added": NOW.astimezone().date().isoformat()}  # fmt: skip
+    assert task.as_json()["assignment"] == "moodle-41"
+    assert len(memory.all_events(brain)) == 3  # the deadline events stay as they are
+    assert state()["courses"][str(A)]["assignments"][0]["task"] == task.id
+    # Lost state: the task is found again by its field, never duplicated.
+    ms.state_path().unlink()
+    sync(folder, when=later(7), brain=brain)
+    assert [t.id for t in memory.list_tasks(brain)] == [task.id]
+    assert git(brain, "status", "--porcelain") == ""
+
+
+def test_a_submitted_assignment_completes_its_task(site, configured, folder, brain):
+    sync(folder, brain=brain)
+    site.submitted.add(41)
+    result = sync(folder, when=later(7), brain=brain)
+    assert result["tasks_written"] == 1 and memory.list_tasks(brain) == []
+    done = homework_task(brain)
+    assert done.done and done.fields["done"] == later(7).astimezone().date().isoformat()
+    assert commits(brain)[0] == COMMIT and git(brain, "status", "--porcelain") == ""
+    before = len(commits(brain))
+    again = sync(folder, when=later(14), brain=brain)
+    assert again["tasks_written"] == 0 and len(commits(brain)) == before
+
+
+def test_a_task_the_owner_closed_or_removed_stays_that_way(site, configured, folder, brain):
+    sync(folder, brain=brain)
+    memory.complete_task(brain, homework_task(brain).id)
+    site.assignments[A][0]["duedate"] = TS + 5 * DAY  # the site moves the deadline
+    result = sync(folder, when=later(7), brain=brain)
+    assert result["tasks_written"] == 0 and memory.list_tasks(brain) == []  # not reopened
+    assert state()["courses"][str(A)]["assignments"][0]["task_closed"] == "owner"
+    # Removed by hand: never created again.
+    (brain / "tasks-done.md").write_text("# Finished tasks\n\n")
+    sync(folder, when=later(14), brain=brain)
+    assert homework_task(brain) is None and memory.list_tasks(brain) == []
+
+
+def test_an_open_task_gets_its_hand_in_state_first(site, configured, folder, brain, monkeypatch):
+    sync(folder, brain=brain)
+    monkeypatch.setattr(ms, "MAX_STATUS_CALLS", 1)
+    site.status_asked.clear()
+    site.submitted.add(41)
+    sync(folder, when=later(7), brain=brain)
+    assert site.status_asked == [41] and homework_task(brain).done
+
+
+def test_assignments_name_their_task(site, configured, folder, brain, settings_, auth):
+    sync(folder, brain=brain)
+    client = TestClient(create_app(settings_))
+    listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
+    task = next(a for a in listing if a["id"] == 41)["task"]
+    assert task == homework_task(brain).id
+    assert next(a for a in listing if a["id"] == 42)["task"] is None
+    tasks = client.get("/tasks", headers=auth).json()["tasks"]
+    assert [(t["id"], t["assignment"], t["course"]) for t in tasks] == [
+        (task, "moodle-41", FOLDER_A)
+    ]
+
+
 def test_a_second_sync_without_changes_does_nothing(site, configured, folder, brain, notified):
     script, lines = notified
     sync(folder, script=script, brain=brain)
@@ -630,7 +709,9 @@ def test_second_sync_fetches_and_reports_only_what_changed(
         and len(commits(brain)) == 3
     )
     changed = git(brain, "show", "--name-only", "--format=", "HEAD").split()
-    assert sorted(changed) == ["calendar/events.md", f"courses/{FOLDER_A}.md"]
+    assert sorted(changed) == ["calendar/events.md", f"courses/{FOLDER_A}.md", "tasks.md"]
+    (task,) = memory.list_tasks(brain)  # the assignment's task followed the moved due date
+    assert task.fields["due"] == moved.day.isoformat()
     assert "Overall grade: 80.00." in (brain / "courses" / f"{FOLDER_A}.md").read_text()
     assert "Example exam date" in (folder / FOLDER_A / "announcements.md").read_text()
 
@@ -1369,7 +1450,7 @@ def test_assignment_endpoints(site, configured, folder, settings_, auth, monkeyp
     listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
     homework = next(a for a in listing if a["id"] == 41)
     assert set(homework) == {"id", "name", "opens", "opens_iso", "due", "due_iso", "cutoff",
-                             "cutoff_iso", "status", "submitted", "files"}  # fmt: skip
+                             "cutoff_iso", "status", "submitted", "files", "task"}  # fmt: skip
     assert (homework["opens"], homework["cutoff"], homework["files"]) == (
         TS - 5 * DAY,
         TS + 6 * DAY,

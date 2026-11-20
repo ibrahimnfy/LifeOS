@@ -368,7 +368,7 @@ class Task:
         item: dict = {"id": self.id, "title": self.title, "done": self.done}
         for name in ("due", "project", "course", "added"):
             item[name] = self.fields.get(name)
-        for name in ("blocked-by", "next", "effort"):
+        for name in ("blocked-by", "next", "effort", "assignment"):
             if name in self.fields:
                 item[name] = self.fields[name]
         if self.done:
@@ -451,6 +451,32 @@ def _append_task(memory: Path, title: str, fields: dict[str, str], now: datetime
     return task
 
 
+def task_with_field(memory: Path, name: str, value: str) -> Task | None:
+    """The task (open or finished) that carries ``(name: value)``, e.g. a synced assignment."""
+    for file in ("tasks.md", "tasks-done.md"):
+        for line in read_text(memory / file).splitlines():
+            task = parse_task(line)
+            if task is not None and task.fields.get(name) == value:
+                return task
+    return None
+
+
+def add_synced_task(
+    memory: Path, title: str, fields: dict[str, str], now: datetime | None = None
+) -> Task:
+    """A task the bridge creates itself (from a course assignment); the caller commits.
+
+    ``title`` is outside text: it is made one plain line without id markers.
+    """
+    now = now or now_local()
+    plain = " ".join(title.replace("^", "").split())[:MAX_TITLE].strip() or "Assignment"
+    plain = plain.replace("(", "[").replace(")", "]")
+    clean = {k: " ".join(v.replace("(", "[").replace(")", "]").split()) for k, v in fields.items()}
+    with LOCK:
+        check_repo(memory)
+        return _append_task(memory, plain, {**clean, "added": now.date().isoformat()}, now)
+
+
 def save_task(memory: Path, data: dict, now: datetime | None = None) -> dict:
     """Add a task from the phone; a repeat of a known ``client_id`` writes nothing.
 
@@ -489,7 +515,7 @@ def add_task(memory: Path, data: dict, now: datetime | None = None) -> Task:
     return task
 
 
-def update_task(memory: Path, task_id: str, data: dict) -> Task:
+def update_task(memory: Path, task_id: str, data: dict, *, commit_now: bool = True) -> Task:
     """Change a task's title or due date (``"due": null`` removes the date)."""
     if not data or set(data) - {"title", "due"}:
         raise bad("allowed fields: title, due")
@@ -515,12 +541,16 @@ def update_task(memory: Path, task_id: str, data: dict) -> Task:
                     }
             lines[index] = task.line()
             write_text(path, "\n".join(lines) + "\n")
-            commit(memory, "Edit a task", ["tasks.md"])
+            if commit_now:
+                commit(memory, "Edit a task", ["tasks.md"])
             return task
     raise ClaudeError("task_not_found", 404, "no open task has this id")
 
 
-def complete_task(memory: Path, task_id: str, now: datetime | None = None) -> Task:
+def complete_task(
+    memory: Path, task_id: str, now: datetime | None = None, *, commit_now: bool = True
+) -> Task:
+    """Move an open task to ``tasks-done.md``. With ``commit_now=False`` the caller commits."""
     now = now or now_local()
     with LOCK:
         check_repo(memory)
@@ -541,7 +571,8 @@ def complete_task(memory: Path, task_id: str, now: datetime | None = None) -> Ta
             archived += "\n"
         write_text(archive, archived + found.line() + "\n")
         write_text(path, "\n".join(kept) + "\n")
-        commit(memory, "Complete a task", ["tasks.md", "tasks-done.md"])
+        if commit_now:
+            commit(memory, "Complete a task", ["tasks.md", "tasks-done.md"])
     return found
 
 

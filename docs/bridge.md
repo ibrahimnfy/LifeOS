@@ -820,6 +820,19 @@ previous data. Then, course by course:
     a second one. An event the owner edited or removed by hand is left
     alone until the deadline itself changes. Deadlines already in the past
     at the first sync are not written.
+  - `tasks.md`: **one task per assignment**, titled `<short course name>:
+    <assignment>`, with its due date, `(course: <folder name>)` and
+    `(assignment: moodle-<id>)`. It is created once (found again by that
+    field if the sync's state is lost, so never twice), and only while work
+    can still be handed in: not for an assignment already submitted, nor for
+    one whose due and cut-off times are both past. When the site moves the
+    due date, the task's due date follows (a date the owner changed by hand
+    is kept until the site changes it again). When the site shows the work
+    as submitted, the task is completed (moved to `tasks-done.md`). A task
+    the owner completed or removed is never reopened or created again.
+    Open tasks get their hand-in state asked first. The deadline events
+    above stay as they are; `GET /courses/{id}/assignments` names each
+    assignment's `task`.
   - `courses/<folder name>.md` in the topic-file format: a summary made
     from counts and dates, and `## Facts` lines tagged
     `[external:moodle <date>]` (overall grade, number of files). Only those
@@ -873,7 +886,8 @@ a half hours). Times are the site's number plus `…_iso`.
 - `GET /courses/{id}/assignments` → `{"assignments": [{"id", "name",
   "opens", "opens_iso", "due", "due_iso", "cutoff", "cutoff_iso", "status":
   {"submission", "grading", "graded"} | null, "submitted", "files"}]}`
-  (`files`: how many attached files). `submission` is the site's word
+  (`files`: how many attached files; `task`: the id of the assignment's
+  task in `/tasks`, or `null`). `submission` is the site's word
   (`new`, `draft`, `submitted`, `reopened`); `submitted` is `true` for
   `submitted`. The state is asked for assignments without a date or due
   less than 30 days ago; older ones have `null`.
@@ -1286,6 +1300,10 @@ curl -s -H "$H" $B/courses/<id>/announcements
 curl -s -H "$H" $B/courses/<id>/assignments    # note an assignment id with "files" > 0
 curl -s -H "$H" $B/courses/<id>/assignments/<aid>   # "description" as Markdown; "files" with "key"
 ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/assignments   # <name>-<aid>.md and a folder with the attached files
+grep 'assignment: moodle-' ~/brain/tasks.md      # one task per open assignment, with its due date
+curl -s -H "$H" $B/tasks                         # the same tasks carry "assignment" and "course"
+# after handing in an assignment on the site: refresh, then its task is in tasks-done.md
+curl -s -X POST -H "$H" $B/courses/refresh; sleep 60; grep 'assignment: moodle-<aid>' ~/brain/tasks-done.md
 curl -s -H "$H" $B/courses/<id>/grades ; curl -s -H "$H" $B/courses/grades
 curl -s -X POST -H "$H" $B/courses/<id>/seen     # {"seen":true}; the course's "new" counters are 0 afterwards
 curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/offer    # a card; fetch it with /files/<offer>?session_id=<session_id>

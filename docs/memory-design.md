@@ -138,7 +138,9 @@ One line per task, plain Markdown checkboxes, grouped under fixed headings:
 - [ ] Reply to example person  (added: 2026-11-20) ^t-20261120-02
 ```
 
-- Optional fields in parentheses: `due`, `project`, `course`, `added`.
+- Optional fields in parentheses: `due`, `project`, `course`, `added`;
+  `assignment: moodle-<id>` on a task the course sync created for an
+  assignment (it completes when the site shows the work as submitted).
 - The `^t-…` suffix is a stable id so the phone can tick a task without
   ambiguity.
 - Completing a task moves its line to `tasks-done.md` with `(done: <date>)`.

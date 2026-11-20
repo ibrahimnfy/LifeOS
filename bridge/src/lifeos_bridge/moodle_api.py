@@ -279,6 +279,7 @@ def _assignment_summary(item: dict) -> dict:
         "status": item.get("status"),
         "submitted": (item.get("status") or {}).get("submission") == "submitted",
         "files": len(item.get("files") or []),
+        "task": item.get("task"),  # the id of its task in the memory (see /tasks), or null
     }
 
 

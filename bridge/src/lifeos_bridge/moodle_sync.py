@@ -58,7 +58,9 @@ MAX_CHAPTERS = 100
 MAX_TEXT_LINKS = 200
 ASSIGN_FOLDER = "assignments"  # one description file and one folder of attachments each
 MAX_DESCRIPTION = 20_000
-KEPT_ASSIGNMENT_FIELDS: tuple[str, ...] = ()  # fields the sync keeps from the last record
+# Kept from the last record: the assignment's task in the memory, the due date last
+# written to it, and why it is closed ("submitted", or "owner" when ticked by hand).
+KEPT_ASSIGNMENT_FIELDS = ("task", "task_due", "task_closed")
 MB = 1024 * 1024
 DEFAULT_FILE_MB = 200
 MAX_TOTAL_BYTES = 1024 * MB
@@ -340,12 +342,25 @@ def _optional(found: Gathered, call: Callable[..., Any], *args: Any) -> Any:
         return None
 
 
-def _wants_status(assignment: dict, now_ts: int) -> bool:
+def _wants_status(assignment: dict, now_ts: int, priority: frozenset[int] = frozenset()) -> bool:
     due = assignment.get("duedate")
+    if assignment.get("id") in priority:
+        return True
     return assignment.get("id") is not None and (due is None or due >= now_ts - STATUS_DAYS * 86400)
 
 
-def gather(client: moodle.Client, now_ts: int) -> Gathered:
+def open_task_assignments(state: dict) -> frozenset[int]:
+    """Assignments whose task is still open: their hand-in state is asked first."""
+    return frozenset(
+        item["id"]
+        for record in state["courses"].values()
+        if isinstance(record, dict)
+        for item in record.get("assignments") or []
+        if item.get("task") and not item.get("task_closed")
+    )
+
+
+def gather(client: moodle.Client, now_ts: int, priority: frozenset[int] = frozenset()) -> Gathered:
     """Phase one: read everything. Raises :class:`moodle.MoodleError` when the site is lost."""
     client.site_info()  # checks the token before anything else
     courses = [c for c in client.courses() if c["id"] is not None and c["visible"]]
@@ -370,8 +385,9 @@ def gather(client: moodle.Client, now_ts: int) -> Gathered:
             found.announcements[course_id] = _optional(
                 found, client.announcements, forums[course_id], MAX_ANNOUNCEMENTS
             )
-    wanted = [a for a in found.assignments or [] if _wants_status(a, now_ts)]
-    wanted.sort(key=lambda a: a.get("duedate") or 0, reverse=True)
+    wanted = [a for a in found.assignments or [] if _wants_status(a, now_ts, priority)]
+    # Open tasks first (their completion depends on it), then the newest deadlines.
+    wanted.sort(key=lambda a: (a["id"] in priority, a.get("duedate") or 0), reverse=True)
     for assignment in wanted[:MAX_STATUS_CALLS]:
         status = _optional(found, client.submission_status, assignment["id"])
         if status is not None:
@@ -992,6 +1008,63 @@ def _write_deadline(run: Run, brain: Path, record: dict, key: str, item: dict) -
     return True
 
 
+def _local_day(timestamp: int | None) -> str | None:
+    day = _day(timestamp)
+    return None if day == "undated" else day
+
+
+def _still_open(item: dict, now_ts: int) -> bool:
+    """Work can still be handed in: no due date, or the due or cut-off time is ahead."""
+    due, cutoff = item.get("due"), item.get("cutoff")
+    return due is None or due >= now_ts or (cutoff is not None and cutoff >= now_ts)
+
+
+def _write_task(run: Run, brain: Path, record: dict, item: dict) -> bool:
+    """The task of one assignment; True when the task files changed.
+
+    Created once (found again by its ``(assignment: moodle-<id>)`` field if
+    the state was lost), never for work already submitted or closed; its due
+    date follows the site's; it is completed when the site shows the work
+    as submitted. A task finished or removed by the owner is left alone.
+    """
+    if "folder" not in item:  # a record from before assignments were kept in full
+        return False
+    marker = f"moodle-{item['id']}"
+    submitted = (item.get("status") or {}).get("submission") == "submitted"
+    due = _local_day(item.get("due"))
+    if item.get("task"):
+        task = memory.find_task(brain, item["task"])
+        if task is None:
+            return False  # removed by the owner: never added again
+    else:
+        task = memory.task_with_field(brain, "assignment", marker)
+    if task is None:
+        if submitted or not _still_open(item, run.now_ts):
+            return False
+        short = record.get("shortname", "").replace("^", "")[:40].strip()
+        fields = {"due": due, "course": record["folder"], "assignment": marker}
+        created = memory.add_synced_task(
+            brain,
+            f"{short}: {item['name']}" if short else item["name"],
+            {k: v for k, v in fields.items() if v},
+            run.now.astimezone(),
+        )
+        item.update(task=created.id, task_due=due)
+        return True
+    item["task"] = task.id
+    if task.done:
+        item.setdefault("task_closed", "owner")  # never reopened
+        return False
+    changed = False
+    if due != item.get("task_due"):
+        memory.update_task(brain, task.id, {"due": due}, commit_now=False)
+        item["task_due"], changed = due, True
+    if submitted:
+        memory.complete_task(brain, task.id, run.now.astimezone(), commit_now=False)
+        item["task_closed"], changed = "submitted", True
+    return changed
+
+
 def _yaml(text: str) -> str:
     plain = text.replace("\\", "/").replace('"', "'")
     return f'"{plain}"'
@@ -1078,7 +1151,7 @@ def _index_with(text: str, names: list[str]) -> str:
 
 def write_memory(run: Run, brain: Path) -> dict:
     """Calendar events, course files and index lines, as one commit. Never raises."""
-    result = {"deadlines_written": 0, "memory_commit": False, "memory": "ok"}
+    result = {"deadlines_written": 0, "tasks_written": 0, "memory_commit": False, "memory": "ok"}
     try:
         with memory.LOCK:
             memory.check_repo(brain)
@@ -1095,10 +1168,14 @@ def write_memory(run: Run, brain: Path) -> dict:
 def _write_memory_files(run: Run, brain: Path, result: dict) -> list[str]:
     paths: list[str] = []
     records = sorted(listed(run.state), key=lambda r: r["id"])
+    tasks_changed = 0
     for record in records:
         for key, item in sorted((record.get("deadlines") or {}).items()):
             with contextlib.suppress(ClaudeError):  # one odd deadline never stops the rest
                 result["deadlines_written"] += _write_deadline(run, brain, record, key, item)
+        for item in record.get("assignments") or []:
+            with contextlib.suppress(ClaudeError):  # one odd assignment never stops the rest
+                tasks_changed += _write_task(run, brain, record, item)
         relative = f"courses/{record['folder']}.md"
         existing = memory.read_text(brain / relative)
         text = course_note(existing, record, run.root / record["folder"], run.now_ts, run.today)
@@ -1107,6 +1184,9 @@ def _write_memory_files(run: Run, brain: Path, result: dict) -> list[str]:
             paths.append(relative)
     if result["deadlines_written"]:
         paths.append(memory.EVENTS_FILE)
+    result["tasks_written"] = tasks_changed
+    if tasks_changed:
+        paths += [name for name in ("tasks.md", "tasks-done.md") if (brain / name).is_file()]
     index = memory.read_text(brain / "INDEX.md")
     updated = _index_with(index, [record["folder"] for record in records])
     if updated != index:
@@ -1145,7 +1225,9 @@ def sync(
     cannot be reached; nothing has been written then.
     """
     now = clock()
-    found = gather(client, int(now.timestamp()))
+    with STATE_LOCK:
+        priority = open_task_assignments(load_state())
+    found = gather(client, int(now.timestamp()), priority)
     with STATE_LOCK:
         _seen_meanwhile.clear()
         state = load_state()
@@ -1168,7 +1250,12 @@ def sync(
     written = (
         write_memory(run, memory_dir)
         if memory_dir is not None
-        else {"deadlines_written": 0, "memory_commit": False, "memory": "not_set_up"}
+        else {
+            "deadlines_written": 0,
+            "tasks_written": 0,
+            "memory_commit": False,
+            "memory": "not_set_up",
+        }
     )
     result = _result(run, found, written)
     state.update(last_sync=_iso(now), last_result=result)
