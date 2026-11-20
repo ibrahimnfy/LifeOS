@@ -259,8 +259,8 @@ Findings from the official documentation and from the package itself
 
 | Topic | Finding |
 |---|---|
-| Package | About 166 MB; it bundles its own Claude Code binary (a newer patch version than the installed one) and uses the bundled one unless told otherwise. The bridge will name the installed binary explicitly, so the version that is verified is the version that runs |
-| Sign-in | **The SDK documentation describes API-key sign-in only** and says that subscription logins may not be offered by third-party developers in their products. Whether the owner's own use with the installed, signed-in Claude Code is acceptable is **the owner's decision (human issue); the SDK work waits for it** |
+| Package | About 166 MB to download and about 362 MB installed (measured with 0.2.186); it bundles its own Claude Code binary (a newer patch version than the installed one) and uses the bundled one unless told otherwise. The bridge will name the installed binary explicitly, so the version that is verified is the version that runs |
+| Sign-in | **The SDK documentation describes API-key sign-in only** and says that subscription logins may not be offered by third-party developers in their products. Whether the owner's own use with the installed, signed-in Claude Code is acceptable is **the owner's decision (human issue); the SDK work waits for it**. Answered (#115): the subscription login of the installed Claude Code |
 | Questions and approvals | Supported through a callback, but **not in the permission mode the bridge uses today**: in that mode such calls are denied without asking. The SDK path therefore has to use the default mode with an explicit allow-list, which changes how every guardrail is expressed and is why the whole probe suite must pass again |
 | Audit before every call | A callback that runs before every tool call, with a documented option that blocks the call when the callback fails (the default lets the call through; the option is mandatory here) |
 | Sandbox settings | The SDK's own sandbox option does not document two fields the guardrails rely on (refusing to start without the sandbox, and hiding the home folder); the bridge keeps passing its complete settings JSON, and the probes must show that it is honoured |
@@ -274,6 +274,23 @@ whether settings-file hooks passed by the bridge still run; how the sandbox's
 automatic approval of commands interacts with the approval callback; idle
 behaviour of a long-lived process; whether a subscription login works at
 all.
+
+**Implemented (#104), read-only only:** the SDK runner (`LIFEOS_RUNNER=sdk`,
+default still `cli`) keeps one client per active session and starts the
+installed `claude` through its own transport with the allow-listed
+environment and the `claude -p` flags (the SDK's launcher would pass the
+whole environment on and fall back to the bundled binary). With the real
+CLI: the subscription login works through it, the bridge's own idle process
+is listed by `claude agents --json` as holding its session (the in-use
+check therefore ignores the bridge's own process ids), and sessions moved
+between the SDK runner and `claude -p --resume` in both directions with the
+conversation intact. On one live process: the start message lists exactly
+the tools Read, Glob and Grep, no MCP server, no slash command and the
+`dontAsk` mode; the turn limit counts per message; an interrupt ends the
+turn at once and the process stays usable; `claude -p --resume` from a
+terminal works while the bridge's process sits idle, and the bridge notices
+the changed transcript and resumes instead of writing over it. See
+`docs/bridge.md`, "Runner".
 
 ## 8. Build issues
 

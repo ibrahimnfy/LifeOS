@@ -425,6 +425,51 @@ still answering (`POST /ask` with `session_id`, or
 - Answers to queued messages are not pushed over this local API; read them
   with the history endpoint. The relay will deliver them to the phone.
 
+### Runner: `claude -p` or the Agent SDK
+
+`LIFEOS_RUNNER` selects how conversations run. The HTTP API is the same
+for both; only how the assistant process lives differs.
+
+- **`cli` (default).** One `claude -p` process per message, as before.
+- **`sdk`.** One Agent SDK client per active conversation, kept between
+  messages, so a follow-up starts without delay
+  (`bridge/src/lifeos_bridge/sdk_runner.py`).
+  - Same restrictions as `cli` read-only runs: the command line is built by
+    the same function (tools `Read,Glob,Grep`, `--restricted`, no MCP, no
+    slash commands, `dontAsk`, memory context, model and effort per
+    session), and the child gets the same allow-listed environment plus
+    the SDK's three protocol markers. No API key variable reaches it.
+  - Sign-in is the subscription login of the installed Claude Code (#115).
+    The bridge starts the installed `claude` named by `LIFEOS_CLAUDE_BIN`
+    through its own transport. It never uses the copy bundled in the SDK
+    package and refuses it if `LIFEOS_CLAUDE_BIN` points there.
+  - A conversation's process closes `LIFEOS_SDK_IDLE_MINUTES` (15) after its
+    last message and when the bridge stops. At most `LIFEOS_SDK_MAX_LIVE`
+    (3) are alive at once; when another is needed, the longest-idle is
+    closed first, and if none is idle the request gets `429 busy`. Closing
+    loses nothing: the next message resumes from the session transcript.
+  - A process is also restarted (resuming the transcript) when the next
+    message needs another model, effort or memory context, or when the
+    transcript changed since its last answer (the owner continued the
+    session in a terminal). It never writes over a newer conversation.
+  - The in-use check ignores the bridge's own live processes. If another
+    process (a terminal) holds the session, the bridge closes its own and
+    answers `409 session_in_use`.
+  - Cancel and send now use the SDK's interrupt. Only when the turn does not
+    end within a few seconds is the process closed (terminate, then kill).
+    The same happens in the background when the phone goes away mid-answer.
+  - **The capable mode is off on this runner** (`503
+    capable_mode_unavailable`) until the guardrail checks pass on it.
+- Sessions move freely between the bridge and the terminal: a session
+  started through the SDK runner continues with `claude -p --resume <id>`
+  or `claude --resume <id>`, and the reverse (verified with the real CLI).
+
+Manual check (`sdk`, uses the plan; keep it small): set `LIFEOS_RUNNER=sdk`,
+restart the bridge, ask twice in the same conversation. The second answer
+should come faster, and `ps` should show one `claude` process for the
+conversation. After the idle time it is gone, and a third message still
+continues the conversation.
+
 ### Model and effort
 
 - `GET /models` returns `{"models", "efforts", "default_model",

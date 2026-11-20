@@ -24,6 +24,9 @@ DEFAULT_PORT = 8787
 DEFAULT_ASK_TIMEOUT = 300
 DEFAULT_MAX_CONCURRENT = 2
 DEFAULT_MAX_TURNS = 25
+RUNNERS = ("cli", "sdk")
+DEFAULT_SDK_IDLE_MINUTES = 15
+DEFAULT_SDK_MAX_LIVE = 3
 
 
 class ConfigError(Exception):
@@ -41,6 +44,13 @@ class Settings:
     max_concurrent: int = DEFAULT_MAX_CONCURRENT
     max_turns: int = DEFAULT_MAX_TURNS
     claude_bin: str = "claude"
+    # How conversations run: "cli" starts `claude -p` per message; "sdk" keeps
+    # one Agent SDK client per active session (read-only runs only).
+    runner: str = "cli"
+    # SDK runner: a live session closes this long after its last message, and
+    # at most this many are live at once (the longest-idle one is closed first).
+    sdk_idle_seconds: int = DEFAULT_SDK_IDLE_MINUTES * 60
+    sdk_max_live: int = DEFAULT_SDK_MAX_LIVE
     # Fixed model for every run (overrides the per-session choice). Used by the
     # guardrail probes; leave unset in normal use.
     claude_model: str | None = None
@@ -160,6 +170,10 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             f"LIFEOS_ASK_DIR must be an absolute path or start with ~, got {raw_ask_dir!r}"
         )
 
+    runner = (values.get("LIFEOS_RUNNER") or "cli").strip().lower()
+    if runner not in RUNNERS:
+        raise ConfigError(f"LIFEOS_RUNNER must be one of: {', '.join(RUNNERS)}")
+
     return Settings(
         token=token,
         host=host,
@@ -169,6 +183,10 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         max_concurrent=_int_setting(values, "LIFEOS_MAX_CONCURRENT", DEFAULT_MAX_CONCURRENT, 1, 16),
         max_turns=_int_setting(values, "LIFEOS_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 200),
         claude_bin=values.get("LIFEOS_CLAUDE_BIN") or "claude",
+        runner=runner,
+        sdk_idle_seconds=60
+        * _int_setting(values, "LIFEOS_SDK_IDLE_MINUTES", DEFAULT_SDK_IDLE_MINUTES, 1, 1440),
+        sdk_max_live=_int_setting(values, "LIFEOS_SDK_MAX_LIVE", DEFAULT_SDK_MAX_LIVE, 1, 16),
         claude_model=values.get("LIFEOS_CLAUDE_MODEL") or None,
         default_model=values.get("LIFEOS_DEFAULT_MODEL") or "opus",
         default_effort=values.get("LIFEOS_DEFAULT_EFFORT") or "high",

@@ -116,3 +116,21 @@ def test_invalid_port(isolated_config, port):
 
 def test_settings_repr_hides_token():
     assert TOKEN not in repr(Settings(token=TOKEN))
+
+
+def test_runner_and_sdk_pool_settings(isolated_config, monkeypatch):
+    write_env(isolated_config, f"LIFEOS_BRIDGE_TOKEN={TOKEN}\n")
+    settings = load_settings()
+    assert (settings.runner, settings.sdk_idle_seconds, settings.sdk_max_live) == ("cli", 900, 3)
+    monkeypatch.setenv("LIFEOS_RUNNER", "SDK")
+    monkeypatch.setenv("LIFEOS_SDK_IDLE_MINUTES", "5")
+    monkeypatch.setenv("LIFEOS_SDK_MAX_LIVE", "2")
+    settings = load_settings()
+    assert (settings.runner, settings.sdk_idle_seconds, settings.sdk_max_live) == ("sdk", 300, 2)
+    monkeypatch.setenv("LIFEOS_RUNNER", "api")
+    with pytest.raises(ConfigError):
+        load_settings()
+    monkeypatch.setenv("LIFEOS_RUNNER", "cli")
+    monkeypatch.setenv("LIFEOS_SDK_MAX_LIVE", "0")
+    with pytest.raises(ConfigError):
+        load_settings()

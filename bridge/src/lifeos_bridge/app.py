@@ -33,6 +33,7 @@ from . import (
     relay,
     reminders,
     runcontrol,
+    sdk_runner,
     session_meta,
     sessions,
 )
@@ -160,6 +161,8 @@ def create_app(settings: Settings) -> FastAPI:
                 run.add_done_callback(course_syncs.discard)
 
         task = asyncio.create_task(watch_reminders())
+        # SDK runner: live sessions close after a while without messages.
+        reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
         phone_relay = await asyncio.to_thread(
@@ -171,10 +174,12 @@ def create_app(settings: Settings) -> FastAPI:
             if phone_relay is not None:
                 phone_relay.close()
             moodle_sync.cancel()  # a running course sync starts no further download
-            for pending in (task, *coach_runs, *course_syncs):
+            for pending in (task, *coach_runs, *course_syncs, *([reaper] if reaper else [])):
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await pending
+            if sdk_pool is not None:
+                await sdk_pool.close_all()  # the transcripts keep every conversation
 
     app = FastAPI(
         title="LifeOS bridge",
@@ -235,6 +240,9 @@ def create_app(settings: Settings) -> FastAPI:
 
     control = runcontrol.RunControl()
     app.state.control = control
+    # One live SDK client per active session when the SDK runner is selected.
+    sdk_pool = sdk_runner.SdkPool(settings) if settings.runner == "sdk" else None
+    app.state.sdk_pool = sdk_pool
     drains: set[asyncio.Task] = set()
     app.state.drains = drains
 
@@ -294,6 +302,9 @@ def create_app(settings: Settings) -> FastAPI:
         prompt = read_prompt(data)
         mode = read_mode(data)
         is_capable = mode == "capable"
+        if is_capable and sdk_pool is not None:
+            # Decision #84: off on the SDK runner until the guardrail checks pass there.
+            raise capable.unavailable("not yet verified with the SDK runner")
         when = data.get("when", "queue")
         if when not in ("queue", "now"):
             raise ClaudeError("bad_request", 400, "`when` must be `queue` or `now`")
@@ -342,8 +353,12 @@ def create_app(settings: Settings) -> FastAPI:
             control.unpause(session_id, only="cancel")
         started = False
         try:
-            # Never write into a conversation that is open somewhere else.
-            if resume and session_id in await claude.sessions_in_use(settings):
+            # Never write into a conversation that is open somewhere else. The
+            # bridge's own live SDK processes are not "somewhere else".
+            own = sdk_pool.pids() if sdk_pool is not None else frozenset()
+            if resume and session_id in await claude.sessions_in_use(settings, ignore_pids=own):
+                if sdk_pool is not None:
+                    await sdk_pool.drop(session_id)  # the other writer wins; resume later
                 raise ClaudeError(
                     "session_in_use", 409, "this session is open on the computer right now"
                 )
@@ -353,7 +368,10 @@ def create_app(settings: Settings) -> FastAPI:
                 run_args |= {"policy": capable.build_policy(settings, cwd), "observer": watch}
             elif not streaming:
                 try:
-                    result = await claude.run(settings, prompt, **run_args)
+                    if sdk_pool is not None:
+                        result = await sdk_runner.run(sdk_pool, settings, prompt, **run_args)
+                    else:
+                        result = await claude.run(settings, prompt, **run_args)
                 except ClaudeError:
                     if control.take_stopped(session_id):
                         raise runcontrol.stopped_error() from None
@@ -379,7 +397,12 @@ def create_app(settings: Settings) -> FastAPI:
         async def run_events() -> AsyncIterator[tuple[str, dict]]:
             """The run as events; frees the session when it ends or is abandoned."""
             try:
-                async for event, payload in claude.stream(settings, prompt, **run_args):
+                runner = (
+                    sdk_runner.stream(sdk_pool, settings, prompt, **run_args)
+                    if sdk_pool is not None
+                    else claude.stream(settings, prompt, **run_args)
+                )
+                async for event, payload in runner:
                     if event in ("done", "error") and control.take_stopped(session_id):
                         stopped = runcontrol.stopped_error()
                         yield "error", {"error": stopped.code, "message": stopped.message}

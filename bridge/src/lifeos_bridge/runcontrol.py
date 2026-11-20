@@ -16,6 +16,7 @@ import asyncio
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 from . import claude, store
 from .claude import ClaudeError
@@ -25,6 +26,13 @@ GRACE = 5.0  # seconds between interrupt, terminate and kill
 MAX_QUEUED = 10
 QUEUE_FILE = "queue.json"
 STOP_NOTE = "The run was stopped. Changes it had already made to files are kept."
+
+
+class Stoppable(Protocol):
+    @property
+    def running(self) -> bool: ...
+
+    async def stop(self, grace: float) -> None: ...
 
 
 def stopped_error() -> ClaudeError:
@@ -56,10 +64,14 @@ class RunControl:
 
     # -- running processes ----------------------------------------------------
     def tracker(self, session_id: str):
-        """A callback for the runner: remembers the session's process."""
+        """A callback for the runner: remembers what runs the session's turn.
 
-        def remember(process: asyncio.subprocess.Process) -> None:
-            self._processes[session_id] = process
+        That is the ``claude -p`` process, or the live SDK session
+        (``sdk_runner.LiveSession``), which stops a turn with the SDK's interrupt.
+        """
+
+        def remember(handle: asyncio.subprocess.Process | Stoppable) -> None:
+            self._processes[session_id] = handle
 
         return remember
 
@@ -68,11 +80,19 @@ class RunControl:
 
     async def stop(self, session_id: str) -> bool:
         """Interrupt the session's run; terminate and kill only if it does not stop."""
-        process = self._processes.get(session_id)
-        if process is None or process.returncode is not None:
+        handle = self._processes.get(session_id)
+        if handle is None:
+            return False
+        if isinstance(handle, asyncio.subprocess.Process):
+            if handle.returncode is not None:
+                return False
+            self._stopped.add(session_id)
+            await claude._stop(handle, GRACE)  # interrupt, then terminate, then kill
+            return True
+        if not handle.running:
             return False
         self._stopped.add(session_id)
-        await claude._stop(process, GRACE)  # interrupt, then terminate, then kill
+        await handle.stop(GRACE)  # the SDK's interrupt; the process is closed only if needed
         return True
 
     def take_stopped(self, session_id: str) -> bool:
