@@ -99,11 +99,15 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                     message?.let { CoachCard(it, plan, rerun, onRerun = core::rerunCoach, onClick = onOpenCoach) }
                     val picks = plan.topThree.filter { top -> TaskLists.open(listOf(top.task), outbox, ticked).isNotEmpty() }
                     if (picks.isNotEmpty()) {
-                        LifeCard {
-                            SectionHeader(title = stringResource(R.string.section_picks))
+                        val looks = LocalLooks.current
+                        LifeCard(watermark = Watermark(LifeIcons.SparkMark, SectionTones.PICKS)) {
+                            SectionHeader(title = stringResource(R.string.section_picks), icon = LifeIcons.Spark, tone = SectionTones.PICKS)
                             picks.forEachIndexed { index, top ->
                                 if (index > 0) RowDivider()
-                                MarkRow(title = top.task.title, subtitle = top.reason?.takeIf { it.isNotBlank() }) { RankMark(index + 1) }
+                                // The rank takes the colour of the task's course or project.
+                                MarkRow(title = top.task.title, subtitle = top.reason?.takeIf { it.isNotBlank() }) {
+                                    RankMark(index + 1, tone = looks.forTask(top.task)?.tone)
+                                }
                             }
                         }
                     }
@@ -114,8 +118,10 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                     is UiState.Error -> ErrorNotice(state.problem, state.status, onRetry = agendaModel::refresh)
                     is UiState.Content -> {
                         val tasks = TaskLists.open(state.data.tasksOverdue + state.data.tasksToday, outbox, ticked)
-                        LifeCard {
+                        LifeCard(watermark = Watermark(LifeIcons.TodayMark, SectionTones.TODAY)) {
                             SectionHeader(
+                                icon = LifeIcons.Today,
+                                tone = SectionTones.TODAY,
                                 title = stringResource(R.string.section_today),
                                 note = if (tasks.isEmpty()) null else pluralStringResource(R.plurals.today_count, tasks.size, tasks.size),
                             )

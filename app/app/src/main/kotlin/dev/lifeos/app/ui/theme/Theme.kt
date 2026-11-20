@@ -24,6 +24,9 @@ object LifeType {
     val small = TextStyle(fontSize = 13.sp, lineHeight = 18.sp)
     val label = TextStyle(fontSize = 13.sp, fontWeight = FontWeight.SemiBold, lineHeight = 18.sp)
     val button = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+
+    /** The large count of a deadline ticket (days left). */
+    val bigNumber = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 28.sp, letterSpacing = (-0.02).em)
 }
 
 /**

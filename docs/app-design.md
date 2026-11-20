@@ -403,6 +403,19 @@ direction and is refined from its mockups in
 [`docs/design/mockups/`](design/mockups/) (open `index.html` in a browser;
 light and dark, English and Turkish).
 
+**Built (#134), the owner's mix from #133:** D3 made warmer with proposal
+**P2** for the whole app (each course and project keeps one tone and one
+line icon everywhere: tiles, task labels and check rings, pick ranks,
+deadlines, the course page, files; section cards stay grey with one faint
+watermark icon and a heading icon in the section's tone), except the
+**Courses** section, which follows **P3** (tinted tiles of different sizes,
+ticket-style deadlines, geometric ornaments) with P2's course colours and
+icons. The coach card is unchanged. Tokens: the D3 base tokens plus seven
+tones (card tint, second tint, ink; light and dark) in `ui/theme/Tokens.kt`;
+a course's look is derived from its id (`data/Looks.kt`, see
+[`app/README.md`](../app/README.md), "Conventions"). Not drawn yet: the
+assignment detail screen of the mockups.
+
 ### D. Soft tones with colour where it matters *(working direction)*
 
 The first mockup of D was plain black and white; the owner found the

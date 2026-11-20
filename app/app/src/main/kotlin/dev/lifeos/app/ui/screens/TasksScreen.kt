@@ -67,9 +67,12 @@ fun OpenTaskRow(core: LifeOsCore, task: Task) {
     var editing by rememberSaveable(task.id) { mutableStateOf(false) }
     val overdue = Dates.sectionOf(task.due, today()) == TaskSection.OVERDUE
     val pending = TaskLists.pendingEdit(task.id, outbox) != null
+    // The course or project: a small label in its colour (the same colour as on Courses).
+    val looks = LocalLooks.current
+    val look = looks.forTask(task)
+    val lookName = task.course?.let { name -> looks.match(name)?.name?.ifBlank { null } ?: name } ?: task.project
     val parts = listOfNotNull(
         dueLabel(task.due).takeIf { !overdue || task.due != null },
-        task.course ?: task.project,
         stringResource(R.string.outbox_waiting).takeIf { pending },
     )
     val tick = {
@@ -84,6 +87,8 @@ fun OpenTaskRow(core: LifeOsCore, task: Task) {
         overdue = overdue,
         onToggle = { tick() },
         onOpen = { editing = true },
+        look = look,
+        lookName = lookName,
     )
     if (editing) {
         TaskEditSheet(
@@ -130,8 +135,8 @@ private fun WaitingTasks(core: LifeOsCore) {
 
 @Composable
 private fun TaskCard(core: LifeOsCore, title: String, tasks: List<Task>, note: String? = null) {
-    LifeCard {
-        SectionHeader(title = title, note = note)
+    LifeCard(watermark = Watermark(LifeIcons.TasksMark, SectionTones.TASKS)) {
+        SectionHeader(title = title, note = note, icon = LifeIcons.Tasks, tone = SectionTones.TASKS)
         tasks.forEachIndexed { index, task ->
             if (index > 0) RowDivider()
             OpenTaskRow(core, task)
@@ -240,7 +245,7 @@ fun AllTasksScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
                     if (shown.isEmpty()) {
                         EmptyLine(stringResource(if (filter == null) R.string.tasks_empty else R.string.tasks_filter_empty))
                     } else {
-                        LifeCard {
+                        LifeCard(watermark = Watermark(LifeIcons.TasksMark, SectionTones.TASKS)) {
                             shown.forEachIndexed { index, task ->
                                 if (index > 0) RowDivider()
                                 OpenTaskRow(core, task)

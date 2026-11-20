@@ -4,6 +4,7 @@ import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -17,6 +18,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.pluralStringResource
@@ -35,9 +39,13 @@ import dev.lifeos.app.data.Announcements
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.Assignment
 import dev.lifeos.app.data.Assignments
+import dev.lifeos.app.data.Course
 import dev.lifeos.app.data.CourseFile
 import dev.lifeos.app.data.CourseList
 import dev.lifeos.app.data.CourseSummary
+import dev.lifeos.app.data.Dates
+import dev.lifeos.app.data.Deadline
+import dev.lifeos.app.data.Pattern
 import dev.lifeos.app.data.DownloadFailure
 import dev.lifeos.app.data.DownloadState
 import dev.lifeos.app.data.Endpoints
@@ -54,6 +62,7 @@ import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.time.ZoneId
 
 private const val SYNC_POLL_MILLIS = 2_000L
 private const val SYNC_POLLS = 60
@@ -154,23 +163,30 @@ fun CoursesScreen(
         }
     }
 
+    val lastSync = (summary as? UiState.Content<CourseSummary>)?.data?.lastSync ?: (courses as? UiState.Content<CourseList>)?.data?.lastSync
+    val synced = if (summary is UiState.Content || courses is UiState.Content) {
+        relativeIso(lastSync)?.let { stringResource(R.string.courses_last_sync, it) } ?: stringResource(R.string.courses_never_synced)
+    } else {
+        null
+    }
+
     Column(Modifier.fillMaxSize()) {
         TopBar(
             title = stringResource(R.string.more_courses),
+            subtitle = synced,
             onBack = onBack,
             onConnectionClick = onConnectionClick,
             actions = {
+                PillButton(
+                    text = stringResource(R.string.courses_all_grades),
+                    enabled = summary !is UiState.NotPaired,
+                    onClick = onGrades,
+                )
                 TopBarAction(
                     LifeIcons.Refresh,
                     stringResource(if (syncing) R.string.courses_syncing else R.string.courses_refresh),
                     enabled = !syncing && summary !is UiState.NotPaired,
                     onClick = startSync,
-                )
-                TopBarAction(
-                    LifeIcons.Grades,
-                    stringResource(R.string.courses_all_grades),
-                    enabled = summary !is UiState.NotPaired,
-                    onClick = onGrades,
                 )
             },
         )
@@ -194,70 +210,175 @@ fun CoursesScreen(
                 if (summary !is UiState.NotPaired) noticeOf(sync)?.let { SyncNoticeCard(it) }
                 // The summary card holds the upcoming deadlines and nothing else.
                 StateHost(summary, "", onRetry = refreshLists, onPair = onPair, skeletonRows = 2) { data: CourseSummary ->
-                    val upcoming = data.upcoming(System.currentTimeMillis() / 1000)
-                    LifeCard {
-                        SectionHeader(title = stringResource(R.string.courses_deadlines))
-                        if (upcoming.isEmpty()) {
-                            EmptyLine(stringResource(R.string.courses_no_deadlines))
-                        }
-                        upcoming.forEachIndexed { index, deadline ->
-                            if (index > 0) RowDivider(startIndent = 0.dp)
-                            Column(Modifier.padding(vertical = 8.dp)) {
-                                Text(deadline.name, style = LifeType.rowTitle, color = colors.text)
-                                Text(
-                                    listOfNotNull(deadline.due?.let { momentLabel(it, locale) }, deadline.course).joinToString(" · "),
-                                    style = LifeType.small,
-                                    color = colors.muted,
-                                )
-                            }
-                        }
-                    }
+                    DeadlineCard(data.upcoming(System.currentTimeMillis() / 1000), onOpenCourse)
                 }
                 if (summary !is UiState.NotPaired && summary !is UiState.Error) {
                     // One "saved copy" line for the screen is enough: the summary above carries it.
                     StateHost(courses, stringResource(R.string.courses_empty), onRetry = refreshLists, onPair = onPair, skeletonRows = 4, savedLine = false) { list: CourseList ->
-                        LifeCard {
-                            list.courses.forEachIndexed { index, course ->
-                                if (index > 0) RowDivider(startIndent = 0.dp)
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 60.dp)
-                                        .clickable(role = Role.Button) { onOpenCourse(course.id) }
-                                        .padding(vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(course.name.ifEmpty { course.shortname }, style = LifeType.rowTitle, color = colors.text)
-                                        val next = course.nextDeadline
-                                        Text(
-                                            text = if (next?.due != null) {
-                                                stringResource(R.string.courses_next_deadline, next.name, momentLabel(next.due, locale))
-                                            } else {
-                                                stringResource(R.string.courses_no_next_deadline)
-                                            },
-                                            style = LifeType.small,
-                                            color = colors.muted,
-                                        )
-                                    }
-                                    if (course.hasNew) NewBadge(course.new.total)
-                                    Icon(LifeIcons.Chevron, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
+                        SectionHeader(
+                            title = stringResource(R.string.courses_all),
+                            note = pluralStringResource(R.plurals.courses_count, list.courses.size, list.courses.size),
+                            icon = LifeIcons.Courses,
+                            iconTile = true,
+                        )
+                        CourseGrid(list.courses, locale, onOpenCourse)
                     }
                 }
-                // When the computer last synced: under the list, outside the deadline card.
-                (summary as? UiState.Content<CourseSummary>)?.data?.let { data ->
+            }
+        }
+    }
+}
+
+/** Days left until a deadline, as the ticket shows it: a big number and its unit, or "Today". */
+@Composable
+private fun DaysLeft(due: Long?, big: Boolean = true) {
+    val colors = LifeTheme.colors
+    val days = due?.let { Dates.daysUntil(it, today(), ZoneId.systemDefault()) } ?: return
+    val number = if (big) LifeType.bigNumber else LifeType.screenTitle
+    if (days <= 0) {
+        Text(stringResource(R.string.courses_due_today), style = number, color = colors.text, maxLines = 1)
+    } else {
+        Text("%d".format(days), style = number, color = colors.text)
+        Text(pluralStringResource(R.plurals.courses_days_unit, days.toInt()), style = LifeType.label, color = colors.muted)
+    }
+}
+
+/**
+ * P3: the upcoming deadlines on a rose card with a dotted ornament. The nearest three are
+ * tickets (a stripe in the course's colour on top, the days left in large, the name and the
+ * course); further ones follow as rows. Tapping one opens its course.
+ */
+@Composable
+private fun DeadlineCard(deadlines: List<Deadline>, onOpenCourse: (Long) -> Unit) {
+    val colors = LifeTheme.colors
+    val looks = LocalLooks.current
+    val locale = appLocale()
+    LifeCard(
+        tint = SectionTones.DEADLINES,
+        shape = RoundedCornerShape(topStart = 8.dp, topEnd = 26.dp, bottomEnd = 26.dp, bottomStart = 26.dp),
+        decoration = {
+            Ornament(Pattern.DOTS, SectionTones.DEADLINES, Modifier.align(Alignment.TopEnd).size(width = 110.dp, height = 46.dp))
+        },
+    ) {
+        SectionHeader(title = stringResource(R.string.courses_deadlines), icon = LifeIcons.Calendar, tone = SectionTones.DEADLINES, iconTile = true)
+        if (deadlines.isEmpty()) {
+            EmptyLine(stringResource(R.string.courses_no_deadlines))
+            return@LifeCard
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            deadlines.take(TICKETS).forEach { deadline ->
+                val ink = deadline.courseId?.let { colors.tone(looks.course(it).tone).ink } ?: colors.muted
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.bg)
+                        .drawBehind { drawRect(ink, size = Size(size.width, 4.dp.toPx())) }
+                        .clickable(enabled = deadline.courseId != null, role = Role.Button) { deadline.courseId?.let(onOpenCourse) }
+                        .padding(start = 10.dp, end = 10.dp, top = 12.dp, bottom = 9.dp),
+                ) {
+                    DaysLeft(deadline.due)
                     Text(
-                        text = relativeIso(data.lastSync)?.let { stringResource(R.string.courses_last_sync, it) }
-                            ?: stringResource(R.string.courses_never_synced),
+                        deadline.name,
+                        style = LifeType.label,
+                        color = colors.text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                    deadline.course?.let { Text(it, style = LifeType.small, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+            }
+            // Fewer than three: the tickets keep their width.
+            repeat(TICKETS - deadlines.size.coerceAtMost(TICKETS)) { Spacer(Modifier.weight(1f)) }
+        }
+        deadlines.drop(TICKETS).forEach { deadline ->
+            RowDivider(startIndent = 0.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .clickable(enabled = deadline.courseId != null, role = Role.Button) { deadline.courseId?.let(onOpenCourse) }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                deadline.courseId?.let { CourseMark(looks.course(it), size = 32.dp, onTint = true) }
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                    Text(deadline.name, style = LifeType.rowTitle, color = colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        listOfNotNull(deadline.due?.let { momentLabel(it, locale) }, deadline.course).joinToString(" · "),
                         style = LifeType.small,
                         color = colors.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
         }
+    }
+}
+
+private const val TICKETS = 3
+
+/**
+ * P3: the courses as tiles of different sizes: the first one wide, the others two by two, each
+ * in its course's colour with its icon and ornament.
+ */
+@Composable
+private fun CourseGrid(courses: List<Course>, locale: java.util.Locale, onOpenCourse: (Long) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        courses.firstOrNull()?.let { CourseCell(it, locale, RoundedCornerShape(20.dp), onOpenCourse, Modifier.fillMaxWidth()) }
+        courses.drop(1).chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CourseCell(pair[0], locale, RoundedCornerShape(topStart = 20.dp, topEnd = 8.dp, bottomEnd = 20.dp, bottomStart = 20.dp), onOpenCourse, Modifier.weight(1f).fillMaxHeight())
+                if (pair.size > 1) {
+                    CourseCell(pair[1], locale, RoundedCornerShape(topStart = 8.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp), onOpenCourse, Modifier.weight(1f).fillMaxHeight())
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CourseCell(course: Course, locale: java.util.Locale, shape: RoundedCornerShape, onOpenCourse: (Long) -> Unit, modifier: Modifier) {
+    val colors = LifeTheme.colors
+    val look = LocalLooks.current.course(course.id)
+    val toned = colors.tone(look.tone)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(toned.card)
+            .border(LifeDimens.hairline, toned.second, shape)
+            .clickable(role = Role.Button) { onOpenCourse(course.id) },
+    ) {
+        Box(Modifier.fillMaxWidth().height(48.dp)) {
+            Ornament(look.pattern, look.tone, Modifier.matchParentSize())
+            CourseMark(look, Modifier.padding(start = 10.dp, top = 8.dp), size = 32.dp, onTint = true)
+            if (course.hasNew) Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp)) { NewBadge(course.new.total) }
+        }
+        Text(
+            course.name.ifEmpty { course.shortname },
+            style = LifeType.rowTitle,
+            color = colors.text,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp),
+        )
+        val next = course.nextDeadline
+        Text(
+            text = if (next?.due != null) {
+                stringResource(R.string.courses_next_deadline, next.name, momentLabel(next.due, locale))
+            } else {
+                stringResource(R.string.courses_no_next_deadline)
+            },
+            style = LifeType.small,
+            color = colors.muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 10.dp),
+        )
     }
 }
 
@@ -291,7 +412,8 @@ fun CourseScreen(core: LifeOsCore, courseId: Long, onBack: () -> Unit, onConnect
     val pairing by core.pairing.collectAsStateWithLifecycle()
     val locked by core.locked.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(CourseTab.MATERIALS) }
-    val name = (courses as? UiState.Content<CourseList>)?.data?.courses?.firstOrNull { it.id == courseId }?.name
+    val course = (courses as? UiState.Content<CourseList>)?.data?.courses?.firstOrNull { it.id == courseId }
+    val name = course?.name
 
     LaunchedEffect(courseId, pairing != null, locked) {
         if (pairing != null && !locked) {
@@ -304,6 +426,7 @@ fun CourseScreen(core: LifeOsCore, courseId: Long, onBack: () -> Unit, onConnect
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = name ?: stringResource(R.string.course_title), onBack = onBack, onConnectionClick = onConnectionClick)
+        if (course != null) CourseHero(course, Modifier.padding(horizontal = LifeDimens.pad).padding(top = 4.dp, bottom = 10.dp))
         Row(
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
@@ -317,6 +440,46 @@ fun CourseScreen(core: LifeOsCore, courseId: Long, onBack: () -> Unit, onConnect
             CourseTab.ANNOUNCEMENTS -> AnnouncementsTab(core, courseId, onPair)
             CourseTab.ASSIGNMENTS -> AssignmentsTab(core, courseId, onPair)
             CourseTab.GRADES -> GradesTab(core, courseId, onPair)
+        }
+    }
+}
+
+/** P3: the course's header card in its colour, with its ornament, its icon and the next deadline. */
+@Composable
+private fun CourseHero(course: Course, modifier: Modifier = Modifier) {
+    val colors = LifeTheme.colors
+    val look = LocalLooks.current.course(course.id)
+    val toned = colors.tone(look.tone)
+    val shape = RoundedCornerShape(20.dp)
+    val next = course.nextDeadline
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(toned.card)
+            .border(LifeDimens.hairline, toned.second, shape),
+    ) {
+        Ornament(look.pattern, look.tone, Modifier.fillMaxWidth().height(40.dp))
+        Row(
+            Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CourseMark(look, size = 44.dp, onTint = true)
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text(
+                    text = next?.let { stringResource(R.string.course_next, it.name) } ?: stringResource(R.string.courses_no_next_deadline),
+                    style = LifeType.rowTitle,
+                    color = colors.text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                next?.due?.let { due ->
+                    val days = Dates.daysUntil(due, today(), ZoneId.systemDefault())
+                    val left = if (days <= 0) stringResource(R.string.courses_due_today) else pluralStringResource(R.plurals.courses_in_days, days.toInt(), days.toInt())
+                    Text(stringResource(R.string.course_due_line, momentLabel(due, appLocale()), left), style = LifeType.small, color = colors.muted)
+                }
+            }
+            if (course.hasNew) NewBadge(course.new.total)
         }
     }
 }
@@ -374,6 +537,8 @@ private fun MaterialsTab(core: LifeOsCore, courseId: Long, onPair: () -> Unit) {
                                 .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            CourseMark(LocalLooks.current.course(courseId), size = 40.dp, shape = RoundedCornerShape(12.dp), icon = LifeIcons.Link)
+                            Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(link.name.ifEmpty { link.url }, style = LifeType.rowTitle, color = colors.link)
                                 if (link.section.isNotEmpty()) Text(link.section, style = LifeType.small, color = colors.muted)
@@ -412,8 +577,12 @@ private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
             OpenResult.OPENED -> Unit
         }
     }
+    val look = LocalLooks.current.course(courseId)
     Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            // The file icon in the course's colour.
+            CourseMark(look, size = 40.dp, shape = RoundedCornerShape(12.dp), icon = LifeIcons.File)
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(file.name, style = LifeType.rowTitle, color = colors.text)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -595,9 +764,12 @@ fun AllGradesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () 
         TopBar(title = stringResource(R.string.courses_all_grades), onBack = onBack, onConnectionClick = onConnectionClick)
         TabBody(state.isRefreshing, model::refresh) {
             StateHost(state, stringResource(R.string.course_grades_empty), onRetry = model::refresh, onPair = onPair, skeletonRows = 5) { data: AllGrades ->
+                val looks = LocalLooks.current
                 data.courses.forEach { course ->
+                    val look = looks.course(course.id)
                     LifeCard {
-                        SectionHeader(title = course.name)
+                        // Each course keeps its colour and icon here too.
+                        SectionHeader(title = course.name, icon = look.glyph.icon(), tone = look.tone, iconTile = true)
                         GradeRows(course.overall, course.items)
                     }
                 }

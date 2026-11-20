@@ -268,6 +268,22 @@
     <string name="courses_last_sync">Last sync %1$s</string>
     <string name="courses_never_synced">Not synced yet</string>
     <string name="courses_all_grades">All grades</string>
+    <string name="courses_all">All courses</string>
+    <plurals name="courses_count">
+        <item quantity="one">%d course</item>
+        <item quantity="other">%d courses</item>
+    </plurals>
+    <string name="courses_due_today">Today</string>
+    <plurals name="courses_days_unit">
+        <item quantity="one">day</item>
+        <item quantity="other">days</item>
+    </plurals>
+    <plurals name="courses_in_days">
+        <item quantity="one">in %d day</item>
+        <item quantity="other">in %d days</item>
+    </plurals>
+    <string name="course_next">Next: %1$s</string>
+    <string name="course_due_line">Due %1$s · %2$s</string>
     <string name="courses_empty">No courses yet. They appear after the first sync on the computer.</string>
     <string name="courses_next_deadline">Next: %1$s, %2$s</string>
     <string name="courses_no_next_deadline">No upcoming deadline</string>

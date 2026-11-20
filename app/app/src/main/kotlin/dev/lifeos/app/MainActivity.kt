@@ -188,6 +188,10 @@ class MainActivity : AppCompatActivity() {
     /** Debug builds only (see `src/debug/.../TestAids.kt`); in release builds this does nothing. */
     private fun useTestAids(intent: Intent?) {
         TestAids.readSwitches(intent)
+        if (TestAids.wantsSampleData) {
+            welcomeDone = true
+            core.useSampleData()
+        }
         val realLock = TestAids.realLock(intent)
         val offer = TestAids.pairingText(intent)?.let(PairingText::parse) ?: return
         val label = getString(R.string.pair_label_default)

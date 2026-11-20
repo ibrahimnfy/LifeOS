@@ -266,6 +266,22 @@
     <string name="courses_last_sync">Son eşitleme: %1$s</string>
     <string name="courses_never_synced">Henüz eşitlenmedi</string>
     <string name="courses_all_grades">Tüm notlar</string>
+    <string name="courses_all">Tüm dersler</string>
+    <plurals name="courses_count">
+        <item quantity="one">%d ders</item>
+        <item quantity="other">%d ders</item>
+    </plurals>
+    <string name="courses_due_today">Bugün</string>
+    <plurals name="courses_days_unit">
+        <item quantity="one">gün</item>
+        <item quantity="other">gün</item>
+    </plurals>
+    <plurals name="courses_in_days">
+        <item quantity="one">%d gün kaldı</item>
+        <item quantity="other">%d gün kaldı</item>
+    </plurals>
+    <string name="course_next">Sıradaki: %1$s</string>
+    <string name="course_due_line">Son gün %1$s · %2$s</string>
     <string name="courses_empty">Henüz ders yok. Bilgisayardaki ilk eşitlemeden sonra görünürler.</string>
     <string name="courses_next_deadline">Sıradaki: %1$s, %2$s</string>
     <string name="courses_no_next_deadline">Yaklaşan son tarih yok</string>

@@ -1,0 +1,102 @@
+{
+  "_comment": "Invented sample answers for the debug test aid lifeos.test.sample_data. due_in_days becomes a moment (seconds) and due_date_in_days a date, counted from the day the app shows them.",
+  "GET /coach/plan": {
+    "prepared_at": "2026-01-01T06:00:00",
+    "age_seconds": 7200,
+    "stale": false,
+    "messages": [
+      {"id": "m-1", "kind": "focus", "text": "Finish the Project Alpha outline before anything else. The rest of the week builds on it.", "why": "Due today, and two other tasks wait for it."}
+    ],
+    "top_three": [
+      {"task": {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0}, "reason": "Due today; two tasks depend on it"},
+      {"task": {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1}, "reason": "One day late; about 30 minutes of work"},
+      {"task": {"id": "t-3", "title": "Reply about the essay topic", "course": "WRI 110"}, "reason": "Waiting for 6 days"}
+    ],
+    "order": [
+      {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0},
+      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1},
+      {"id": "t-3", "title": "Reply about the essay topic", "course": "WRI 110"},
+      {"id": "t-4", "title": "Review the check-in notes", "project": "Project Alpha", "due_date_in_days": 1},
+      {"id": "t-5", "title": "Prepare the lab kit", "course": "EMB 230", "due_date_in_days": 2},
+      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "LIN 101", "due_date_in_days": 0},
+      {"id": "t-7", "title": "Send the meeting notes", "due_date_in_days": 0}
+    ]
+  },
+  "GET /agenda": {
+    "date": "2026-01-01",
+    "events_today": [],
+    "tasks_overdue": [
+      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1}
+    ],
+    "tasks_today": [
+      {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0},
+      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "LIN 101", "due_date_in_days": 0},
+      {"id": "t-7", "title": "Send the meeting notes", "due_date_in_days": 0}
+    ]
+  },
+  "GET /tasks": {
+    "tasks": [
+      {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0},
+      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1},
+      {"id": "t-3", "title": "Reply about the essay topic", "course": "WRI 110"},
+      {"id": "t-4", "title": "Review the check-in notes", "project": "Project Alpha", "due_date_in_days": 1},
+      {"id": "t-5", "title": "Prepare the lab kit", "course": "EMB 230", "due_date_in_days": 2},
+      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "LIN 101", "due_date_in_days": 0},
+      {"id": "t-7", "title": "Send the meeting notes", "due_date_in_days": 0}
+    ]
+  },
+  "GET /notes": {
+    "notes": [
+      {"id": "i-sample000001", "kind": "inbox", "title": null, "at": "2026-01-01 08:15", "preview": "Ask about the lab schedule\nthe second session might move to Friday"},
+      {"id": "i-sample000002", "kind": "inbox", "title": null, "at": "2025-12-31 19:40", "preview": "Book idea: a short guide to signal filters"},
+      {"id": "n-sample-topic", "kind": "topic", "title": "Study plan", "at": "2025-12-20", "preview": "Two blocks a day, mornings for problem sets."}
+    ]
+  },
+  "GET /notes/ID": {"id": "i-sample000001", "kind": "inbox", "title": null, "at": "2026-01-01 08:15", "text": "Ask about the lab schedule\nthe second session might move to Friday"},
+  "GET /courses": {
+    "courses": [
+      {"id": 11, "name": "Signals and Systems", "shortname": "SIG 201", "next_deadline": {"name": "Assignment 2", "due_in_days": 2}, "new": {"files": 2, "announcements": 1, "deadlines": 0, "grades": 0}, "has_new": true},
+      {"id": 12, "name": "Embedded Systems Lab", "shortname": "EMB 230", "next_deadline": {"name": "Lab report 1", "due_in_days": 5}, "new": {"files": 1, "announcements": 0, "deadlines": 0, "grades": 0}, "has_new": true},
+      {"id": 13, "name": "Linear Algebra", "shortname": "LIN 101", "next_deadline": {"name": "Quiz 1", "due_in_days": 9}, "new": {}, "has_new": false},
+      {"id": 14, "name": "Technical Writing", "shortname": "WRI 110", "next_deadline": null, "new": {}, "has_new": false},
+      {"id": 15, "name": "Probability and Statistics", "shortname": "PRO 210", "next_deadline": {"name": "Midterm exam", "due_in_days": 16}, "new": {}, "has_new": false}
+    ],
+    "last_sync": "2026-01-01T07:00:00Z",
+    "stale": false
+  },
+  "GET /courses/summary": {
+    "configured": true,
+    "deadlines": [
+      {"course_id": 11, "course": "Signals and Systems", "name": "Assignment 2", "due_in_days": 2},
+      {"course_id": 12, "course": "Embedded Systems Lab", "name": "Lab report 1", "due_in_days": 5},
+      {"course_id": 13, "course": "Linear Algebra", "name": "Quiz 1", "due_in_days": 9},
+      {"course_id": 15, "course": "Probability and Statistics", "name": "Problem set 4", "due_in_days": 12}
+    ],
+    "new_total": 4,
+    "last_sync": "2026-01-01T07:00:00Z",
+    "stale": false
+  },
+  "GET /courses/sync": {"configured": true, "running": false, "last_sync": "2026-01-01T07:00:00Z", "last_error": null, "stale": false},
+  "GET /courses/ID/materials": {
+    "name": "",
+    "sections": [
+      {"name": "Week 1 · Introduction", "files": [
+        {"key": "f1", "name": "Lecture 1 slides.pdf", "type": "application/pdf", "size": 2100000},
+        {"key": "f2", "name": "Course outline.pdf", "type": "application/pdf", "size": 200000}
+      ]},
+      {"name": "Week 2 · Core concepts", "files": [
+        {"key": "f3", "name": "Lecture 2 slides.pdf", "type": "application/pdf", "size": 3100000, "new": true},
+        {"key": "f4", "name": "Exercise sheet 1.pdf", "type": "application/pdf", "size": 100000}
+      ]}
+    ],
+    "links": [{"section": "Week 2 · Core concepts", "name": "Reading list", "url": "https://example.invalid/reading"}]
+  },
+  "GET /courses/ID/announcements": {"announcements": [{"id": 1, "subject": "Lecture 2 slides are up", "text": "The slides and the first exercise sheet are in Week 2."}]},
+  "GET /courses/ID/assignments": {"assignments": [{"id": 1, "name": "Assignment 2", "due_in_days": 2, "status": {"submission": "new"}}]},
+  "GET /courses/ID/grades": {"overall": "82", "items": [{"name": "Assignment 1", "grade": "85", "range": "0–100"}]},
+  "GET /courses/grades": {"courses": [
+    {"id": 11, "name": "Signals and Systems", "overall": "82", "items": [{"name": "Assignment 1", "grade": "85", "range": "0–100"}]},
+    {"id": 13, "name": "Linear Algebra", "overall": "90", "items": [{"name": "Quiz 0", "grade": "9", "range": "0–10"}]}
+  ]},
+  "GET /activity": {"days": []}
+}

@@ -19,6 +19,8 @@ import dev.lifeos.app.data.CoachMessage
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.CoachRerun
 import dev.lifeos.app.data.CoachRotation
+import dev.lifeos.app.data.CourseList
+import dev.lifeos.app.data.Looks
 import dev.lifeos.app.data.Downloads
 import dev.lifeos.app.data.Endpoint
 import dev.lifeos.app.data.Endpoints
@@ -125,6 +127,11 @@ class LifeOsCore(private val app: Application) {
     val lastContactMillis: StateFlow<Long?> = lastContactState
     val pairProgress: StateFlow<PairState> = pairState
 
+    private val looksState = MutableStateFlow(Looks.EMPTY)
+
+    /** The colour and icon of every known course (from the last course list), the same on every screen. */
+    val looks: StateFlow<Looks> = looksState
+
     private val activityState = MutableStateFlow(0)
     private val activityLock = Mutex()
 
@@ -211,17 +218,57 @@ class LifeOsCore(private val app: Application) {
         if (lockedState.value || record == null) return null
         val copy = cache.get(endpoint.key) ?: return null
         return try {
-            api.decode(endpoint, copy.raw) to copy.savedAtMillis
+            (api.decode(endpoint, copy.raw) to copy.savedAtMillis).also { noteCourses(endpoint, it.first) }
         } catch (_: ApiException) {
             null
         }
     }
 
+    @Volatile
+    private var sample = false
+
+    /**
+     * Debug test aid only (`TestAids.wantsSampleData`; release builds never call this with
+     * effect): on a phone that is not paired, act as connected and show the invented sample
+     * answers. Nothing is sent anywhere and nothing is kept as a saved copy.
+     */
+    fun useSampleData() = synchronized(lock) {
+        if (record != null || sample || !TestAids.wantsSampleData) return@synchronized
+        sample = true
+        TestAids.startSampleData()
+        pairingState.value = PairingSummary(app.getString(R.string.pair_label_default), System.currentTimeMillis())
+        connectionState.value = ConnectionState.CONNECTED
+        reloadState.value++
+    }
+
     /** Ask the computer; a good answer becomes the new saved copy. Throws [ApiException]. */
     suspend fun <T> fetch(endpoint: Endpoint<T>): T {
         val (data, raw) = api.get(endpoint)
-        cache.put(endpoint.key, raw, System.currentTimeMillis())
+        if (!sample) cache.put(endpoint.key, raw, System.currentTimeMillis())
+        noteCourses(endpoint, data)
         return data
+    }
+
+    /**
+     * Make the courses' colours known on every screen: from the saved course list, or (when
+     * there is none yet) by asking the computer once for it.
+     */
+    fun loadLooks() {
+        if (saved(Endpoints.courses) != null) return
+        scope.launch {
+            try {
+                fetch(Endpoints.courses)
+            } catch (_: ApiException) {
+                // Not reachable or courses not set up: tasks keep colours from their names.
+            }
+        }
+    }
+
+    private fun noteCourses(endpoint: Endpoint<*>, data: Any?) {
+        if (endpoint.key != Endpoints.courses.key) return
+        val courses = (data as? CourseList)?.courses ?: return
+        val next = Looks.of(courses)
+        if (looksState.value != next) looksState.value = next
     }
 
     /** Keep a plan that was just prepared as the saved copy of the plan. */
@@ -702,6 +749,7 @@ class LifeOsCore(private val app: Application) {
         outbox.wipe()
         downloads.clear()
         rerunState.value = CoachRerun.State.Idle
+        looksState.value = Looks.EMPTY
         tickTimers.values.forEach { it.cancel() }
         tickTimers.clear()
         tickedState.value = emptySet()
