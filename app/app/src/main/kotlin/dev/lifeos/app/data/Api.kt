@@ -80,16 +80,26 @@ class Api(private val transport: Transport) {
 
     // ---- writes (sent through the outbox)
 
-    suspend fun addNote(text: String) {
-        call("POST", "/notes", body = buildJsonObject { put("text", JsonPrimitive(text)) }, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    /**
+     * A new note. With [clientId] (the phone's own id for it) a repeated send is answered with
+     * the note already stored, so sending again after an unclear attempt is safe.
+     */
+    suspend fun addNote(text: String, clientId: String? = null): NoteSaved {
+        val body = buildJsonObject {
+            put("text", JsonPrimitive(text))
+            if (clientId != null) put("client_id", JsonPrimitive(clientId))
+        }
+        return read(NoteSaved.serializer(), call("POST", "/notes", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS))
     }
 
-    suspend fun addTask(title: String, due: String?) {
+    /** A new task; [clientId] as for [addNote]. */
+    suspend fun addTask(title: String, due: String?, clientId: String? = null): TaskSaved {
         val body = buildJsonObject {
             put("title", JsonPrimitive(title))
             if (due != null) put("due", JsonPrimitive(due))
+            if (clientId != null) put("client_id", JsonPrimitive(clientId))
         }
-        call("POST", "/tasks", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+        return read(TaskSaved.serializer(), call("POST", "/tasks", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS))
     }
 
     /** Change a task's title and due date; a null [due] removes the date. */

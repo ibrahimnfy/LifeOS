@@ -302,17 +302,29 @@ Nothing on these screens is sample content any more. Not paired, they show
   edits, new and changed events are stored on the phone first and sent in
   order as soon as the computer answers. "Attempt started" is stored before
   an item is sent. If nothing left the phone, the item keeps waiting. If it
-  left but no answer came, a tick, a task edit or an event change is
-  repeated later (harmless; a tick answered with "task not found" counts as
-  done), while a new note, task or event and a note edit are marked
-  **"Please check"** and are sent again only when the owner says so, and
-  not before the first attempt can no longer arrive (six minutes). A note
+  left but no answer came, a tick, a task edit, an event change and a new
+  note or task are repeated later (harmless: a tick answered with "task not
+  found" counts as done, and a new note or task carries the phone's own id
+  as `client_id`, so the computer answers a repeat with the item it already
+  stored and never saves it twice), while a new event and a note edit are
+  marked **"Please check"** and are sent again only when the owner says so,
+  and not before the first attempt can no longer arrive (six minutes). A note
   edit sent again that is answered with "note not found" counts as done (the
   first attempt arrived and gave the note its new id). A second edit of a
   note replaces the first one while that is still waiting; once the first is
   on its way, the note cannot be edited until it is confirmed. A refusal by
   the computer is shown as "Not accepted". Unsent items are deleted on
   unpair.
+- **Offline-first notes and tasks** (`data/Local.kt`): a new note or task
+  is on every screen at once. While it waits it is shown where it belongs
+  (Tasks in its date section or under "Just added", Today when it is due
+  today or late, Show all, Notes on top) with "Waiting to sync"; when the
+  computer confirms it, its answer (the stored task, the note's id and time)
+  takes the item's place before it leaves the outbox, so nothing flickers
+  or appears twice; once a list from the computer that was asked for after
+  the confirmation arrives, the list itself carries it (kept in
+  `outbox/confirmed.json`, deleted on unpair). No model run is involved in
+  saving.
 - **Downloads** (`data/Downloads.kt`, `data/Download.kt`): first the direct
   way: the computer sends the file's address through the sealed channel and
   the phone fetches it over HTTPS straight into the Downloads collection
@@ -528,8 +540,13 @@ running on the computer with the relay set up.
 5. **Offline:** switch the phone to flight mode. After a moment the dot
    turns amber and the screens show "Saved copy · updated … ago". Capture a
    note: "Waiting to sync"; More → Notes lists it on top under "Waiting to
-   sync". Switch flight mode off: within seconds the note is in `inbox.md`,
-   once, and on the Notes screen it moves into the computer's list.
+   sync". Capture a task due today: it is on Tasks (in "Today", or under
+   "Just added" when the coach has a plan) and on Today at once, marked
+   "Waiting to sync", without pulling down. Switch flight mode off: within
+   seconds the note is in `inbox.md` and the task in `tasks.md`, each once;
+   on the screens they lose the mark and can be ticked and edited, with no
+   flicker and no duplicate. (If the connection drops in the middle of a
+   send, the item is simply sent again later; the computer recognises it.)
 6. **Notes and task edits:** capture a note; More → Notes shows it at the
    top of the list (newest first) together with the older captures and the
    topic notes. Type a word of it into the search field: only matching notes

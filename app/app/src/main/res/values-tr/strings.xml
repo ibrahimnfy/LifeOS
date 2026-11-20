@@ -206,6 +206,7 @@
     <string name="tasks_no_date">Tarihsiz</string>
     <string name="tasks_empty">Her şey tamam. Açık görev yok.</string>
     <string name="tasks_filter_empty">Bu filtreye uyan görev yok.</string>
+    <string name="tasks_just_added">Yeni eklenenler</string>
 
     <!-- Today additions -->
     <string name="today_empty">Bugün için bir şey yok.</string>

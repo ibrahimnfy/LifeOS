@@ -208,6 +208,7 @@
     <string name="tasks_no_date">No date</string>
     <string name="tasks_empty">All clear. No open tasks.</string>
     <string name="tasks_filter_empty">No tasks for this filter.</string>
+    <string name="tasks_just_added">Just added</string>
 
     <!-- Today additions -->
     <string name="today_empty">Nothing for today.</string>

@@ -204,11 +204,15 @@ every section in its own clearly visible card.*
   keyboard already open, a switch between **Note** and **Task**; for a task an
   optional due date.
 - **Behaviour:** saving closes the sheet and shows a short confirmation.
-  Without a connection the item is stored on the phone, shown as "waiting to
-  sync", and sent when the bridge is reachable again.
+  The item is saved on the phone and shown on every screen at once (Tasks,
+  Today, Notes), marked "waiting to sync" until the bridge confirms it, then
+  replaced by the stored item without flicker or duplicates (#121). It is
+  sent in the background through the outbox, also later when the computer
+  was off, with a phone-generated `client_id`, so an unclear send is simply
+  repeated. No model run is involved in saving.
 - **Also reachable from:** a home-screen shortcut and the share menu of other
   apps (share text or a link into LifeOS).
-- **Endpoints:** add note, add task *(planned, Phase 3)*.
+- **Endpoints:** `POST /notes`, `POST /tasks` (with `client_id`).
 
 ### 3.5 Tasks
 

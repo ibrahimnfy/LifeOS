@@ -84,6 +84,31 @@ data class Note(
     val editable: Boolean get() = kind == "inbox"
 }
 
+/** The answer to a new note (`POST /notes`): the stored note's id and time (`at`, ISO). */
+@Serializable
+data class NoteSaved(
+    val id: String? = null,
+    val at: String? = null,
+    val repeat: Boolean = false,
+    @SerialName("client_id") val clientId: String? = null,
+)
+
+/** The answer to a new task (`POST /tasks`): the stored task, or `gone` when it was removed on the computer meanwhile. */
+@Serializable
+data class TaskSaved(
+    val id: String? = null,
+    val title: String = "",
+    val done: Boolean = false,
+    val due: String? = null,
+    val project: String? = null,
+    val course: String? = null,
+    val added: String? = null,
+    val gone: Boolean = false,
+    val repeat: Boolean = false,
+) {
+    fun task(): Task? = if (gone || id == null) null else Task(id, title, done, due, project, course, added)
+}
+
 @Serializable
 data class Agenda(
     val date: String? = null,

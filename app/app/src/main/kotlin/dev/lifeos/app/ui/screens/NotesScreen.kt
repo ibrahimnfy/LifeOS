@@ -30,7 +30,9 @@ import dev.lifeos.app.data.Dates
 import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.Note
 import dev.lifeos.app.data.NoteList
+import dev.lifeos.app.data.LocalItems
 import dev.lifeos.app.data.NoteLists
+import dev.lifeos.app.data.listAtMillis
 import dev.lifeos.app.data.NoteRow
 import dev.lifeos.app.data.NoteSummary
 import dev.lifeos.app.data.OutboxItem
@@ -81,6 +83,7 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
     val model = rememberLoad(core, Endpoints.notes) { list: NoteList -> list.notes.isEmpty() }
     val state by model.state.collectAsStateWithLifecycle()
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
+    val confirmed by core.confirmed.items.collectAsStateWithLifecycle()
     val locked by core.locked.collectAsStateWithLifecycle()
     val reload by core.reload.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
@@ -134,8 +137,15 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
                 }
                 val current = search
                 if (query.isBlank() || state is UiState.NotPaired) {
-                    StateHost(state, stringResource(R.string.notes_empty), onRetry = model::refresh, onPair = onPair, skeletonRows = 5) { list: NoteList ->
-                        NoteCard(NoteLists.rows(list.notes, outbox), onOpenNote)
+                    // Notes the computer confirmed a moment ago come first, until its list has them.
+                    val server = (state as? UiState.Content<NoteList>)?.data?.notes.orEmpty()
+                    val added = LocalItems.notes(server, confirmed, state.listAtMillis)
+                    if (state is UiState.Empty && added.isNotEmpty()) {
+                        NoteCard(NoteLists.rows(added, outbox), onOpenNote)
+                    } else {
+                        StateHost(state, stringResource(R.string.notes_empty), onRetry = model::refresh, onPair = onPair, skeletonRows = 5) { list: NoteList ->
+                            NoteCard(NoteLists.rows(added + list.notes, outbox), onOpenNote)
+                        }
                     }
                 } else {
                     when (current) {

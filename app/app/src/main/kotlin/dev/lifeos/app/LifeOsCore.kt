@@ -20,7 +20,11 @@ import dev.lifeos.app.data.CoachMessage
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.CoachRerun
 import dev.lifeos.app.data.CoachRotation
+import dev.lifeos.app.data.Confirmed
+import dev.lifeos.app.data.ConfirmedStore
 import dev.lifeos.app.data.CourseList
+import dev.lifeos.app.data.LocalItems
+import dev.lifeos.app.data.NoteSummary
 import dev.lifeos.app.data.LookAssignments
 import dev.lifeos.app.data.LookStore
 import dev.lifeos.app.data.Looks
@@ -205,10 +209,23 @@ class LifeOsCore(private val app: Application) {
     /** Changes whenever screens should ask again: after unlocking, reconnecting, or a sent write. */
     val reload: StateFlow<Int> = reloadState
 
+    /** New notes and tasks the computer confirmed a moment ago, until its lists show them (see [LocalItems]). */
+    val confirmed = ConfirmedStore(File(app.filesDir, "outbox/confirmed.json"), System::currentTimeMillis)
+
     val outbox = Outbox(OutboxStore(File(app.filesDir, "outbox/outbox.json")), System::currentTimeMillis) { item ->
         when (item.kind) {
-            OutboxItem.Kind.NOTE -> api.addNote(item.text)
-            OutboxItem.Kind.TASK -> api.addTask(item.text, item.due)
+            // Kept as confirmed before the item leaves the outbox, so it never disappears in between.
+            OutboxItem.Kind.NOTE -> api.addNote(item.text, item.clientId).let { saved ->
+                val id = saved.id
+                if (id != null && item.clientId != null) {
+                    val note = NoteSummary(id, "inbox", null, LocalItems.noteMoment(saved.at), item.text)
+                    confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), note = note))
+                }
+            }
+            OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId).let { saved ->
+                val task = saved.task()
+                if (task != null && item.clientId != null) confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), task = task))
+            }
             OutboxItem.Kind.COMPLETE -> api.completeTask(checkNotNull(item.taskId))
             OutboxItem.Kind.EVENT_CREATE -> api.createEvent(checkNotNull(item.event))
             OutboxItem.Kind.EVENT_UPDATE -> api.updateEvent(checkNotNull(item.eventId), checkNotNull(item.event))
@@ -247,9 +264,15 @@ class LifeOsCore(private val app: Application) {
 
     /** Ask the computer; a good answer becomes the new saved copy. Throws [ApiException]. */
     suspend fun <T> fetch(endpoint: Endpoint<T>): T {
+        val askedAt = System.currentTimeMillis()
         val (data, raw) = api.get(endpoint)
         if (!sample) cache.put(endpoint.key, raw, System.currentTimeMillis())
         noteCourses(endpoint, data)
+        // A full list asked for after a confirmation holds the confirmed item (or it is done since).
+        when (endpoint.key) {
+            Endpoints.tasks.key, Endpoints.plan.key -> confirmed.caughtUp(tasks = true, askedAtMillis = askedAt)
+            Endpoints.notes.key -> confirmed.caughtUp(tasks = false, askedAtMillis = askedAt)
+        }
         return data
     }
 
@@ -775,6 +798,7 @@ class LifeOsCore(private val app: Application) {
         // Saved copies and unsent writes belong to the pairing: they go with it.
         cache.wipe()
         outbox.wipe()
+        confirmed.wipe()
         downloads.clear()
         rerunState.value = CoachRerun.State.Idle
         looksState.value = Looks.EMPTY
