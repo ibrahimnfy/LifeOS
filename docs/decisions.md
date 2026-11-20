@@ -206,3 +206,17 @@ a new entry is added that says what changed and why.
 - **Course colours are stable.** A course keeps the colour (and icon) it was first given for as long as it exists; a new course takes the next free colour; existing courses are never re-coloured. Replaces the agent's choice "tone `id mod 7` … a course's colour can change when courses are added or removed".
 - **The agent may restart the bridge user service itself** whenever merged work needs it, lets the start-up guardrail check run and checks its result. Never with administrator rights.
 - **Autonomous periods:** the agent starts filed, unblocked issues without asking; anything that needs the owner becomes a human issue on a running list and work continues elsewhere. A pause instruction applies only until the owner's next message unless stated otherwise.
+
+### Implementation choices for push hints (agent, #38 bridge side, 2026-11-21; cheap to change)
+- **Hint fields:** `e` event kind, `c` channel (`chat`, `courses`, `coach`, `reminders`), `o` the screen to open, `r` the item, `n` counts (course sync only). Questions and approvals go to `chat`; the course sign-in to `courses`; notices from `scripts/notify.sh` (new owner issues, guardrail results) to `reminders`, because there are only four channels (to confirm by the owner).
+- **Counts travel inside the sealed hint only;** the lock-screen text stays fixed per kind. Counts are low-sensitivity, but the rule "a push carries no readable content" applies to what FCM and the lock screen can see, so the app shows them only when unlocked.
+- **New assignments are a kind of their own** (`assignments` in the course counters); a new assignment's deadline is not counted a second time as a deadline.
+
+### Implementation choices for course resources (agent, #128, 2026-11-21; cheap to change)
+- **The run sees only the syllabus** (a copy in an empty temporary folder; `Read`, `Glob`, `WebSearch`, `WebFetch`; no memory, not saved as a session) and only proposes; the bridge downloads. Profile in `docs/permission-policy.md` 9.10.
+- **Safest default for "legal": an allow-list of hosts** for downloads (open-access publishers and archives; the owner adds more in `LIFEOS_RESOURCE_HOSTS`); everything else is listed only with its link, piracy hosts are dropped entirely; PDF and EPUB only. To be confirmed or widened by the owner (for example vendor documentation hosts, university-hosted material).
+- **Syllabus detection by name** of a downloaded course file or a page; a failed run counts the syllabus as read (asked again from the app), so a broken syllabus never loops. State apart from the course sync (`course-resources.json`), so neither overwrites the other.
+
+### Implementation choices for the coach conversation (agent, #110, 2026-11-21; cheap to change)
+- **One session in the memory folder, through the chat path:** the coach conversation is a normal session (either runner) recognised by its id, always on the `coach_chat` job, read-only, its model fixed; shown as "Coach", pinned. The SDK runner now records usage per job too.
+- **Compaction at about 400 KB of transcript**, before the next message: one turn in the old session proposes at most ten facts and a summary; the bridge writes checked `[owner …]`/`[inferred …]` lines into existing profile, project or course files and the summary into `coach/conversation.md`, one commit. A failed compaction renews the session anyway (no unbounded growth), keeping the previous summary.

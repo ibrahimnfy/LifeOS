@@ -62,8 +62,33 @@ def test_a_push_carries_only_a_sealed_hint(phone, fcm):
     assert "session-1234" not in json.dumps(body) and "answer" not in json.dumps(body)
     hint = e2e.open_sealed(secret, base64.b64decode(message["data"]["h"]))
     assert hint.header.direction == e2e.PUSH and hint.header.kind == e2e.PUSH_HINT
-    assert hint.payload == {"e": "answer", "r": "session-1234"}
+    assert hint.payload == {"e": "answer", "c": "chat", "o": "session", "r": "session-1234"}
     assert len(json.dumps(body)) < 4096
+
+
+def test_every_kind_has_a_channel_and_a_screen():
+    assert set(push.CHANNELS.values()) == {"chat", "courses", "coach", "reminders"}
+    assert set(push.CHANNELS) == set(push.OPENS) == push.EVENTS
+    hint = push.hint_for("courses", "5", "course", {"files": 2, "grades": 0, "x": True})
+    assert hint == {"e": "courses", "c": "courses", "o": "course", "r": "5", "n": {"files": 2}}
+
+
+def test_one_sync_is_one_push_with_counts_and_no_readable_content(phone, fcm, monkeypatch):
+    device_id, secret = phone
+    sent, _ = fcm
+    push.register(device_id, TOKEN)
+    new = {"files": 2, "pages": 1, "assignments": 1, "announcements": 0, "deadlines": 1,
+           "grades": 3}  # fmt: skip
+    notifications.send("LifeOS: new in your courses", "2 new files, …", "", None,
+                       event="courses", ref="5", opens="course", counts=new)  # fmt: skip
+    (_, body) = sent[0]
+    raw = json.dumps(body)
+    assert "files" not in raw and "course" not in raw and "grades" not in raw
+    hint = e2e.open_sealed(secret, base64.b64decode(body["message"]["data"]["h"]))
+    assert hint.payload == {
+        "e": "courses", "c": "courses", "o": "course", "r": "5",
+        "n": {"files": 2, "pages": 1, "assignments": 1, "deadlines": 1, "grades": 3},
+    }  # fmt: skip
 
 
 def test_push_counters_rise_and_are_separate_from_message_counters(phone, fcm):
@@ -119,7 +144,20 @@ def test_notifications_with_an_event_wake_the_phone(phone, fcm):
     notifications.send("LifeOS: other", "fixed text")  # no event: no push
     assert len(sent) == 1
     hint = e2e.open_sealed(secret, base64.b64decode(sent[0][1]["message"]["data"]["h"]))
-    assert hint.payload == {"e": "reminder", "r": "abc"}
+    assert hint.payload == {"e": "reminder", "c": "reminders", "o": "reminder", "r": "abc"}
+
+
+def test_an_event_is_one_push_the_script_does_not_push_again(tmp_path, monkeypatch):
+    log = tmp_path / "script.log"
+    script = tmp_path / "notify.sh"
+    script.write_text(f'#!/bin/sh\nprintf "%s\\n" "${{LIFEOS_NOTIFY_PUSH:-on}}" >> "{log}"\n')
+    script.chmod(0o755)
+    hints = []
+    monkeypatch.setattr(push, "send_hint", lambda *a, **k: hints.append(a))
+    monkeypatch.delenv("LIFEOS_NOTIFY_PUSH")
+    notifications.send("LifeOS: new in your courses", "1 new file.", "", script, event="courses")
+    notifications.send("LifeOS: allowed folders changed", "text", "", script)  # no event
+    assert len(hints) == 1 and log.read_text().splitlines() == ["off", "on"]
 
 
 def test_notice_endpoint_seals_title_and_link(client, auth, phone, fcm):
@@ -132,7 +170,8 @@ def test_notice_endpoint_seals_title_and_link(client, auth, phone, fcm):
     raw = json.dumps(sent[0][1])
     assert "Example" not in raw and "example.org/1" not in raw
     hint = e2e.open_sealed(secret, base64.b64decode(sent[0][1]["message"]["data"]["h"]))
-    assert hint.payload == {"e": "notice", "t": "[HUMAN] #1 Example", "l": "https://example.org/1"}
+    assert hint.payload == {"e": "notice", "c": "reminders", "o": "notice",
+                            "t": "[HUMAN] #1 Example", "l": "https://example.org/1"}  # fmt: skip
 
 
 def test_a_finished_run_wakes_the_phone_unless_switched_off(

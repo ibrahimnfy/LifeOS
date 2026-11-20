@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from . import audit, moodle, moodle_sync, moodle_watch
+from . import audit, moodle, moodle_sync, moodle_watch, resources
 from .claude import ClaudeError
 
 CACHE_SECONDS = 600
@@ -432,6 +432,36 @@ def courses_router() -> APIRouter:
         if not moodle_sync.seen(course_id):
             raise ClaudeError("course_not_found", 404, "no synced course has this id")
         return {"seen": True}
+
+    @routes.get("/{course_id}/resources")
+    def course_resources(course_id: int) -> dict:
+        """Textbooks and documents found from the syllabus: downloaded or listed only."""
+        return resources.view(course_id)
+
+    @routes.post("/{course_id}/resources/refresh")
+    def refresh_resources(course_id: int) -> JSONResponse:
+        """Ask for a new look at the syllabus (a model run, started in the background)."""
+        outcome = resources.request(course_id)
+        if outcome == "not_found":
+            raise ClaudeError("course_not_found", 404, "no synced course has this id")
+        if outcome == "no_syllabus":
+            raise ClaudeError("no_syllabus", 409, "no syllabus of this course has been found")
+        status = 202 if outcome == "queued" else 429
+        return JSONResponse({"reason": outcome, **resources.view(course_id)}, status_code=status)
+
+    @routes.post("/{course_id}/resources/{index}/offer")
+    def offer_resource(course_id: int, index: int, request: Request) -> dict:
+        """Offer a downloaded resource, fetched with ``GET /files/{offer}`` like a course file."""
+        items = resources.view(course_id)["items"]
+        record = _record(moodle_sync.load_state(), course_id)
+        folder = _folder(record)
+        item = items[index] if 0 <= index < len(items) else None
+        if folder is None or item is None or item["status"] != "downloaded":
+            raise ClaudeError("no_local_copy", 404, "this resource was not downloaded")
+        session_id = f"course-{course_id}"
+        path = folder / resources.FOLDER / item["file"]
+        offer = request.app.state.offers.for_path(path, session_id, {"course_id": course_id})
+        return {**offer.card(), "session_id": session_id}
 
     @routes.post("/{course_id}/files/{key}/address")
     def file_address(course_id: int, key: str) -> JSONResponse:

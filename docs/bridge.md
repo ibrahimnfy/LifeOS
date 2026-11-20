@@ -126,6 +126,9 @@ documented here as they are built.
 | POST | `/coach/question/answer` | yes | Records the owner's answer and files what it says |
 | POST | `/coach/question/skip` | yes | Skips the open question |
 | GET / PUT | `/coach/settings` | yes | Notification frequency, quiet hours, questions on or off |
+| GET | `/coach/chat` | yes | The coach conversation: session id, size, summary, model, usage (apart from the morning run) |
+| POST | `/coach/chat/messages` | yes | A message to the coach (compacts first when the conversation is long) |
+| POST | `/coach/chat/compact` | yes | Compacts the coach conversation now |
 | GET | `/moodle/status` | yes | Whether the Moodle sign-in is set up, its age and state |
 | GET | `/moodle/courses` | yes | The owner's courses on the university Moodle |
 | GET | `/moodle/courses/{id}` | yes | Sections, modules and files of one course |
@@ -144,6 +147,9 @@ documented here as they are built.
 | GET | `/courses/sync` | yes | Whether a sync is running, the last sync and its counts |
 | POST | `/courses/{id}/files/{key}/address` | yes | A download address on the university site (**contains the Moodle token**) |
 | POST | `/courses/{id}/files/{key}/offer` | yes | Offers the computer's copy of a file for `GET /files/{offer}` |
+| GET | `/courses/{id}/resources` | yes | Books and documents found from the syllabus: downloaded or listed only |
+| POST | `/courses/{id}/resources/refresh` | yes | Asks for a new course-resources run (in the background) |
+| POST | `/courses/{id}/resources/{index}/offer` | yes | Offers a downloaded resource for `GET /files/{offer}` |
 
 ### `POST /ask`
 
@@ -846,6 +852,27 @@ The daily plan and the coach's questions of
 one per answered question, on the owner's Claude plan. Reading the plan,
 ticking tasks, skipping a question and changing settings cost nothing.
 
+**The coach conversation** (`/coach/chat…`, [`coach-design.md`](coach-design.md)
+section 4.1): one persistent, read-only session in the memory folder on the
+`coach_chat` job (Opus), through the same path as chat sessions on either
+runner; compacted when its transcript passes about 400 KB, with the facts it
+learned written to the memory (`[owner …]` / `[inferred …]`) and the summary
+to `coach/conversation.md` in one commit; a new session continues from the
+summary. `GET /coach/chat` → `{"session_id", "started", "transcript_bytes",
+"compact_at_bytes", "compactions", "summary", "last_compaction",
+"earlier_sessions", "model", "effort", "usage": {"today", "week"},
+"morning_usage": {"today", "week"}}`. `POST /coach/chat/messages` answers
+like `POST /sessions/{id}/messages` (also streaming), plus `"compacted":
+{"facts", "summary", "session_id"}` when a compaction ran first; a model
+choice or `"mode": "capable"` is refused (`400`). Manual check:
+
+```
+curl -s -H "$H" -H "$J" -d '{"prompt":"What should I start with today?"}' $B/coach/chat/messages
+curl -s -H "$H" $B/coach/chat        # "started": true, "usage.today.runs" 1, "morning_usage" apart
+curl -s -X POST -H "$H" $B/coach/chat/compact   # one run; then a new "session_id"
+git -C ~/brain log -1 --format=%s     # "Compact the coach conversation" when facts or a summary came
+```
+
 - `GET /coach/plan` returns the last prepared plan against the tasks that
   are open now, **without a model run**:
   `{"prepared_at": "2027-01-15T06:30:00Z", "age_seconds": 5400, "stale":
@@ -1074,12 +1101,13 @@ appears later. A course the site stops listing (hidden, or
 left) disappears from the lists but keeps its folder and its record, so
 nothing is fetched twice if it comes back. After that, a sync that found new or changed files, new
 or changed pages and books (their text changed, not only their revision),
-new announcements, new or moved deadlines, or new or changed grades sends
-**one** notification "LifeOS: new in your courses" whose text is built from
-counts only, for example "2 new files, 1 page, 1 announcement, 1 grade.". It goes
-through `scripts/notify.sh`, so the phone will get it as a push once that
-exists. No notification, log line or error contains a course name, a file
-name, a grade or an address.
+new assignments, new announcements, new or moved deadlines, or new or
+changed grades sends **one** notification "LifeOS: new in your courses"
+whose text is built from counts only, for example "2 new files, 1 page, 1
+assignment, 1 announcement, 1 grade.". It goes through `scripts/notify.sh`
+and as one sealed push with the counts (see "Push notifications to the
+phone"). No notification, log line or error contains a course name, a
+file name, a grade or an address.
 
 **Endpoints.** All read the stored state, answer at once and keep working
 while the site cannot be reached. Lists carry `"last_sync"` and `"stale"`
@@ -1091,7 +1119,7 @@ a half hours). Times are the site's number plus `…_iso`.
   "stale"}`: what is due in the next 14 days, nearest first.
 - `GET /courses` → `{"courses": [{"id", "name", "shortname",
   "next_deadline": {"name", "due", "due_iso"} | null, "new": {"files",
-  "pages", "announcements", "deadlines", "grades"}, "has_new",
+  "pages", "assignments", "announcements", "deadlines", "grades"}, "has_new",
   "folder_exists"}]}`.
 - `GET /courses/{id}/materials` → `{"course_id", "name", "sections":
   [{"name", "files": [{"key", "name", "type", "size", "modified",
@@ -1165,6 +1193,50 @@ the phone. Two ways, neither with a model run:
    `LIFEOS_MAX_FILE_MB` (`409 file_unavailable`). This is the fallback
    when the direct way fails.
 
+### Course resources from the syllabus
+
+The one course feature that uses a model, kept apart from the sync. The
+sync only notes each course's syllabus: a downloaded course file or a page
+whose name looks like one ("syllabus", "course outline", "izlence", "ders
+planı" and similar), with a fingerprint of its version. When the
+fingerprint is new or changed, or the owner asks, the bridge's background
+loop runs one **course-resources job** (Sonnet with the Opus advisor, see
+"Model routing per job"), one course at a time. The run's permissions are
+the profile in [`permission-policy.md`](permission-policy.md) section 9.10:
+it sees only a copy of the syllabus, may read and search the web, writes
+nothing, and proposes a list. **The bridge downloads** by its own rules:
+HTTPS, hosts on the allow-list of open-access publishers plus
+`LIFEOS_RESOURCE_HOSTS`, no private addresses, PDF or EPUB only, the size
+limit of course files, at most ten per run. Paid books, web pages and other
+hosts are listed only; piracy sources are dropped. A downloaded address,
+or one listed for a final reason, is never fetched again; items listed
+because of the per-run limit, a failed or too-large download, an
+unreachable host or a host not (yet) on the list are tried again at the
+next run. A run that failed counts the syllabus as read (no loop); ask
+again from the app. `"last_result"` is `ok`, `web_denied` (the web tools
+were refused; nothing stored), `folder_not_allowed`, `folder_missing`, or
+a run error code.
+
+- In the course folder: `resources/` with the downloaded files and
+  `resources/sources.md` (per item: title, link, kind, licence, why it is
+  legal, "Downloaded as …" or "Listed only (reason)"; outside text).
+- `GET /courses/{id}/resources` → `{"course_id", "syllabus": {"name"} |
+  null, "items": [{"title", "url", "kind": "open_access_book" |
+  "vendor_documentation" | "public_material" | "paid" | "other",
+  "licence", "why_legal", "reference", "status": "downloaded" | "listed",
+  "file", "reason": null | "paid" | "other" | "host_not_allowed" |
+  "not_https" | "private_address" | "not_a_document" | "too_large" |
+  "download_failed" | "later" | …}], "running", "pending", "last_run",
+  "last_result"}`. Never starts a run.
+- `POST /courses/{id}/resources/refresh` → `202` with `"reason": "queued"`
+  and the view above; `429 "too_soon"` within ten minutes of the last run;
+  `409 no_syllabus`; `404 course_not_found`.
+- `POST /courses/{id}/resources/{index}/offer` → a file offer (as for
+  course files) for a downloaded item, by its position in `items`; `404
+  no_local_copy` for a listed one.
+- State: `~/.config/lifeos/course-resources.json` (mode 600), apart from
+  the sync's state.
+
 ## Paired phones and the relay
 
 The phone never connects to the computer. Both sides make outbound HTTPS
@@ -1228,10 +1300,30 @@ are used, so it works while the app is closed.
   (`POST /push/token` with `{"token": "…"}`; this path exists only on the
   relay). It is stored with the device record and removed on revocation or
   when the push service reports it as gone.
-- Events that wake the phone: an answer is ready (a run of a session ended;
-  off per session with `notify_replies`), a session reminder is due, the
-  coach's daily note, new course content, the course sign-in needs renewal,
-  and a notice from `scripts/notify.sh`.
+- **The sealed hint** is a JSON object: `e` (event kind), `c` (the Android
+  channel), `o` (the screen a tap opens), `r` (the item, optional), `n`
+  (counts, courses only) and, for a notice, `t` and `l`:
+
+  | `e` | `c` | `o` | `r` | When |
+  |---|---|---|---|---|
+  | `answer` | `chat` | `session` | session id | a run of a session ended (off per session with `notify_replies`) |
+  | `question`, `approval` | `chat` | `session` | session id | a run waits for the owner (SDK runner) |
+  | `courses` | `courses` | `course` / `courses` | course id when one course changed, else none | a course sync found something (one push per sync) |
+  | `signin` | `courses` | `moodle_signin` | – | the course sign-in needs renewal |
+  | `coach` | `coach` | `coach` | – | the coach's daily note |
+  | `reminder` | `reminders` | `reminder` | reminder id | a session reminder is due |
+  | `notice` | `reminders` | `notice` | – (`t`, `l`) | `scripts/notify.sh` (for example a new owner issue) |
+
+- **Courses: one push per sync.** Every change one sync finds (new or
+  changed files, new or changed pages and books, new assignments, new
+  announcements, new or moved deadlines, new or changed grades) goes into a
+  single push whose `n` holds the counts per kind, for example `{"files": 2,
+  "assignments": 1, "grades": 1}`. A new assignment counts as an assignment,
+  not also as a deadline. The first sync ever sends one push without counts.
+- **Lock screen:** the counts, the notice title and every reference stay
+  inside the sealed hint. The app shows a **fixed text per event kind** on
+  the lock screen (for example "New in your courses", "An answer is
+  ready"); it may show counts only once the phone is unlocked.
 - `POST /push/notify` with `{"title": "…", "link": "…"}` is what
   `scripts/notify.sh` calls when the bridge is running; title and link
   travel inside the sealed hint only. `LIFEOS_NOTIFY_PUSH=off` makes the
@@ -1239,6 +1331,11 @@ are used, so it works while the app is closed.
 - A push that cannot be sent is not retried; the phone sees everything when
   it next connects. Nothing about pushes is logged.
 - The app's side (receiving, showing the notification) is not built yet.
+- Manual check (bridge side, with a paired phone that registered its push
+  address): `curl -s -X POST -H "$H" -H "$J" -d '{"title":"test"}'
+  $B/push/notify` answers `{"phones_reached": 1}`; after a course refresh
+  that found something, the bridge log shows no course names, and the
+  phone (once the app side exists) shows one "courses" notification.
 
 ## Moodle sign-in
 
@@ -1537,6 +1634,19 @@ grep -c token= ~/.config/lifeos/audit/*.jsonl    # 0 in every file: never an add
 grep RelayRequest ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl | tail -n 3
 git -C ~/brain log -1 --format=%s                # "Sync courses from the university platform" after the first sync
 curl -s -H "$H" "$B/events?start=<today>&end=<in 30 days>"   # upcoming deadlines, each with a note "moodle:…"
+```
+
+Course resources (one routine-job run on the owner's plan per syllabus; a
+course whose materials include a file or page named like a syllabus):
+
+```
+curl -s -H "$H" $B/courses/<id>/resources        # "syllabus": {"name"}; "pending": true after the sync found it
+# within a minute or two the run is done (the bridge's loop starts it); then:
+curl -s -H "$H" $B/courses/<id>/resources        # "items": downloaded or listed, "last_result": "ok"
+ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources     # sources.md and the downloaded PDFs/EPUBs
+grep -c 'Listed only' "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources/sources.md
+curl -s -X POST -H "$H" $B/courses/<id>/resources/refresh   # 429 "too_soon" within ten minutes of a run
+curl -s -H "$H" $B/models/routing | grep -o '"course_resources"[^}]*'   # model sonnet, advisor opus; runs today 1
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

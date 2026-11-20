@@ -45,6 +45,8 @@ ENV_ALLOW_LIST = (
     "DBUS_SESSION_BUS_ADDRESS",
 )
 
+# What a read-only profile may add (docs/permission-policy.md 9.10): web tools, no writing.
+PROFILE_TOOLS = frozenset({"Read", "Glob", "Grep", "WebSearch", "WebFetch"})
 CAPABLE_TOOLS = "Read,Glob,Grep,Edit,Write,Bash"
 # The terminal's structured question tool; only runs with an answering host get it.
 QUESTION_TOOL = "AskUserQuestion"
@@ -61,9 +63,26 @@ class Policy:
     # Capable runs: one JSON carrying the sandbox requirement and all grants.
     settings_json: str | None = None
     add_dirs: tuple[Path, ...] = ()
+    # Allow rules for tools that would otherwise ask, and so be denied in dontAsk
+    # (the web tools of the course-resources profile).
+    allowed: str = ""
 
 
 READ_ONLY = Policy()
+WEB_TOOLS = frozenset({"WebSearch", "WebFetch"})
+
+
+def profile_policy(tools: str) -> Policy:
+    """A read-only run with extra tools (docs/permission-policy.md 9.10).
+
+    In ``dontAsk`` a web tool would be denied as "needs approval", so the web
+    tools named here also get an allow rule; nothing that writes is accepted.
+    """
+    names = [name for name in tools.split(",") if name]
+    if set(names) - PROFILE_TOOLS:
+        raise ClaudeError("bad_policy", 500, "only reading and web tools may be given to a run")
+    return Policy(tools=",".join(names), allowed=",".join(n for n in names if n in WEB_TOOLS))
+
 
 STREAM_LINE_LIMIT = 32 * 1024 * 1024
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -187,6 +206,8 @@ def run_flags(
         "--disable-slash-commands",
         "--max-turns", str(settings.max_turns),
     ]  # fmt: skip
+    if policy.allowed:
+        command += ["--allowedTools", policy.allowed]
     if policy.capable:
         # Everything a capable run is granted lives in this one JSON, next to
         # the sandbox requirement. Nothing is granted on the command line.
@@ -356,8 +377,12 @@ async def run(
     job: str = "chat",
     on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
     persist: bool = True,
+    tools: str | None = None,
 ) -> RunResult:
     """Run one read-only prompt to completion and return the answer.
+
+    ``tools`` replaces the read-only tool list for a profile of
+    docs/permission-policy.md (the course-resources run); never a write tool.
 
     ``job`` names the run for the plan-usage counters (routing.py). When the
     CLI refuses to start with ``advisor`` (the documented launch error for a
@@ -367,7 +392,7 @@ async def run(
         return await _run_once(
             settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
             grace=grace, context=context, model=model, effort=effort, advisor=advisor,
-            job=job, on_process=on_process, persist=persist,
+            job=job, on_process=on_process, persist=persist, tools=tools,
         )  # fmt: skip
     except ClaudeError as error:
         if not advisor or error.code != "claude_failed":
@@ -375,7 +400,7 @@ async def run(
     return await _run_once(
         settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, advisor=None, job=job,
-        on_process=on_process, persist=persist,
+        on_process=on_process, persist=persist, tools=tools,
     )  # fmt: skip
 
 
@@ -395,6 +420,7 @@ async def _run_once(
     job: str,
     on_process: Callable[[asyncio.subprocess.Process], None] | None,
     persist: bool = True,
+    tools: str | None = None,
 ) -> RunResult:
     command = build_command(
         settings,
@@ -407,6 +433,7 @@ async def _run_once(
         effort=effort,
         advisor=advisor,
         persist=persist,
+        policy=profile_policy(tools) if tools else READ_ONLY,
     )
     process = await _start(settings, command, cwd or settings.ask_dir)
     if on_process is not None:

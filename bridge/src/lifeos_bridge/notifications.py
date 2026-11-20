@@ -36,21 +36,28 @@ def send(
     *,
     event: str | None = None,
     ref: str = "",
+    opens: str | None = None,
+    counts: dict | None = None,
 ) -> None:
     """Texts passed here must not contain prompts, notes, titles of sessions or paths.
 
     With ``event`` the paired phones are woken too, by a sealed hint without
-    readable content (``push.send_hint``); ``ref`` names the item it concerns.
+    readable content (``push.send_hint``); ``ref`` names the item it concerns,
+    ``opens`` the screen a tap opens, ``counts`` what changed (sealed only).
     """
     if event:
         from . import push  # local import: push needs the device store
 
         with contextlib.suppress(Exception):
-            push.send_hint(event, ref)
+            push.send_hint(event, ref, opens=opens, counts=counts)
     script = script or default_script()
     if script is None or not script.is_file():
         return
+    # The phones were woken above (or need no push): the script must not wake them a
+    # second time through /push/notify.
+    environment = {**os.environ, "LIFEOS_NOTIFY_PUSH": "off"} if event else None
     with contextlib.suppress(OSError, subprocess.SubprocessError):
         subprocess.run(  # noqa: S603
-            [str(script), title, message, link], capture_output=True, timeout=10, check=False
-        )
+            [str(script), title, message, link],
+            capture_output=True, timeout=10, check=False, env=environment,
+        )  # fmt: skip
