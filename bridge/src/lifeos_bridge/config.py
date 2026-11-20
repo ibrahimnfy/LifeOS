@@ -47,8 +47,11 @@ class Settings:
     # What a session uses unless it names its own model and effort.
     default_model: str | None = None
     default_effort: str | None = None
-    # Model of the bridge's own runs (coach, context map); None = the default.
+    # Older single setting for the bridge's own runs; still honoured for every
+    # job LIFEOS_MODEL_ROUTING does not name (see routing.py).
     background_model: str | None = None
+    # Job → (model, effort, advisor, advisor given), from LIFEOS_MODEL_ROUTING.
+    model_routing: Mapping[str, tuple] = field(default_factory=dict)
     # Model names the app offers. The CLI validates the choice when a run starts.
     models: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
     max_file_mb: int = 50
@@ -160,11 +163,19 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             f"LIFEOS_ASK_DIR must be an absolute path or start with ~, got {raw_ask_dir!r}"
         )
 
+    from . import routing  # local import: routing reads the config folder from here
+
+    try:
+        model_routing = routing.parse(values.get(routing.ROUTING_VAR))
+    except routing.RoutingError as exc:
+        raise ConfigError(str(exc)) from exc
+
     return Settings(
         token=token,
         host=host,
         port=port,
         ask_dir=ask_dir,
+        model_routing=model_routing,
         ask_timeout=_int_setting(values, "LIFEOS_ASK_TIMEOUT", DEFAULT_ASK_TIMEOUT, 5, 3600),
         max_concurrent=_int_setting(values, "LIFEOS_MAX_CONCURRENT", DEFAULT_MAX_CONCURRENT, 1, 16),
         max_turns=_int_setting(values, "LIFEOS_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 200),

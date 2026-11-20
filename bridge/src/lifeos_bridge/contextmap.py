@@ -16,7 +16,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 
-from . import claude, memory
+from . import claude, memory, routing
 from .claude import ClaudeError
 from .config import Settings
 
@@ -123,7 +123,7 @@ async def refresh_folder(settings: Settings, folder: Path, today: date | None = 
         session_id=str(uuid.uuid4()),
         resume=False,
         cwd=folder,
-        model=settings.background_model,
+        **routing.run_options(settings, "context_map"),
     )
     data = claude.json_from_answer(result.answer)
     memory_dir = settings.ask_dir

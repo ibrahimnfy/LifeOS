@@ -32,6 +32,7 @@ from . import (
     push,
     relay,
     reminders,
+    routing,
     runcontrol,
     session_meta,
     sessions,
@@ -454,6 +455,12 @@ def create_app(settings: Settings) -> FastAPI:
             "default_model": settings.claude_model or settings.default_model,
             "default_effort": settings.default_effort,
         }
+
+    @app.get("/models/routing")
+    async def model_routing():
+        """Each model job: its model, effort and advisor, and the plan usage of its runs
+        today and this week. Never starts a run."""
+        return await asyncio.to_thread(routing.overview, settings)
 
     @app.post("/sessions/{session_id}/cancel")
     async def cancel_run(session_id: str):

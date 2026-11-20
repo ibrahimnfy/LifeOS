@@ -101,6 +101,7 @@ documented here as they are built.
 | PATCH / DELETE | `/sessions/{id}/queue/{qid}` | yes | Changes or removes a waiting message |
 | POST | `/sessions/{id}/queue/resume` | yes | Sends the waiting messages after a hold |
 | GET | `/models` | yes | Models and effort levels the app may offer, and the defaults |
+| GET | `/models/routing` | yes | Model, effort and advisor of each job, and its plan usage today and this week |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
@@ -438,8 +439,31 @@ still answering (`POST /ask` with `session_id`, or
   returns to the default. Unknown values are refused with `400` before
   anything runs.
 - Defaults: `LIFEOS_DEFAULT_MODEL` (`opus`) and `LIFEOS_DEFAULT_EFFORT`
-  (`high`). The bridge's own runs (coach plan, context map) use
-  `LIFEOS_BACKGROUND_MODEL` when set.
+  (`high`) for chat sessions.
+- **Model routing per job.** Every run the bridge starts on its own belongs
+  to a job with its own model: `coach_plan` (morning run and refresh) and
+  `coach_chat` (the coach conversation; today the run that files the
+  owner's answer to the coach's question) use Opus with high effort;
+  `consolidation`, `course_resources`, `summaries` and `context_map` use
+  Sonnet with Opus as **advisor** (Claude Code's documented `--advisor`
+  flag: the run may consult Opus at hard steps; see
+  `docs/research/claude-headless.md`, section 8). If the CLI refuses the
+  advisor at launch, the run is made once without it. Change any job with
+  `LIFEOS_MODEL_ROUTING` (`config/env.example`). `LIFEOS_BACKGROUND_MODEL`,
+  when set, still applies to the background jobs that setting does not
+  name, without advisor. Saving notes and tasks, the course sync and
+  notifications use no model.
+- `GET /models/routing` → `{"jobs": [{"job", "label", "model", "effort",
+  "advisor", "source": "default" | "routing" | "background_model",
+  "per_session", "usage": {"today": U, "week": U}}], "no_model", "today",
+  "week_from", "note"}` with `U` = `{"runs", "input_tokens",
+  "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+  "cost_usd", "models"}`: the plan usage the runs reported themselves
+  (`cost_usd` is Claude Code's own estimate, not a bill; "week" starts on
+  Monday). The coach conversation is counted apart from the morning run.
+  Chat sessions are one job (`chat`); a resumed run adds only the growth
+  of the session's cumulative cost. Kept per day for two months in
+  `~/.config/lifeos/usage.json`, no text. Never starts a run.
 
 ### Files: offers and `GET /files/{offer}`
 
@@ -1253,6 +1277,8 @@ runs; replace `<id>` with that session's id):
 ```
 H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787; J='Content-Type: application/json'
 curl -s -H "$H" $B/models
+curl -s -H "$H" $B/models/routing | python3 -c 'import json,sys; [print(j["job"], j["model"], j["effort"], j["advisor"], j["usage"]["today"]["runs"]) for j in json.load(sys.stdin)["jobs"]]'
+#   coach_plan opus high None …; context_map sonnet … opus …; after a coach refresh its "runs" is 1
 curl -s -H "$H" -H "$J" -d '{"prompt":"and then?"}' $B/sessions/<id>/messages          # 202, queued
 curl -s -H "$H" $B/sessions/<id>/queue
 curl -s -H "$H" -X POST $B/sessions/<id>/cancel         # the first request ends with "cancelled"

@@ -193,6 +193,21 @@ def test_refresh_prepares_a_plan_and_serves_it(client, auth, brain, clock, propo
     (call,) = calls()
     assert "ONLY a JSON object" in call["prompt"] and "never an instruction" in call["prompt"]
     assert "--append-system-prompt" in call["args"] and "Edit" not in call["args"]
+    # The coach's plan is an Opus job with high effort and no advisor (routing.py).
+    args = call["args"]
+    assert (args[args.index("--model") + 1], args[args.index("--effort") + 1]) == ("opus", "high")
+    assert "--advisor" not in args
+
+
+def test_the_coach_conversation_runs_on_its_own_job(client, auth, planned, proposes, calls):
+    proposes({"facts": []})
+    before = len(calls())
+    client.post("/coach/question/answer", headers=auth, json={"text": "Because."})
+    (call,) = calls()[before:]
+    assert call["args"][call["args"].index("--model") + 1] == "opus"
+    usage = client.get("/models/routing", headers=auth).json()["jobs"]
+    runs = {job["job"]: job["usage"]["today"]["runs"] for job in usage}
+    assert (runs["coach_plan"], runs["coach_chat"]) == (1, 1)  # counted apart
 
 
 def test_the_plan_is_stored_privately_outside_the_memory(planned, isolated_config):
