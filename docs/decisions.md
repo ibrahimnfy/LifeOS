@@ -169,3 +169,8 @@ a new entry is added that says what changed and why.
 - **Approvals go through the gate's `ask`** on the SDK runner: the gate keeps writing the audit entry first and refusing never-allowed actions; the bridge re-checks the command, audits request and outcome, and allows exactly the shown command only after an explicit yes. Verified with the real CLI that `ask` reaches the callback even with automatic approval of sandboxed commands.
 - **Answering client = a request that streams the answer** (directly or through the relay). Without one, questions and approvals are refused at once as before. Pending items live in memory only; a push hint wakes the phones.
 - **Time limit:** `LIFEOS_INTERACTION_TIMEOUT` (600 s); no answer counts as no; the run's own time limit pauses while it waits.
+
+### Implementation choices for the capable mode on the SDK runner (agent, #106; cheap to change)
+- **One marker per runner** (`capable-mode.json` for `claude -p`, `capable-mode-sdk.json` for the SDK runner, which also records the Agent SDK version). A marker written before markers named their runner counts for `cli` only.
+- **Routing on the SDK runner:** SDK when its marker matches; otherwise the `claude -p` fallback when that marker matches (closing the session's SDK process first); otherwise `503`. A capable request that does not stream cannot be asked for approvals, so its approval actions are refused as on the `claude -p` path.
+- **Real SDK-path suite result:** 48 of 49 probes passed. The one failure (a sandboxed command could write in the root of the repository checkout that contained the run folder) also fails on the `claude -p` path in the same scratch layout. It is reported for the owner; no guardrail was changed.

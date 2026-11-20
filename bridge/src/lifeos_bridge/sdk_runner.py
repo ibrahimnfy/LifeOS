@@ -54,7 +54,9 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     ResultMessage,
     StreamEvent,
+    ToolResultBlock,
     Transport,
+    UserMessage,
 )
 from claude_agent_sdk._errors import MessageParseError
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
@@ -121,9 +123,9 @@ APPROVAL_TIMEOUT = (
 )
 
 
-def child_env() -> dict[str, str]:
+def child_env(*, capable: bool = False) -> dict[str, str]:
     """The allow-listed environment of every run, plus the SDK's protocol markers."""
-    return {**claude.child_env(), **SDK_ENV}
+    return {**claude.child_env(capable=capable), **SDK_ENV}
 
 
 def build_command(
@@ -135,8 +137,14 @@ def build_command(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    policy: claude.Policy = claude.READ_ONLY,
 ) -> list[str]:
-    """The command of a live session: the read-only flags, with the bridge as permission host."""
+    """The command of a live session: the flags of ``claude -p``, with the bridge as host.
+
+    ``policy`` is read-only by default; a capable policy (``capable.build_policy``
+    with ``ask_host``) adds its settings JSON and folders exactly as on the
+    ``claude -p`` path.
+    """
     return [
         resolve_cli(settings),
         *claude.STREAM_OUTPUT_FLAGS,
@@ -145,6 +153,7 @@ def build_command(
             session_id=session_id,
             resume=resume,
             name=name,
+            policy=policy,
             context=context,
             model=model,
             effort=effort,
@@ -261,6 +270,23 @@ class Launch:
     model: str | None
     effort: str | None
     context: str | None
+    # Read-only unless the guardrail check passed for this runner (#106).
+    policy: claude.Policy = claude.READ_ONLY
+
+
+def observed(message: UserMessage) -> dict:
+    """A user message (tool results) in the stream-json shape ``capable.AuditWatch`` reads."""
+    content = message.content if isinstance(message.content, list) else []
+    return {
+        "type": "user",
+        "message": {
+            "content": [
+                {"type": "tool_result", "is_error": bool(block.is_error)}
+                for block in content
+                if isinstance(block, ToolResultBlock)
+            ]
+        },
+    }
 
 
 def result_payload(message: ResultMessage) -> dict:
@@ -316,13 +342,13 @@ class LiveSession:
         resume: bool,
         name: str | None = None,
         asking: Interactions | None = None,
-        capable: bool = False,
+        capable: bool | None = None,
     ) -> None:
         self.session_id = session_id
         self.launch = launch
         self.asking = asking or Interactions(settings.interaction_timeout)
-        # Capable runs (not on this runner before #106): approvals may be asked for.
-        self.capable = capable
+        # Capable runs: approval actions may be asked for (only with the gate's ``ask``).
+        self.capable = launch.policy.capable if capable is None else capable
         command = build_command(
             settings,
             session_id=session_id,
@@ -331,8 +357,10 @@ class LiveSession:
             context=launch.context,
             model=launch.model,
             effort=launch.effort,
+            policy=launch.policy,
         )
-        self.transport = InstalledCLITransport(command, launch.cwd, child_env())
+        env = child_env(capable=launch.policy.capable)
+        self.transport = InstalledCLITransport(command, launch.cwd, env)
         # The options are not applied to a custom transport (the command above
         # is); they only state the binary and folder for anyone reading them.
         options = ClaudeAgentOptions(
@@ -680,12 +708,16 @@ async def _events(
     effort: str | None,
     on_process: Callable[[LiveSession], None] | None,
     answering: bool = False,
+    policy: claude.Policy = claude.READ_ONLY,
+    observer: Callable[[dict], None] | None = None,
 ) -> AsyncIterator[tuple[str, Any]]:
     """``delta`` and ``interaction`` events, then ``("done", RunResult)``; failures raise.
 
     The time limit does not run while the owner is being asked.
     """
-    launch = Launch(cwd=cwd or settings.ask_dir, model=model, effort=effort, context=context)
+    launch = Launch(
+        cwd=cwd or settings.ask_dir, model=model, effort=effort, context=context, policy=policy
+    )
     live = await pool.session_for(session_id, launch, resume=resume, name=name)
     if on_process is not None:
         on_process(live)
@@ -706,6 +738,8 @@ async def _events(
                     yield item
             elif isinstance(item, ResultMessage):
                 final = item
+            elif isinstance(item, UserMessage) and observer is not None:
+                observer(observed(item))  # may raise ClaudeError to stop the run
             elif isinstance(item, StreamEvent):
                 inner = item.event or {}
                 delta = inner.get("delta") or {}
@@ -717,6 +751,7 @@ async def _events(
         await live.stop(grace, turn)
         raise ClaudeError("timeout", 504, "the run took too long and was stopped") from None
     except ClaudeError:
+        await live.stop(grace, turn)  # an observer stopped it, or the process ended
         raise
     except BaseException:
         # Abandoned (the client went away): end the turn in the background, so
@@ -741,6 +776,9 @@ async def stream(
     model: str | None = None,
     effort: str | None = None,
     on_process: Callable[[LiveSession], None] | None = None,
+    policy: claude.Policy = claude.READ_ONLY,
+    observer: Callable[[dict], None] | None = None,
+    answering: bool = True,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Same events as ``claude.stream``: ``delta``s, then one ``done`` or ``error``.
 
@@ -750,7 +788,7 @@ async def stream(
     events = _events(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
-        answering=True,
+        answering=answering, policy=policy, observer=observer,
     )  # fmt: skip
     try:
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
@@ -788,11 +826,14 @@ async def run(
     model: str | None = None,
     effort: str | None = None,
     on_process: Callable[[LiveSession], None] | None = None,
+    policy: claude.Policy = claude.READ_ONLY,
+    observer: Callable[[dict], None] | None = None,
 ) -> RunResult:
     """Same as ``claude.run``: the whole answer, or a ClaudeError."""
     events = _events(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
+        policy=policy, observer=observer,
     )  # fmt: skip
     async with contextlib.aclosing(events):
         async for event, payload in events:

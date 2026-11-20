@@ -230,6 +230,24 @@ only if every probe passed in both. It takes a few minutes and about twenty
 short runs of the owner's Claude plan. Results:
 `~/.config/lifeos/guardrail-results.json`. The check covers runs in the
 memory folder; capable runs in other allowed folders stay refused for now.
+
+**Each runner has its own check (#106).** `scripts/verify-guardrails
+--runner sdk` runs the same suite through the Agent SDK runner. It adds
+the approval probes: a deletion answered "no" does not run; one answered
+"yes" runs, and only after the yes; a never-allowed command is refused
+without being asked about. It writes `capable-mode-sdk.json` and
+`guardrail-results-sdk.json`, recording the runner, the Claude Code
+version and the Agent SDK version. With `LIFEOS_RUNNER=sdk`, a capable
+request:
+
+- runs through the SDK when that marker matches the installed versions;
+- otherwise falls back to `claude -p` if the `cli` marker matches (the
+  session's SDK process is closed first, so a session never has two kinds
+  of writer);
+- otherwise is refused with `503`.
+
+An update of the Agent SDK switches the SDK path off, just as a Claude
+Code update switches both off.
 After the check, restart the service (`systemctl --user restart
 lifeos-bridge`) if the bridge code changed since it was started.
 
@@ -466,8 +484,10 @@ for both; only how the assistant process lives differs.
   - Cancel and send now use the SDK's interrupt. Only when the turn does not
     end within a few seconds is the process closed (terminate, then kill).
     The same happens in the background when the phone goes away mid-answer.
-  - **The capable mode is off on this runner** (`503
-    capable_mode_unavailable`) until the guardrail checks pass on it.
+  - **The capable mode runs on this runner only after its own guardrail
+    check passed** (`scripts/verify-guardrails --runner sdk`, see "Capable
+    mode"). Until then a capable request falls back to `claude -p` if that
+    path passed its check, and is refused otherwise.
 - Sessions move freely between the bridge and the terminal: a session
   started through the SDK runner continues with `claude -p --resume <id>`
   or `claude --resume <id>`, and the reverse (verified with the real CLI).

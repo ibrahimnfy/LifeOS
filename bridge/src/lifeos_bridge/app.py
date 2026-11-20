@@ -268,6 +268,17 @@ def create_app(settings: Settings) -> FastAPI:
             chosen["effort"] = read_choice(data, "effort", claude.effort_levels(settings))
         return {name: value for name, value in chosen.items() if value is not None}
 
+    async def capable_on_sdk(cwd: Path) -> bool:
+        """Which runner a capable run uses; raises when neither passed the guardrail check."""
+        if sdk_pool is not None:
+            try:
+                await capable.check_available(settings, cwd, runner="sdk")
+                return True
+            except ClaudeError:
+                pass  # the claude -p path stays the fallback until the SDK path passed
+        await capable.check_available(settings, cwd, runner="cli")
+        return False
+
     def finish(session_id: str) -> None:
         """A run of the session ended: free it and send what is waiting, if anything."""
         slots.release(session_id)
@@ -307,9 +318,6 @@ def create_app(settings: Settings) -> FastAPI:
         prompt = read_prompt(data)
         mode = read_mode(data)
         is_capable = mode == "capable"
-        if is_capable and sdk_pool is not None:
-            # Decision #84: off on the SDK runner until the guardrail checks pass there.
-            raise capable.unavailable("not yet verified with the SDK runner")
         when = data.get("when", "queue")
         if when not in ("queue", "now"):
             raise ClaudeError("bad_request", 400, "`when` must be `queue` or `now`")
@@ -350,6 +358,7 @@ def create_app(settings: Settings) -> FastAPI:
             if loaded:
                 run_args["context"] = phone_instructions + "\n\n" + loaded
         streaming = bool(data.get("stream"))
+        use_sdk = sdk_pool is not None
         watch = None
         slots.acquire(session_id)
         control.take_stopped(session_id)  # a stop request for an earlier run is not ours
@@ -368,12 +377,19 @@ def create_app(settings: Settings) -> FastAPI:
                     "session_in_use", 409, "this session is open on the computer right now"
                 )
             if is_capable:
-                await capable.check_available(settings, cwd)
+                # Decision #84: on the SDK runner only after the guardrail check passed
+                # there; until then the claude -p path is the fallback, if it passed.
+                use_sdk = await capable_on_sdk(cwd)
+                if not use_sdk and sdk_pool is not None:
+                    await sdk_pool.drop(session_id)  # never two kinds of writer at once
                 watch = capable.AuditWatch(session_id)
-                run_args |= {"policy": capable.build_policy(settings, cwd), "observer": watch}
+                policy = capable.build_policy(settings, cwd, ask_host=use_sdk)
+                run_args |= {"policy": policy, "observer": watch}
+                if use_sdk:
+                    run_args["answering"] = streaming  # approvals only with a client
             elif not streaming:
                 try:
-                    if sdk_pool is not None:
+                    if use_sdk:
                         result = await sdk_runner.run(sdk_pool, settings, prompt, **run_args)
                     else:
                         result = await claude.run(settings, prompt, **run_args)
@@ -404,7 +420,7 @@ def create_app(settings: Settings) -> FastAPI:
             try:
                 runner = (
                     sdk_runner.stream(sdk_pool, settings, prompt, **run_args)
-                    if sdk_pool is not None
+                    if use_sdk and sdk_pool is not None
                     else claude.stream(settings, prompt, **run_args)
                 )
                 async for event, payload in runner:

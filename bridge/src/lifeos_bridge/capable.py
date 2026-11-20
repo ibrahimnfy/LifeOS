@@ -2,7 +2,9 @@
 
 Design and status: docs/permission-policy.md. The mode is switched off
 unless a marker file says that the guardrail probes passed for exactly the
-installed Claude Code version.
+installed Claude Code version, on the runner that would run it. Each runner
+has its own marker: ``claude -p`` (``cli``) and the Agent SDK (``sdk``,
+which also records the SDK version).
 """
 
 from __future__ import annotations
@@ -18,7 +20,8 @@ from .claude import ClaudeError, Policy
 from .config import Settings, config_dir
 from .paths import refusal_reason
 
-MARKER_FILE_NAME = "capable-mode.json"
+MARKER_FILE_NAME = "capable-mode.json"  # the cli runner (the name it always had)
+MARKER_FILE_NAMES = {"cli": MARKER_FILE_NAME, "sdk": "capable-mode-sdk.json"}
 AUDIT_DIR_NAME = "audit"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
@@ -33,8 +36,15 @@ DENIED_READS = (
 SANDBOX_HIDDEN = ("~/", "/run/user", "/media", "/mnt")
 
 
-def marker_path() -> Path:
-    return config_dir() / MARKER_FILE_NAME
+def marker_path(runner: str = "cli") -> Path:
+    return config_dir() / MARKER_FILE_NAMES[runner]
+
+
+def sdk_version() -> str:
+    """Version of the installed Agent SDK package."""
+    import claude_agent_sdk  # imported here: the cli runner does not need it
+
+    return str(claude_agent_sdk.__version__)
 
 
 def audit_dir() -> Path:
@@ -66,19 +76,32 @@ async def claude_version(settings: Settings) -> str:
     return version
 
 
-async def check_available(settings: Settings, run_dir: Path | None = None) -> None:
-    """Raise unless the guardrail probes passed for the installed Claude Code.
+async def check_available(
+    settings: Settings, run_dir: Path | None = None, runner: str = "cli"
+) -> None:
+    """Raise unless the guardrail probes passed for the installed versions, on ``runner``.
 
     The probes run in the memory folder. Unless the marker says they also
-    covered other allowed folders, capable runs elsewhere stay refused.
+    covered other allowed folders, capable runs elsewhere stay refused. A
+    marker written before markers named their runner counts for ``cli`` only.
     """
+    if runner not in MARKER_FILE_NAMES:
+        raise unavailable("unknown runner")
     try:
-        marker = json.loads(marker_path().read_text(encoding="utf-8"))
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        raise unavailable("the guardrail check has not passed on this computer yet") from exc
+        raise unavailable(
+            f"the guardrail check has not passed for the {runner} runner on this computer yet"
+        ) from exc
     recorded = marker.get("claude_version") if isinstance(marker, dict) else None
-    if not isinstance(recorded, str) or not marker.get("all_passed"):
+    if not isinstance(recorded, str) or marker.get("all_passed") is not True:
         raise unavailable("the guardrail check has not passed on this computer yet")
+    if marker.get("runner", "cli") != runner:
+        raise unavailable(f"the guardrail check did not cover the {runner} runner")
+    if runner == "sdk" and marker.get("sdk_version") != sdk_version():
+        raise unavailable(
+            "the Agent SDK was updated since the guardrail check; run scripts/verify-guardrails"
+        )
     if run_dir is not None and marker.get("scope") != "all_allowed_folders":
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
         if folder != memory and not folder.is_relative_to(memory):

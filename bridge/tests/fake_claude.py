@@ -161,6 +161,18 @@ def sdk_mode():
                 }
             )  # fmt: skip
         print("not json, must be skipped", flush=True)
+        if prompt.startswith("FAKE_UNAUDITED"):
+            # A tool "ran" without the gate's audit record (the bridge must stop the run).
+            emit(
+                {
+                    "type": "user", "session_id": session_id, "parent_tool_use_id": None,
+                    "message": {"role": "user", "content": [
+                        {"type": "tool_result", "tool_use_id": "t1", "content": "ran",
+                         "is_error": False}]},
+                }
+            )  # fmt: skip
+            working = "sleep"  # the run goes on until the bridge stops it
+            continue
         if prompt.startswith("FAKE_ERROR"):
             result(subtype="error_max_turns", is_error=True, errors=["turn limit"])
         elif prompt.startswith("FAKE_DENIED"):

@@ -4,7 +4,8 @@
 # and in the service environment, and switches the capable mode on only if
 # every probe passes. Uses a few short runs of the owner's Claude plan.
 #
-# Usage: scripts/verify-guardrails [--no-service]
+# Usage: scripts/verify-guardrails [--runner cli|sdk] [--no-service]
+# (--runner sdk checks the Agent SDK runner; each runner has its own marker)
 set -euo pipefail
 bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
 cd "$bridge_dir"
