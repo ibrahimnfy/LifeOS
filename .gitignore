@@ -43,3 +43,6 @@ app/**/build/
 google-services.json
 *firebase-adminsdk*.json
 service-account*.json
+
+# Agent worktrees of Claude Code sessions
+.claude/worktrees/
