@@ -678,6 +678,10 @@ class LifeOsCore(private val app: Application) {
             stopSession()
             tokens = TokenSource(FirebaseAuthRest(http, current.relay.apiKey), null, current.refreshToken, System::currentTimeMillis)
             forget(current)
+            // Only when the owner unpairs: the screen time measured here goes too. A pairing that
+            // is lost by itself keeps it (the system can measure only the last week again).
+            activity.wipe()
+            activityState.value++
         }
         // Best effort: remove this phone's relay account too. It guards no content.
         withContext(Dispatchers.IO) {
@@ -698,9 +702,6 @@ class LifeOsCore(private val app: Application) {
         outbox.wipe()
         downloads.clear()
         rerunState.value = CoachRerun.State.Idle
-        // Screen time measured on this phone goes too, like everything else of the pairing.
-        activity.wipe()
-        activityState.value++
         tickTimers.values.forEach { it.cancel() }
         tickTimers.clear()
         tickedState.value = emptySet()

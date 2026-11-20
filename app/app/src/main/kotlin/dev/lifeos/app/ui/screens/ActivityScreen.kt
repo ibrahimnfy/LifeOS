@@ -62,6 +62,7 @@ fun ActivityScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbar.current
     val noSettings = stringResource(R.string.activity_access_missing)
+    val locked by core.locked.collectAsStateWithLifecycle()
     var access by remember { mutableStateOf(core.usageAccess()) }
     val version by core.activityChanged.collectAsStateWithLifecycle()
     val syncOn by core.settings.usageSync.collectAsStateWithLifecycle(initialValue = true)
@@ -72,7 +73,7 @@ fun ActivityScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
     // Coming back from the system settings: look again whether access was granted, and measure.
     LifecycleResumeEffect(Unit) {
         access = core.usageAccess()
-        if (access) scope.launch { core.measureUsage() }
+        if (access && !core.locked.value) scope.launch { core.measureUsage() }
         onPauseOrDispose { }
     }
 
@@ -86,6 +87,8 @@ fun ActivityScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
                 .padding(top = 10.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            // Like every other screen: nothing of the content is read or drawn while the app is locked.
+            if (locked) return@Column
             if (!access) {
                 LifeCard {
                     Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
