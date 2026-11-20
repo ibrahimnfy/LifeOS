@@ -54,6 +54,36 @@ data class Event(
 @Serializable
 data class EventList(val events: List<Event> = emptyList())
 
+/**
+ * A note in the list: a capture of the inbox ([kind] "inbox", no title; its id changes with
+ * its text) or a topic note ("topic", read-only here). [at] is "YYYY-MM-DD HH:MM" for a
+ * capture and a date for a topic note.
+ */
+@Serializable
+data class NoteSummary(
+    val id: String,
+    val kind: String = "inbox",
+    val title: String? = null,
+    val at: String? = null,
+    val preview: String = "",
+) {
+    val editable: Boolean get() = kind == "inbox"
+}
+
+@Serializable
+data class NoteList(val notes: List<NoteSummary> = emptyList())
+
+@Serializable
+data class Note(
+    val id: String,
+    val kind: String = "inbox",
+    val title: String? = null,
+    val at: String? = null,
+    val text: String = "",
+) {
+    val editable: Boolean get() = kind == "inbox"
+}
+
 @Serializable
 data class Agenda(
     val date: String? = null,
@@ -238,6 +268,15 @@ object Endpoints {
     val courseSummary = Endpoint("courses-summary", "/courses/summary", serializer = CourseSummary.serializer())
     val courses = Endpoint("courses", "/courses", serializer = CourseList.serializer())
     val allGrades = Endpoint("courses-grades", "/courses/grades", serializer = AllGrades.serializer())
+
+    /** All notes; this one has a saved copy. */
+    val notes = Endpoint("notes", "/notes", serializer = NoteList.serializer())
+
+    /** A search: asked fresh each time, never saved (its key is not used for saved copies). */
+    fun noteSearch(query: String) = Endpoint("notes-search", "/notes", mapOf("query" to query), NoteList.serializer())
+
+    /** One note in full: asked fresh, never saved (a capture's id changes with every edit). */
+    fun note(id: String) = Endpoint("note", "/notes/$id", serializer = Note.serializer())
 
     fun events(start: String, end: String) =
         Endpoint("events", "/events", mapOf("start" to start, "end" to end), EventList.serializer())

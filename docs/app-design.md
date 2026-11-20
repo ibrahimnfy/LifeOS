@@ -218,8 +218,9 @@ every section in its own clearly visible card.*
   (n)"**, which opens the complete list in the same order, with filters
   (overdue, today, upcoming, no date, done). Each row: checkbox, title, due
   date, source (e.g. a course name when it came from a deadline).
-- **Actions:** tick, add (through Capture), edit title and date, move a task
-  up or down (the coach learns from it).
+- **Actions:** tick (the round check), add (through Capture), edit title and
+  date (tap the rest of the row; `PATCH /tasks/{id}` through the outbox),
+  move a task up or down (the coach learns from it; not built yet).
 - **States:** loading · saved copy · empty ("All clear") · no plan yet (date
   order) · error with retry; ticks made offline are queued like captures.
 - **Endpoints:** list tasks, complete task, add task *(planned, Phase 3)*;
@@ -236,7 +237,11 @@ every section in its own clearly visible card.*
 - **States:** loading · saved copy · empty ("Nothing captured yet") · no
   search results · error with retry; edits made offline are queued like
   captures and marked "waiting to sync".
-- **Endpoints:** list, search, read and update notes *(planned, Phase 3)*.
+- **Endpoints:** list, search, read and update notes (`GET /notes?query=`,
+  `GET /notes/{id}`, `PATCH /notes/{id}`; only inbox captures can be edited,
+  and a capture's id changes with its text). Built: list with search, open,
+  edit a capture, waiting captures on top. Not built yet: filter chips by
+  place, moving a note.
 
 ### 3.7 Projects
 

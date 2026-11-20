@@ -215,8 +215,27 @@
     <string name="coach_stale">%1$s · bugüne ait değil</string>
 
     <!-- Notes -->
-    <string name="notes_explanation">Kaydettiğin notlar bilgisayarında durur; onlara buradan göz atmak sonraki bir adımda gelecek. Burada kaydedilip henüz gönderilmemiş notlar aşağıda listelenir.</string>
-    <string name="notes_none_waiting">Bu telefonda bekleyen not yok.</string>
+    <string name="notes_empty">Henüz bir şey kaydedilmedi.</string>
+    <string name="notes_search_hint">Notlarda ara</string>
+    <string name="notes_search_clear">Aramayı temizle</string>
+    <string name="notes_search_saved">Bilgisayara şu an sorulamıyor, bu yüzden kayıtlı kopyada arandı (her notun başı).</string>
+    <string name="notes_search_empty">Bu aramayla eşleşen not yok.</string>
+    <string name="notes_topic">Konu</string>
+    <string name="note_title">Not</string>
+    <string name="note_gone">Bu not artık bilgisayarda yok. Orada değiştirilmiş ya da taşınmış olabilir.</string>
+    <string name="note_topic_read_only">Konu notları şimdilik bilgisayarda düzenlenir.</string>
+    <string name="note_edit_needs_full">Bu notun telefonda yalnızca başı kayıtlı. Bilgisayar yanıt verdiğinde düzenleyebilirsin.</string>
+    <string name="note_edit">Düzenle</string>
+    <string name="note_edit_title">Notu düzenle</string>
+    <string name="note_edit_busy">Bu notun önceki bir değişikliği yolda. Bilgisayar onayladıktan sonra yeniden düzenleyebilirsin.</string>
+
+    <!-- Görev düzenleme -->
+    <string name="task_open">Görevi aç</string>
+    <string name="task_check">Tamamlandı olarak işaretle: %1$s</string>
+    <string name="task_edit_title">Görevi düzenle</string>
+    <string name="task_edit_field">Başlık</string>
+    <string name="task_edit_done">Tamamlandı olarak işaretle</string>
+    <string name="task_edit_hint">Değişiklikler önce telefona kaydedilir ve bilgisayar yanıt verir vermez ona gönderilir.</string>
 
     <!-- Calendar -->
     <string name="calendar_add">Etkinlik ekle</string>

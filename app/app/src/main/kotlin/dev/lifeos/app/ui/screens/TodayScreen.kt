@@ -133,7 +133,7 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                     }
                     else -> Unit
                 }
-                OutboxNotices(core, setOf(OutboxItem.Kind.COMPLETE))
+                OutboxNotices(core, setOf(OutboxItem.Kind.COMPLETE, OutboxItem.Kind.TASK_EDIT))
             }
         }
     }

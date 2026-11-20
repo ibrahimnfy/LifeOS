@@ -76,11 +76,20 @@ object CoachRotation {
 
 /** What the task lists show while writes are still on their way. */
 object TaskLists {
-    /** Open tasks without those the owner already ticked here (the tick is waiting or unclear). */
+    /**
+     * Open tasks without those the owner already ticked here (the tick is waiting or unclear),
+     * each shown with the title and date of its latest edit that is still on its way.
+     */
     fun open(tasks: List<Task>, outbox: List<OutboxItem>, justTicked: Set<String> = emptySet()): List<Task> {
         val ticked = outbox.filter { it.kind == OutboxItem.Kind.COMPLETE && it.state != OutboxItem.State.FAILED }.mapNotNull { it.taskId }.toSet()
-        return tasks.filter { !it.done && it.id !in ticked && it.id !in justTicked }
+        return tasks.filter { !it.done && it.id !in ticked && it.id !in justTicked }.map { task ->
+            pendingEdit(task.id, outbox)?.let { task.copy(title = it.text, due = it.due) } ?: task
+        }
     }
+
+    /** The latest edit of a task that has not been confirmed yet (a refused one does not count). */
+    fun pendingEdit(taskId: String, outbox: List<OutboxItem>): OutboxItem? =
+        outbox.lastOrNull { it.kind == OutboxItem.Kind.TASK_EDIT && it.taskId == taskId && it.state != OutboxItem.State.FAILED }
 
     /** New tasks that have not reached the computer yet, oldest first. They have no id: read-only. */
     fun waiting(outbox: List<OutboxItem>): List<OutboxItem> =

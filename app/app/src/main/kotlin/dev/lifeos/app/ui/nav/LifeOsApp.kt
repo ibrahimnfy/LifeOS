@@ -45,6 +45,7 @@ import dev.lifeos.app.ui.screens.Authenticate
 import dev.lifeos.app.ui.screens.CalendarScreen
 import dev.lifeos.app.ui.screens.CourseScreen
 import dev.lifeos.app.ui.screens.CoursesScreen
+import dev.lifeos.app.ui.screens.NoteScreen
 import dev.lifeos.app.ui.screens.NotesScreen
 import dev.lifeos.app.ui.screens.MoreScreen
 import dev.lifeos.app.ui.screens.PairScreen
@@ -168,7 +169,25 @@ fun LifeOsApp(
                 AllTasksScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
             }
             composable(Routes.NOTES) {
-                NotesScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings)
+                NotesScreen(
+                    core = core,
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                    onOpenNote = { navController.navigate(Routes.note(it)) { launchSingleTop = true } },
+                )
+            }
+            composable(
+                route = Routes.NOTE,
+                arguments = listOf(navArgument(Routes.NOTE_ARG) { type = NavType.StringType }),
+            ) { entry ->
+                NoteScreen(
+                    core = core,
+                    noteId = entry.arguments?.getString(Routes.NOTE_ARG).orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                )
             }
             composable(Routes.CALENDAR) {
                 CalendarScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)

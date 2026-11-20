@@ -217,8 +217,27 @@
     <string name="coach_stale">%1$s · not from today</string>
 
     <!-- Notes -->
-    <string name="notes_explanation">Captured notes live on your computer; browsing them arrives with a later step. Notes captured here that have not been sent yet are listed below.</string>
-    <string name="notes_none_waiting">No notes are waiting on this phone.</string>
+    <string name="notes_empty">Nothing captured yet.</string>
+    <string name="notes_search_hint">Search notes</string>
+    <string name="notes_search_clear">Clear the search</string>
+    <string name="notes_search_saved">The computer cannot be asked right now, so the saved copy was searched (the start of each note).</string>
+    <string name="notes_search_empty">No notes match this search.</string>
+    <string name="notes_topic">Topic</string>
+    <string name="note_title">Note</string>
+    <string name="note_gone">This note is no longer on the computer. It may have been changed or moved there.</string>
+    <string name="note_topic_read_only">Topic notes are edited on the computer for now.</string>
+    <string name="note_edit_needs_full">Only the start of this note is saved on the phone. You can edit it when the computer answers.</string>
+    <string name="note_edit">Edit</string>
+    <string name="note_edit_title">Edit note</string>
+    <string name="note_edit_busy">An earlier change of this note is on its way. You can edit it again once the computer has confirmed it.</string>
+
+    <!-- Task editing -->
+    <string name="task_open">Open the task</string>
+    <string name="task_check">Mark %1$s as done</string>
+    <string name="task_edit_title">Edit task</string>
+    <string name="task_edit_field">Title</string>
+    <string name="task_edit_done">Mark as done</string>
+    <string name="task_edit_hint">Changes are saved on the phone first and sent to the computer as soon as it answers.</string>
 
     <!-- Calendar -->
     <string name="calendar_add">Add event</string>

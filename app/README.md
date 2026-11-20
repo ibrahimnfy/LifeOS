@@ -158,16 +158,24 @@ with plain HTTPS requests.
 - **Tasks:** with a plan, "Most important" (the first five of the coach's
   order) and "Show all (n)", which opens the whole ordered list with filters
   (overdue, today, upcoming, no date). Without a plan, the open tasks by
-  date. A tick hides the task at once and can be undone for a few seconds;
-  then it is sent.
+  date. The round check ticks a task: it is hidden at once and the tick can
+  be undone for a few seconds; then it is sent. Tapping the rest of the row
+  (here and on Today) opens the task to change its title and due date (or
+  remove the date); the change is shown at once with "Waiting to sync" until
+  the computer confirmed it.
 - **Capture:** a note or a task with an optional due date. Also reachable
   from the home-screen shortcut (long-press on the app icon) and from other
   apps' "share" (text or a link).
 - **Calendar** (under More): the agenda by day from a week ago to two months
   ahead, a month strip to jump, adding and changing events (all day, timed,
   several days). Course deadlines are ordinary events here.
-- **Notes** (under More): only the notes captured on this phone that still
-  wait to be sent, and a line saying that the others live on the computer.
+- **Notes** (under More): the computer's notes, captures newest first and
+  then the topic notes, each with its first lines and date, and a search
+  field (the computer searches; while it cannot be reached, the saved copy is
+  searched). Notes captured on this phone that are not sent yet are on top.
+  Tapping a note opens it in full; a capture can be edited there (topic notes
+  are read-only for now). The computer gives an edited capture a new id, so
+  the note screen closes after saving and the list shows the new text.
 - **Courses** (under More): summary card with the deadlines of the next two
   weeks and "All grades", the course list with markers for new content, the
   refresh action (starts a sync on the computer and waits for it), and a
@@ -193,16 +201,21 @@ Nothing on these screens is sample content any more. Not paired, they show
   computer does not answer, the screen shows it with "Saved copy · updated
   … ago". Nothing is read while the app is locked; everything is deleted on
   unpair; the files are excluded from backup and device transfer.
-- **Outbox** (`data/Outbox.kt`): new notes and tasks, ticks, new and changed
-  events are stored on the phone first and sent in order as soon as the
-  computer answers. "Attempt started" is stored before an item is sent.
-  If nothing left the phone, the item keeps waiting. If it left but no
-  answer came, a tick or an event change is repeated later (harmless; a tick
-  answered with "task not found" counts as done), while a new note, task or
-  event is marked **"Please check"** and is sent again only when the owner
-  says so, and not before the first attempt can no longer arrive (six
-  minutes). A refusal by the computer is shown as "Not accepted". Unsent
-  items are deleted on unpair.
+- **Outbox** (`data/Outbox.kt`): new notes and tasks, ticks, task and note
+  edits, new and changed events are stored on the phone first and sent in
+  order as soon as the computer answers. "Attempt started" is stored before
+  an item is sent. If nothing left the phone, the item keeps waiting. If it
+  left but no answer came, a tick, a task edit or an event change is
+  repeated later (harmless; a tick answered with "task not found" counts as
+  done), while a new note, task or event and a note edit are marked
+  **"Please check"** and are sent again only when the owner says so, and
+  not before the first attempt can no longer arrive (six minutes). A note
+  edit sent again that is answered with "note not found" counts as done (the
+  first attempt arrived and gave the note its new id). A second edit of a
+  note replaces the first one while that is still waiting; once the first is
+  on its way, the note cannot be edited until it is confirmed. A refusal by
+  the computer is shown as "Not accepted". Unsent items are deleted on
+  unpair.
 - **Downloads** (`data/Downloads.kt`, `data/Download.kt`): first the direct
   way: the computer sends the file's address through the sealed channel and
   the phone fetches it over HTTPS straight into the Downloads collection
@@ -218,8 +231,8 @@ Nothing on these screens is sample content any more. Not paired, they show
   where to put the file.
 
 What the bridge does not offer yet, and the app therefore does not do:
-listing or editing notes, editing, reopening or deleting a task, deleting an
-event, and listing finished tasks (no "done" filter).
+editing topic notes or moving notes, reopening or deleting a task, deleting
+an event, and listing finished tasks (no "done" filter).
 
 ## Connection to the computer
 
@@ -305,7 +318,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 - No push notifications.
 - Chat does not send; the coach conversation, Sessions, Projects and
   Activity are placeholders.
-- Tasks cannot be edited or moved, notes cannot be browsed (see above).
+- Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course" and renewing the sign-in from the phone.
 - No instrumented (on-device) tests; only JVM unit tests.
 
@@ -353,9 +366,9 @@ running on the computer with the relay set up.
    line is at the end of `inbox.md` in the memory folder. Choose **Task**,
    pick a due date of today, Save.
 2. **Today:** the task is in the "Today" card (and among the picks if the
-   coach has a plan). Tap it: it disappears and "Marked as done · Undo"
-   appears. Tap **Undo**: it is back. Tap it again and wait: on the computer
-   the task has moved to `tasks-done.md`.
+   coach has a plan). Tap its round check: it disappears and "Marked as done
+   · Undo" appears. Tap **Undo**: it is back. Tap the check again and wait:
+   on the computer the task has moved to `tasks-done.md`.
 3. **Tasks:** with open tasks and a plan, "Most important" and "Show all
    (n)" with the four filters; without a plan, sections by date.
 4. **Calendar** (More → Calendar): the agenda with a month strip. **+** adds
@@ -363,14 +376,25 @@ running on the computer with the relay set up.
    time). The computer's `calendar/events.md` has the line.
 5. **Offline:** switch the phone to flight mode. After a moment the dot
    turns amber and the screens show "Saved copy · updated … ago". Capture a
-   note: "Waiting to sync"; More → Notes lists it. Switch flight mode off:
-   within seconds the note is in `inbox.md`, once, and the list is empty.
-6. **Shortcut and share:** long-press the app icon → "Capture"; in another
+   note: "Waiting to sync"; More → Notes lists it on top under "Waiting to
+   sync". Switch flight mode off: within seconds the note is in `inbox.md`,
+   once, and on the Notes screen it moves into the computer's list.
+6. **Notes and task edits:** capture a note; More → Notes shows it at the
+   top of the list (newest first) together with the older captures and the
+   topic notes. Type a word of it into the search field: only matching notes
+   remain. Tap the note → **Edit**, change the text, Save: "Saved", the
+   screen closes and the list shows the new text; on the computer the line in
+   `inbox.md` has the new text and its original time. A topic note opens
+   read-only. On Tasks, tap a task's title (not the check): change the title,
+   pick another date (or **Remove** it), Save; the row changes at once and
+   `tasks.md` has the new title and date. In flight mode the same edits show
+   "Waiting to sync" and reach the computer once it is off.
+7. **Shortcut and share:** long-press the app icon → "Capture"; in another
    app, share a piece of text → "Capture in LifeOS": the sheet opens with it.
-7. **Courses** (More → Courses; needs the course sync on the computer and a
+8. **Courses** (More → Courses; needs the course sync on the computer and a
    bridge that has the `/courses` endpoints): the summary card, "All grades",
    the course list; a course's four tabs; the download arrow of a file →
    "Saved to Downloads", and the file is in the phone's Downloads folder.
    The refresh arrow in the top bar starts a sync.
-8. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies
+9. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies
    and waiting items are gone.

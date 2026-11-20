@@ -14,7 +14,9 @@ import dev.lifeos.app.data.Downloads
 import dev.lifeos.app.data.Endpoint
 import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.EventDraft
+import dev.lifeos.app.data.NoteLists
 import dev.lifeos.app.data.Task
+import dev.lifeos.app.data.TaskLists
 import dev.lifeos.app.data.Outbox
 import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.OutboxStore
@@ -181,6 +183,8 @@ class LifeOsCore(private val app: Application) {
             OutboxItem.Kind.COMPLETE -> api.completeTask(checkNotNull(item.taskId))
             OutboxItem.Kind.EVENT_CREATE -> api.createEvent(checkNotNull(item.event))
             OutboxItem.Kind.EVENT_UPDATE -> api.updateEvent(checkNotNull(item.eventId), checkNotNull(item.event))
+            OutboxItem.Kind.TASK_EDIT -> api.editTask(checkNotNull(item.taskId), item.text, item.due)
+            OutboxItem.Kind.NOTE_EDIT -> api.editNote(checkNotNull(item.noteId), item.text)
         }
     }
 
@@ -211,13 +215,7 @@ class LifeOsCore(private val app: Application) {
      */
     suspend fun submit(item: OutboxItem): Boolean {
         if (!outbox.add(item)) return false
-        if (connectionState.value == ConnectionState.CONNECTED) {
-            // The sending itself belongs to the app, not to the screen: leaving the screen or
-            // turning the phone must not cut it off. Only the waiting here is bounded.
-            val sending = scope.launch { if (outbox.drain() > 0) reloadState.value++ }
-            withTimeoutOrNull(SUBMIT_WAIT_MILLIS) { sending.join() }
-        }
-        return outbox.items.value.none { it.id == item.id }
+        return sendWaiting(item.id)
     }
 
     private val tickedState = MutableStateFlow<Set<String>>(emptySet())
@@ -271,6 +269,34 @@ class LifeOsCore(private val app: Application) {
             event = draft,
         ),
     )
+
+    /** Change a task's title and date ([due] null: no date). Shown changed at once (see [TaskLists.open]). */
+    suspend fun editTask(task: Task, title: String, due: String?): Boolean {
+        val waiting = TaskLists.pendingEdit(task.id, outbox.items.value)
+        if (waiting != null && outbox.revise(waiting.id, title, due)) return sendWaiting(waiting.id)
+        return submit(OutboxItem(newItemId(), OutboxItem.Kind.TASK_EDIT, System.currentTimeMillis(), text = title, due = due, taskId = task.id))
+    }
+
+    /**
+     * Change the text of a captured note. An edit of the same note that is still waiting is
+     * replaced instead (see [NoteLists.canEdit] for when editing is not possible).
+     */
+    suspend fun editNote(noteId: String, text: String): Boolean {
+        val waiting = NoteLists.pendingEdit(noteId, outbox.items.value)
+        if (waiting != null && outbox.revise(waiting.id, text)) return sendWaiting(waiting.id)
+        return submit(OutboxItem(newItemId(), OutboxItem.Kind.NOTE_EDIT, System.currentTimeMillis(), text = text, noteId = noteId))
+    }
+
+    /** Send a waiting item now if the computer is connected. True if it was sent. */
+    private suspend fun sendWaiting(id: String): Boolean {
+        if (connectionState.value == ConnectionState.CONNECTED) {
+            // The sending itself belongs to the app, not to the screen: leaving the screen or
+            // turning the phone must not cut it off. Only the waiting here is bounded.
+            val sending = scope.launch { if (outbox.drain() > 0) reloadState.value++ }
+            withTimeoutOrNull(SUBMIT_WAIT_MILLIS) { sending.join() }
+        }
+        return outbox.items.value.none { it.id == id }
+    }
 
     fun newItemId(): String = e2e.randomBytes(8).joinToString("") { "%02x".format(it) }
 
