@@ -93,6 +93,12 @@ bridge by hand.
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
 | GET / POST | `/reminders` | yes | Lists or creates session reminders |
 | PATCH / DELETE | `/reminders/{id}` | yes | Changes or deletes a reminder |
+| POST | `/notes` | yes | Quick capture into the memory's inbox |
+| GET / POST | `/tasks` | yes | Lists open tasks or adds one |
+| POST | `/tasks/{id}/complete` | yes | Ticks a task |
+| GET / POST | `/events` | yes | Lists or creates calendar events |
+| PATCH | `/events/{id}` | yes | Changes an event |
+| GET | `/agenda` | yes | Today's events and tasks, overdue tasks, the coming days |
 | GET / POST / DELETE | `/allowed-paths` | yes | Lists, adds or removes an allowed folder |
 
 ### `POST /ask`
@@ -308,6 +314,43 @@ per-session switch for reply notifications.
   phone, which fetches the fired reminder and opens the session.
 - Stored in `~/.config/lifeos/reminders.json` (mode 600).
 
+### Memory: `/notes`, `/tasks`, `/events`, `/agenda`
+
+These endpoints read and write the memory folder (the ask folder) in the
+formats of [`memory-design.md`](memory-design.md). **Every write is one git
+commit there**, made as `lifeos-bridge`. The bridge refuses to write
+(`503 memory_unavailable`) when the folder has not been set up, is not under
+git, or **has a git remote**: the memory must stay on the computer.
+
+- `POST /notes` with `{"text": "…"}` appends a dated line to `inbox.md`
+  (`201`). Up to 4,000 characters; further lines are kept, indented.
+- `GET /tasks` returns the open tasks in file order: `{"tasks": [{"id":
+  "t-20270115-01", "title": "…", "done": false, "due": "2027-01-20" | null,
+  "project": …, "course": …, "added": "…"}]}`.
+- `POST /tasks` with `{"title": "…", "due": "YYYY-MM-DD", "project":
+  "file-name", "course": "file-name"}` (only `title` is required) adds a line
+  to `tasks.md` and returns the task with its new id (`201`).
+- `POST /tasks/{id}/complete` moves the line to `tasks-done.md` with the
+  date; `404 task_not_found` for an unknown or already finished task.
+- `GET /events?start=YYYY-MM-DD&end=YYYY-MM-DD` lists the events touching
+  those days (default: today and the next 30 days). `POST /events` with
+  `{"title", "date", "end_date"?, "start"?: "HH:MM", "end"?, "note"?}`
+  creates one (`201`); without `start` it lasts all day. `PATCH
+  /events/{id}` changes any of these fields; `null` clears an optional one.
+  Events live in `calendar/events.md`, one line each, in the computer's
+  local time.
+- `GET /agenda?day=YYYY-MM-DD&days=7` (both optional; `day` defaults to
+  today in the computer's local time) returns `events_today`, `tasks_today`,
+  `tasks_overdue` and `upcoming` (`events` and task `deadlines` of the next
+  `days` days).
+
+**Memory in `/ask`.** A conversation in the memory folder starts with the
+memory loaded: the bridge passes the memory's `CLAUDE.md`, `INDEX.md`,
+`profile.md`, the open tasks and the daily logs of today and yesterday to
+the model explicitly (at most about 60,000 characters), on every request of
+that conversation. Resumed sessions of other folders do not get it. The text
+goes to the model only; it is never logged.
+
 ### `/allowed-paths`
 
 The folders Claude may work in besides the memory folder, stored in
@@ -427,6 +470,20 @@ scripts/ask --capable --json "Create the file capable-check.txt containing the w
 # the answer explains that deleting needs approval; "refused_actions" lists "deletion";
 # capable-check.txt exists in the memory folder; the audit log has both commands:
 tail -n 3 ~/.config/lifeos/audit/*.jsonl
+```
+
+Memory (each write is a commit in the memory folder; check with
+`git -C ~/brain log --oneline | head`):
+
+```
+H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787; J='Content-Type: application/json'
+curl -s -H "$H" -H "$J" -d '{"text":"test note"}' $B/notes
+curl -s -H "$H" -H "$J" -d '{"title":"Test task","due":"2027-01-20"}' $B/tasks     # note the id
+curl -s -H "$H" $B/tasks
+curl -s -H "$H" -X POST $B/tasks/<id>/complete
+curl -s -H "$H" -H "$J" -d '{"title":"Test event","date":"2027-01-20","start":"14:00"}' $B/events
+curl -s -H "$H" "$B/agenda?day=2027-01-20"
+scripts/ask "Which tasks are open?"        # the answer knows the task list without searching
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

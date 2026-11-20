@@ -8,12 +8,13 @@ import hmac
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import __version__, allowed, capable, claude, reminders, session_meta, sessions
+from . import __version__, allowed, capable, claude, memory, reminders, session_meta, sessions
 from .claude import ClaudeError
 from .config import Settings
 
@@ -161,6 +162,9 @@ def create_app(settings: Settings) -> FastAPI:
         prompt = read_prompt(data)
         is_capable = read_mode(data) == "capable"
         run_args = {"session_id": session_id, "resume": resume, "cwd": cwd}
+        if cwd.resolve() == settings.ask_dir.resolve():
+            # Conversations in the memory folder start with the memory loaded.
+            run_args["context"] = await asyncio.to_thread(memory.context_for_prompt, cwd)
         streaming = bool(data.get("stream"))
         watch = None
         slots.acquire(session_id)
@@ -365,5 +369,61 @@ def create_app(settings: Settings) -> FastAPI:
     async def delete_reminder(reminder_id: str):
         reminders.delete(reminder_id)
         return {"deleted": True}
+
+    # ---- memory: quick capture, tasks, calendar, agenda -------------------
+    brain = settings.ask_dir
+
+    def read_day(value: str | None, name: str) -> date:
+        if value is None:
+            return memory.now_local().date()
+        return memory.read_date(value, name)
+
+    @app.post("/notes", status_code=201)
+    async def add_note(request: Request):
+        """Quick capture into the inbox. Body: ``{"text": str}``."""
+        data = await read_json_object(request)
+        return await asyncio.to_thread(memory.add_note, brain, data.get("text"))
+
+    @app.get("/tasks")
+    async def list_tasks():
+        """Open tasks, in the order of the file."""
+        return {"tasks": [t.as_json() for t in await asyncio.to_thread(memory.list_tasks, brain)]}
+
+    @app.post("/tasks", status_code=201)
+    async def add_task(request: Request):
+        """Body: ``{"title": str, "due"?: "YYYY-MM-DD", "project"?: str, "course"?: str}``."""
+        data = await read_json_object(request)
+        return (await asyncio.to_thread(memory.add_task, brain, data)).as_json()
+
+    @app.post("/tasks/{task_id}/complete")
+    async def complete_task(task_id: str):
+        return (await asyncio.to_thread(memory.complete_task, brain, task_id)).as_json()
+
+    @app.get("/events")
+    async def list_events(start: str | None = None, end: str | None = None):
+        """Events from ``start`` to ``end`` (dates, inclusive; default: today and 30 days)."""
+        first = read_day(start, "start")
+        last = memory.read_date(end, "end") if end is not None else first + timedelta(days=30)
+        if last < first:
+            raise ClaudeError("bad_request", 400, "`end` is before `start`")
+        found = await asyncio.to_thread(memory.list_events, brain, first, last)
+        return {"events": [e.as_json() for e in found]}
+
+    @app.post("/events", status_code=201)
+    async def create_event(request: Request):
+        """Body: ``{"title", "date", "end_date"?, "start"?: "HH:MM", "end"?, "note"?}``."""
+        data = await read_json_object(request)
+        return (await asyncio.to_thread(memory.create_event, brain, data)).as_json()
+
+    @app.patch("/events/{event_id}")
+    async def update_event(event_id: str, request: Request):
+        data = await read_json_object(request)
+        return (await asyncio.to_thread(memory.update_event, brain, event_id, data)).as_json()
+
+    @app.get("/agenda")
+    async def agenda(day: str | None = None, days: int = 7):
+        """Today's events and tasks, overdue tasks and the next ``days`` days."""
+        days = max(1, min(days, 60))
+        return await asyncio.to_thread(memory.agenda, brain, read_day(day, "day"), days)
 
     return app

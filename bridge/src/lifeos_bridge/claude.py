@@ -112,6 +112,7 @@ def build_command(
     stream: bool,
     name: str | None = None,
     policy: Policy = READ_ONLY,
+    context: str | None = None,
 ) -> list[str]:
     command = [settings.claude_bin, "-p"]
     if stream:
@@ -140,6 +141,9 @@ def build_command(
             command += ["--add-dir", str(folder)]
     if settings.claude_model:
         command += ["--model", settings.claude_model]
+    if context:
+        # The always-loaded part of the memory; passed explicitly, never discovered.
+        command += ["--append-system-prompt", context]
     if resume:
         command += ["--resume", session_id]
     else:
@@ -273,9 +277,12 @@ async def run(
     cwd: Path | None = None,
     name: str | None = None,
     grace: float = 5.0,
+    context: str | None = None,
 ) -> RunResult:
     """Run one read-only prompt to completion and return the answer."""
-    command = build_command(settings, session_id=session_id, resume=resume, stream=False, name=name)
+    command = build_command(
+        settings, session_id=session_id, resume=resume, stream=False, name=name, context=context
+    )
     process = await _start(settings, command, cwd or settings.ask_dir)
     try:
         stdout, stderr = await asyncio.wait_for(
@@ -307,6 +314,7 @@ async def stream(
     grace: float = 5.0,
     policy: Policy = READ_ONLY,
     observer: Callable[[dict], None] | None = None,
+    context: str | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run one prompt and yield ``(event, data)`` pairs as the answer is written.
 
@@ -314,7 +322,13 @@ async def stream(
     final result) or ``error`` (``{"error": code, "message": ...}``).
     """
     command = build_command(
-        settings, session_id=session_id, resume=resume, stream=True, name=name, policy=policy
+        settings,
+        session_id=session_id,
+        resume=resume,
+        stream=True,
+        name=name,
+        policy=policy,
+        context=context,
     )
     process = await _start(settings, command, cwd or settings.ask_dir, capable=policy.capable)
     assert process.stdin and process.stdout and process.stderr  # noqa: S101
