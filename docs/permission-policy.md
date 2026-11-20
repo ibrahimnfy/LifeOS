@@ -269,3 +269,61 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | agent | `scripts/verify-guardrails`: the real probes, marker file, documentation (**done**: all probes pass) | plumbing; prerequisites |
 | agent | Guardrail 9 as decided: refusal of obvious deletions, tests, documented limit | decision; plumbing |
 | agent (app phase) | Approval screen, including the deletion warning: the gate program asks the phone instead of refusing | app skeleton; verified capable mode; relay transport |
+
+## 9. Additions for chat features (design, 2026-11-20)
+
+Requirements and design: [`chat-design.md`](chat-design.md). None of this is
+built or enabled yet. The read-only default does not change in any of it.
+
+### 9.1 Stopping a run
+
+Cancel and force-send interrupt the run first and terminate it only if it
+does not stop. **Changes the run already made to files are kept**; the app
+states this where the owner cancels. Two runs never write to one session.
+
+### 9.2 Skills and commands of a session's folder
+
+| Rule | Mechanism | Status |
+|---|---|---|
+| Only in capable mode, only in allowed folders, switched on per session | bridge: a per-session switch; without it runs keep `--disable-slash-commands` | to build |
+| Only the session folder's own skills and commands; nothing personal or global | bridge passes only that folder; user-level settings, skills and plugins stay excluded | to build, **to verify by probe** |
+| A skill cannot run shell lines before the model sees it | the documented setting that disables shell execution in skills | **to verify by probe** |
+| A skill cannot widen the tools or leave the sandbox | the tool list comes from the bridge; every command still runs in the OS sandbox and through the gate and audit log | **to verify by probe** |
+| Skill text is outside text | never copied into always-loaded memory files | by layout |
+
+New probes before this is switched on: a skill in the run folder whose
+shell line would create a file (must not run); a skill that pre-approves a
+web tool and a write outside the folder (must change nothing); a personal
+skill in the home folder (must not be listed or usable); a read-only run in
+the same session (no skills at all).
+
+### 9.3 MCP servers, project hooks and project settings: not enforceable
+
+The owner asked for these to be enabled per session in the capable mode.
+Hooks and MCP servers are started by Claude Code as ordinary programs:
+**they are not inside the OS sandbox**, so they would have the network and
+the owner's whole home folder, and the guardrails "no network", "confined
+to the allowed folders" and "never read the private config folder" could
+not be enforced for them. Project settings can also change permissions.
+The owner's rule is that a guardrail that cannot be enforced is never
+weakened silently, so this is **a human decision** and stays off until it
+is answered.
+
+### 9.4 Installing a skill
+
+An install is an approval-required action: the bridge downloads the
+proposed skill into a quarantine folder in the private config area (never
+loaded, never executed), the app shows source, contents, warnings and the
+target folder, and only the owner's explicit approval copies it into the
+session folder's `.claude/skills/`. Every proposal, approval and refusal is
+in the audit log. Installs are per folder, never global.
+
+### 9.5 Sending files to the phone
+
+Only regular files inside the allowed folders or the memory folder, after
+resolving links; never the private config folder or hidden credential
+folders. The model can only *offer* a file; the transfer starts on the
+owner's tap, for an offer the bridge created and checked. Offers and
+downloads are in the audit log (name and size). Files travel sealed, in
+chunks that are deleted from the relay as soon as they are acknowledged.
+Size limit 50 MB by default.

@@ -108,6 +108,35 @@ decided in the issue that builds them.
   progress indicator shows elapsed time, with a cancel button. If streaming is
   available the answer appears as it is written. The owner may leave: a
   push notification arrives when the answer is ready.
+- **History:** opening a conversation loads only the last few exchanges
+  (default 4); older ones load when the owner scrolls up. The computer keeps
+  the full transcript; the phone does not store whole sessions.
+- **While the assistant works:**
+  - a second message is **queued** and sent when the run ends; queued
+    messages are shown above the composer and can be edited or removed;
+  - **Send now** (an explicit action on a queued message) interrupts the
+    run and sends that message immediately;
+  - **Cancel** stops the run. Both confirmations say plainly: "Changes the
+    assistant has already made to files are kept."
+- **"/" commands:** typing "/" opens the list of skills and commands of the
+  session's folder, with completion; a recognised command is highlighted in
+  the composer. Available only where the owner switched them on for that
+  session (capable mode, allowed folder).
+- **Model:** the top bar shows the session's model and effort; tapping it
+  changes them for this session. The default (Opus, high effort) is in
+  Settings.
+- **Files:** when the assistant offers a file it appears as a **file card**
+  (name, type, size) with a download button. Nothing is transferred until
+  the button is tapped; the file is then saved to the system Downloads
+  folder and the app keeps no copy. Over the size limit the card explains
+  why it cannot be sent.
+- **Questions from the assistant:** shown as text; the assistant offers
+  lettered options and the owner answers in the composer. Option cards with
+  a free-text field are possible only with a different way of running the
+  assistant (an open decision, see [`chat-design.md`](chat-design.md)).
+- **Skill installs and other approvals:** an approval card shows exactly
+  what is asked (for a skill: source, contents, warnings, target folder);
+  nothing happens without the owner's tap.
 - **Coach questions:** the assistant sometimes asks a short question of its
   own (why a task is waiting, what is hard or easy about it). Such a message
   is marked "Coach" and has "Answer" and "Skip"; at most one is open at a
@@ -146,7 +175,8 @@ decided in the issue that builds them.
   changed.
 - **States:** loading · empty · in use · error with retry.
 - **Endpoints:** `GET /sessions`, `PATCH /sessions/{id}`, `/session-groups`,
-  `/reminders`, `POST /sessions/{id}/messages`.
+  `/reminders`, `POST /sessions/{id}/messages`; history, queue, cancel,
+  commands and models as in [`chat-design.md`](chat-design.md).
 
 ### 3.4 Capture
 
@@ -257,6 +287,8 @@ decided in the issue that builds them.
 - **App lock:** biometric or device credential; lock timeout.
 - **Language:** follow phone / English / Türkçe.
 - **Appearance:** follow phone / light / dark.
+- **Assistant:** default model and effort for new conversations (default:
+  Opus, high); number of exchanges loaded when a conversation opens.
 - **Coach:** nudge frequency (off / low / normal), quiet hours (default
   22:00–08:00), questions on / off.
 - **Notifications:** which kinds the phone shows: answers ready, session
@@ -400,4 +432,5 @@ layout, subtle motion (short fades and slides, nothing bouncy).
 | Tasks: prioritised, the rest behind "show all" | set by the owner |
 | Sessions: groups, rename, pin, reminders, reply notifications | set by the owner |
 | Coach: questions in chat, nudges with limits | set by the owner; design in `coach-design.md` |
+| Chat: lazy history, queue / send now / cancel, "/" commands, model per session, file cards, questions | set by the owner; design in `chat-design.md` |
 | Visual direction | A, B, C not chosen; D's structure accepted; variants **D1, D2, D3** mocked up, **open**: the owner chooses and refines |

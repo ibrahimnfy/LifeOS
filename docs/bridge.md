@@ -81,6 +81,10 @@ bridge by hand.
 
 ## Endpoints
 
+Planned additions for chat (history, queue and cancel, commands, models,
+file offers) are specified in [`chat-design.md`](chat-design.md) and are
+documented here as they are built.
+
 | Method | Path | Auth | Purpose |
 |---|---|---|---|
 | GET | `/health` | no | Liveness check; returns `{"status":"ok"}` and nothing else |
