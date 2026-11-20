@@ -215,6 +215,14 @@
     <string name="coach_kind_question">A question</string>
     <string name="coach_prepared_recently">Prepared less than an hour ago</string>
     <string name="coach_stale">%1$s · not from today</string>
+    <string name="coach_rerun">Rerun</string>
+    <string name="coach_prepare">Prepare a plan</string>
+    <string name="coach_no_plan">The coach has not prepared a plan yet.</string>
+    <string name="coach_rerun_running">Preparing a new plan… this takes a few minutes.</string>
+    <string name="coach_rerun_too_soon">A plan was made less than ten minutes ago. Try again later.</string>
+    <string name="coach_rerun_unreachable">The computer could not be reached.</string>
+    <string name="coach_rerun_no_answer">No answer yet. The new plan may still arrive; pull down later.</string>
+    <string name="coach_rerun_failed">The coach could not prepare a new plan. The previous one stays.</string>
 
     <!-- Notes -->
     <string name="notes_empty">Nothing captured yet.</string>

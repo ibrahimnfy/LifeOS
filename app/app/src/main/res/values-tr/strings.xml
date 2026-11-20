@@ -213,6 +213,14 @@
     <string name="coach_kind_question">Bir soru</string>
     <string name="coach_prepared_recently">Bir saatten kısa süre önce hazırlandı</string>
     <string name="coach_stale">%1$s · bugüne ait değil</string>
+    <string name="coach_rerun">Yeniden çalıştır</string>
+    <string name="coach_prepare">Plan hazırla</string>
+    <string name="coach_no_plan">Koç henüz bir plan hazırlamadı.</string>
+    <string name="coach_rerun_running">Yeni plan hazırlanıyor… bu birkaç dakika sürer.</string>
+    <string name="coach_rerun_too_soon">On dakikadan kısa süre önce bir plan hazırlandı. Daha sonra yeniden dene.</string>
+    <string name="coach_rerun_unreachable">Bilgisayara ulaşılamadı.</string>
+    <string name="coach_rerun_no_answer">Henüz yanıt yok. Yeni plan yine de gelebilir; daha sonra aşağı çek.</string>
+    <string name="coach_rerun_failed">Koç yeni bir plan hazırlayamadı. Önceki plan geçerli.</string>
 
     <!-- Notes -->
     <string name="notes_empty">Henüz bir şey kaydedilmedi.</string>

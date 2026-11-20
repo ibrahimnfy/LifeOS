@@ -152,9 +152,11 @@ with plain HTTPS requests.
   opened (tapping it opens a "Coach conversation" placeholder);
   "Assistant's picks" is the plan's top three with their reasons; "Today"
   lists overdue and today's tasks, three visible and the rest by scrolling
-  inside the card. Pulling down asks the computer for a fresh plan (a model
-  run there; it quietly keeps the old plan when one was made in the last ten
-  minutes).
+  inside the card. Pulling down only reads the plan and the agenda again; it
+  never starts a model run. The coach card's **Rerun** button asks the
+  computer for a new plan (a model run of a few minutes there); the card
+  shows the progress and, when a plan was made in the last ten minutes, the
+  computer's refusal. Without a plan the card offers **Prepare a plan**.
 - **Tasks:** with a plan, "Most important" (the first five of the coach's
   order) and "Show all (n)", which opens the whole ordered list with filters
   (overdue, today, upcoming, no date). Without a plan, the open tasks by
@@ -368,7 +370,12 @@ running on the computer with the relay set up.
 2. **Today:** the task is in the "Today" card (and among the picks if the
    coach has a plan). Tap its round check: it disappears and "Marked as done
    · Undo" appears. Tap **Undo**: it is back. Tap the check again and wait:
-   on the computer the task has moved to `tasks-done.md`.
+   on the computer the task has moved to `tasks-done.md`. Pull Today down:
+   the cards reload within seconds and no plan run starts (the "prepared …
+   ago" line of the coach card stays as it was). Tap **Rerun** on the
+   coach card: "Preparing a new plan…", and a few minutes later the card
+   shows a message of the new plan. Tap **Rerun** again at once: "A plan was
+   made less than ten minutes ago".
 3. **Tasks:** with open tasks and a plan, "Most important" and "Show all
    (n)" with the four filters; without a plan, sections by date.
 4. **Calendar** (More → Calendar): the agenda with a month strip. **+** adds

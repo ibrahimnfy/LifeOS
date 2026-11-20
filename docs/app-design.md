@@ -93,8 +93,10 @@ every section in its own clearly visible card.*
 
   Nothing else. Events, deadline lists, sleep and screen-time tiles live on
   their own screens.
-- **Actions:** tick a task; tap a task to open it; pull to refresh (may ask
-  the computer for a fresh batch).
+- **Actions:** tick a task; tap a task to open it; pull to refresh (reads the
+  plan and the agenda again, never starts a model run); **Rerun** on the
+  coach card asks the computer for a fresh batch (a model run; refused within
+  ten minutes of the last one).
 - **States:** loading skeleton · saved copy with "prepared 2 h ago" when the
   computer is unreachable · empty ("Nothing for today") · no plan yet (tasks
   shown in date order, coach card hidden) · error with retry.

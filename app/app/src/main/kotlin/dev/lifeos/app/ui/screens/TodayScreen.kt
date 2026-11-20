@@ -1,11 +1,13 @@
 package dev.lifeos.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +20,10 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -29,19 +34,20 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.Agenda
-import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.CoachMessage
 import dev.lifeos.app.data.CoachPlan
+import dev.lifeos.app.data.CoachRerun
 import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.Task
 import dev.lifeos.app.data.TaskLists
+import dev.lifeos.app.data.TodayReload
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
+import dev.lifeos.app.ui.icons.LifeIcons
 import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
-import kotlinx.coroutines.launch
 
 /** How many of today's tasks the Today card shows without scrolling inside it. */
 private const val VISIBLE_TODAY_ROWS = 3
@@ -49,7 +55,8 @@ private const val VISIBLE_TODAY_ROWS = 3
 /**
  * Today: the coach card (one message of the morning's plan, another one each time the app is
  * opened), "Assistant's picks" (the plan's top three) and "Today" (overdue and today's tasks).
- * Pulling down asks the computer for a fresh plan.
+ * Pulling down reads the plan and the agenda again; only the coach card's "Rerun" asks the
+ * computer for a new plan (a model run).
  */
 @Composable
 fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: () -> Unit, onPair: () -> Unit) {
@@ -59,32 +66,16 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
     val agendaState by agendaModel.state.collectAsStateWithLifecycle()
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
     val ticked by core.justTicked.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
-    var preparing by remember { mutableStateOf(false) }
+    val rerun by core.coachRerun.collectAsStateWithLifecycle()
 
-    // Pull to refresh: a new plan (a run on the computer; it refuses quietly when one was just made).
-    val refresh: () -> Unit = {
-        if (!preparing && planState !is UiState.NotPaired) {
-            preparing = true
-            scope.launch {
-                try {
-                    val (plan, raw) = core.api.refreshPlan()
-                    core.savePlan(raw)
-                    planModel.show(plan)
-                } catch (_: ApiException) {
-                    // Too soon, busy, unusable result or unreachable: the previous plan stays.
-                    planModel.refresh()
-                } finally {
-                    preparing = false
-                    agendaModel.refresh()
-                }
-            }
-        }
-    }
+    // Pull to refresh reads the plan and the agenda again. It never starts a model run: that is
+    // the coach card's "Rerun".
+    val models = mapOf(Endpoints.plan.key to planModel, Endpoints.agenda.key to agendaModel)
+    val refresh: () -> Unit = { TodayReload.reload { endpoint -> models[endpoint.key]?.refresh() } }
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = stringResource(R.string.nav_today), onConnectionClick = onConnectionClick)
-        RefreshBox(refreshing = preparing, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
+        RefreshBox(refreshing = planState.isRefreshing || agendaState.isRefreshing, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -103,9 +94,11 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                 (planCopy?.savedAtMillis ?: agendaCopy?.savedAtMillis)?.let { SavedCopyLine(it) }
 
                 if (planState is UiState.Loading) SkeletonCard(1)
+                // Without a plan (or one without messages) the card still offers the run.
+                if (plan != null && (!plan.exists || plan.messages.isEmpty())) NoPlanCard(rerun, onRerun = core::rerunCoach)
                 if (plan != null && plan.exists) {
                     val message by produceState<CoachMessage?>(null, plan.messages.map { it.id }) { value = core.coachMessage(plan) }
-                    message?.let { CoachCard(it, plan, onClick = onOpenCoach) }
+                    message?.let { CoachCard(it, plan, rerun, onRerun = core::rerunCoach, onClick = onOpenCoach) }
                     val picks = plan.topThree.filter { top -> TaskLists.open(listOf(top.task), outbox, ticked).isNotEmpty() }
                     if (picks.isNotEmpty()) {
                         LifeCard {
@@ -200,22 +193,88 @@ private fun TodayTasks(core: LifeOsCore, tasks: List<Task>) {
     }
 }
 
-/** The coach card: a grey surface inside the gradient ring. */
+/** The gradient ring with a grey surface inside, the frame of the coach card. */
 @Composable
-private fun CoachCard(message: CoachMessage, plan: CoachPlan, onClick: () -> Unit) {
+private fun CoachFrame(onClickLabel: String? = null, onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit) {
     val colors = LifeTheme.colors
-    val action = stringResource(R.string.coach_open)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .clickable(onClickLabel = action, role = Role.Button, onClick = onClick)
+            .then(if (onClick != null) Modifier.clickable(onClickLabel = onClickLabel, role = Role.Button, onClick = onClick) else Modifier)
             .background(colors.gradient, RoundedCornerShape(20.dp))
             .padding(LifeDimens.ring)
             .background(colors.surface, RoundedCornerShape(17.dp))
             .padding(horizontal = 14.dp, vertical = 13.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+        content = content,
+    )
+}
+
+/**
+ * "Rerun": a new plan from the computer (a model run of a few minutes). Shows the progress
+ * and why it did not happen (a run in the last ten minutes, not reachable, failed).
+ */
+@Composable
+private fun RerunLine(rerun: CoachRerun.State, onRerun: () -> Unit, label: Int = R.string.coach_rerun, idleText: String? = null) {
+    val colors = LifeTheme.colors
+    val running = rerun == CoachRerun.State.Running
+    val note = when (rerun) {
+        CoachRerun.State.Running -> R.string.coach_rerun_running
+        CoachRerun.State.TooSoon -> R.string.coach_rerun_too_soon
+        CoachRerun.State.Unreachable -> R.string.coach_rerun_unreachable
+        CoachRerun.State.NoAnswer -> R.string.coach_rerun_no_answer
+        CoachRerun.State.Failed -> R.string.coach_rerun_failed
+        CoachRerun.State.Idle, CoachRerun.State.Done -> null
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = note?.let { stringResource(it) } ?: idleText.orEmpty(),
+            style = LifeType.small,
+            color = colors.muted,
+            modifier = Modifier
+                .weight(1f)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        )
+        Box(
+            modifier = Modifier
+                .heightIn(min = LifeDimens.minTouch)
+                .clip(RoundedCornerShape(50))
+                .clickable(enabled = !running, role = Role.Button, onClick = onRerun),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(
+                modifier = Modifier
+                    .border(1.5.dp, colors.divider, RoundedCornerShape(50))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Icon(LifeIcons.Refresh, contentDescription = null, tint = if (running) colors.muted else colors.text, modifier = Modifier.size(16.dp))
+                Text(stringResource(label), style = LifeType.label, color = if (running) colors.muted else colors.text)
+            }
+        }
+    }
+}
+
+/** The coach card when there is no plan to show yet: it offers the first run. */
+@Composable
+private fun NoPlanCard(rerun: CoachRerun.State, onRerun: () -> Unit) {
+    CoachFrame {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            CoachTag()
+        }
+        Text(stringResource(R.string.coach_no_plan), style = LifeType.body, color = LifeTheme.colors.text)
+        RerunLine(rerun, onRerun, label = R.string.coach_prepare)
+    }
+}
+
+/** The coach card: one message of the plan; tapping it opens the coach conversation. */
+@Composable
+private fun CoachCard(message: CoachMessage, plan: CoachPlan, rerun: CoachRerun.State, onRerun: () -> Unit, onClick: () -> Unit) {
+    val colors = LifeTheme.colors
+    val action = stringResource(R.string.coach_open)
+    CoachFrame(onClickLabel = action, onClick = onClick) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -249,19 +308,18 @@ private fun CoachCard(message: CoachMessage, plan: CoachPlan, onClick: () -> Uni
             )
         }
         val age = plan.ageSeconds
-        if (age != null) {
+        val prepared = if (age == null) {
+            null
+        } else {
             val hours = (age / 3600).toInt()
-            val prepared = if (hours < 1) {
+            val text = if (hours < 1) {
                 stringResource(R.string.coach_prepared_recently)
             } else {
                 pluralStringResource(R.plurals.coach_prepared_hours, hours, hours)
             }
-            Text(
-                text = if (plan.stale) stringResource(R.string.coach_stale, prepared) else prepared,
-                style = LifeType.small,
-                color = colors.muted,
-            )
+            if (plan.stale) stringResource(R.string.coach_stale, text) else text
         }
+        RerunLine(rerun, onRerun, idleText = prepared)
     }
 }
 

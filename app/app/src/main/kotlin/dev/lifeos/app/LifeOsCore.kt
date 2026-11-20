@@ -9,6 +9,7 @@ import dev.lifeos.app.data.Api
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.CoachMessage
 import dev.lifeos.app.data.CoachPlan
+import dev.lifeos.app.data.CoachRerun
 import dev.lifeos.app.data.CoachRotation
 import dev.lifeos.app.data.Downloads
 import dev.lifeos.app.data.Endpoint
@@ -208,6 +209,25 @@ class LifeOsCore(private val app: Application) {
 
     /** Keep a plan that was just prepared as the saved copy of the plan. */
     fun savePlan(raw: JsonElement) = cache.put(Endpoints.plan.key, raw, System.currentTimeMillis())
+
+    private val rerunState = MutableStateFlow<CoachRerun.State>(CoachRerun.State.Idle)
+
+    /** The coach card's "Rerun": its progress and outcome, kept while the owner moves around. */
+    val coachRerun: StateFlow<CoachRerun.State> = rerunState
+
+    /** Ask the computer for a new plan now (a model run; it refuses one within ten minutes of the last). */
+    fun rerunCoach() {
+        synchronized(rerunState) {
+            if (rerunState.value == CoachRerun.State.Running) return
+            rerunState.value = CoachRerun.State.Running
+        }
+        scope.launch {
+            val outcome = CoachRerun.run(api, ::savePlan)
+            rerunState.value = outcome
+            // Every screen that shows the plan reads the new one (it is the saved copy already).
+            if (outcome == CoachRerun.State.Done) reloadState.value++
+        }
+    }
 
     /**
      * Put a write into the outbox and, when the computer is connected, send it right away.
@@ -619,6 +639,7 @@ class LifeOsCore(private val app: Application) {
         cache.wipe()
         outbox.wipe()
         downloads.clear()
+        rerunState.value = CoachRerun.State.Idle
         tickTimers.values.forEach { it.cancel() }
         tickTimers.clear()
         tickedState.value = emptySet()
