@@ -257,14 +257,23 @@ with plain HTTPS requests.
   Grades; files and links carry the course's colour. Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
-- **Activity** (under More): screen time. Without usage access, an
-  explanation of what is read and where it goes, and a button to the system
-  setting (this app's own page where the phone has one). With it: today's
-  screen time and unlocks, a 7 or 30 day bar chart (average as a dashed
-  line; tapping a bar chooses the day), the chosen day's apps (a minute or
-  more, the home screen and LifeOS left out) as bars, and the switch "Send
-  screen time once a day" with the state of sending and "Send now". Sleep is
-  not built yet.
+- **Activity** (under More), two tabs:
+  - **Sleep:** last night (length, bed and wake time, "Estimated" when it
+    was guessed) with **Enter last night** or **Correct**; a 7 or 30 night
+    chart (entered nights solid, estimated ones hatched, the average dashed;
+    tapping a night shows it above, where it can be entered or corrected);
+    the **morning question** (on by default at 05:00, the time can be
+    changed, it can be switched off; on Android 13 and newer it needs the
+    notification permission, asked for with a button). Without usage access
+    a short line explains that nights could be estimated.
+  - **Screen time:** without usage access, an explanation of what is read
+    and where it goes, and a button to the system setting (this app's own
+    page where the phone has one). With it: today's screen time and unlocks,
+    a 7 or 30 day bar chart (average as a dashed line; tapping a bar chooses
+    the day), the chosen day's apps (a minute or more, the home screen and
+    LifeOS left out) as bars.
+  - Below both: the switch "Send screen time and sleep once a day" with the
+    state of sending and "Send now".
 - **More:** Sessions and Projects are placeholder screens.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
@@ -336,6 +345,20 @@ Nothing on these screens is sample content any more. Not paired, they show
   happens when the app connects to the computer (at most once an hour) or
   on "Send now", never in the background. A day the computer has confirmed
   is not sent again unless its numbers change.
+- **Sleep** (`activity/`): a night is the owner's entry (bed and wake time,
+  `HH:MM`, for the morning it ended on) or, with usage access, a guess
+  (`SleepEstimate`: the longest stretch from the screen going off to the
+  next unlock that ends between 03:00 and 13:00 and lasts 3 to 14 hours).
+  A guess never replaces an entry; an entry or correction is sent again
+  (`POST /activity/sleep`, with `estimated`). The **morning question**
+  (`SleepPrompt`) is one inexact alarm of the phone's own alarm service at
+  the chosen time; when it rings and last night has no entry (a guess does
+  not count), one silent notification ("Good morning · How did you sleep?",
+  no data in it) opens the Sleep tab. The next morning is planned right
+  after, and again after a restart of the phone or a change of clock or
+  time zone (a receiver that is not exported). No polling, no service that
+  keeps running, nothing from the computer. Entering last night removes the
+  notification.
 
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
@@ -435,7 +458,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 - No push notifications.
 - Chat does not send; the coach conversation, Sessions and Projects are
-  placeholders; Activity has screen time but no sleep yet.
+  placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course" and renewing the sign-in from the phone.
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -538,7 +561,20 @@ running on the computer with the relay set up.
    with the total, the unlocks and the apps. Switch "Send screen time once a
    day" off: nothing more is sent. Revoking usage access in the system
    settings brings back the explanation.
-10. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
+10. **Sleep** (More → Activity → Sleep): "Last night · Not entered yet".
+   Tap **Enter last night**, pick bed and wake times, Save: the card shows
+   the length and the times, the chart a solid bar for this morning. With
+   usage access, nights you did not enter appear hatched and marked
+   "Estimated" (after a night with the phone lying unused). Tap a bar: that
+   night shows above with "Enter" or "Correct". Under "Morning question",
+   allow notifications (Android 13+), set the time two minutes ahead and do
+   not enter the night (or correct the time of a test night on another
+   day): at that time a silent notification "Good morning · How did you
+   sleep?" appears without sound; tapping it opens the Sleep tab. Entered
+   nights reach the computer like screen time: a `sleep` line in the
+   memory's `activity/` file of the month. Restart the phone: the question
+   is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
+11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
 
 ### The warmer design (P2, Courses in P3)

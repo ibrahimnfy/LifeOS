@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.SystemClock
 import dev.lifeos.app.activity.ActivityStore
 import dev.lifeos.app.activity.ActivitySync
+import dev.lifeos.app.activity.SleepPrompt
 import dev.lifeos.app.activity.UsageReader
 import dev.lifeos.app.activity.UsageWorker
 import kotlinx.coroutines.sync.Mutex
@@ -421,12 +422,30 @@ class LifeOsCore(private val app: Application) {
         val measured = withContext(Dispatchers.IO) {
             activityLock.withLock {
                 if (!usageAccess()) return@withLock false
-                activity.putDays(UsageReader(app).measure(), LocalDate.now(ZoneId.systemDefault()))
+                val today = LocalDate.now(ZoneId.systemDefault())
+                val reader = UsageReader(app)
+                activity.putDays(reader.measure(), today)
+                // Nights the owner did not enter are guessed from when the phone lay unused.
+                reader.nights().forEach { activity.putEstimate(it, today) }
                 UsageWorker.schedule(app)
                 true
             }
         }
         if (measured) activityState.value++
+    }
+
+    /** The owner's own entry (or correction) for a night; [date] is the morning it ended on. Sent with the next upload. */
+    suspend fun enterNight(date: String, bed: String, wake: String) {
+        val today = LocalDate.now(ZoneId.systemDefault())
+        withContext(Dispatchers.IO) { activityLock.withLock { activity.putManual(date, bed, wake, today) } }
+        activityState.value++
+        if (date == today.toString()) SleepPrompt.dismiss(app)
+        syncActivity(force = true)
+    }
+
+    /** Plan the morning question again (after a change of its setting, and whenever the app is shown). */
+    fun scheduleSleepPrompt() {
+        scope.launch { SleepPrompt.schedule(app) }
     }
 
     /**
@@ -437,10 +456,11 @@ class LifeOsCore(private val app: Application) {
      */
     fun syncActivity(force: Boolean = false) {
         scope.launch {
-            if (connectionState.value != ConnectionState.CONNECTED || !settings.usageSync.first() || !usageAccess()) return@launch
+            if (connectionState.value != ConnectionState.CONNECTED || !settings.usageSync.first()) return@launch
             val now = System.currentTimeMillis()
             if (!force && now - lastActivitySync < ACTIVITY_SYNC_GAP_MILLIS) return@launch
             lastActivitySync = now
+            // Without usage access there is nothing to measure, but entered nights are still sent.
             measureUsage()
             withContext(Dispatchers.IO) { activityLock.withLock { ActivitySync.upload(activity, api, now) } }
             activityState.value++

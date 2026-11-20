@@ -46,6 +46,20 @@ class UsageReader(private val context: Context) {
         }
     }
 
+    /**
+     * Guesses of the last [days] nights from when the phone lay unused ([SleepEstimate]); a
+     * morning without a plausible quiet stretch has no guess.
+     */
+    fun nights(days: Int = UsageView.MEASURE_DAYS, nowMillis: Long = System.currentTimeMillis()): List<Night> {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        val first = today.minusDays((days - 1).toLong())
+        // From noon before the first morning: a night starts the evening before.
+        val from = UsageMath.dayBounds(first.minusDays(1), zone).first + 12 * 60 * 60_000L
+        val events = events(from, nowMillis)
+        return (0 until days).mapNotNull { offset -> SleepEstimate.night(events, first.plusDays(offset.toLong()), zone) }
+    }
+
     private fun events(from: Long, to: Long): List<RawEvent> {
         val manager = context.getSystemService(UsageStatsManager::class.java) ?: return emptyList()
         val found = ArrayList<RawEvent>()
@@ -114,7 +128,10 @@ class UsageWorker(context: Context, parameters: WorkerParameters) : CoroutineWor
     override suspend fun doWork(): Result {
         val app = applicationContext as LifeOsApplication
         if (UsageReader.hasAccess(app)) {
-            app.activityStore.putDays(UsageReader(app).measure(), LocalDate.now(ZoneId.systemDefault()))
+            val today = LocalDate.now(ZoneId.systemDefault())
+            val reader = UsageReader(app)
+            app.activityStore.putDays(reader.measure(), today)
+            reader.nights().forEach { app.activityStore.putEstimate(it, today) }
         }
         return Result.success()
     }

@@ -51,24 +51,25 @@ import java.time.LocalDate
 fun durationLabel(minutes: Int): String =
     if (minutes >= 60) stringResource(R.string.usage_hm, minutes / 60, minutes % 60) else stringResource(R.string.usage_m, minutes)
 
+private enum class ActivityTab(val title: Int) {
+    SLEEP(R.string.activity_tab_sleep),
+    SCREEN_TIME(R.string.activity_tab_screen_time),
+}
+
 /**
- * Activity: screen time from the system's usage records (usage access), drawn from what is
- * stored on the phone, so it works offline. Sleep comes with its own issue.
+ * Activity: sleep and screen time, drawn from what is stored on the phone, so it works
+ * offline. Sleep is entered by the owner, or guessed from when the phone lay unused (with
+ * usage access); screen time comes from the system's usage records (usage access).
  */
 @Composable
 fun ActivityScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> Unit) {
-    val colors = LifeTheme.colors
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val snackbar = LocalSnackbar.current
-    val noSettings = stringResource(R.string.activity_access_missing)
     val locked by core.locked.collectAsStateWithLifecycle()
     var access by remember { mutableStateOf(core.usageAccess()) }
     val version by core.activityChanged.collectAsStateWithLifecycle()
     val syncOn by core.settings.usageSync.collectAsStateWithLifecycle(initialValue = true)
     val connection by core.connection.collectAsStateWithLifecycle()
-    var range by rememberSaveable { mutableIntStateOf(7) }
-    var chosen by rememberSaveable { mutableStateOf<String?>(null) }
+    var tab by rememberSaveable { mutableStateOf(ActivityTab.SLEEP) }
 
     // Coming back from the system settings: look again whether access was granted, and measure.
     LifecycleResumeEffect(Unit) {
@@ -79,89 +80,23 @@ fun ActivityScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = stringResource(R.string.more_activity), onBack = onBack, onConnectionClick = onConnectionClick)
+        Row(Modifier.padding(horizontal = LifeDimens.pad), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ActivityTab.entries.forEach { entry -> Chip(label = stringResource(entry.title), selected = tab == entry) { tab = entry } }
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = LifeDimens.pad)
-                .padding(top = 10.dp, bottom = 24.dp),
+                .padding(top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             // Like every other screen: nothing of the content is read or drawn while the app is locked.
             if (locked) return@Column
-            if (!access) {
-                LifeCard {
-                    Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(stringResource(R.string.activity_access_title), style = LifeType.sectionTitle, color = colors.text)
-                        Text(stringResource(R.string.activity_access_text), style = LifeType.body, color = colors.text)
-                        Text(stringResource(R.string.activity_access_hint), style = LifeType.small, color = colors.muted)
-                        PrimaryButton(
-                            text = stringResource(R.string.activity_access_button),
-                            onClick = {
-                                val opened = UsageReader.settingsIntents(context).any { intent ->
-                                    try {
-                                        context.startActivity(intent)
-                                        true
-                                    } catch (_: ActivityNotFoundException) {
-                                        false
-                                    }
-                                }
-                                if (!opened) snackbar(noSettings)
-                            },
-                        )
-                    }
-                }
-                return@Column
+            when (tab) {
+                ActivityTab.SLEEP -> SleepTab(core, version, access)
+                ActivityTab.SCREEN_TIME -> ScreenTimeTab(core, version, access)
             }
-
-            val days = remember(version) { core.activity.days() }
-            val today = LocalDate.now()
-            val window = UsageView.window(days, today, range)
-            val todayUsage = window.last().second
-
-            LifeCard {
-                Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(stringResource(R.string.activity_today), style = LifeType.label, color = colors.muted)
-                    Text(durationLabel(todayUsage?.screenMinutes ?: 0), style = LifeType.screenTitle, color = colors.text)
-                    Text(
-                        pluralStringResource(R.plurals.activity_unlocks, todayUsage?.unlocks ?: 0, todayUsage?.unlocks ?: 0),
-                        style = LifeType.small,
-                        color = colors.muted,
-                    )
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip(label = stringResource(R.string.activity_range_week), selected = range == 7) { range = 7 }
-                Chip(label = stringResource(R.string.activity_range_month), selected = range == 30) { range = 30 }
-            }
-
-            val average = UsageView.average(window)
-            val selected = UsageView.selected(window, chosen?.let { runCatching { LocalDate.parse(it) }.getOrNull() })
-            LifeCard {
-                SectionHeader(
-                    title = stringResource(R.string.activity_per_day),
-                    note = average?.let { stringResource(R.string.activity_average, durationLabel(it)) },
-                )
-                if (window.all { it.second == null }) {
-                    EmptyLine(stringResource(R.string.activity_no_data))
-                } else {
-                    UsageBars(
-                        window = window,
-                        selected = selected?.date,
-                        average = average,
-                        description = pluralStringResource(R.plurals.activity_chart_description, range, range),
-                        onSelect = { chosen = it.toString() },
-                    )
-                    Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp)) {
-                        Text(dayLabel(window.first().first, appLocale()), style = LifeType.small, color = colors.muted, modifier = Modifier.weight(1f))
-                        Text(stringResource(R.string.activity_today), style = LifeType.small, color = colors.muted)
-                    }
-                }
-            }
-
-            if (selected != null) DayCard(selected)
-
             SyncCard(
                 core = core,
                 syncOn = syncOn,
@@ -171,6 +106,102 @@ fun ActivityScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
             )
         }
     }
+}
+
+/** Why usage access is needed and the way to the system setting. [short]: one line, for the Sleep tab. */
+@Composable
+fun UsageAccessCard(short: Boolean = false) {
+    val colors = LifeTheme.colors
+    val context = LocalContext.current
+    val snackbar = LocalSnackbar.current
+    val noSettings = stringResource(R.string.activity_access_missing)
+    LifeCard {
+        Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            if (short) {
+                Text(stringResource(R.string.sleep_access_text), style = LifeType.body, color = colors.text)
+            } else {
+                Text(stringResource(R.string.activity_access_title), style = LifeType.sectionTitle, color = colors.text)
+                Text(stringResource(R.string.activity_access_text), style = LifeType.body, color = colors.text)
+                Text(stringResource(R.string.activity_access_hint), style = LifeType.small, color = colors.muted)
+            }
+            val open = {
+                val opened = UsageReader.settingsIntents(context).any { intent ->
+                    try {
+                        context.startActivity(intent)
+                        true
+                    } catch (_: ActivityNotFoundException) {
+                        false
+                    }
+                }
+                if (!opened) snackbar(noSettings)
+            }
+            if (short) {
+                SecondaryButton(text = stringResource(R.string.activity_access_button), onClick = open)
+            } else {
+                PrimaryButton(text = stringResource(R.string.activity_access_button), onClick = open)
+            }
+        }
+    }
+}
+
+/** Screen time: today, the 7 or 30 day chart and the chosen day's apps. */
+@Composable
+private fun ScreenTimeTab(core: LifeOsCore, version: Int, access: Boolean) {
+    val colors = LifeTheme.colors
+    var range by rememberSaveable { mutableIntStateOf(7) }
+    var chosen by rememberSaveable { mutableStateOf<String?>(null) }
+    if (!access) {
+        UsageAccessCard()
+        return
+    }
+
+    val days = remember(version) { core.activity.days() }
+    val today = LocalDate.now()
+    val window = UsageView.window(days, today, range)
+    val todayUsage = window.last().second
+
+    LifeCard {
+        Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(stringResource(R.string.activity_today), style = LifeType.label, color = colors.muted)
+            Text(durationLabel(todayUsage?.screenMinutes ?: 0), style = LifeType.screenTitle, color = colors.text)
+            Text(
+                pluralStringResource(R.plurals.activity_unlocks, todayUsage?.unlocks ?: 0, todayUsage?.unlocks ?: 0),
+                style = LifeType.small,
+                color = colors.muted,
+            )
+        }
+    }
+
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Chip(label = stringResource(R.string.activity_range_week), selected = range == 7) { range = 7 }
+        Chip(label = stringResource(R.string.activity_range_month), selected = range == 30) { range = 30 }
+    }
+
+    val average = UsageView.average(window)
+    val selected = UsageView.selected(window, chosen?.let { runCatching { LocalDate.parse(it) }.getOrNull() })
+    LifeCard {
+        SectionHeader(
+            title = stringResource(R.string.activity_per_day),
+            note = average?.let { stringResource(R.string.activity_average, durationLabel(it)) },
+        )
+        if (window.all { it.second == null }) {
+            EmptyLine(stringResource(R.string.activity_no_data))
+        } else {
+            UsageBars(
+                window = window,
+                selected = selected?.date,
+                average = average,
+                description = pluralStringResource(R.plurals.activity_chart_description, range, range),
+                onSelect = { chosen = it.toString() },
+            )
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp)) {
+                Text(dayLabel(window.first().first, appLocale()), style = LifeType.small, color = colors.muted, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.activity_today), style = LifeType.small, color = colors.muted)
+            }
+        }
+    }
+
+    if (selected != null) DayCard(selected)
 }
 
 /**
@@ -274,6 +305,7 @@ private const val TOP_APPS = 10
 private fun SyncCard(core: LifeOsCore, syncOn: Boolean, connected: Boolean, version: Int, onToggle: (Boolean) -> Unit) {
     val colors = LifeTheme.colors
     val waiting = remember(version) { core.activity.days().count { it.complete && !it.uploaded } }
+    val nightsWaiting = remember(version) { core.activity.nights().count { !it.uploaded } }
     val last = remember(version) { core.activity.lastSyncMillis() }
     LifeCard {
         Row(
@@ -291,6 +323,7 @@ private fun SyncCard(core: LifeOsCore, syncOn: Boolean, connected: Boolean, vers
             val status = listOfNotNull(
                 if (last > 0) stringResource(R.string.activity_sync_last, relativeTime(last)) else stringResource(R.string.activity_sync_never),
                 if (waiting > 0) pluralStringResource(R.plurals.activity_sync_waiting, waiting, waiting) else null,
+                if (nightsWaiting > 0) pluralStringResource(R.plurals.sleep_sync_waiting, nightsWaiting, nightsWaiting) else null,
             ).joinToString(" · ")
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)) {
                 Text(

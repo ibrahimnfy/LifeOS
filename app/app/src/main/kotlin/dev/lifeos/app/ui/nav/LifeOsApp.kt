@@ -70,6 +70,8 @@ fun LifeOsApp(
     onPairingOpened: () -> Unit,
     captureRequest: String?,
     onCaptureHandled: () -> Unit,
+    openSleep: Boolean = false,
+    onSleepOpened: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -105,6 +107,13 @@ fun LifeOsApp(
         if (openPairing) {
             openPair()
             onPairingOpened()
+        }
+    }
+    // The morning question was tapped: Activity opens on its Sleep tab.
+    LaunchedEffect(openSleep) {
+        if (openSleep) {
+            navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
+            onSleepOpened()
         }
     }
 

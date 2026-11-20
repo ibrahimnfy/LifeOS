@@ -336,8 +336,11 @@ the platform the data comes from.*
   on the phone, so they always work offline. The phone measures in the
   background once a day, but sends only while the app is unlocked and
   connected (the device secret is not available otherwise); each finished
-  day is sent once. Built so far: the Screen time tab (without tabs while
-  Sleep is missing).
+  day is sent once. Built: both tabs (Sleep first), manual entry and
+  correction, the estimate from screen-off to first unlock (hatched and
+  labelled), the charts, and the morning question (one inexact alarm,
+  replanned after it rings, after a restart and after a clock or time-zone
+  change; a silent notification only while last night has no entry).
 
 ### 3.11 Settings
 

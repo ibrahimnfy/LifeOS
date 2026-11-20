@@ -366,8 +366,43 @@
     </plurals>
     <string name="activity_no_data">Nothing measured yet.</string>
     <string name="activity_apps_none">No app was used for a minute or more.</string>
-    <string name="activity_sync_switch">Send screen time once a day</string>
-    <string name="activity_sync_text">Each finished day is sent once to your computer: the total, the unlocks and the 20 most used apps with their minutes. It goes the next time the app is open and connected; the phone cannot send it in the background.</string>
+    <string name="activity_sync_switch">Send screen time and sleep once a day</string>
+    <string name="activity_sync_text">Each finished day is sent once to your computer: the total, the unlocks and the 20 most used apps with their minutes, and each night with its times. It goes the next time the app is open and connected; the phone cannot send it in the background.</string>
+    <string name="activity_tab_sleep">Sleep</string>
+    <string name="activity_tab_screen_time">Screen time</string>
+
+    <!-- Activity: sleep -->
+    <string name="sleep_access_text">With usage access, nights you did not enter are estimated from when the phone lay unused.</string>
+    <string name="sleep_per_night">Sleep per night</string>
+    <string name="sleep_no_data">No nights yet. Enter last night, or allow usage access for estimates.</string>
+    <plurals name="sleep_chart_description">
+        <item quantity="one">Bar chart of sleep over the last night. Tap it to see it above.</item>
+        <item quantity="other">Bar chart of hours slept per night over the last %d nights: entered nights solid, estimated ones hatched, the average as a dashed line. Tap a night to see it above.</item>
+    </plurals>
+    <string name="sleep_last_night">Last night</string>
+    <string name="sleep_night_of">Night · %1$s</string>
+    <string name="sleep_not_entered">Not entered yet.</string>
+    <string name="sleep_times">%1$s – %2$s</string>
+    <string name="sleep_estimated">Estimated</string>
+    <string name="sleep_legend_entered">Entered</string>
+    <string name="sleep_enter_last_night">Enter last night</string>
+    <string name="sleep_enter">Enter this night</string>
+    <string name="sleep_correct">Correct</string>
+    <string name="sleep_prompt_switch">Morning question</string>
+    <string name="sleep_prompt_explain">If last night has not been entered, a silent notification at %1$s asks for it. It is planned on this phone; nothing is sent for it.</string>
+    <string name="sleep_prompt_time">Time: %1$s</string>
+    <string name="sleep_prompt_allow">Allow notifications</string>
+    <string name="sleep_editor_title">Night · %1$s</string>
+    <string name="sleep_bed">Bed: %1$s</string>
+    <string name="sleep_wake">Up: %1$s</string>
+    <string name="sleep_channel">Morning question</string>
+    <string name="sleep_channel_text">Asks for last night\'s sleep when it has not been entered.</string>
+    <string name="sleep_prompt_title">Good morning</string>
+    <string name="sleep_prompt_text">How did you sleep? Tap to enter last night.</string>
+    <plurals name="sleep_sync_waiting">
+        <item quantity="one">%d night waiting</item>
+        <item quantity="other">%d nights waiting</item>
+    </plurals>
     <string name="activity_sync_last">Last sent %1$s</string>
     <string name="activity_sync_never">Nothing sent yet</string>
     <plurals name="activity_sync_waiting">

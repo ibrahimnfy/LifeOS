@@ -14,6 +14,11 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- The silent morning question about last night's sleep: a notification (asked for on
+         Android 13 and newer) and planning it again after the phone restarts. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <!-- App names for screen time: only apps with an icon on the home screen, and the home screen itself. -->
     <queries>
         <intent>
@@ -59,6 +64,18 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- The morning question's alarm, a restart of the phone, a change of clock or time zone.
+             Not exported: only the system and the app itself reach it. -->
+        <receiver
+            android:name=".activity.SleepPromptReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Lets AppCompat remember the chosen app language on Android 12 and older. -->
         <service
