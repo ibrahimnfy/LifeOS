@@ -155,6 +155,41 @@ Limits, enforced by the bridge regardless of what the batch proposes:
   that a nudge exists.
 - Tapping a nudge opens the task, or Chat for a question.
 
+### 4.1 The coach conversation (#110)
+
+One persistent conversation with the coach, opened from the coach card on
+Today and pinned at the top of the Chat tab (owner, sixth round).
+
+- **What it is.** An ordinary Claude Code session in the memory folder, run
+  through the same code as the owner's chat sessions (`claude -p`, or the
+  SDK runner when `LIFEOS_RUNNER=sdk`), read-only, with the memory loaded
+  and the coach's tone in its instructions. It always uses the
+  `coach_chat` job of the model routing (Opus with high effort); a model
+  choice or the capable mode is refused. Its id is kept in
+  `~/.config/lifeos/coach/chat.json`, so it survives restarts; the session
+  list shows it as "Coach", pinned.
+- **Compaction.** When the session's transcript passes about 400 KB, the
+  next message first compacts it: one more turn in the old session proposes
+  at most ten lasting facts (each marked as said by the owner or inferred)
+  and a summary. The bridge checks them like the answers to questions (only
+  existing files: `profile.md`, a project or course file; one line each)
+  and writes `- [owner <date>] …` or `- [inferred <date>] …` under `##
+  Facts`, and the summary to `coach/conversation.md`, as one commit
+  "Compact the coach conversation". Then a new session starts with the
+  summary in its instructions; the old one stays in the list as "Coach
+  (earlier)". If the compaction turn fails, the session is renewed anyway
+  with the previous summary, so it never grows without bound.
+- **Usage** of the conversation, its compaction and the filing of answers is
+  counted as the `coach_chat` job, apart from the morning run (`coach_plan`),
+  as the runs report it.
+- **Endpoints:** `GET /coach/chat` (session id, size, summary, compactions,
+  model, usage today and this week, and the morning run's usage beside it),
+  `POST /coach/chat/messages` (`{"prompt", "stream"?, "interactive"?,
+  "when"?}`, answers like a session message, plus `"compacted"` when a
+  compaction ran first), `POST /coach/chat/compact` (now; `409
+  nothing_to_compact` when empty). Earlier turns:
+  `GET /sessions/{session_id}/history`.
+
 ## 6. Cost and privacy
 
 - **Plan usage.** One short headless run each morning, one per processed
@@ -177,6 +212,7 @@ Endpoints (final shape decided in the building issue):
 | `POST /coach/plan/refresh` | Prepare a new plan now |
 | `GET /coach/question` · `POST /coach/question/answer` · `POST /coach/question/skip` | The open question |
 | `GET` / `PUT /coach/settings` | Frequency and quiet hours |
+| `GET /coach/chat` · `POST /coach/chat/messages` · `POST /coach/chat/compact` | The coach conversation (section 4.1) |
 
 Build order:
 

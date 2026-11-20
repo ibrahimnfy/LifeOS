@@ -54,7 +54,7 @@ JOBS: Mapping[str, Job] = {
     "chat": Job("Chat sessions (default; each session can choose its own)", None, None,
                 background=False),
     "coach_plan": Job("Coach: morning run and plan refresh", "opus", "high"),
-    "coach_chat": Job("Coach: conversation (today: filing the answers to its questions)", "opus",
+    "coach_chat": Job("Coach: the conversation, its compaction, and filing answers", "opus",
                       "high"),
     "consolidation": Job("Nightly consolidation proposals", "sonnet", None, "opus"),
     "course_resources": Job("Course resource research from syllabi", "sonnet", None, "opus"),

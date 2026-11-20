@@ -61,7 +61,7 @@ from claude_agent_sdk import (
 from claude_agent_sdk._errors import MessageParseError
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import claude, gate, interactions, push
+from . import claude, gate, interactions, push, routing
 from .claude import ClaudeError, RunResult
 from .config import Settings
 from .interactions import ANSWERED, APPROVAL, QUESTION, TIMEOUT, Interactions
@@ -313,6 +313,10 @@ def result_payload(message: ResultMessage) -> dict:
         "session_id": message.session_id,
         "duration_ms": message.duration_ms,
         "num_turns": message.num_turns,
+        # What the run reports about its plan usage (routing.record reads these).
+        "usage": getattr(message, "usage", None),
+        "total_cost_usd": getattr(message, "total_cost_usd", None),
+        "modelUsage": getattr(message, "model_usage", None),
     }
 
 
@@ -729,6 +733,7 @@ async def _events(
     policy: claude.Policy = claude.READ_ONLY,
     observer: Callable[[dict], None] | None = None,
     advisor: str | None = None,
+    job: str = "chat",
 ) -> AsyncIterator[tuple[str, Any]]:
     """``delta`` and ``interaction`` events, then ``("done", RunResult)``; failures raise.
 
@@ -791,7 +796,9 @@ async def _events(
         # the next message never meets a turn that is still writing.
         pool.spawn(live.stop(grace, turn))
         raise
-    result = claude.parse_result(result_payload(final))
+    payload = result_payload(final)
+    routing.record(job, payload, resumed=resume)  # also for a failed run: it used the plan too
+    result = claude.parse_result(payload)
     yield "done", result
 
 
@@ -813,6 +820,7 @@ async def stream(
     policy: claude.Policy = claude.READ_ONLY,
     observer: Callable[[dict], None] | None = None,
     answering: bool = True,
+    job: str = "chat",
 ) -> AsyncIterator[tuple[str, dict]]:
     """Same events as ``claude.stream``: ``delta``s, then one ``done`` or ``error``.
 
@@ -823,7 +831,7 @@ async def stream(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
         answering=answering, policy=policy, observer=observer,
-        advisor=advisor,
+        advisor=advisor, job=job,
     )  # fmt: skip
     try:
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
@@ -865,13 +873,14 @@ async def run(
     policy: claude.Policy = claude.READ_ONLY,
     observer: Callable[[dict], None] | None = None,
     answering: bool = False,  # accepted for symmetry: nobody can answer a run that is not streamed
+    job: str = "chat",
 ) -> RunResult:
     """Same as ``claude.run``: the whole answer, or a ClaudeError."""
     events = _events(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
         policy=policy, observer=observer,
-        advisor=advisor,
+        advisor=advisor, job=job,
     )  # fmt: skip
     async with contextlib.aclosing(events):
         async for event, payload in events:

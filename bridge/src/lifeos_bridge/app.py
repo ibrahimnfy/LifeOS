@@ -21,6 +21,7 @@ from . import (
     capable,
     claude,
     coach,
+    coach_chat,
     commands,
     contextmap,
     files,
@@ -344,6 +345,13 @@ def create_app(settings: Settings) -> FastAPI:
         prompt = read_prompt(data)
         mode = read_mode(data)
         is_capable = mode == "capable"
+        # The coach conversation runs through this same path, on its own job and
+        # instructions, read-only (coach_chat.py).
+        is_coach = session_id == await asyncio.to_thread(coach_chat.current_id)
+        if is_coach and (is_capable or read_model_choice(data)):
+            raise ClaudeError(
+                "bad_request", 400, "the coach conversation is read-only and uses its own model"
+            )
         when = data.get("when", "queue")
         if when not in ("queue", "now"):
             raise ClaudeError("bad_request", 400, "`when` must be `queue` or `now`")
@@ -370,7 +378,10 @@ def create_app(settings: Settings) -> FastAPI:
             await asyncio.to_thread(session_meta.update_session, session_id, choice)
         chosen = await asyncio.to_thread(session_meta.entry_for, session_id)
         # The session's own choice, else LIFEOS_MODEL_ROUTING's chat=…, else the defaults.
-        default = routing.run_options(settings, "chat")
+        # The coach conversation always runs on the coach_chat job (counted apart).
+        default = routing.run_options(settings, "coach_chat" if is_coach else "chat")
+        if is_coach:
+            chosen = {**chosen, "model": None, "effort": None}
         run_args = {
             "session_id": session_id,
             "resume": resume,
@@ -378,14 +389,18 @@ def create_app(settings: Settings) -> FastAPI:
             "model": chosen["model"] or default["model"],
             "effort": chosen["effort"] or default["effort"],
             "advisor": None if chosen["model"] else default["advisor"],
+            "job": default["job"],
             "on_process": control.tracker(session_id),
         }
-        run_args["context"] = phone_instructions
+        instructions = phone_instructions
+        if is_coach:
+            instructions += "\n\n" + await asyncio.to_thread(coach_chat.context)
+        run_args["context"] = instructions
         if cwd.resolve() == settings.ask_dir.resolve():
             # Conversations in the memory folder start with the memory loaded.
             loaded = await asyncio.to_thread(memory.context_for_prompt, cwd)
             if loaded:
-                run_args["context"] = phone_instructions + "\n\n" + loaded
+                run_args["context"] = instructions + "\n\n" + loaded
         streaming = bool(data.get("stream"))
         use_sdk = sdk_pool is not None
         watch = None
@@ -946,6 +961,73 @@ def create_app(settings: Settings) -> FastAPI:
         Fields left out keep their value.
         """
         return coach.update_settings(await read_json_object(request))
+
+    # ---- coach conversation: one persistent session, compacted when long ----------
+
+    @app.get("/coach/chat")
+    async def coach_conversation():
+        """The coach session, its size, summary, model and plan usage (apart from the
+        morning run). Never starts a run. Earlier turns: ``/sessions/{id}/history``."""
+        view = await asyncio.to_thread(coach_chat.view, settings)
+        jobs = {j["job"]: j for j in (await asyncio.to_thread(routing.overview, settings))["jobs"]}
+        chat = jobs["coach_chat"]
+        return {
+            **view,
+            "model": chat["model"],
+            "effort": chat["effort"],
+            "usage": chat["usage"],
+            "morning_usage": jobs["coach_plan"]["usage"],
+        }
+
+    async def compact_coach() -> dict:
+        """One turn in the old session proposes facts and a summary; then a new session."""
+        session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
+        if session_id in slots.active:
+            raise ClaudeError("session_in_use", 409, "the coach is answering; try again shortly")
+        answer = None
+        with contextlib.suppress(ClaudeError):
+            prompt = await asyncio.to_thread(coach_chat.compact_prompt, settings.ask_dir)
+            result = await run_prompt(
+                {"prompt": prompt}, session_id=session_id, resume=True, cwd=settings.ask_dir
+            )
+            answer = result.get("answer") if isinstance(result, dict) else None
+        return await asyncio.to_thread(
+            coach_chat.apply_compaction, settings, answer, memory.now_local()
+        )
+
+    @app.post("/coach/chat/messages")
+    async def coach_conversation_message(request: Request):
+        """Body as for a session message: ``{"prompt", "stream"?, "interactive"?, "when"?}``.
+
+        Read-only, on the coach's own model. A conversation that grew too long is
+        compacted first (one more run), and the message goes to the new session.
+        """
+        data = await read_json_object(request)
+        read_prompt(data)
+        if data.get("mode", "read_only") != "read_only" or read_model_choice(data):
+            raise ClaudeError(
+                "bad_request", 400, "the coach conversation is read-only and uses its own model"
+            )
+        session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
+        compacted = None
+        if session_id not in slots.active and await asyncio.to_thread(
+            coach_chat.too_long, settings
+        ):
+            compacted = await compact_coach()
+            session_id = compacted["session_id"]
+        resume = await asyncio.to_thread(coach_chat.started, settings, session_id)
+        answer = await run_prompt(data, session_id=session_id, resume=resume, cwd=settings.ask_dir)
+        if compacted is not None and isinstance(answer, dict):
+            answer["compacted"] = compacted
+        return answer
+
+    @app.post("/coach/chat/compact")
+    async def compact_coach_conversation():
+        """Compact now (one run): facts to the memory, summary kept, a new session."""
+        session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
+        if not await asyncio.to_thread(coach_chat.started, settings, session_id):
+            raise ClaudeError("nothing_to_compact", 409, "the coach conversation is empty")
+        return await compact_coach()
 
     def listed_session(session_id: str) -> sessions.SessionInfo:
         info = sessions.find_session(session_id, settings.allowed_roots)

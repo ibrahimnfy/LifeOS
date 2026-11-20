@@ -126,6 +126,9 @@ documented here as they are built.
 | POST | `/coach/question/answer` | yes | Records the owner's answer and files what it says |
 | POST | `/coach/question/skip` | yes | Skips the open question |
 | GET / PUT | `/coach/settings` | yes | Notification frequency, quiet hours, questions on or off |
+| GET | `/coach/chat` | yes | The coach conversation: session id, size, summary, model, usage (apart from the morning run) |
+| POST | `/coach/chat/messages` | yes | A message to the coach (compacts first when the conversation is long) |
+| POST | `/coach/chat/compact` | yes | Compacts the coach conversation now |
 | GET | `/moodle/status` | yes | Whether the Moodle sign-in is set up, its age and state |
 | GET | `/moodle/courses` | yes | The owner's courses on the university Moodle |
 | GET | `/moodle/courses/{id}` | yes | Sections, modules and files of one course |
@@ -848,6 +851,27 @@ The daily plan and the coach's questions of
 **Plan usage:** one read-only run each morning, one per manual refresh and
 one per answered question, on the owner's Claude plan. Reading the plan,
 ticking tasks, skipping a question and changing settings cost nothing.
+
+**The coach conversation** (`/coach/chat…`, [`coach-design.md`](coach-design.md)
+section 4.1): one persistent, read-only session in the memory folder on the
+`coach_chat` job (Opus), through the same path as chat sessions on either
+runner; compacted when its transcript passes about 400 KB, with the facts it
+learned written to the memory (`[owner …]` / `[inferred …]`) and the summary
+to `coach/conversation.md` in one commit; a new session continues from the
+summary. `GET /coach/chat` → `{"session_id", "started", "transcript_bytes",
+"compact_at_bytes", "compactions", "summary", "last_compaction",
+"earlier_sessions", "model", "effort", "usage": {"today", "week"},
+"morning_usage": {"today", "week"}}`. `POST /coach/chat/messages` answers
+like `POST /sessions/{id}/messages` (also streaming), plus `"compacted":
+{"facts", "summary", "session_id"}` when a compaction ran first; a model
+choice or `"mode": "capable"` is refused (`400`). Manual check:
+
+```
+curl -s -H "$H" -H "$J" -d '{"prompt":"What should I start with today?"}' $B/coach/chat/messages
+curl -s -H "$H" $B/coach/chat        # "started": true, "usage.today.runs" 1, "morning_usage" apart
+curl -s -X POST -H "$H" $B/coach/chat/compact   # one run; then a new "session_id"
+git -C ~/brain log -1 --format=%s     # "Compact the coach conversation" when facts or a summary came
+```
 
 - `GET /coach/plan` returns the last prepared plan against the tasks that
   are open now, **without a model run**:
