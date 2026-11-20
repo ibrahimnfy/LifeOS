@@ -91,6 +91,12 @@ def test_bridge_error_is_reported(bridge):
     assert "error_max_turns" in result.stderr
 
 
+def test_capable_flag_asks_for_the_capable_mode(bridge):
+    result = ask("--capable", "hello")  # no marker file in the test config: refused
+    assert result.returncode == 1
+    assert "capable_mode_unavailable" in result.stderr
+
+
 def test_continue_without_history(bridge):
     result = ask("-c", "x")
     assert result.returncode == 2

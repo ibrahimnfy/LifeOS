@@ -151,6 +151,11 @@ def main() -> int:
     parser.add_argument("-s", "--session", help="continue this /ask session")
     parser.add_argument("--resume", metavar="ID", help="continue a session shown by --sessions")
     parser.add_argument("--stream", action="store_true", help="print the answer as it is written")
+    parser.add_argument(
+        "--capable",
+        action="store_true",
+        help="capable mode for this request: edits and shell commands inside the guardrails",
+    )
     parser.add_argument("--json", action="store_true", help="print the raw JSON response")
     parser.add_argument("--sessions", action="store_true", help="list sessions")
     parser.add_argument("--health", action="store_true", help="check the bridge and the token")
@@ -185,6 +190,8 @@ def main() -> int:
         return 2
 
     body = {"prompt": prompt}
+    if args.capable:
+        body["mode"] = "capable"
     if args.stream:
         body["stream"] = True
     if args.resume:

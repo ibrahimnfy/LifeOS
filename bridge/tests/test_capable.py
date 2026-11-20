@@ -17,9 +17,9 @@ from test_ask import option, parse_sse
 def enable(isolated_config):
     """Write the marker file the way scripts/verify-guardrails will."""
 
-    def write(version="fake-claude 1.0", all_passed=True):
+    def write(version="fake-claude 1.0", all_passed=True, scope="all_allowed_folders"):
         (isolated_config / "capable-mode.json").write_text(
-            json.dumps({"claude_version": version, "all_passed": all_passed})
+            json.dumps({"claude_version": version, "all_passed": all_passed, "scope": scope})
         )
 
     return write
@@ -205,3 +205,37 @@ def test_folders_that_may_never_be_used(settings, tmp_path, monkeypatch):
     with pytest.raises(ClaudeError) as program:
         capable.build_policy(settings, settings.ask_dir)
     assert "program folder" in program.value.message
+
+
+def test_a_check_that_covered_only_the_memory_folder_keeps_other_folders_refused(
+    settings, auth, enable, tmp_path, write_session
+):
+    enable(scope="memory_folder")
+    project = tmp_path / "home" / "project"
+    project.mkdir()
+    client = TestClient(create_app(dataclasses.replace(settings, allowed_paths=(project,))))
+    session_id = write_session(project, [user_line(project, "x")])
+    response = client.post(
+        f"/sessions/{session_id}/messages", json={"prompt": "go", "mode": "capable"}, headers=auth
+    )
+    assert response.status_code == 503
+    assert response.json()["error"] == "capable_mode_unavailable"
+    assert not (project / ".fake-claude-calls.jsonl").exists()
+    assert ask(client, auth, "go").status_code == 200  # the memory folder itself is covered
+
+
+def test_verify_refuses_to_run_without_a_memory_folder(settings, monkeypatch, capsys, tmp_path):
+    from lifeos_bridge import verify
+
+    missing = dataclasses.replace(settings, ask_dir=tmp_path / "home" / "nowhere")
+    monkeypatch.setattr(verify, "load_settings", lambda: missing)
+    assert verify.main([]) == 2
+    assert "memory folder" in capsys.readouterr().err
+
+
+def test_verify_reads_a_run_from_its_stream(settings, ask_dir):
+    from lifeos_bridge import claude, verify
+
+    command = claude.build_command(settings, session_id="s", resume=False, stream=True)
+    run = verify.execute(settings, command, "hello", ask_dir, "s")
+    assert run.exit_status == 0 and run.answer

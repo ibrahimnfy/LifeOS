@@ -165,12 +165,27 @@ Every request is read-only unless it says `"mode": "capable"`. The capable
 mode lets Claude edit files and run shell commands inside guardrails; the
 full design is in [`permission-policy.md`](permission-policy.md).
 
-**It is switched off.** The bridge answers `503 capable_mode_unavailable`
-until the guardrail check has passed on this computer for the installed
-Claude Code version (a marker file `~/.config/lifeos/capable-mode.json`,
-written only by the check). A Claude Code update switches it off again.
+**It is switched on only by the guardrail check.** The bridge answers
+`503 capable_mode_unavailable` unless the check has passed on this computer
+for the installed Claude Code version (a marker file
+`~/.config/lifeos/capable-mode.json`, written only by the check). A Claude
+Code update switches the mode off again until the check is repeated:
 
-What a capable run looks like once enabled:
+```
+scripts/verify-guardrails
+```
+
+It runs the probe suite of [`permission-policy.md`](permission-policy.md)
+(section 7) with the real Claude Code, once in the terminal and once as a
+transient user service, prints one line per probe and switches the mode on
+only if every probe passed in both. It takes a few minutes and about twenty
+short runs of the owner's Claude plan. Results:
+`~/.config/lifeos/guardrail-results.json`. The check covers runs in the
+memory folder; capable runs in other allowed folders stay refused for now.
+After the check, restart the service (`systemctl --user restart
+lifeos-bridge`) if the bridge code changed since it was started.
+
+What a capable run looks like:
 
 - It works in the run's folder and the memory folder; other allowed folders
   are readable. The home folder, the private settings, keys and browser
@@ -402,6 +417,16 @@ curl -s -H "$H" -H 'Content-Type: application/json' \
   -d "{\"session_id\":\"<id>\",\"at\":\"$(date -d '+1 minute' -Iseconds)\",\"note\":\"test\"}" $B/reminders
 # within about 90 seconds a desktop notification "LifeOS: session reminder" appears
 curl -s -H "$H" "$B/reminders?state=fired"
+```
+
+Capable mode (after `scripts/verify-guardrails` passed; uses the owner's
+Claude plan; the memory folder must exist):
+
+```
+scripts/ask --capable --json "Create the file capable-check.txt containing the word ok, then try to run: rm capable-check.txt"
+# the answer explains that deleting needs approval; "refused_actions" lists "deletion";
+# capable-check.txt exists in the memory folder; the audit log has both commands:
+tail -n 3 ~/.config/lifeos/audit/*.jsonl
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

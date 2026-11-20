@@ -66,8 +66,12 @@ async def claude_version(settings: Settings) -> str:
     return version
 
 
-async def check_available(settings: Settings) -> None:
-    """Raise unless the guardrail probes passed for the installed Claude Code."""
+async def check_available(settings: Settings, run_dir: Path | None = None) -> None:
+    """Raise unless the guardrail probes passed for the installed Claude Code.
+
+    The probes run in the memory folder. Unless the marker says they also
+    covered other allowed folders, capable runs elsewhere stay refused.
+    """
     try:
         marker = json.loads(marker_path().read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -75,6 +79,10 @@ async def check_available(settings: Settings) -> None:
     recorded = marker.get("claude_version") if isinstance(marker, dict) else None
     if not isinstance(recorded, str) or not marker.get("all_passed"):
         raise unavailable("the guardrail check has not passed on this computer yet")
+    if run_dir is not None and marker.get("scope") != "all_allowed_folders":
+        memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
+        if folder != memory and not folder.is_relative_to(memory):
+            raise unavailable("the guardrail check covers runs in the memory folder only so far")
     if recorded != await claude_version(settings):
         raise unavailable(
             "Claude Code was updated since the guardrail check; run scripts/verify-guardrails"

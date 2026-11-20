@@ -172,7 +172,7 @@ def create_app(settings: Settings) -> FastAPI:
                     "session_in_use", 409, "this session is open on the computer right now"
                 )
             if is_capable:
-                await capable.check_available(settings)
+                await capable.check_available(settings, cwd)
                 watch = capable.AuditWatch(session_id)
                 run_args |= {"policy": capable.build_policy(settings, cwd), "observer": watch}
             elif not streaming:

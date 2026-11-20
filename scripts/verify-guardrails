@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Guardrail check for the capable mode: runs the probe suite of
+# docs/permission-policy.md against the real Claude Code, in this terminal
+# and in the service environment, and switches the capable mode on only if
+# every probe passes. Uses a few short runs of the owner's Claude plan.
+#
+# Usage: scripts/verify-guardrails [--no-service]
+set -euo pipefail
+bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
+cd "$bridge_dir"
+if [ -x .venv/bin/python ]; then
+  exec .venv/bin/python -m lifeos_bridge.verify "$@"
+elif command -v uv >/dev/null 2>&1; then
+  exec uv run python -m lifeos_bridge.verify "$@"
+fi
+echo "error: bridge/.venv is missing and 'uv' is not installed (see docs/bridge.md, Setup)." >&2
+exit 2
