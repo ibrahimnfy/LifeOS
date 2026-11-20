@@ -43,7 +43,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import claude, moodle, moodle_sync, routing, store
+from . import audit, claude, moodle, moodle_sync, routing, store
 from .claude import ClaudeError
 from .config import Settings, config_dir
 
@@ -297,6 +297,15 @@ def _decide(item: dict, folder: Path, budget: dict, hosts: tuple[str, ...]) -> d
         else:
             name, status = _download(item["url"], folder, item["title"], budget["bytes"])
             budget["downloads"] -= 1
+            size = (folder / name).stat().st_size if name else None
+            detail = {"course_id": budget.get("course_id"), "host": host, "name": name,
+                      "size": size, "result": status}  # fmt: skip
+            try:
+                audit.record("ResourceDownload", detail)
+            except audit.AuditUnavailable:
+                if name:  # nothing is kept without its record
+                    (folder / name).unlink(missing_ok=True)
+                name, status = None, "audit_unavailable"
             if name:
                 entry.update(status="downloaded", file=name)
             else:
@@ -331,7 +340,16 @@ def sources_text(record: dict, items: list[dict], today: str) -> str:
 
 
 # Reasons a listed item is tried again at the next run; every other one is final.
-RETRY = frozenset({"later", "download_failed", "unreachable", "host_not_allowed", "too_large"})
+RETRY = frozenset(
+    {
+        "later",
+        "download_failed",
+        "unreachable",
+        "host_not_allowed",
+        "too_large",
+        "audit_unavailable",
+    }
+)
 
 
 def _proposal(item: dict) -> dict:
@@ -374,12 +392,14 @@ async def run_course(settings: Settings, course_id: int, clock=None) -> str:
     if not moodle_sync._ready(root.resolve(), course_dir, FOLDER):
         return _finish(course_id, syllabus, None, "folder_unusable", clock)
     known = {item["url"]: item for item in _entry(load(), course_id)["items"]}
-    budget = {"downloads": MAX_DOWNLOADS, "bytes": moodle_sync.limits_from_env().file_bytes}
+    budget = {"downloads": MAX_DOWNLOADS, "bytes": moodle_sync.limits_from_env().file_bytes,
+              "course_id": course_id}  # fmt: skip
     hosts, dropped = _hosts(), 0
     # New proposals, and recorded items whose reason may have gone (the limit of the
     # last run, a failed download, a host the owner allowed since). Final ones stay.
     retry = [item for item in known.values() if item.get("reason") in RETRY]
     fresh = [item for item in proposed if item["url"] not in known]
+    decided: list[dict] = []
     for item in [*fresh, *retry]:
         entry = await asyncio.to_thread(_decide, _proposal(item), folder, budget, hosts)
         if entry is None:
@@ -387,20 +407,38 @@ async def run_course(settings: Settings, course_id: int, clock=None) -> str:
             known.pop(item["url"], None)
             continue
         known[item["url"]] = entry
+        decided.append(entry)
     items = list(known.values())
+    counts = {
+        "proposed": len(proposed),
+        "new": len(fresh),
+        "retried": len(retry),
+        "downloaded": sum(1 for e in decided if e["status"] == "downloaded"),
+        "listed": sum(1 for e in decided if e["status"] == "listed"),
+    }
     today = clock().astimezone().date().isoformat()
     if not moodle_sync.write_inside(root.resolve(), folder / "sources.md",
                                     sources_text(record, items, today)):  # fmt: skip
-        return _finish(course_id, syllabus, items, "write_failed", clock)
-    return _finish(course_id, syllabus, items, "ok", clock, dropped)
+        return _finish(course_id, syllabus, items, "write_failed", clock, dropped, counts)
+    return _finish(course_id, syllabus, items, "ok", clock, dropped, counts)
 
 
-def _finish(course_id: int, syllabus: dict, items, code: str, clock, dropped: int = 0) -> str:
-    """Store the outcome; the syllabus counts as read even when the run failed (no loop)."""
+def _finish(
+    course_id: int, syllabus: dict, items, code: str, clock, dropped: int = 0,
+    counts: dict | None = None,
+) -> str:  # fmt: skip
+    """Store the outcome; the syllabus counts as read even when the run failed (no loop).
+
+    One audit record per run with its outcome and counts (never page text).
+    """
     with _STATE:
         data = load()
         entry = _entry(data, course_id)
         _store(data, entry, syllabus, items, code, clock, dropped)
+    audit.try_record(
+        "ResourcesRun",
+        {"course_id": course_id, "result": code, "refused_piracy": dropped, **(counts or {})},
+    )
     return code
 
 

@@ -501,6 +501,9 @@ The bridge's own rules for downloading a proposal:
   within the size limit of course files; at most ten downloads per run.
 - Everything else (paid books, web pages, hosts not on the list) is
   **listed only** in `resources/sources.md`, with its link and the reason.
+- Every fetch is written to the audit log (`ResourceDownload`: course,
+  host, file name, size, result), and each run once (`ResourcesRun`, with
+  its counts); a downloaded file whose record cannot be written is removed.
 - An address already downloaded, or listed for a final reason, is never
   fetched again (the retried reasons are below).
 

@@ -555,6 +555,16 @@ def create_app(settings: Settings) -> FastAPI:
         today and this week. Never starts a run."""
         return await asyncio.to_thread(routing.overview, settings)
 
+    @app.put("/models/routing")
+    async def change_model_routing(request: Request):
+        """Change one job's model, effort or advisor (kept in the private config folder,
+        applied from the next run, audited). Body: ``{"job", "model"?, "effort"?,
+        "advisor"?}`` (``null``: back to the default; advisor ``"none"``: off) or
+        ``{"job", "reset": true}``. Answers the overview of ``GET`` plus ``"changed"``."""
+        data = await read_json_object(request)
+        efforts = await asyncio.to_thread(claude.effort_levels, settings)
+        return await asyncio.to_thread(routing.change, settings, data, efforts)
+
     @app.post("/sessions/{session_id}/cancel")
     async def cancel_run(session_id: str):
         """Stop the session's current run: interrupt first, terminate only if needed.

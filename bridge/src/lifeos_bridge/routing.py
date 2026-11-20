@@ -103,8 +103,28 @@ def parse(text: str | None) -> dict[str, tuple[str | None, str | None, str | Non
     return found
 
 
-def route(settings, job: str) -> Route:
-    """Model, effort and advisor of one job under ``settings``."""
+def route(settings, job: str, *, with_app: bool = True) -> Route:
+    """Model, effort and advisor of one job under ``settings``.
+
+    The owner's choices from the app (``PUT /models/routing``) come first; under
+    them, ``LIFEOS_MODEL_ROUTING``, then ``LIFEOS_BACKGROUND_MODEL``, then the
+    defaults of :data:`JOBS`. ``with_app=False`` gives the default underneath.
+    """
+    base = _route_from_settings(settings, job)
+    chosen = app_choices().get(job) if with_app else None
+    if not chosen:
+        return base
+    advisor = chosen.get("advisor", base.advisor)
+    return Route(
+        job,
+        chosen.get("model", base.model),
+        chosen.get("effort", base.effort),
+        None if advisor == "none" else advisor,
+        "app",
+    )
+
+
+def _route_from_settings(settings, job: str) -> Route:
     defaults = JOBS[job]
     named = settings.model_routing.get(job)
     if named is not None:
@@ -114,6 +134,91 @@ def route(settings, job: str) -> Route:
     if defaults.background and settings.background_model:
         return Route(job, settings.background_model, defaults.effort, None, "background_model")
     return Route(job, defaults.model, defaults.effort, defaults.advisor, "default")
+
+
+# ---- the owner's choices from the app ------------------------------------------------------
+
+CHOICES_FILE = "model-routing.json"
+CHOICE_FIELDS = ("model", "effort", "advisor")
+_CHOICES = threading.Lock()
+
+
+def app_choices() -> dict[str, dict]:
+    """Job → the fields the owner chose in the app (only those; read on every use)."""
+    data = store.read_json(config_dir() / CHOICES_FILE, {})
+    jobs = data.get("jobs") if isinstance(data.get("jobs"), dict) else {}
+    found: dict[str, dict] = {}
+    for job, chosen in jobs.items():
+        if job in JOBS and isinstance(chosen, dict):
+            kept = {k: v for k, v in chosen.items() if k in CHOICE_FIELDS and isinstance(v, str)}
+            if kept:
+                found[job] = kept
+    return found
+
+
+def _bad(message: str):
+    from .claude import ClaudeError  # local import: claude imports this module
+
+    return ClaudeError("bad_request", 400, message)
+
+
+def _model_name(settings, value: object, name: str, extra: tuple[str, ...] = ()) -> str:
+    known = (*settings.models, *extra)
+    if isinstance(value, str) and (
+        value in known or (value.startswith("claude-") and MODEL_NAME.match(value))
+    ):
+        return value
+    raise _bad(f"`{name}` must be one of: {', '.join(known)} (or a full claude-… name)")
+
+
+def change(settings, data: dict, efforts: tuple[str, ...]) -> dict:
+    """Apply one change of ``PUT /models/routing``; returns the new overview.
+
+    Body: ``{"job", "model"?, "effort"?, "advisor"?}`` or ``{"job", "reset": true}``.
+    A field left out stays as it is; ``null`` returns it to the default underneath;
+    ``"advisor": "none"`` switches the advisor off. Written to the audit log first:
+    when the record cannot be written, nothing changes.
+    """
+    from . import audit
+    from .claude import ClaudeError
+
+    job = data.get("job")
+    if job not in JOBS:
+        raise _bad(f"`job` must be one of: {', '.join(JOBS)}")
+    unknown = set(data) - {"job", "reset", *CHOICE_FIELDS}
+    reset = data.get("reset") is True
+    if unknown or (not reset and not set(data) & set(CHOICE_FIELDS)):
+        raise _bad("give `model`, `effort` or `advisor` (or `reset`: true) for the job")
+    with _CHOICES:
+        everything = app_choices()
+        before = dict(everything.get(job) or {})
+        after = {} if reset else dict(before)
+        for field in () if reset else CHOICE_FIELDS:
+            if field not in data:
+                continue
+            value = data[field]
+            if value is None:
+                after.pop(field, None)
+            elif field == "model":
+                after["model"] = _model_name(settings, value, "model")
+            elif field == "effort":
+                if value not in efforts:
+                    raise _bad(f"`effort` must be one of: {', '.join(efforts)}")
+                after["effort"] = value
+            else:
+                after["advisor"] = _model_name(settings, value, "advisor", ("none",))
+        try:
+            audit.record("ModelRouting", {"job": job, "before": before, "after": after})
+        except audit.AuditUnavailable as exc:
+            raise ClaudeError(
+                "audit_unavailable", 503, "the audit log cannot be written; nothing was changed"
+            ) from exc
+        if after:
+            everything[job] = after
+        else:
+            everything.pop(job, None)
+        store.write_json(config_dir() / CHOICES_FILE, {"jobs": everything})
+    return {**overview(settings), "changed": job}
 
 
 def run_options(settings, job: str) -> dict:
@@ -219,6 +324,7 @@ def overview(settings, today: date | None = None) -> dict:
     jobs = []
     for name, job in JOBS.items():
         chosen = route(settings, name)
+        under = route(settings, name, with_app=False)
         model = settings.claude_model or chosen.model or settings.default_model
         jobs.append(
             {
@@ -228,6 +334,13 @@ def overview(settings, today: date | None = None) -> dict:
                 "effort": chosen.effort or settings.default_effort,
                 "advisor": None if settings.claude_model else chosen.advisor,
                 "source": chosen.source,
+                # What the job uses without the owner's choice in the app.
+                "default": {
+                    "model": settings.claude_model or under.model or settings.default_model,
+                    "effort": under.effort or settings.default_effort,
+                    "advisor": None if settings.claude_model else under.advisor,
+                    "source": under.source,
+                },
                 "per_session": name == "chat",
                 "usage": {
                     "today": _total(days, name, today, today),

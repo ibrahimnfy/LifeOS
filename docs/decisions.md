@@ -227,3 +227,6 @@ a new entry is added that says what changed and why.
 - **A failed course-resources run counts the syllabus as read**; the owner asks again from the app. Counts of a course push are shown only after the app is unlocked.
 - **Which further sites course resources may be downloaded from is an open owner decision (#146);** until then only the built-in open-access hosts and the hosts named in the private settings are used, everything else is listed with its link.
 - **Test isolation:** the bridge test session runs in a temporary home and config folder underneath the per-test isolation, after one test had written a test marker into the real private config folder. The SDK runner's marker was re-created by the bridge's own check.
+
+### Implementation choices for routing changes from the app (agent, #143, 2026-11-21; cheap to change)
+- **The app's choices sit on top** of `LIFEOS_MODEL_ROUTING`, `LIFEOS_BACKGROUND_MODEL` and the defaults, per job and per field, in `~/.config/lifeos/model-routing.json`; read on every run, so no restart. `null` returns a field to the default underneath, `reset` the whole job. Models from `LIFEOS_MODELS` or a full `claude-…` name. Audited before the change; no record, no change.
