@@ -1,9 +1,11 @@
 # Security design and threat model: phone ↔ bridge through a relay
 
-Status: **design.** Nothing here is built yet. It applies if the owner
-chooses a relay-based connection (see
-[`research/connectivity.md`](research/connectivity.md)); the choice of relay
-does not change this document, because the relay is never trusted.
+Status: **design.** Nothing here is built yet. The relay is the only
+transport (the earlier VPN plan was dropped, see `decisions.md`). The relay
+runs on Google Cloud; which form it takes (see
+[`research/connectivity.md`](research/connectivity.md)) does not change this
+document, because the relay is never trusted. Push notifications go through
+Firebase Cloud Messaging (section 5.1).
 
 Scope: the path between the phone app and the bridge. What a prompt may do
 on the computer once it has arrived is a separate layer:
@@ -145,8 +147,36 @@ one encrypted public value through the relay.
   more.
 - Learns unavoidable **metadata**: that the two endpoints talk, when, how
   much, their network addresses, the device id and counters.
-- Push notifications contain no readable content: at most a small hint
-  encrypted with `k_push`; the app then fetches from the relay.
+- Push notifications contain no readable content (section 5.1).
+
+### 5.1 Push notifications
+
+Push goes through Firebase Cloud Messaging (FCM) and must work while the app
+is closed. The bridge calls the FCM HTTPS API itself, outbound; the relay
+never holds push credentials.
+
+- **Payload rule.** A push is one of two things, never anything else:
+  1. a **bare wake-up**: no fields beyond what FCM itself needs; or
+  2. a **small hint encrypted with `k_push`** using the same construction
+     and checks as section 3 (its own counter; a repeated or stale hint is
+     ignored). The hint says what kind of event happened and which session
+     or reminder it concerns, so the app can show the right notification.
+  In both cases the app then fetches from the relay and decrypts. Titles,
+  prompts, answers, notes and paths never appear in a push.
+- **FCM "data" messages only**, with high priority where the owner expects
+  prompt delivery (a finished run, a reminder), so the app's own code builds
+  the visible notification after decrypting. The "notification" message
+  type, whose text FCM would display itself, is not used.
+- **The phone's push address** (FCM registration token) reaches the bridge
+  inside the end-to-end channel, is stored with the device record, and is
+  deleted on revocation.
+- **Credentials.** The bridge's service-account key and the app's Firebase
+  settings file live under `~/.config/lifeos/firebase/` (mode 600 / 700) and
+  are injected at build time; neither is ever committed.
+- **What the push service learns:** that a push was sent, to which phone,
+  when, and its size. It can delay or drop pushes. A forged push is at worst
+  a useless wake-up: a hint that does not decrypt is ignored, and whatever
+  the app fetches must still pass section 3.3.
 
 ## 6. On the devices
 
@@ -181,7 +211,8 @@ What each party can see and do, with this design in place.
 | Other network attacker | At most what TLS exposes | Block | Read or forge |
 | Stranger who finds the relay address | Nothing without relay access data | Attempt to disturb; bounded by rate limits | Read, forge |
 | Someone with relay access data but no device secret | Metadata, ciphertext | Disturb, fill the mailbox up to its limits | Read, forge |
-| Push service | That a push was sent, to which phone, when | Delay or drop pushes | Read content |
+| Push service | That a push was sent, to which phone, when, its size | Delay or drop pushes; send useless wake-ups | Read content; make the app show or do anything |
+| Someone who steals the bridge's push key (service-account file) | Whatever that Firebase project holds: if the mailbox is in the same project, its ciphertext and metadata | Send useless wake-ups; disturb or empty the mailbox | Read or forge content |
 | Thief of a **locked** phone | Nothing | Nothing, while the Keystore protection holds | Use the app |
 | Thief of an **unlocked** phone, or malware with the app's rights | Everything the app shows | Act as the owner until revoked: send prompts, within the permission policy | Reach beyond the permission policy; survive `devices revoke` |
 | Someone who photographs the pairing QR code in its two minutes | The device secret | Read that device's traffic if they also obtain it from the relay; send prompts as that device | Stay unnoticed if they complete pairing (comparison step); survive revocation |
@@ -204,9 +235,9 @@ What each party can see and do, with this design in place.
 8. **Prompt content is still seen by the model provider**, as in any Claude
    Code use. End-to-end here means phone to bridge.
 
-## 8. Comparison with the previous VPN design
+## 8. Comparison with the previous VPN design (dropped)
 
-| | VPN (previous decision) | Relay with end-to-end layer (this design) |
+| | VPN (previous decision, dropped) | Relay with end-to-end layer (this design) |
 |---|---|---|
 | Works on a network that blocks VPNs | No | Yes, if ordinary HTTPS to the relay works |
 | Bridge reachable from outside | Only inside the private network, on a listening port | No listening port at all |

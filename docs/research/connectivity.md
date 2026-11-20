@@ -5,8 +5,38 @@ ordinary outbound HTTPS from both sides to a relay.
 
 - **Researched:** 2026-11-20. Every source in [Sources](#sources) was fetched
   on that date; that is the access date for every number in this document.
-- **Status:** research only. The choice of relay is a decision for the owner
-  (see [Recommendation](#6-recommendation)).
+- **Status:** research; **narrowed by the owner on 2026-11-20** (see the
+  next section). The remaining choice is a decision for the owner.
+
+## 0. Final direction (owner, 2026-11-20)
+
+After reading this research the owner decided:
+
+- The VPN is dropped, not kept as a fallback. The relay is the only
+  transport.
+- **The relay runs on Google Cloud**, in the owner's existing account. Only
+  two families remain candidates: **a database mailbox in a Firebase
+  project** (sections B2-a and B2-b; a Firebase project is a Google Cloud
+  project) and **the project's own relay on the free-tier VM** (B1).
+- **Push goes through FCM**, works while the app is closed, and carries no
+  readable content (section 3.4 and `docs/security.md`, section 5.1).
+
+Everything else in section 4 (a rented server elsewhere, Cloud Run, other
+serverless platforms, managed brokers, chat bots) is **not pursued** and is
+kept only as a record of why.
+
+| Candidate | Monthly cost | Billing account | Listener from the managed network | Owner effort |
+|---|---|---|---|---|
+| Firestore mailbox (B2-a) | USD 0 within the free quota | not needed | **Uncertain:** the realtime listener exists only over gRPC; the fallback is polling that uses most of the free daily reads (one query every 2 s = 43,200 of 50,000) | Low: one Firebase project |
+| Realtime Database mailbox (B2-b) | USD 0 on the no-cost plan | not needed | **Best documented fit:** streaming over ordinary HTTPS, with plain HTTPS polling that is not charged per read | Low: the same Firebase project |
+| Own relay on the free-tier VM (B1) | up to about USD 3.65 for the IPv4 address (exemption not verified) plus a domain name | **required** | Good in principle (streaming, long-polling under our control); a new, unknown domain may be filtered | High: billing, VM, domain, keeping a public server patched |
+
+The owner named Firestore's realtime listeners as the mailbox candidate.
+This research found that the sibling database in the same Firebase project,
+the Realtime Database, fits the managed network better, so the decision
+issue offers both, clearly separated, next to the VM. Nothing has been
+tested on the managed network yet; whichever is chosen is tested first
+(section 7).
 - **Reading the numbers:** a number followed by a key in brackets, such as
   [gcp-free], was read on the official page listed under that key. Anything
   marked **not verified** could not be confirmed on an official page and must
@@ -16,7 +46,7 @@ ordinary outbound HTTPS from both sides to a relay.
 ## 1. Summary
 
 - Model: bridge and phone make only outbound HTTPS on port 443 to a relay that forwards end-to-end-encrypted blobs; the bridge never listens.
-- **First choice: Firebase Realtime Database as a "mailbox" plus FCM for push (variant B2-b), USD 0 per month** on the no-cost plan with no billing account; nothing to patch.
+- (Before the owner narrowed the options; see section 0.) **First choice: Firebase Realtime Database as a "mailbox" plus FCM for push (variant B2-b), USD 0 per month** on the no-cost plan with no billing account; nothing to patch.
 - Why: its listener is SSE over ordinary HTTPS with a plain HTTPS polling fallback, and the same Firebase project is needed for push anyway.
 - **Fallback: the project's own small relay (A / B1)** with WebSocket, SSE and long-polling; on the Google free-tier VM budget **up to about USD 3.65 per month** for the external IPv4 address (exemption not verified), plus a domain.
 - Cloud Run (B3) does not fit a permanently connected listener (about USD 44–60 per month); Firestore (B2-a) is weaker than Realtime Database (gRPC-only listener, TTL neither free nor prompt).
@@ -632,7 +662,7 @@ with the end-to-end layer above it. The backend is then a replaceable module.
 - The no-cost plan loses the Realtime Database or its limits shrink → the
   fallback; the interface above makes this a module swap.
 
-**Options to offer the owner in the decision issue (four):**
+**Options originally offered to the owner (four; superseded by section 0, which keeps rows 1, 2 on the free-tier VM only, and 4):**
 
 | # | Option | What it requires from the owner | Monthly cost |
 |---|---|---|---|
