@@ -66,6 +66,11 @@ object LifeIcons {
     val MoreActive = icon("MoreActive", solid = MORE_ACTIVE)
 
     val Plus = icon("Plus", 2f, line = "M12 5v14M5 12h14")
+    val Refresh = icon("Refresh", line = "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4")
+    val Download = icon("Download", line = "M12 4v11M7 10.5l5 5 5-5M5 19.5h14")
+    val Close = icon("Close", line = "M6 6l12 12M18 6L6 18")
+    val Clock = icon("Clock", line = "M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0zM12 8v4.5l2.5 1.5")
+    val Link = icon("Link", line = "M10 6H6v12h12v-4M13 5h6v6M19 5l-8 8")
     val Back = icon("Back", line = "M15 5l-7 7 7 7")
     val Chevron = icon("Chevron", line = "M9 5l7 7-7 7")
     val Check = icon("Check", 2.5f, line = "M5 12.5l4.5 4.5L19 7.5")

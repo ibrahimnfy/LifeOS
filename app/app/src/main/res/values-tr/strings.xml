@@ -12,7 +12,6 @@
     <string name="action_open_settings">Ayarları aç</string>
 
     <!-- Shared -->
-    <string name="sample_note">Örnek içerik. Gerçek veriler sonraki bir adımda gelecek.</string>
     <string name="coming_later">Sonraki bir adımda gelecek</string>
     <string name="state_done">Tamamlandı</string>
     <string name="state_not_done">Tamamlanmadı</string>
@@ -20,15 +19,9 @@
     <!-- Today -->
     <string name="coach_label">Bugünün odağı</string>
     <string name="coach_tag">Koç</string>
-    <string name="coach_text">Her şeyden önce Proje Alfa taslağını bitir. Haftanın geri kalanı ona dayanıyor.</string>
     <string name="coach_why">Neden</string>
-    <string name="coach_why_text">Bugün teslim, ayrıca iki görev daha onu bekliyor.</string>
     <string name="section_picks">Asistanın seçtikleri</string>
     <string name="section_today">Bugün</string>
-    <plurals name="section_today_note">
-        <item quantity="one">%1$d görev · %2$d tamamlandı</item>
-        <item quantity="other">%1$d görev · %2$d tamamlandı</item>
-    </plurals>
     <plurals name="today_more">
         <item quantity="one">%1$d tane daha</item>
         <item quantity="other">%1$d tane daha</item>
@@ -36,30 +29,6 @@
     <string name="coach_conversation">Koç sohbeti</string>
     <string name="coach_open">Koç sohbetini aç</string>
 
-    <!-- Sample tasks (placeholders) -->
-    <string name="sample_task_1">Proje Alfa taslağını hazırla</string>
-    <string name="sample_task_1_why">Bugün teslim; iki görev buna bağlı</string>
-    <string name="sample_task_1_sub">Bugün · Proje Alfa</string>
-    <string name="sample_task_2">Örnek ödev 1\'i teslim et</string>
-    <string name="sample_task_2_why">Bir gün gecikti; yaklaşık 30 dakikalık iş</string>
-    <string name="sample_task_2_sub">Dün · Örnek ders</string>
-    <string name="sample_task_3">Seminer konusu hakkında yanıt yaz</string>
-    <string name="sample_task_3_why">6 gündür bekliyor</string>
-    <string name="sample_task_3_sub">Tarihsiz · Örnek seminer</string>
-    <string name="sample_task_4">Örnek kitabın 3. bölümünü oku</string>
-    <string name="sample_task_4_sub">Bugün · Örnek seminer</string>
-    <string name="sample_task_5">Yazıcı kâğıdı al</string>
-    <string name="sample_task_5_sub">Bugün</string>
-    <string name="sample_task_6">Görüşme notlarını gözden geçir</string>
-    <string name="sample_task_6_sub">Perşembe · Proje Alfa</string>
-    <string name="sample_task_7">Kütüphane kitabının süresini uzat</string>
-    <string name="sample_task_7_sub">Cuma</string>
-    <string name="sample_task_8">Grup toplantısı için oda ayırt</string>
-    <string name="sample_task_8_sub">Bugün · Proje Alfa</string>
-    <string name="sample_task_9">Laboratuvar raporu taslağını gönder</string>
-    <string name="sample_task_9_sub">Bugün · Örnek ders</string>
-    <string name="sample_task_10">Çiçekleri sula</string>
-    <string name="sample_task_10_sub">Bugün</string>
     <string name="task_overdue">Gecikti</string>
 
     <!-- Tasks -->
@@ -87,7 +56,7 @@
     <string name="capture_kind_note">Not</string>
     <string name="capture_kind_task">Görev</string>
     <string name="capture_save">Kaydet</string>
-    <string name="capture_saved">Bu telefona kaydedildi</string>
+    <string name="capture_saved">Kaydedildi</string>
 
     <!-- More -->
     <string name="more_sessions">Oturumlar</string>
@@ -190,4 +159,141 @@
     <string name="welcome_title">LifeOS\'a hoş geldin</string>
     <string name="welcome_text">LifeOS, kendi bilgisayarındaki asistanla konuşur. Bu telefonu bir kez onunla eşleştir; o zamana kadar uygulamaya göz atabilirsin.</string>
     <string name="welcome_later">Sonra</string>
+
+    <!-- Shared states -->
+    <string name="state_loading">Yükleniyor</string>
+    <string name="state_saved_copy">Kayıtlı kopya · %1$s güncellendi</string>
+    <string name="state_not_paired_title">Henüz bağlı değil</string>
+    <string name="state_not_paired_text">Kendi görevlerini, planlarını ve derslerini burada görmek için bu telefonu bilgisayarınla eşleştir.</string>
+    <string name="error_unreachable">Bilgisayara ulaşılamadı. Bu telefonun internet bağlantısını kontrol et.</string>
+    <string name="error_no_answer">Bilgisayar yanıt vermedi. Açık mı, köprü çalışıyor mu?</string>
+    <string name="error_server">Bilgisayar hata ile yanıt verdi.</string>
+    <string name="error_not_set_up">Bu bölüm bilgisayarda henüz kurulmamış.</string>
+    <string name="error_details_status">Ayrıntı: köprü %1$d durum koduyla yanıt verdi.</string>
+    <string name="action_retry">Yeniden dene</string>
+    <string name="action_details">Ayrıntılar</string>
+    <string name="action_ok">Tamam</string>
+    <string name="action_clear">Temizle</string>
+    <string name="day_today">Bugün</string>
+    <string name="day_tomorrow">Yarın</string>
+    <string name="day_yesterday">Dün</string>
+
+    <!-- Waiting writes -->
+    <string name="outbox_waiting">Eşitlenmeyi bekliyor</string>
+    <string name="outbox_waiting_title">Eşitlenmeyi bekleyenler</string>
+    <string name="outbox_check_title">Lütfen kontrol et</string>
+    <string name="outbox_check_text">Bu gönderildi ama bilgisayar onaylamadı. Ulaşmış olabilir. Bilgisayarda bak, sonra burada yeniden gönder ya da sil.</string>
+    <string name="outbox_failed_title">Kabul edilmedi</string>
+    <string name="outbox_failed_text">Bilgisayar bunu kabul etmedi. Yeniden deneyebilir ya da silebilirsin.</string>
+    <string name="outbox_send_again">Yeniden gönder</string>
+    <string name="outbox_discard">Sil</string>
+    <string name="outbox_wait_hint">Hiçbir şey iki kez kaydedilmesin diye yeniden gönderme, ilk denemeden birkaç dakika sonra açılır.</string>
+
+    <!-- Capture additions -->
+    <string name="capture_waiting">Eşitlenmeyi bekliyor</string>
+    <string name="capture_due_none">Son tarih yok</string>
+    <string name="capture_due">Son tarih: %1$s</string>
+    <string name="capture_due_clear">Kaldır</string>
+    <string name="shortcut_capture_short">Hızlı kayıt</string>
+    <string name="shortcut_capture_long">Not ya da görev kaydet</string>
+    <string name="share_label">LifeOS\'a kaydet</string>
+
+    <!-- Tasks additions -->
+    <string name="tasks_overdue">Gecikenler</string>
+    <string name="tasks_today">Bugün</string>
+    <string name="tasks_upcoming">Yaklaşanlar</string>
+    <string name="tasks_no_date">Tarihsiz</string>
+    <string name="tasks_empty">Her şey tamam. Açık görev yok.</string>
+    <string name="tasks_filter_empty">Bu filtreye uyan görev yok.</string>
+
+    <!-- Today additions -->
+    <string name="today_empty">Bugün için bir şey yok.</string>
+    <string name="coach_kind_observation">Gözlem</string>
+    <string name="coach_kind_encouragement">Böyle devam</string>
+    <string name="coach_kind_question">Bir soru</string>
+    <string name="coach_prepared_recently">Bir saatten kısa süre önce hazırlandı</string>
+    <string name="coach_stale">%1$s · bugüne ait değil</string>
+
+    <!-- Notes -->
+    <string name="notes_explanation">Kaydettiğin notlar bilgisayarında durur; onlara buradan göz atmak sonraki bir adımda gelecek. Burada kaydedilip henüz gönderilmemiş notlar aşağıda listelenir.</string>
+    <string name="notes_none_waiting">Bu telefonda bekleyen not yok.</string>
+
+    <!-- Calendar -->
+    <string name="calendar_add">Etkinlik ekle</string>
+    <string name="calendar_edit">Etkinliği düzenle</string>
+    <string name="calendar_empty">Bu haftalarda etkinlik yok. Artı düğmesiyle ekleyebilirsin.</string>
+    <string name="calendar_all_day">Tüm gün</string>
+    <string name="calendar_until">bitiş %1$s</string>
+    <string name="calendar_field_title">Başlık</string>
+    <string name="calendar_field_date">Tarih: %1$s</string>
+    <string name="calendar_field_until">Bitiş: %1$s</string>
+    <string name="calendar_field_one_day">Tek gün</string>
+    <string name="calendar_field_start">Başlangıç: %1$s</string>
+    <string name="calendar_field_end">Bitiş: %1$s</string>
+    <string name="calendar_field_no_end">Bitiş saati yok</string>
+    <string name="calendar_field_note">Not</string>
+
+    <!-- Courses -->
+    <string name="courses_deadlines">Yaklaşan son tarihler</string>
+    <string name="courses_no_deadlines">Önümüzdeki iki haftada teslim edilecek bir şey yok.</string>
+    <string name="courses_last_sync">Son eşitleme: %1$s</string>
+    <string name="courses_never_synced">Henüz eşitlenmedi</string>
+    <string name="courses_all_grades">Tüm notlar</string>
+    <string name="courses_empty">Henüz ders yok. Bilgisayardaki ilk eşitlemeden sonra görünürler.</string>
+    <string name="courses_next_deadline">Sıradaki: %1$s, %2$s</string>
+    <string name="courses_no_next_deadline">Yaklaşan son tarih yok</string>
+    <string name="courses_new_mark">Yeni</string>
+    <string name="courses_refresh">Dersleri şimdi eşitle</string>
+    <string name="courses_syncing">Dersler eşitleniyor…</string>
+    <string name="courses_sign_in_needed">Üniversite sitesindeki oturumun süresi dolmuş, bu yüzden yeni içerik alınamıyor. Şimdilik oturumu bilgisayarda yenile. Burada gördüğün, son kaydedilen durumdur.</string>
+    <string name="courses_not_set_up">Dersler bilgisayarda henüz kurulmamış.</string>
+    <string name="courses_sync_failed">Son eşitleme başarılı olmadı. Burada gördüğün, son kaydedilen durumdur.</string>
+    <string name="course_title">Ders</string>
+    <string name="course_materials">Materyaller</string>
+    <string name="course_announcements">Duyurular</string>
+    <string name="course_assignments">Ödevler</string>
+    <string name="course_grades">Notlar</string>
+    <string name="course_links">Videolar ve bağlantılar</string>
+    <string name="course_open_link">Tarayıcıda aç</string>
+    <string name="course_show_all_text">Metnin tamamını göster ya da gizle</string>
+    <string name="course_materials_note">Dosyalar burada listelenir, saklanmaz. İndir, dosyayı bu telefonun İndirilenler klasörüne kaydeder.</string>
+    <string name="course_materials_empty">Bu derste henüz dosya ya da bağlantı yok.</string>
+    <string name="course_announcements_empty">Henüz duyuru yok.</string>
+    <string name="course_assignments_empty">Henüz ödev yok.</string>
+    <string name="course_grades_empty">Henüz not yok.</string>
+    <string name="assignment_due">Son tarih: %1$s</string>
+    <string name="assignment_no_due">Son tarih yok</string>
+    <string name="assignment_graded">Notlandırıldı</string>
+    <string name="assignment_submitted">Teslim edildi</string>
+    <string name="assignment_draft">Taslak, teslim edilmedi</string>
+    <string name="assignment_reopened">Yeniden açıldı</string>
+    <string name="assignment_not_submitted">Teslim edilmedi</string>
+    <string name="grades_overall">Genel</string>
+    <string name="grades_item">Not kalemi</string>
+    <string name="grades_range">Aralık: %1$s</string>
+    <string name="grades_none">–</string>
+    <string name="download_start">%1$s dosyasını indir</string>
+    <string name="download_cancel">%1$s indirmesini iptal et</string>
+    <string name="download_progress">İndiriliyor… %%%1$d</string>
+    <string name="download_running">İndiriliyor…</string>
+    <string name="download_saved">İndirilenler\'e kaydedildi</string>
+    <string name="download_failed_no_copy">Bu dosya indirilemedi: doğrudan yol başarısız oldu ve bilgisayarda gönderilebilecek bir kopya yok (eksik ya da o yol için fazla büyük).</string>
+    <string name="download_failed_sign_in">Bu dosya indirilemedi: üniversite sitesindeki oturumun süresi dolmuş. Şimdilik oturumu bilgisayarda yenile.</string>
+    <string name="download_failed_damaged">Dosya eksik ulaştı ve silindi. Lütfen yeniden dene.</string>
+    <string name="download_failed_unreachable">Bilgisayara ulaşılamadı. Lütfen yeniden dene.</string>
+    <string name="download_failed_storage">Dosya bu telefona kaydedilemedi.</string>
+    <plurals name="today_count">
+        <item quantity="one">%1$d görev</item>
+        <item quantity="other">%1$d görev</item>
+    </plurals>
+    <plurals name="courses_new">
+        <item quantity="one">%1$d yeni</item>
+        <item quantity="other">%1$d yeni</item>
+    </plurals>
+    <plurals name="coach_prepared_hours">
+        <item quantity="one">%1$d saat önce hazırlandı</item>
+        <item quantity="other">%1$d saat önce hazırlandı</item>
+    </plurals>
+    <string name="action_undo">Geri al</string>
+    <string name="tasks_done_message">Tamamlandı olarak işaretlendi</string>
 </resources>

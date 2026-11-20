@@ -1,0 +1,474 @@
+{
+ "GET /courses/summary": {
+  "status": 200,
+  "body": {
+   "configured": true,
+   "deadlines": [
+    {
+     "course_id": 5,
+     "course": "Example course A",
+     "name": "Example homework (part 1)",
+     "due": 1800352800,
+     "due_iso": "2027-01-19T13:00+03:00"
+    },
+    {
+     "course_id": 7,
+     "course": "Example course B",
+     "name": "Example quiz closes",
+     "due": 1800439200,
+     "due_iso": "2027-01-20T13:00+03:00"
+    }
+   ],
+   "new_total": 5,
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses": {
+  "status": 200,
+  "body": {
+   "courses": [
+    {
+     "id": 5,
+     "name": "Example course A",
+     "shortname": "EX 101",
+     "next_deadline": {
+      "name": "Example homework (part 1)",
+      "due": 1800352800,
+      "due_iso": "2027-01-19T13:00+03:00"
+     },
+     "new": {
+      "files": 2,
+      "announcements": 1,
+      "deadlines": 1,
+      "grades": 1
+     },
+     "has_new": true,
+     "folder_exists": true
+    },
+    {
+     "id": 7,
+     "name": "Example course B",
+     "shortname": "EX-102",
+     "next_deadline": {
+      "name": "Example quiz closes",
+      "due": 1800439200,
+      "due_iso": "2027-01-20T13:00+03:00"
+     },
+     "new": {
+      "files": 0,
+      "announcements": 0,
+      "deadlines": 0,
+      "grades": 0
+     },
+     "has_new": false,
+     "folder_exists": true
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/5/materials": {
+  "status": 200,
+  "body": {
+   "course_id": 5,
+   "name": "Example course A",
+   "sections": [
+    {
+     "name": "General",
+     "files": [
+      {
+       "key": "9495d88d22ee8550",
+       "name": "notes.pdf",
+       "type": "application/pdf",
+       "size": 1000,
+       "modified": 1799143200,
+       "modified_iso": "2027-01-05T13:00+03:00",
+       "new": false,
+       "downloaded": true,
+       "skipped": null
+      },
+      {
+       "key": "d4d3ac51dd9ac01c",
+       "name": "slides.pdf",
+       "type": "application/pdf",
+       "size": 2500,
+       "modified": 1800007260,
+       "modified_iso": "2027-01-15T13:01+03:00",
+       "new": true,
+       "downloaded": true,
+       "skipped": null
+      },
+      {
+       "key": "24de3edb70a9905c",
+       "name": "extra.pdf",
+       "type": "application/pdf",
+       "size": 700,
+       "modified": 1800007200,
+       "modified_iso": "2027-01-15T13:00+03:00",
+       "new": true,
+       "downloaded": true,
+       "skipped": null
+      }
+     ]
+    },
+    {
+     "name": "Week 1",
+     "files": [
+      {
+       "key": "4c6888fccbbf75d2",
+       "name": "reading.pdf",
+       "type": "application/pdf",
+       "size": 300,
+       "modified": 1799143200,
+       "modified_iso": "2027-01-05T13:00+03:00",
+       "new": false,
+       "downloaded": true,
+       "skipped": null
+      }
+     ]
+    }
+   ],
+   "links": [
+    {
+     "section": "General",
+     "name": "Example video",
+     "url": "https://video.example.invalid/watch?v=1"
+    },
+    {
+     "section": "Week 1",
+     "name": "Outside reading",
+     "url": "https://read.example.invalid/x"
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/5/announcements": {
+  "status": 200,
+  "body": {
+   "course_id": 5,
+   "announcements": [
+    {
+     "id": 3,
+     "subject": "Example exam date",
+     "text": "On Monday",
+     "created": 1800007300,
+     "created_iso": "2027-01-15T13:01+03:00",
+     "modified_iso": "2027-01-15T13:01+03:00"
+    },
+    {
+     "id": 2,
+     "subject": "Example room change",
+     "text": "Room 2",
+     "created": 1799834400,
+     "created_iso": "2027-01-13T13:00+03:00",
+     "modified_iso": "2027-01-13T13:00+03:00"
+    },
+    {
+     "id": 1,
+     "subject": "Example welcome",
+     "text": "Hello all.\n\n# not a heading",
+     "created": 1799575200,
+     "created_iso": "2027-01-10T13:00+03:00",
+     "modified_iso": "2027-01-10T13:00+03:00"
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/5/assignments": {
+  "status": 200,
+  "body": {
+   "course_id": 5,
+   "assignments": [
+    {
+     "id": 42,
+     "name": "Old example homework",
+     "due": 1796551200,
+     "due_iso": "2026-12-06T13:00+03:00",
+     "cutoff_iso": null,
+     "status": null
+    },
+    {
+     "id": 41,
+     "name": "Example homework (part 1)",
+     "due": 1800352800,
+     "due_iso": "2027-01-19T13:00+03:00",
+     "cutoff_iso": null,
+     "status": {
+      "submission": "new",
+      "grading": "notgraded",
+      "graded": false
+     }
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/5/grades": {
+  "status": 200,
+  "body": {
+   "course_id": 5,
+   "overall": "80.00",
+   "items": [
+    {
+     "name": "Example homework",
+     "type": "mod",
+     "grade": "90.00",
+     "range": "0–100",
+     "percentage": "90.00 %",
+     "feedback": null,
+     "graded_at": 1799920800,
+     "graded_at_iso": "2027-01-14T13:00+03:00"
+    },
+    {
+     "name": "Example quiz",
+     "type": "mod",
+     "grade": "70.00",
+     "range": "0–100",
+     "percentage": "70.00 %",
+     "feedback": null,
+     "graded_at": 1799920800,
+     "graded_at_iso": "2027-01-14T13:00+03:00"
+    },
+    {
+     "name": "",
+     "type": "course",
+     "grade": "80.00",
+     "range": "0–100",
+     "percentage": "80.00 %",
+     "feedback": null,
+     "graded_at": 1799920800,
+     "graded_at_iso": "2027-01-14T13:00+03:00"
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/grades": {
+  "status": 200,
+  "body": {
+   "courses": [
+    {
+     "id": 5,
+     "name": "Example course A",
+     "overall": "80.00",
+     "items": [
+      {
+       "name": "Example homework",
+       "type": "mod",
+       "grade": "90.00",
+       "range": "0–100",
+       "percentage": "90.00 %",
+       "feedback": null,
+       "graded_at": 1799920800,
+       "graded_at_iso": "2027-01-14T13:00+03:00"
+      },
+      {
+       "name": "Example quiz",
+       "type": "mod",
+       "grade": "70.00",
+       "range": "0–100",
+       "percentage": "70.00 %",
+       "feedback": null,
+       "graded_at": 1799920800,
+       "graded_at_iso": "2027-01-14T13:00+03:00"
+      },
+      {
+       "name": "",
+       "type": "course",
+       "grade": "80.00",
+       "range": "0–100",
+       "percentage": "80.00 %",
+       "feedback": null,
+       "graded_at": 1799920800,
+       "graded_at_iso": "2027-01-14T13:00+03:00"
+      }
+     ]
+    },
+    {
+     "id": 7,
+     "name": "Example course B",
+     "overall": null,
+     "items": [
+      {
+       "name": "Example report",
+       "type": "mod",
+       "grade": "-",
+       "range": "0–100",
+       "percentage": "-",
+       "feedback": null,
+       "graded_at": null,
+       "graded_at_iso": null
+      }
+     ]
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/sync": {
+  "status": 200,
+  "body": {
+   "configured": true,
+   "running": false,
+   "last_sync": "2027-01-15T17:00:00Z",
+   "last_attempt": null,
+   "last_result": {
+    "first": false,
+    "courses": 2,
+    "downloaded": 2,
+    "bytes": 48,
+    "skipped_too_large": 0,
+    "skipped_later": 0,
+    "failed": 0,
+    "write_errors": 0,
+    "announcements": 3,
+    "grade_items": 4,
+    "links": 2,
+    "new": {
+     "files": 2,
+     "announcements": 1,
+     "deadlines": 1,
+     "grades": 1
+    },
+    "part_errors": 0,
+    "errorcode": null,
+    "deadlines_written": 0,
+    "memory_commit": false,
+    "memory": "not_set_up"
+   },
+   "last_error": null,
+   "last_errorcode": null,
+   "stale": false
+  }
+ },
+ "GET /courses/7/materials": {
+  "status": 200,
+  "body": {
+   "course_id": 7,
+   "name": "Example course B",
+   "sections": [
+    {
+     "name": "General",
+     "files": [
+      {
+       "key": "873fa3fcd6c83f80",
+       "name": "sheet.pdf",
+       "type": "application/pdf",
+       "size": 500,
+       "modified": 1799143200,
+       "modified_iso": "2027-01-05T13:00+03:00",
+       "new": false,
+       "downloaded": true,
+       "skipped": null
+      }
+     ]
+    }
+   ],
+   "links": [],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/7/assignments": {
+  "status": 200,
+  "body": {
+   "course_id": 7,
+   "assignments": [
+    {
+     "id": 43,
+     "name": "Example report",
+     "due": 1801735200,
+     "due_iso": "2027-02-04T13:00+03:00",
+     "cutoff_iso": null,
+     "status": {
+      "submission": "submitted",
+      "grading": "notgraded",
+      "graded": false
+     }
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/7/grades": {
+  "status": 200,
+  "body": {
+   "course_id": 7,
+   "overall": null,
+   "items": [
+    {
+     "name": "Example report",
+     "type": "mod",
+     "grade": "-",
+     "range": "0–100",
+     "percentage": "-",
+     "feedback": null,
+     "graded_at": null,
+     "graded_at_iso": null
+    }
+   ],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "GET /courses/7/announcements": {
+  "status": 200,
+  "body": {
+   "course_id": 7,
+   "announcements": [],
+   "last_sync": "2027-01-15T17:00:00Z",
+   "stale": false
+  }
+ },
+ "POST /courses/5/files/KEY/offer": {
+  "status": 200,
+  "body": {
+   "offer": "wS__N91aFxiDVMopowlSYnKE",
+   "name": "notes.pdf",
+   "type": "application/pdf",
+   "size": 20,
+   "session_id": "course-5"
+  }
+ },
+ "POST /courses/5/seen": {
+  "status": 200,
+  "body": {
+   "seen": true
+  }
+ },
+ "POST /courses/9/seen": {
+  "status": 404,
+  "body": {
+   "error": "course_not_found",
+   "message": "no synced course has this id"
+  }
+ },
+ "POST /courses/5/files/unknown/offer": {
+  "status": 404,
+  "body": {
+   "error": "file_not_found",
+   "message": "the course has no file with this key"
+  }
+ },
+ "POST /courses/5/files/KEY/address": {
+  "status": 200,
+  "body": {
+   "url": "<address>",
+   "name": "notes.pdf",
+   "size": 1000,
+   "type": "application/pdf",
+   "expires_in": 600
+  }
+ },
+ "KEY": "9495d88d22ee8550"
+}

@@ -5,6 +5,26 @@ import android.os.SystemClock
 import com.goterl.lazysodium.LazySodiumAndroid
 import com.goterl.lazysodium.SodiumAndroid
 import dev.lifeos.app.crypto.E2e
+import dev.lifeos.app.data.Api
+import dev.lifeos.app.data.ApiException
+import dev.lifeos.app.data.CoachMessage
+import dev.lifeos.app.data.CoachPlan
+import dev.lifeos.app.data.CoachRotation
+import dev.lifeos.app.data.Downloads
+import dev.lifeos.app.data.Endpoint
+import dev.lifeos.app.data.Endpoints
+import dev.lifeos.app.data.EventDraft
+import dev.lifeos.app.data.Task
+import dev.lifeos.app.data.Outbox
+import dev.lifeos.app.data.OutboxItem
+import dev.lifeos.app.data.OutboxStore
+import dev.lifeos.app.data.ScreenCache
+import dev.lifeos.app.data.Transport
+import dev.lifeos.app.relay.AnswerEvent
+import dev.lifeos.app.relay.RelayResponse
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.JsonElement
 import dev.lifeos.app.crypto.LazySodiumBackend
 import dev.lifeos.app.crypto.formatComparisonCode
 import dev.lifeos.app.lock.LockTimeout
@@ -95,6 +115,188 @@ class LifeOsCore(private val app: Application) {
     val pairProgress: StateFlow<PairState> = pairState
 
     private class Session(val job: Job, val channel: Channel, val client: RelayClient)
+
+    // ------------------------------------------------------------------ data
+
+    /** The sealed channel as the data layer sees it; it fails cleanly while locked or unpaired. */
+    private val relayTransport = object : Transport {
+        override suspend fun request(
+            method: String,
+            path: String,
+            query: Map<String, String>,
+            body: JsonElement?,
+            timeoutMillis: Long,
+        ): RelayResponse {
+            if (record == null) throw ApiException(ApiException.Kind.NOT_PAIRED)
+            val client = session?.client ?: throw ApiException(ApiException.Kind.NOT_SENT)
+            return try {
+                client.request(method, path, query, body, timeoutMillis).also { reached(client, true) }
+            } catch (error: RelayException) {
+                // A refusal says nothing new about the computer; everything else means "not reached".
+                if (error.reason != RelayException.Reason.DENIED) reached(client, false)
+                throw ApiException(
+                    when (error.reason) {
+                        RelayException.Reason.NOT_SENT -> ApiException.Kind.NOT_SENT
+                        RelayException.Reason.DENIED -> ApiException.Kind.REFUSED
+                        else -> ApiException.Kind.UNCERTAIN
+                    },
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // Storage for the counters failed: nothing was sent.
+                throw ApiException(ApiException.Kind.NOT_SENT)
+            }
+        }
+
+        override fun stream(method: String, path: String, query: Map<String, String>): Flow<AnswerEvent> =
+            session?.client?.stream(method, path, query, idleTimeoutMillis = 60_000)
+                ?: flow { throw RelayException(RelayException.Reason.NOT_SENT) }
+    }
+
+    /**
+     * Every request tells whether the computer answers: the dot follows it, screens ask again
+     * when it changes, and what waits in the outbox is sent as soon as it answers.
+     */
+    private fun reached(client: RelayClient, answered: Boolean) {
+        if (session?.client !== client) return
+        val now = if (answered) ConnectionState.CONNECTED else ConnectionState.UNREACHABLE
+        if (connectionState.value == now) return
+        connectionState.value = now
+        reloadState.value++
+        if (answered) drainOutbox()
+    }
+
+    val api = Api(TestAids.transport(app, relayTransport))
+    private val cache = ScreenCache(File(app.filesDir, "screens"))
+    private val reloadState = MutableStateFlow(0)
+
+    /** Changes whenever screens should ask again: after unlocking, reconnecting, or a sent write. */
+    val reload: StateFlow<Int> = reloadState
+
+    val outbox = Outbox(OutboxStore(File(app.filesDir, "outbox/outbox.json")), System::currentTimeMillis) { item ->
+        when (item.kind) {
+            OutboxItem.Kind.NOTE -> api.addNote(item.text)
+            OutboxItem.Kind.TASK -> api.addTask(item.text, item.due)
+            OutboxItem.Kind.COMPLETE -> api.completeTask(checkNotNull(item.taskId))
+            OutboxItem.Kind.EVENT_CREATE -> api.createEvent(checkNotNull(item.event))
+            OutboxItem.Kind.EVENT_UPDATE -> api.updateEvent(checkNotNull(item.eventId), checkNotNull(item.event))
+        }
+    }
+
+    /** The saved copy of an endpoint, or null. Nothing is read while the app is locked. */
+    fun <T> saved(endpoint: Endpoint<T>): Pair<T, Long>? {
+        if (lockedState.value || record == null) return null
+        val copy = cache.get(endpoint.key) ?: return null
+        return try {
+            api.decode(endpoint, copy.raw) to copy.savedAtMillis
+        } catch (_: ApiException) {
+            null
+        }
+    }
+
+    /** Ask the computer; a good answer becomes the new saved copy. Throws [ApiException]. */
+    suspend fun <T> fetch(endpoint: Endpoint<T>): T {
+        val (data, raw) = api.get(endpoint)
+        cache.put(endpoint.key, raw, System.currentTimeMillis())
+        return data
+    }
+
+    /** Keep a plan that was just prepared as the saved copy of the plan. */
+    fun savePlan(raw: JsonElement) = cache.put(Endpoints.plan.key, raw, System.currentTimeMillis())
+
+    /**
+     * Put a write into the outbox and, when the computer is connected, send it right away.
+     * Returns true if it was sent, false if it waits (or needs a look).
+     */
+    suspend fun submit(item: OutboxItem): Boolean {
+        if (!outbox.add(item)) return false
+        if (connectionState.value == ConnectionState.CONNECTED) {
+            // The sending itself belongs to the app, not to the screen: leaving the screen or
+            // turning the phone must not cut it off. Only the waiting here is bounded.
+            val sending = scope.launch { if (outbox.drain() > 0) reloadState.value++ }
+            withTimeoutOrNull(SUBMIT_WAIT_MILLIS) { sending.join() }
+        }
+        return outbox.items.value.none { it.id == item.id }
+    }
+
+    private val tickedState = MutableStateFlow<Set<String>>(emptySet())
+    private val tickTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
+    /** Tasks ticked a moment ago whose tick can still be undone; they are hidden already. */
+    val justTicked: StateFlow<Set<String>> = tickedState
+
+    /**
+     * Tick a task: it disappears at once, and after [UNDO_MILLIS] the tick is sent (or
+     * queued). The computer cannot reopen a task, hence the moment to take it back. The
+     * timer lives here, so turning the phone or leaving the screen changes nothing.
+     */
+    fun tick(task: Task) {
+        if (task.id in tickedState.value) return
+        tickedState.value += task.id
+        tickTimers[task.id] = scope.launch {
+            delay(UNDO_MILLIS)
+            tickTimers.remove(task.id)
+            val item = OutboxItem(newItemId(), OutboxItem.Kind.COMPLETE, System.currentTimeMillis(), text = task.title, taskId = task.id)
+            val stored = outbox.add(item)
+            tickedState.value -= task.id
+            if (stored && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
+        }
+    }
+
+    /** The owner took the tick back in time. False if it was already on its way. */
+    fun undoTick(task: Task): Boolean {
+        val timer = tickTimers.remove(task.id) ?: return false
+        timer.cancel()
+        tickedState.value -= task.id
+        return true
+    }
+
+    suspend fun capture(note: Boolean, text: String, due: String?): Boolean = submit(
+        OutboxItem(
+            newItemId(),
+            if (note) OutboxItem.Kind.NOTE else OutboxItem.Kind.TASK,
+            System.currentTimeMillis(),
+            text = text,
+            due = if (note) null else due,
+        ),
+    )
+
+    suspend fun saveEvent(eventId: String?, draft: EventDraft): Boolean = submit(
+        OutboxItem(
+            newItemId(),
+            if (eventId == null) OutboxItem.Kind.EVENT_CREATE else OutboxItem.Kind.EVENT_UPDATE,
+            System.currentTimeMillis(),
+            eventId = eventId,
+            event = draft,
+        ),
+    )
+
+    fun newItemId(): String = e2e.randomBytes(8).joinToString("") { "%02x".format(it) }
+
+    /** Send what waits. Only while the computer answers: otherwise an attempt would be a guess. */
+    fun drainOutbox() {
+        scope.launch {
+            if (connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
+        }
+    }
+
+    // ---- which coach message this run of the app shows
+
+    private var coachPick: String? = null
+
+    /** One message per app start, by the rotation rule; the same one while the app stays open. */
+    suspend fun coachMessage(plan: CoachPlan): CoachMessage? {
+        plan.messages.firstOrNull { it.id == coachPick }?.let { return it }
+        val ids = plan.messages.map { it.id }
+        val recent = settings.coachRecent.first()
+        val picked = CoachRotation.pick(ids, recent) { java.util.Random().nextInt(it) } ?: return null
+        coachPick = picked
+        settings.setCoachRecent(CoachRotation.remember(recent, picked, ids))
+        return plan.messages.first { it.id == picked }
+    }
+
+    val downloads = Downloads(app, api, scope)
 
     private val lock = Any()
     private var record: PairingRecord? = null
@@ -191,6 +393,7 @@ class LifeOsCore(private val app: Application) {
             secret.fill(0)
         }
         lockedState.value = false
+        reloadState.value++
         UnlockResult.UNLOCKED
     }
 
@@ -209,16 +412,29 @@ class LifeOsCore(private val app: Application) {
         session = Session(job, channel, client)
         connectionState.value = ConnectionState.CONNECTING
         client.start()
-        sessionScope.launch { check(client) }
+        sessionScope.launch { check() }
+        // The computer may go to sleep or wake up without the relay noticing: while it does not
+        // answer, ask again from time to time; while it does, send whatever still waits.
+        sessionScope.launch {
+            while (true) {
+                delay(RECHECK_MILLIS)
+                if (connectionState.value != ConnectionState.CONNECTED) {
+                    check()
+                } else if (outbox.items.value.any { it.state == OutboxItem.State.WAITING }) {
+                    drainOutbox()
+                }
+            }
+        }
         sessionScope.launch {
             var down = false
             client.link.collect { link ->
                 if (link == Link.DOWN) {
                     down = true
+                    if (connectionState.value != ConnectionState.UNREACHABLE) reloadState.value++
                     connectionState.value = ConnectionState.UNREACHABLE
                 } else if (link == Link.UP && down) {
                     down = false
-                    launch { check(client) }
+                    launch { check() }
                 }
             }
         }
@@ -242,40 +458,31 @@ class LifeOsCore(private val app: Application) {
         }
     }
 
-    /** Ask the computer who it is; the dot follows the result. */
-    private suspend fun check(client: RelayClient): TestResult {
+    /** Ask the computer who it is; the dot follows the result (see [reached]). */
+    private suspend fun check(): TestResult {
         val started = SystemClock.elapsedRealtime()
-        val result = try {
-            val response = client.request("GET", "/whoami", timeoutMillis = CHECK_TIMEOUT_MILLIS)
-            val version = ((response.body as? JsonObject)?.get("version") as? JsonPrimitive)?.content
-            if (response.ok && version != null) {
-                TestResult.Ok(version, SystemClock.elapsedRealtime() - started)
-            } else {
-                TestResult.Failed(TestProblem.BAD_ANSWER, response.status)
-            }
-        } catch (error: RelayException) {
+        return try {
+            val body = api.call("GET", "/whoami", timeoutMillis = CHECK_TIMEOUT_MILLIS)
+            val version = ((body as? JsonObject)?.get("version") as? JsonPrimitive)?.content
+            if (version != null) TestResult.Ok(version, SystemClock.elapsedRealtime() - started) else TestResult.Failed(TestProblem.BAD_ANSWER, 200)
+        } catch (error: ApiException) {
             TestResult.Failed(
-                when (error.reason) {
-                    RelayException.Reason.TIMEOUT -> TestProblem.NO_ANSWER
-                    RelayException.Reason.DENIED -> TestProblem.REFUSED
-                    else -> TestProblem.RELAY_UNREACHABLE
+                when (error.kind) {
+                    ApiException.Kind.NOT_PAIRED -> TestProblem.NOT_PAIRED
+                    ApiException.Kind.NOT_SENT -> TestProblem.RELAY_UNREACHABLE
+                    ApiException.Kind.REFUSED -> TestProblem.REFUSED
+                    ApiException.Kind.UNCERTAIN -> TestProblem.NO_ANSWER
+                    ApiException.Kind.HTTP -> TestProblem.BAD_ANSWER
                 },
+                error.status,
             )
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            TestResult.Failed(TestProblem.RELAY_UNREACHABLE)
         }
-        if (session?.client === client) {
-            connectionState.value = if (result is TestResult.Ok) ConnectionState.CONNECTED else ConnectionState.UNREACHABLE
-        }
-        return result
     }
 
     /** "Test connection" in settings: one `GET /whoami` through the relay. */
     suspend fun testConnection(): TestResult {
-        val client = session?.client ?: return TestResult.Failed(TestProblem.NOT_PAIRED)
-        return withContext(Dispatchers.Default) { check(client) }
+        if (session == null) return TestResult.Failed(TestProblem.NOT_PAIRED)
+        return withContext(Dispatchers.Default) { check() }
     }
 
     // ------------------------------------------------------------------ pairing
@@ -382,6 +589,14 @@ class LifeOsCore(private val app: Application) {
     private fun forget(current: PairingRecord) = synchronized(lock) {
         stopSession()
         store.wipe()
+        // Saved copies and unsent writes belong to the pairing: they go with it.
+        cache.wipe()
+        outbox.wipe()
+        downloads.clear()
+        tickTimers.values.forEach { it.cancel() }
+        tickTimers.clear()
+        tickedState.value = emptySet()
+        coachPick = null
         vaultFor(current.vault)?.destroy()
         record = null
         hiddenAt = null
@@ -397,8 +612,13 @@ class LifeOsCore(private val app: Application) {
     private companion object {
         /** The computer notices a newly paired phone within a few seconds; allow for that. */
         const val CHECK_TIMEOUT_MILLIS = 20_000L
+        const val SUBMIT_WAIT_MILLIS = 8_000L
+        const val RECHECK_MILLIS = 60_000L
     }
 }
+
+/** How long a tick can be taken back before it is sent. */
+const val UNDO_MILLIS = 6_000L
 
 class LifeOsApplication : Application() {
     val core: LifeOsCore by lazy { LifeOsCore(this) }

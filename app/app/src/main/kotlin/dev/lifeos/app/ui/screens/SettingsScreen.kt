@@ -242,7 +242,8 @@ private fun ConnectionSection(core: LifeOsCore, onPair: () -> Unit) {
         SecondaryButton(text = stringResource(R.string.settings_unpair), danger = true, onClick = { confirmUnpair = true })
     }
 
-    if (confirmUnpair) {
+    val locked by core.locked.collectAsStateWithLifecycle()
+    if (confirmUnpair && !locked) {
         AlertDialog(
             onDismissRequest = { confirmUnpair = false },
             title = { Text(stringResource(R.string.settings_unpair_title)) },

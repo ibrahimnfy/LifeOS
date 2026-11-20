@@ -45,6 +45,22 @@ import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
 
+/** An icon-only action in the top bar: 48 dp target, named for screen readers. */
+@Composable
+fun TopBarAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    val colors = LifeTheme.colors
+    Box(
+        modifier = Modifier
+            .size(LifeDimens.minTouch)
+            .clip(CircleShape)
+            .clickable(enabled = enabled, onClickLabel = label, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = label },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = if (enabled) colors.text else colors.muted)
+    }
+}
+
 /** The connection state every top bar shows; provided once at the root. */
 val LocalConnection = compositionLocalOf { ConnectionState.NOT_PAIRED }
 
@@ -66,6 +82,7 @@ fun TopBar(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     onConnectionClick: (() -> Unit)? = null,
+    actions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val colors = LifeTheme.colors
     Row(
@@ -97,6 +114,7 @@ fun TopBar(
                 .weight(1f)
                 .semantics { heading() },
         )
+        if (actions != null) actions()
         if (onConnectionClick != null) {
             val description = stringResource(LocalConnection.current.descriptionRes())
             val action = stringResource(R.string.action_open_settings)
@@ -370,15 +388,4 @@ fun SecondaryButton(
             },
         )
     }
-}
-
-/** Marks placeholder content as a sample. */
-@Composable
-fun SampleNote(modifier: Modifier = Modifier) {
-    Text(
-        text = stringResource(R.string.sample_note),
-        style = LifeType.small,
-        color = LifeTheme.colors.muted,
-        modifier = modifier,
-    )
 }

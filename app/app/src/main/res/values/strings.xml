@@ -14,7 +14,6 @@
     <string name="action_open_settings">Open settings</string>
 
     <!-- Shared -->
-    <string name="sample_note">Sample content. Real data arrives with a later step.</string>
     <string name="coming_later">Coming with a later step</string>
     <string name="state_done">Done</string>
     <string name="state_not_done">Not done</string>
@@ -22,15 +21,9 @@
     <!-- Today -->
     <string name="coach_label">Today\'s focus</string>
     <string name="coach_tag">Coach</string>
-    <string name="coach_text">Finish the Project Alpha outline before anything else. The rest of the week builds on it.</string>
     <string name="coach_why">Why</string>
-    <string name="coach_why_text">Due today, and two other tasks wait for it.</string>
     <string name="section_picks">Assistant\'s picks</string>
     <string name="section_today">Today</string>
-    <plurals name="section_today_note">
-        <item quantity="one">%1$d task · %2$d done</item>
-        <item quantity="other">%1$d tasks · %2$d done</item>
-    </plurals>
     <plurals name="today_more">
         <item quantity="one">%1$d more</item>
         <item quantity="other">%1$d more</item>
@@ -38,30 +31,6 @@
     <string name="coach_conversation">Coach conversation</string>
     <string name="coach_open">Open the coach conversation</string>
 
-    <!-- Sample tasks (placeholders) -->
-    <string name="sample_task_1">Draft the Project Alpha outline</string>
-    <string name="sample_task_1_why">Due today; two tasks depend on it</string>
-    <string name="sample_task_1_sub">Today · Project Alpha</string>
-    <string name="sample_task_2">Submit Example assignment 1</string>
-    <string name="sample_task_2_why">One day late; about 30 minutes of work</string>
-    <string name="sample_task_2_sub">Yesterday · Example course</string>
-    <string name="sample_task_3">Reply about the seminar topic</string>
-    <string name="sample_task_3_why">Waiting for 6 days</string>
-    <string name="sample_task_3_sub">No date · Example seminar</string>
-    <string name="sample_task_4">Read chapter 3 of the example book</string>
-    <string name="sample_task_4_sub">Today · Example seminar</string>
-    <string name="sample_task_5">Buy printer paper</string>
-    <string name="sample_task_5_sub">Today</string>
-    <string name="sample_task_6">Review the check-in notes</string>
-    <string name="sample_task_6_sub">Thursday · Project Alpha</string>
-    <string name="sample_task_7">Renew the library book</string>
-    <string name="sample_task_7_sub">Friday</string>
-    <string name="sample_task_8">Book a room for the group meeting</string>
-    <string name="sample_task_8_sub">Today · Project Alpha</string>
-    <string name="sample_task_9">Send the lab report draft</string>
-    <string name="sample_task_9_sub">Today · Example course</string>
-    <string name="sample_task_10">Water the plants</string>
-    <string name="sample_task_10_sub">Today</string>
     <string name="task_overdue">Overdue</string>
 
     <!-- Tasks -->
@@ -76,7 +45,7 @@
 
     <!-- Chat -->
     <string name="chat_empty_title">Ask anything</string>
-    <string name="chat_empty_text">The assistant runs on your computer. Sending arrives with a later step.</string>
+    <string name="chat_empty_text">The assistant runs on your computer. Sending messages arrives with a later step.</string>
     <string name="chat_prompt_1">What should I focus on today?</string>
     <string name="chat_prompt_2">What is still open for Project Alpha?</string>
     <string name="chat_prompt_3">Summarise my notes from this week</string>
@@ -89,7 +58,7 @@
     <string name="capture_kind_note">Note</string>
     <string name="capture_kind_task">Task</string>
     <string name="capture_save">Save</string>
-    <string name="capture_saved">Saved on this phone</string>
+    <string name="capture_saved">Saved</string>
 
     <!-- More -->
     <string name="more_sessions">Sessions</string>
@@ -192,4 +161,141 @@
     <string name="welcome_title">Welcome to LifeOS</string>
     <string name="welcome_text">LifeOS talks to the assistant on your own computer. Pair this phone with it once; until then you can still look around.</string>
     <string name="welcome_later">Later</string>
+
+    <!-- Shared states -->
+    <string name="state_loading">Loading</string>
+    <string name="state_saved_copy">Saved copy · updated %1$s</string>
+    <string name="state_not_paired_title">Not connected yet</string>
+    <string name="state_not_paired_text">Pair this phone with your computer to see your own tasks, plans and courses here.</string>
+    <string name="error_unreachable">The computer could not be reached. Check the internet connection of this phone.</string>
+    <string name="error_no_answer">The computer did not answer. Is it on, and is the bridge running?</string>
+    <string name="error_server">The computer answered with an error.</string>
+    <string name="error_not_set_up">This part is not set up on the computer yet.</string>
+    <string name="error_details_status">Details: the bridge answered with status %1$d.</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_details">Details</string>
+    <string name="action_ok">OK</string>
+    <string name="action_clear">Clear</string>
+    <string name="day_today">Today</string>
+    <string name="day_tomorrow">Tomorrow</string>
+    <string name="day_yesterday">Yesterday</string>
+
+    <!-- Waiting writes -->
+    <string name="outbox_waiting">Waiting to sync</string>
+    <string name="outbox_waiting_title">Waiting to sync</string>
+    <string name="outbox_check_title">Please check</string>
+    <string name="outbox_check_text">This was sent, but the computer did not confirm it. It may have arrived. Look on the computer, then send it again or discard it here.</string>
+    <string name="outbox_failed_title">Not accepted</string>
+    <string name="outbox_failed_text">The computer did not accept this. You can try again or discard it.</string>
+    <string name="outbox_send_again">Send again</string>
+    <string name="outbox_discard">Discard</string>
+    <string name="outbox_wait_hint">Sending again becomes possible a few minutes after the first try, so nothing is saved twice.</string>
+
+    <!-- Capture additions -->
+    <string name="capture_waiting">Waiting to sync</string>
+    <string name="capture_due_none">No due date</string>
+    <string name="capture_due">Due: %1$s</string>
+    <string name="capture_due_clear">Remove</string>
+    <string name="shortcut_capture_short">Capture</string>
+    <string name="shortcut_capture_long">Capture a note or task</string>
+    <string name="share_label">Capture in LifeOS</string>
+
+    <!-- Tasks additions -->
+    <string name="tasks_overdue">Overdue</string>
+    <string name="tasks_today">Today</string>
+    <string name="tasks_upcoming">Upcoming</string>
+    <string name="tasks_no_date">No date</string>
+    <string name="tasks_empty">All clear. No open tasks.</string>
+    <string name="tasks_filter_empty">No tasks for this filter.</string>
+
+    <!-- Today additions -->
+    <string name="today_empty">Nothing for today.</string>
+    <string name="coach_kind_observation">Observation</string>
+    <string name="coach_kind_encouragement">Keep going</string>
+    <string name="coach_kind_question">A question</string>
+    <string name="coach_prepared_recently">Prepared less than an hour ago</string>
+    <string name="coach_stale">%1$s · not from today</string>
+
+    <!-- Notes -->
+    <string name="notes_explanation">Captured notes live on your computer; browsing them arrives with a later step. Notes captured here that have not been sent yet are listed below.</string>
+    <string name="notes_none_waiting">No notes are waiting on this phone.</string>
+
+    <!-- Calendar -->
+    <string name="calendar_add">Add event</string>
+    <string name="calendar_edit">Edit event</string>
+    <string name="calendar_empty">No events in these weeks. Add one with the plus button.</string>
+    <string name="calendar_all_day">All day</string>
+    <string name="calendar_until">until %1$s</string>
+    <string name="calendar_field_title">Title</string>
+    <string name="calendar_field_date">On %1$s</string>
+    <string name="calendar_field_until">Until %1$s</string>
+    <string name="calendar_field_one_day">One day</string>
+    <string name="calendar_field_start">From %1$s</string>
+    <string name="calendar_field_end">To %1$s</string>
+    <string name="calendar_field_no_end">No end time</string>
+    <string name="calendar_field_note">Note</string>
+
+    <!-- Courses -->
+    <string name="courses_deadlines">Upcoming deadlines</string>
+    <string name="courses_no_deadlines">Nothing is due in the next two weeks.</string>
+    <string name="courses_last_sync">Last sync %1$s</string>
+    <string name="courses_never_synced">Not synced yet</string>
+    <string name="courses_all_grades">All grades</string>
+    <string name="courses_empty">No courses yet. They appear after the first sync on the computer.</string>
+    <string name="courses_next_deadline">Next: %1$s, %2$s</string>
+    <string name="courses_no_next_deadline">No upcoming deadline</string>
+    <string name="courses_new_mark">New</string>
+    <string name="courses_refresh">Sync courses now</string>
+    <string name="courses_syncing">Syncing courses…</string>
+    <string name="courses_sign_in_needed">The sign-in at the university site has run out, so nothing new can be fetched. For now, renew it on the computer. What you see here is the last saved state.</string>
+    <string name="courses_not_set_up">Courses are not set up on the computer yet.</string>
+    <string name="courses_sync_failed">The last sync did not succeed. What you see here is the last saved state.</string>
+    <string name="course_title">Course</string>
+    <string name="course_materials">Materials</string>
+    <string name="course_announcements">Announcements</string>
+    <string name="course_assignments">Assignments</string>
+    <string name="course_grades">Grades</string>
+    <string name="course_links">Videos and links</string>
+    <string name="course_open_link">Open in the browser</string>
+    <string name="course_show_all_text">Show or hide the whole text</string>
+    <string name="course_materials_note">Files are listed here, not stored. Download saves a file to this phone\'s Downloads folder.</string>
+    <string name="course_materials_empty">This course has no files or links yet.</string>
+    <string name="course_announcements_empty">No announcements yet.</string>
+    <string name="course_assignments_empty">No assignments yet.</string>
+    <string name="course_grades_empty">No grades yet.</string>
+    <string name="assignment_due">Due %1$s</string>
+    <string name="assignment_no_due">No due date</string>
+    <string name="assignment_graded">Graded</string>
+    <string name="assignment_submitted">Submitted</string>
+    <string name="assignment_draft">Draft, not submitted</string>
+    <string name="assignment_reopened">Reopened</string>
+    <string name="assignment_not_submitted">Not submitted</string>
+    <string name="grades_overall">Overall</string>
+    <string name="grades_item">Grade item</string>
+    <string name="grades_range">Range %1$s</string>
+    <string name="grades_none">–</string>
+    <string name="download_start">Download %1$s</string>
+    <string name="download_cancel">Cancel the download of %1$s</string>
+    <string name="download_progress">Downloading… %1$d%%</string>
+    <string name="download_running">Downloading…</string>
+    <string name="download_saved">Saved to Downloads</string>
+    <string name="download_failed_no_copy">This file could not be downloaded: the direct way failed and the computer has no copy it can send (missing, or too large for that route).</string>
+    <string name="download_failed_sign_in">This file could not be downloaded: the sign-in at the university site has run out. For now, renew it on the computer.</string>
+    <string name="download_failed_damaged">The file arrived incomplete and was removed. Please try again.</string>
+    <string name="download_failed_unreachable">The computer could not be reached. Please try again.</string>
+    <string name="download_failed_storage">The file could not be saved on this phone.</string>
+    <plurals name="today_count">
+        <item quantity="one">%1$d task</item>
+        <item quantity="other">%1$d tasks</item>
+    </plurals>
+    <plurals name="courses_new">
+        <item quantity="one">%1$d new</item>
+        <item quantity="other">%1$d new</item>
+    </plurals>
+    <plurals name="coach_prepared_hours">
+        <item quantity="one">Prepared %1$d hour ago</item>
+        <item quantity="other">Prepared %1$d hours ago</item>
+    </plurals>
+    <string name="action_undo">Undo</string>
+    <string name="tasks_done_message">Marked as done</string>
 </resources>

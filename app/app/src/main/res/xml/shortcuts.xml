@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press on the app icon: opens the capture sheet. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_capture"
+        android:shortcutId="capture"
+        android:shortcutLongLabel="@string/shortcut_capture_long"
+        android:shortcutShortLabel="@string/shortcut_capture_short">
+        <intent
+            android:action="dev.lifeos.app.CAPTURE"
+            android:targetClass="dev.lifeos.app.MainActivity"
+            android:targetPackage="dev.lifeos.app" />
+    </shortcut>
+</shortcuts>

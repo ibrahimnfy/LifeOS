@@ -38,7 +38,14 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import dev.lifeos.app.R
+import dev.lifeos.app.data.Dates
+import java.time.Instant
+import java.time.ZoneOffset
 import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
@@ -47,17 +54,19 @@ import kotlinx.coroutines.launch
 enum class CaptureKind { NOTE, TASK }
 
 /**
- * Quick capture: one text field with the keyboard open, a Note/Task switch and Save.
- * The skeleton does not store anything yet; [onSaved] only reports that Save was pressed.
+ * Quick capture: one text field with the keyboard open, a Note/Task switch, for a task an
+ * optional due date, and Save. [prefill] is text shared from another app.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CaptureSheet(onDismiss: () -> Unit, onSaved: (CaptureKind, String) -> Unit) {
+fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, String, String?) -> Unit) {
     val colors = LifeTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
-    var text by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf(prefill) }
     var kind by rememberSaveable { mutableStateOf(CaptureKind.NOTE) }
+    var due by rememberSaveable { mutableStateOf<String?>(null) }
+    var pickingDate by rememberSaveable { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
     ModalBottomSheet(
@@ -117,14 +126,38 @@ fun CaptureSheet(onDismiss: () -> Unit, onSaved: (CaptureKind, String) -> Unit) 
                     kind = CaptureKind.TASK
                 }
             }
+            if (kind == CaptureKind.TASK) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SecondaryButton(
+                        text = due?.let { stringResource(R.string.capture_due, dueLabel(it) ?: it) } ?: stringResource(R.string.capture_due_none),
+                        onClick = { pickingDate = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (due != null) {
+                        SecondaryButton(
+                            text = stringResource(R.string.capture_due_clear),
+                            onClick = { due = null },
+                            modifier = Modifier.weight(0.6f),
+                        )
+                    }
+                }
+            }
             PrimaryButton(
                 text = stringResource(R.string.capture_save),
                 enabled = text.isNotBlank(),
                 onClick = {
                     val saved = text.trim()
-                    scope.launch { sheetState.hide() }.invokeOnCompletion { onSaved(kind, saved) }
+                    val day = due.takeIf { kind == CaptureKind.TASK }
+                    scope.launch { sheetState.hide() }.invokeOnCompletion { onSaved(kind, saved, day) }
                 },
             )
+        }
+    }
+
+    if (pickingDate) {
+        DayPicker(initial = due, onDismiss = { pickingDate = false }) {
+            due = it
+            pickingDate = false
         }
     }
 
@@ -146,5 +179,27 @@ private fun RowScope.KindOption(label: String, selected: Boolean, onClick: () ->
         contentAlignment = Alignment.Center,
     ) {
         Text(text = label, style = LifeType.button, color = if (selected) colors.bg else colors.muted)
+    }
+}
+
+/** The system-style date picker. Returns the day as `YYYY-MM-DD`. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DayPicker(initial: String?, onDismiss: () -> Unit, onPicked: (String) -> Unit) {
+    val start = (Dates.parse(initial) ?: today()).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+    val state = rememberDatePickerState(initialSelectedDateMillis = start)
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                enabled = state.selectedDateMillis != null,
+                onClick = {
+                    state.selectedDateMillis?.let { onPicked(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate().toString()) }
+                },
+            ) { Text(stringResource(R.string.action_ok)) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) } },
+    ) {
+        DatePicker(state = state)
     }
 }

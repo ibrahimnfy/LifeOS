@@ -4,9 +4,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -26,11 +29,23 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
+import dev.lifeos.app.UNDO_MILLIS
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.withTimeoutOrNull
 import dev.lifeos.app.settings.ThemeSetting
 import dev.lifeos.app.ui.components.BottomBar
+import dev.lifeos.app.ui.components.CaptureKind
 import dev.lifeos.app.ui.components.CaptureSheet
+import dev.lifeos.app.ui.components.LocalSnackbar
+import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
+import dev.lifeos.app.ui.screens.AllGradesScreen
+import dev.lifeos.app.ui.screens.AllTasksScreen
 import dev.lifeos.app.ui.screens.Authenticate
+import dev.lifeos.app.ui.screens.CalendarScreen
+import dev.lifeos.app.ui.screens.CourseScreen
+import dev.lifeos.app.ui.screens.CoursesScreen
+import dev.lifeos.app.ui.screens.NotesScreen
 import dev.lifeos.app.ui.screens.MoreScreen
 import dev.lifeos.app.ui.screens.PairScreen
 import dev.lifeos.app.ui.screens.PlaceholderScreen
@@ -50,6 +65,8 @@ fun LifeOsApp(
     authenticate: Authenticate,
     openPairing: Boolean,
     onPairingOpened: () -> Unit,
+    captureRequest: String?,
+    onCaptureHandled: () -> Unit,
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -57,7 +74,18 @@ fun LifeOsApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var captureOpen by rememberSaveable { mutableStateOf(false) }
+    var capturePrefill by rememberSaveable { mutableStateOf("") }
     val savedMessage = stringResource(R.string.capture_saved)
+    val waitingMessage = stringResource(R.string.capture_waiting)
+    val showMessage: (String) -> Unit = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
+    // The home-screen shortcut or another app's "share" asked for the capture sheet.
+    LaunchedEffect(captureRequest) {
+        if (captureRequest != null) {
+            capturePrefill = captureRequest
+            captureOpen = true
+            onCaptureHandled()
+        }
+    }
     // Settings lives under More: switch to that tab first, so no other tab keeps it on its stack.
     val openSettings: () -> Unit = {
         navController.openTab(Tab.MORE)
@@ -77,6 +105,18 @@ fun LifeOsApp(
         }
     }
 
+    val undoLabel = stringResource(R.string.action_undo)
+    val showUndo: (String, () -> Unit) -> Unit = { message, onUndo ->
+        scope.launch {
+            // Visible exactly as long as the tick can be taken back; the timer itself is the core's.
+            val result = withTimeoutOrNull(UNDO_MILLIS - 500) {
+                snackbarHostState.showSnackbar(message, actionLabel = undoLabel, duration = SnackbarDuration.Indefinite)
+            }
+            if (result == SnackbarResult.ActionPerformed) onUndo()
+        }
+    }
+    val locked by core.locked.collectAsStateWithLifecycle()
+    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo) {
     Scaffold(
         containerColor = LifeTheme.colors.bg,
         contentColor = LifeTheme.colors.text,
@@ -86,7 +126,10 @@ fun LifeOsApp(
             BottomBar(
                 selected = selectedTab,
                 onSelect = { navController.openTab(it) },
-                onCapture = { captureOpen = true },
+                onCapture = {
+                    capturePrefill = ""
+                    captureOpen = true
+                },
             )
         },
     ) { innerPadding ->
@@ -99,6 +142,8 @@ fun LifeOsApp(
         ) {
             composable(Routes.TODAY) {
                 TodayScreen(
+                    core = core,
+                    onPair = openPair,
                     onConnectionClick = openSettings,
                     onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
                 )
@@ -113,15 +158,44 @@ fun LifeOsApp(
             composable(Routes.CHAT) { ChatScreen(onConnectionClick = openSettings) }
             composable(Routes.TASKS) {
                 TasksScreen(
+                    core = core,
+                    onPair = openPair,
                     onConnectionClick = openSettings,
                     onShowAll = { navController.navigate(Routes.ALL_TASKS) },
                 )
             }
             composable(Routes.ALL_TASKS) {
-                PlaceholderScreen(
-                    title = stringResource(R.string.tasks_all_title),
+                AllTasksScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
+            }
+            composable(Routes.NOTES) {
+                NotesScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings)
+            }
+            composable(Routes.CALENDAR) {
+                CalendarScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
+            }
+            composable(Routes.COURSES) {
+                CoursesScreen(
+                    core = core,
                     onBack = { navController.popBackStack() },
                     onConnectionClick = openSettings,
+                    onPair = openPair,
+                    onOpenCourse = { navController.navigate(Routes.course(it)) { launchSingleTop = true } },
+                    onGrades = { navController.navigate(Routes.GRADES) { launchSingleTop = true } },
+                )
+            }
+            composable(Routes.GRADES) {
+                AllGradesScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
+            }
+            composable(
+                route = Routes.COURSE,
+                arguments = listOf(navArgument(Routes.COURSE_ARG) { type = NavType.LongType }),
+            ) { entry ->
+                CourseScreen(
+                    core = core,
+                    courseId = entry.arguments?.getLong(Routes.COURSE_ARG) ?: 0,
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
                 )
             }
             composable(Routes.MORE) {
@@ -161,13 +235,19 @@ fun LifeOsApp(
         }
     }
 
-    if (captureOpen) {
+    }
+
+    // Sheets are windows of their own: while the app is locked none may be open above the lock screen.
+    if (captureOpen && !locked) {
         CaptureSheet(
+            prefill = capturePrefill,
             onDismiss = { captureOpen = false },
-            onSaved = { _, _ ->
-                // Nothing is stored yet; the capture queue arrives with a later step.
+            onSaved = { kind, text, due ->
                 captureOpen = false
-                scope.launch { snackbarHostState.showSnackbar(savedMessage) }
+                scope.launch {
+                    val sent = core.capture(note = kind == CaptureKind.NOTE, text = text, due = due)
+                    snackbarHostState.showSnackbar(if (sent) savedMessage else waitingMessage)
+                }
             },
         )
     }

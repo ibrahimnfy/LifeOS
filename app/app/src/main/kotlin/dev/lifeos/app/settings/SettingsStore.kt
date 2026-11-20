@@ -42,7 +42,17 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[WELCOMED] = "1" }
     }
 
+    /** The coach messages shown most recently (ids only), newest last. */
+    val coachRecent: Flow<List<String>> = dataStore.data
+        .map { it[COACH_RECENT].orEmpty().split(',').filter(String::isNotEmpty) }
+        .distinctUntilChanged()
+
+    suspend fun setCoachRecent(ids: List<String>) {
+        dataStore.edit { it[COACH_RECENT] = ids.joinToString(",") }
+    }
+
     private companion object {
+        val COACH_RECENT = stringPreferencesKey("coach_recent")
         val THEME = stringPreferencesKey("theme")
         val LOCK_TIMEOUT = stringPreferencesKey("lock_timeout")
         val WELCOMED = stringPreferencesKey("welcomed")

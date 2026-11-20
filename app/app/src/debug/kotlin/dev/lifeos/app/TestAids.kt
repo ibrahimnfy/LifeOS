@@ -1,8 +1,23 @@
 package dev.lifeos.app
 
+import android.content.Context
 import android.content.Intent
+import dev.lifeos.app.data.Transport
 import dev.lifeos.app.pairing.KeystoreVault
 import dev.lifeos.app.pairing.SecretVault
+import dev.lifeos.app.relay.AnswerEvent
+import dev.lifeos.app.relay.RelayResponse
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.security.MessageDigest
 
 /**
  * Test aids of DEBUG builds only. This file is in `src/debug/`; release builds compile the
@@ -19,11 +34,19 @@ import dev.lifeos.app.pairing.SecretVault
  *
  * Adding `--ez lifeos.test.real_lock true` replaces only the camera: the app then asks for
  * fingerprint or screen lock and stores the pairing exactly like a scanned one, app lock included.
+ *
+ * `--ez lifeos.test.sample_courses true` makes the Courses screens (and only them) show the
+ * synthetic sample courses in `src/debug/assets/sample-courses.json` instead of asking the
+ * computer, until the app is closed. Nothing of the owner's courses is touched in that mode.
  */
 object TestAids {
     const val VAULT = "test"
     private const val EXTRA_PAIRING_TEXT = "lifeos.test.pairing_text"
     private const val EXTRA_REAL_LOCK = "lifeos.test.real_lock"
+    private const val EXTRA_SAMPLE_COURSES = "lifeos.test.sample_courses"
+
+    @Volatile
+    private var sampleCourses = false
 
     /** The pairing text handed over by the test, if any. Read once. */
     fun pairingText(intent: Intent?): String? {
@@ -35,7 +58,66 @@ object TestAids {
     /** Whether the test wants the real, confirmation-bound key (only the camera is replaced). */
     fun realLock(intent: Intent?): Boolean = intent?.getBooleanExtra(EXTRA_REAL_LOCK, false) == true
 
+    /** Switches that last until the app is closed. */
+    fun readSwitches(intent: Intent?) {
+        if (intent?.hasExtra(EXTRA_SAMPLE_COURSES) == true) sampleCourses = intent.getBooleanExtra(EXTRA_SAMPLE_COURSES, false)
+    }
+
     /** A Keystore key without user confirmation, for test pairings only. */
     fun vault(kind: String): SecretVault? =
         if (kind == VAULT) KeystoreVault("lifeos.device.test.v1") {} else null
+
+    /** The channel to the computer, with the sample courses in front of it while they are switched on. */
+    fun transport(context: Context, real: Transport): Transport = SampleCourses(context, real)
+
+    private class SampleCourses(private val context: Context, private val real: Transport) : Transport {
+        private val answers: JsonObject by lazy {
+            Json.parseToJsonElement(context.assets.open("sample-courses.json").use { it.readBytes().decodeToString() }).jsonObject
+        }
+        private val file = "LifeOS sample file.\n".toByteArray() // 20 bytes, as the sample offer says
+
+        private fun mine(path: String) = sampleCourses && (path.startsWith("/courses") || path.startsWith("/files/"))
+
+        override suspend fun request(method: String, path: String, query: Map<String, String>, body: JsonElement?, timeoutMillis: Long): RelayResponse {
+            if (!mine(path)) return real.request(method, path, query, body, timeoutMillis)
+            val key = "$method " + path.replace(Regex("/files/[^/]+/(address|offer)$"), "/files/KEY/$1")
+            if (key == "POST /courses/refresh") return RelayResponse(202, answers.getValue("GET /courses/sync").jsonObject.getValue("body"))
+            if (key.endsWith("/address")) {
+                // An address that cannot be reached, so the app falls back to the relay route.
+                return RelayResponse(
+                    200,
+                    buildJsonObject {
+                        put("url", JsonPrimitive("https://sample.example.invalid/sample.pdf"))
+                        put("name", JsonPrimitive("sample.pdf"))
+                        put("size", JsonPrimitive(file.size))
+                    },
+                )
+            }
+            val entry = answers[key]?.jsonObject ?: answers[key.replace(Regex("^POST (/courses/)\\d+/seen$"), "POST $15/seen")]?.jsonObject
+                ?: return RelayResponse(404, Json.parseToJsonElement("""{"error":"course_not_found"}"""))
+            return RelayResponse(entry.getValue("status").jsonPrimitive.int, entry.getValue("body"))
+        }
+
+        override fun stream(method: String, path: String, query: Map<String, String>): Flow<AnswerEvent> {
+            if (!mine(path)) return real.stream(method, path, query)
+            return flow {
+                val half = file.size / 2
+                emit(AnswerEvent.FileChunk(0, 2, file.copyOfRange(0, half)))
+                emit(AnswerEvent.FileChunk(1, 2, file.copyOfRange(half, file.size)))
+                val hash = MessageDigest.getInstance("SHA-256").digest(file).joinToString("") { "%02x".format(it) }
+                emit(
+                    AnswerEvent.Done(
+                        RelayResponse(
+                            200,
+                            buildJsonObject {
+                                put("size", JsonPrimitive(file.size))
+                                put("chunks", JsonPrimitive(2))
+                                put("sha256", JsonPrimitive(hash))
+                            },
+                        ),
+                    ),
+                )
+            }
+        }
+    }
 }

@@ -39,6 +39,9 @@ class MainActivity : AppCompatActivity() {
     private var openPairing by mutableStateOf(false)
     private var lockMessage by mutableStateOf<String?>(null)
 
+    /** Text for the capture sheet, asked for by the home-screen shortcut or another app's share. */
+    private var captureRequest by mutableStateOf<String?>(null)
+
     /** Once the welcome screen was answered it does not come back in this run. */
     private var welcomeDone by mutableStateOf(false)
 
@@ -47,7 +50,13 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         val core = core
         val settings = core.settings
-        if (savedInstanceState == null) useTestAids(intent)
+        // These survive a rotation or a language switch.
+        welcomeDone = savedInstanceState?.getBoolean(STATE_WELCOME_DONE) ?: false
+        openPairing = savedInstanceState?.getBoolean(STATE_OPEN_PAIRING) ?: false
+        if (savedInstanceState == null) {
+            useTestAids(intent)
+            readCapture(intent)
+        }
 
         setContent {
             // Null until the stored setting is read, so the wrong theme is never drawn first.
@@ -98,6 +107,8 @@ class MainActivity : AppCompatActivity() {
                                     authenticate = ::authenticate,
                                     openPairing = openPairing,
                                     onPairingOpened = { openPairing = false },
+                                    captureRequest = captureRequest,
+                                    onCaptureHandled = { captureRequest = null },
                                 )
                             }
                             if (locked) {
@@ -114,9 +125,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_WELCOME_DONE, welcomeDone)
+        outState.putBoolean(STATE_OPEN_PAIRING, openPairing)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         useTestAids(intent)
+        readCapture(intent)
     }
 
     override fun onStart() {
@@ -152,8 +170,24 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /** The capture shortcut, or text shared from another app ("share" → LifeOS). */
+    private fun readCapture(intent: Intent?) {
+        when (intent?.action) {
+            ACTION_CAPTURE -> captureRequest = ""
+            Intent.ACTION_SEND -> if (intent.type == "text/plain") {
+                val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getStringExtra(Intent.EXTRA_TEXT))
+                    .filter { it.isNotBlank() }.distinct().joinToString("\n")
+                captureRequest = text.take(MAX_SHARED_CHARS)
+                welcomeDone = true
+            }
+        }
+        // Handled once: a rotation must not open the sheet again.
+        intent?.action = Intent.ACTION_MAIN
+    }
+
     /** Debug builds only (see `src/debug/.../TestAids.kt`); in release builds this does nothing. */
     private fun useTestAids(intent: Intent?) {
+        TestAids.readSwitches(intent)
         val realLock = TestAids.realLock(intent)
         val offer = TestAids.pairingText(intent)?.let(PairingText::parse) ?: return
         val label = getString(R.string.pair_label_default)
@@ -172,5 +206,12 @@ class MainActivity : AppCompatActivity() {
                 { offer.secret.fill(0) },
             )
         }
+    }
+
+    private companion object {
+        const val ACTION_CAPTURE = "dev.lifeos.app.CAPTURE"
+        const val MAX_SHARED_CHARS = 4000
+        const val STATE_WELCOME_DONE = "welcome_done"
+        const val STATE_OPEN_PAIRING = "open_pairing"
     }
 }

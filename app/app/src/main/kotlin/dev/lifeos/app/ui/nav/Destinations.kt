@@ -10,10 +10,24 @@ object Routes {
     const val ALL_TASKS = "tasks/all"
     const val SETTINGS = "more/settings"
     const val PAIR = "more/settings/pair"
+    const val NOTES = "more/notes"
+    const val CALENDAR = "more/calendar"
+    const val COURSES = "more/courses"
+    const val GRADES = "more/courses/grades"
+    const val COURSE = "more/course/{course}"
+    const val COURSE_ARG = "course"
     const val SECTION = "more/section/{section}"
     const val SECTION_ARG = "section"
 
-    fun section(section: MoreSection): String = "more/section/${section.id}"
+    fun course(id: Long): String = "more/course/$id"
+
+    /** Sections that are built have their own screen; the others share the placeholder. */
+    fun section(section: MoreSection): String = when (section) {
+        MoreSection.NOTES -> NOTES
+        MoreSection.CALENDAR -> CALENDAR
+        MoreSection.COURSES -> COURSES
+        else -> "more/section/${section.id}"
+    }
 }
 
 /** The four destinations of the bottom bar, in display order. */
@@ -35,7 +49,7 @@ enum class Tab(val route: String) {
     }
 }
 
-/** Screens listed under More that are still placeholders. Settings has its own screen. */
+/** The screens listed under More. Settings has its own entry. */
 enum class MoreSection(val id: String) {
     SESSIONS("sessions"),
     NOTES("notes"),
