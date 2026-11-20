@@ -459,6 +459,9 @@ answer and returns a card instead:
   resolving links; no hidden files or folders; at most `LIFEOS_MAX_FILE_MB`
   (default 50). Cards never contain a path.
 - Offers and downloads are written to the audit log with name and size.
+  What else the audit log holds (course download addresses, every phone
+  request through the relay, pairing, revocation, allowed-folder changes,
+  Moodle sign-ins) is listed in [`security.md`](security.md#61-the-audit-log).
 - Through the relay the same offer is sent as sealed chunks (see "Paired
   phones and the relay").
 
@@ -880,7 +883,10 @@ the phone. Two ways, neither with a model run:
    never logs or stores this answer (it is sent with `Cache-Control:
    no-store`), and it is only meant to travel over the loopback API or
    inside the sealed relay channel, where the relay's operator cannot read
-   it. Do not paste it anywhere.
+   it. Do not paste it anywhere. Each address given out is recorded in the
+   audit log as `CourseFileAddress` with course id, file name and size
+   (never the address); when that record cannot be written the answer is
+   `503 audit_unavailable` and no address is given.
 2. `POST /courses/{id}/files/{key}/offer` → `{"offer", "name", "type",
    "size", "session_id"}`: an ordinary file offer for the **computer's
    copy** in the course folder. The phone fetches it with `GET
@@ -1245,6 +1251,10 @@ curl -s -X POST -H "$H" $B/courses/<id>/seen     # {"seen":true}; the course's "
 curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/offer    # a card; fetch it with /files/<offer>?session_id=<session_id>
 curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/address | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)))'
 #   prints the field names only: the "url" holds the Moodle token, do not print or paste it
+tail -n 2 ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl | grep -c CourseFileAddress   # 1: course, name, size
+grep -c token= ~/.config/lifeos/audit/*.jsonl    # 0 in every file: never an address or the token
+# after using the app through the relay: one "RelayRequest" per request, route templates only
+grep RelayRequest ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl | tail -n 3
 git -C ~/brain log -1 --format=%s                # "Sync courses from the university platform" after the first sync
 curl -s -H "$H" "$B/events?start=<today>&end=<in 30 days>"   # upcoming deadlines, each with a note "moodle:…"
 ```

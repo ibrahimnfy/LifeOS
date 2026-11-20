@@ -163,7 +163,10 @@ def create_app(settings: Settings) -> FastAPI:
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
         phone_relay = await asyncio.to_thread(
-            relay.start_if_configured, settings, getattr(_app.state, "offers", None)
+            relay.start_if_configured,
+            settings,
+            getattr(_app.state, "offers", None),
+            relay.route_table(_app),
         )
         try:
             yield

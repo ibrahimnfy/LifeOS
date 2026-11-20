@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from . import moodle, moodle_sync, moodle_watch
+from . import audit, moodle, moodle_sync, moodle_watch
 from .claude import ClaudeError
 
 CACHE_SECONDS = 600
@@ -296,7 +296,11 @@ def _synced_file(state: dict, course_id: int, key: str) -> tuple[dict, dict]:
 
 
 def download_address(state: dict, course_id: int, key: str) -> dict:
-    """Where the phone can fetch a file directly from the site. **Contains the token.**"""
+    """Where the phone can fetch a file directly from the site. **Contains the token.**
+
+    Recorded in the audit log first (course, name, size; never the address);
+    when the record cannot be written, no address is handed out.
+    """
     item = _synced_file(state, course_id, key)[1]
     try:
         address = moodle.from_env().address_for(item.get("url") or "")
@@ -304,6 +308,17 @@ def download_address(state: dict, course_id: int, key: str) -> dict:
         if error.code == "bad_file_url":
             raise ClaudeError("file_unavailable", 409, error.message) from None
         raise as_claude_error(error) from None
+    try:
+        audit.record(
+            "CourseFileAddress",
+            {"course_id": course_id, "name": item["name"], "size": item.get("size")},
+            session_id=f"course-{course_id}",
+        )
+    except audit.AuditUnavailable:
+        del address  # never handed out without its record
+        raise ClaudeError(
+            "audit_unavailable", 503, "the audit log cannot be written; no address is given"
+        ) from None
     return {
         "url": address,
         "name": item["name"],
@@ -394,7 +409,7 @@ def courses_router() -> APIRouter:
         if path is None:
             raise ClaudeError("no_local_copy", 404, "the computer has no copy of this file")
         session_id = f"course-{course_id}"
-        offer = request.app.state.offers.for_path(path, session_id)
+        offer = request.app.state.offers.for_path(path, session_id, {"course_id": course_id})
         return {**offer.card(), "session_id": session_id}
 
     return routes

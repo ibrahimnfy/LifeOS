@@ -9,6 +9,7 @@ import dataclasses
 import io
 import json
 import logging
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -1060,14 +1061,38 @@ def test_the_download_address_is_the_only_place_the_token_appears(bridge, site, 
     assert (parts.scheme, parts.netloc) == ("https", "moodle.example.invalid")
     assert parts.path == "/webservice/pluginfile.php/11/mod_resource/content/1/notes.pdf"
     assert urllib.parse.parse_qsl(parts.query) == [("forcedownload", "1"), ("token", TOKEN)]
-    # Nowhere else: no other endpoint, no state file, no log, no audit entry.
+    # Nowhere else: no other endpoint, no state file, no log, not in the audit log.
     for method, path in [*ROUTES[:-2], ("post", f"/courses/5/files/{key}/offer")]:
         assert TOKEN not in bridge(path, method).text, path
     stored = [p.read_text() for p in configured.rglob("*") if p.is_file() and p.name != "env"]
     assert stored and not any(TOKEN in text for text in stored)
     assert TOKEN not in caplog.text and "pluginfile" not in caplog.text
+    # The audit log has a record of the address (course, name, size), without it.
+    records = [
+        json.loads(line)
+        for path in sorted((configured / "audit").glob("*.jsonl"))
+        for line in path.read_text().splitlines()
+    ]
+    given = [r for r in records if r["tool"] == "CourseFileAddress"]
+    assert [r["detail"] for r in given] == [{"course_id": A, "name": "notes.pdf", "size": 1000}]
+    assert given[0]["session_id"] == f"course-{A}"
+    offered = [r["detail"] for r in records if r["tool"] == "FileOffer"]
+    assert offered == [{"course_id": A, "name": "notes.pdf", "size": 20}]  # the local copy
+    log = "".join(p.read_text() for p in (configured / "audit").glob("*.jsonl"))
+    assert TOKEN not in log and "pluginfile" not in log and SITE not in log
     assert bridge("/courses/5/files/unknown/address", "post").status_code == 404
     assert bridge(f"/courses/7/files/{key}/address", "post").status_code == 404
+
+
+def test_no_address_without_its_audit_record(bridge, configured):
+    key = key_of(bridge, "notes.pdf")
+    shutil.rmtree(configured / "audit", ignore_errors=True)
+    (configured / "audit").write_text("not a folder")  # the log cannot be written
+    refused = bridge(f"/courses/5/files/{key}/address", "post")
+    assert refused.status_code == 503 and refused.json()["error"] == "audit_unavailable"
+    assert TOKEN not in refused.text and "url" not in refused.json()
+    offer = bridge(f"/courses/5/files/{key}/offer", "post")
+    assert offer.status_code == 503 and offer.json()["error"] == "audit_unavailable"
 
 
 def test_the_address_needs_a_working_configuration(bridge, isolated_config):

@@ -217,7 +217,7 @@ never holds push credentials.
   device secret; from that moment its messages fail check 1 or 2. Revocation
   needs no network and no cooperation from the phone or relay.
 - Pairing and revocation are announced through `scripts/notify.sh` and
-  written to a local log.
+  written to the audit log (section 6.1).
 - The existing bearer-token interface stays bound to localhost for local
   tools; the relay path does not use that token.
 
@@ -229,6 +229,36 @@ never holds push credentials.
   phone still cannot use the app after the lock timeout.
 - The secret is excluded from device backups and cloud backup.
 - "Unpair this phone" wipes the secret locally.
+
+### 6.1 The audit log
+
+`~/.config/lifeos/audit/YYYY-MM.jsonl` (folder mode 700, files mode 600, one
+JSON object per line, append-only, local only). Every record has `ts` (UTC),
+`session_id`, `tool` (the kind of record), `detail` and `decision`. What it
+holds:
+
+| `tool` | When | `detail` |
+|---|---|---|
+| a tool name (`Bash`, `Edit`, …) | every tool call of a capable run, written by the gate **before** the call runs | command or file path, and the category of a refusal |
+| `FileOffer` / `FileDownload` | the assistant offers a file, or the phone fetches it | name and size (plus `course_id` for a course file) |
+| `CourseFileAddress` | the bridge gives the phone a direct download address of a course file | `course_id`, file name, size |
+| `RelayRequest` | every request a paired phone sends through the relay, after it was answered | device id, method, route template (for example `/notes/{note_id}`, or `(refused)` for a path outside the list), status |
+| `DevicePaired` / `DeviceRevoked` | a phone is paired or revoked | device id |
+| `AllowedPathAdded` / `AllowedPathRemoved` | the list of allowed folders changes | the folder |
+| `MoodleSignIn` | a new Moodle token is stored | nothing but the fact |
+
+Never recorded: file contents, note or task text, prompts and answers,
+request bodies and query values, the raw request path (it may carry ids or
+search words), course download addresses, the Moodle token or any other
+secret. Records the bridge writes on its own have an empty `session_id` (or
+`course-<id>`), so the capable-mode checks that read the log per session
+never confuse them with tool calls.
+
+Writing the record is a condition for: offering or sending a file, handing
+out a course download address, and changing the allowed folders; when the
+record cannot be written these answer `503 audit_unavailable` and nothing
+happens. Relay requests, pairing, revocation and sign-ins are recorded best
+effort: they already happened (a revocation must never be blocked).
 
 ## 7. Threat model
 

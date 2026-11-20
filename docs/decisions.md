@@ -154,3 +154,4 @@ a new entry is added that says what changed and why.
 
 ### Implementation choices after the seventh round (agent, 2026-11-20; cheap to change)
 - **Phone ids for notes and tasks (#120):** the phone names a new note or task with a random `client_id`; the memory's `phone-ids.md` maps it to the stored item (ids and a 16-character fingerprint of the first request, no text) and is committed with the item. A repeat answers `200` with the stored item, a different item under the same id `409`. Notes keep their text-derived id; an edit carries the mapping along.
+- **Audit log (#135):** the bridge's own records share the gate's monthly files. A course download address, a file offer or download and an allowed-folder change happen only when their record is written; relay requests (device, method, route template, status), pairing, revocation and Moodle sign-ins are recorded best effort because they have already happened. The list is in `docs/security.md` section 6.1.
