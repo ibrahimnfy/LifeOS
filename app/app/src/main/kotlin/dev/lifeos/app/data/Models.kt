@@ -171,8 +171,8 @@ data class CourseSummary(
 }
 
 @Serializable
-data class NewCounts(val files: Int = 0, val announcements: Int = 0, val deadlines: Int = 0, val grades: Int = 0) {
-    val total: Int get() = files + announcements + deadlines + grades
+data class NewCounts(val files: Int = 0, val announcements: Int = 0, val deadlines: Int = 0, val grades: Int = 0, val pages: Int = 0) {
+    val total: Int get() = files + announcements + deadlines + grades + pages
 }
 
 @Serializable
@@ -228,7 +228,46 @@ data class Announcements(val announcements: List<Announcement> = emptyList())
 data class AssignmentStatus(val submission: String? = null, val grading: String? = null, val graded: Boolean = false)
 
 @Serializable
-data class Assignment(val id: Long = 0, val name: String = "", val due: Long? = null, val status: AssignmentStatus? = null)
+data class Assignment(
+    val id: Long = 0,
+    val name: String = "",
+    val due: Long? = null,
+    val status: AssignmentStatus? = null,
+    val opens: Long? = null,
+    val cutoff: Long? = null,
+    val submitted: Boolean = false,
+    /** How many files are attached (the detail lists them). */
+    val files: Int = 0,
+    /** The id of its task in the memory, or null. */
+    val task: String? = null,
+)
+
+/** One assignment in full (`GET /courses/{id}/assignments/{aid}`); [description] is Markdown. */
+@Serializable
+data class AssignmentDetail(
+    val id: Long = 0,
+    val name: String = "",
+    val course: String = "",
+    @SerialName("course_id") val courseId: Long = 0,
+    val opens: Long? = null,
+    val due: Long? = null,
+    val cutoff: Long? = null,
+    val status: AssignmentStatus? = null,
+    val submitted: Boolean = false,
+    @SerialName("grading_due") val gradingDue: Long? = null,
+    @SerialName("modified_iso") val modifiedIso: String? = null,
+    val description: String = "",
+    val files: List<CourseFile> = emptyList(),
+    val task: String? = null,
+)
+
+/** Which assignment a deadline of the summary is: the summary names it by name and due time only. */
+object AssignmentMatch {
+    fun find(assignments: List<Assignment>, name: String, due: Long?): Assignment? =
+        assignments.firstOrNull { it.name == name && it.due == due }
+            ?: assignments.filter { due != null && it.due == due }.singleOrNull()
+            ?: assignments.filter { it.name.equals(name, ignoreCase = true) }.singleOrNull()
+}
 
 @Serializable
 data class Assignments(val assignments: List<Assignment> = emptyList())
@@ -317,5 +356,7 @@ object Endpoints {
         Endpoint("course-$id-announcements", "/courses/$id/announcements", serializer = Announcements.serializer())
     fun assignments(id: Long) =
         Endpoint("course-$id-assignments", "/courses/$id/assignments", serializer = Assignments.serializer())
+    fun assignment(id: Long, assignmentId: Long) =
+        Endpoint("course-$id-assignment-$assignmentId", "/courses/$id/assignments/$assignmentId", serializer = AssignmentDetail.serializer())
     fun grades(id: Long) = Endpoint("course-$id-grades", "/courses/$id/grades", serializer = Grades.serializer())
 }

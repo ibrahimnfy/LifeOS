@@ -315,6 +315,22 @@
     <string name="assignment_draft">Draft, not submitted</string>
     <string name="assignment_reopened">Reopened</string>
     <string name="assignment_not_submitted">Not submitted</string>
+    <!-- Assignment detail (#129) -->
+    <string name="assignment_title">Assignment</string>
+    <string name="assignment_not_found">This assignment was not found. It may have been removed on the site, or the courses were not synced since.</string>
+    <string name="assignment_open_course">Open the course</string>
+    <string name="assignment_refresh">Reload the assignment</string>
+    <string name="assignment_due_label">Due</string>
+    <string name="assignment_past">The due date has passed</string>
+    <string name="assignment_opened">Opened %1$s</string>
+    <string name="assignment_instructions">Instructions</string>
+    <string name="assignment_files">Files</string>
+    <string name="assignment_submission">Submission</string>
+    <string name="assignment_status">Status</string>
+    <string name="assignment_cutoff">Closes</string>
+    <string name="assignment_grading_due">Graded by</string>
+    <string name="assignment_in_tasks">In your tasks</string>
+    <string name="assignment_in_tasks_text">Completes by itself when it is submitted</string>
     <string name="grades_overall">Overall</string>
     <string name="grades_item">Grade item</string>
     <string name="grades_range">Range %1$s</string>

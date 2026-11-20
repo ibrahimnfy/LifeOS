@@ -42,6 +42,7 @@ import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
 import dev.lifeos.app.ui.screens.AllGradesScreen
+import dev.lifeos.app.ui.screens.AssignmentScreen
 import dev.lifeos.app.ui.screens.AllTasksScreen
 import dev.lifeos.app.ui.screens.Authenticate
 import dev.lifeos.app.ui.screens.CalendarScreen
@@ -219,6 +220,9 @@ fun LifeOsApp(
                     onPair = openPair,
                     onOpenCourse = { navController.navigate(Routes.course(it)) { launchSingleTop = true } },
                     onGrades = { navController.navigate(Routes.GRADES) { launchSingleTop = true } },
+                    onOpenDeadline = { deadline ->
+                        deadline.courseId?.let { navController.navigate(Routes.deadline(it, deadline.name, deadline.due)) { launchSingleTop = true } }
+                    },
                 )
             }
             composable(Routes.GRADES) {
@@ -228,12 +232,44 @@ fun LifeOsApp(
                 route = Routes.COURSE,
                 arguments = listOf(navArgument(Routes.COURSE_ARG) { type = NavType.LongType }),
             ) { entry ->
+                val courseId = entry.arguments?.getLong(Routes.COURSE_ARG) ?: 0
                 CourseScreen(
                     core = core,
-                    courseId = entry.arguments?.getLong(Routes.COURSE_ARG) ?: 0,
+                    courseId = courseId,
                     onBack = { navController.popBackStack() },
                     onConnectionClick = openSettings,
                     onPair = openPair,
+                    onOpenAssignment = { navController.navigate(Routes.assignment(courseId, it)) { launchSingleTop = true } },
+                )
+            }
+            // ---- assignment detail (#129)
+            composable(
+                route = Routes.ASSIGNMENT,
+                arguments = listOf(
+                    navArgument(Routes.COURSE_ARG) { type = NavType.LongType },
+                    navArgument(Routes.ASSIGNMENT_ARG) { type = NavType.LongType },
+                    navArgument(Routes.ASSIGNMENT_NAME_ARG) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                    navArgument(Routes.ASSIGNMENT_DUE_ARG) {
+                        type = NavType.LongType
+                        defaultValue = -1L
+                    },
+                ),
+            ) { entry ->
+                val args = entry.arguments
+                AssignmentScreen(
+                    core = core,
+                    courseId = args?.getLong(Routes.COURSE_ARG) ?: 0,
+                    assignmentId = args?.getLong(Routes.ASSIGNMENT_ARG) ?: 0,
+                    deadlineName = args?.getString(Routes.ASSIGNMENT_NAME_ARG),
+                    deadlineDue = args?.getLong(Routes.ASSIGNMENT_DUE_ARG)?.takeIf { it >= 0 },
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                    onOpenCourse = { navController.navigate(Routes.course(it)) { launchSingleTop = true } },
                 )
             }
             composable(Routes.MORE) {

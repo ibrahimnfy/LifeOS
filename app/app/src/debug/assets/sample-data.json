@@ -92,7 +92,20 @@
     "links": [{"section": "Week 2 · Core concepts", "name": "Reading list", "url": "https://example.invalid/reading"}]
   },
   "GET /courses/ID/announcements": {"announcements": [{"id": 1, "subject": "Lecture 2 slides are up", "text": "The slides and the first exercise sheet are in Week 2."}]},
-  "GET /courses/ID/assignments": {"assignments": [{"id": 1, "name": "Assignment 2", "due_in_days": 2, "status": {"submission": "new"}}]},
+  "GET /courses/ID/assignments": {"assignments": [
+    {"id": 1, "name": "Assignment 2", "due_in_days": 2, "status": {"submission": "new"}, "files": 2, "task": "t-2"},
+    {"id": 2, "name": "Lab report 1", "due_in_days": 5, "status": {"submission": "new"}},
+    {"id": 3, "name": "Quiz 1", "due_in_days": 9, "status": {"submission": "submitted"}, "submitted": true}
+  ]},
+  "GET /courses/ID/assignments/ID": {
+    "id": 1, "name": "Assignment 2", "course": "Signals and Systems", "opens_in_days": -5, "due_in_days": 2,
+    "status": {"submission": "new", "grading": "notgraded", "graded": false}, "submitted": false, "task": "t-2",
+    "description": "Solve problems **1–4** on the attached sheet.\n\n- Show your working\n- Hand in one PDF file\n\nThe [course outline](https://example.invalid/outline) has the grading scheme.",
+    "files": [
+      {"key": "f5", "name": "Assignment 2 sheet.pdf", "type": "application/pdf", "size": 300000},
+      {"key": "f6", "name": "Sample signals.zip", "type": "application/zip", "size": 1200000}
+    ]
+  },
   "GET /courses/ID/grades": {"overall": "82", "items": [{"name": "Assignment 1", "grade": "85", "range": "0–100"}]},
   "GET /courses/grades": {"courses": [
     {"id": 11, "name": "Signals and Systems", "overall": "82", "items": [{"name": "Assignment 1", "grade": "85", "range": "0–100"}]},

@@ -313,6 +313,22 @@
     <string name="assignment_draft">Taslak, teslim edilmedi</string>
     <string name="assignment_reopened">Yeniden açıldı</string>
     <string name="assignment_not_submitted">Teslim edilmedi</string>
+    <!-- Ödev ayrıntısı (#129) -->
+    <string name="assignment_title">Ödev</string>
+    <string name="assignment_not_found">Bu ödev bulunamadı. Sitede kaldırılmış olabilir ya da dersler o zamandan beri eşitlenmedi.</string>
+    <string name="assignment_open_course">Dersi aç</string>
+    <string name="assignment_refresh">Ödevi yeniden yükle</string>
+    <string name="assignment_due_label">Son teslim</string>
+    <string name="assignment_past">Son teslim tarihi geçti</string>
+    <string name="assignment_opened">Açılış %1$s</string>
+    <string name="assignment_instructions">Yönergeler</string>
+    <string name="assignment_files">Dosyalar</string>
+    <string name="assignment_submission">Teslim</string>
+    <string name="assignment_status">Durum</string>
+    <string name="assignment_cutoff">Kapanış</string>
+    <string name="assignment_grading_due">Notlandırma</string>
+    <string name="assignment_in_tasks">Görevlerinde</string>
+    <string name="assignment_in_tasks_text">Teslim edilince kendiliğinden tamamlanır</string>
     <string name="grades_overall">Genel</string>
     <string name="grades_item">Not kalemi</string>
     <string name="grades_range">Aralık: %1$s</string>

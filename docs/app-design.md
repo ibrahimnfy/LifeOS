@@ -296,8 +296,17 @@ the platform the data comes from.*
   - **Materials:** sections and files (name, type, size, date; new ones
     marked), and the course's video and external links.
   - **Announcements:** newest first.
-  - **Assignments:** due date and status.
+  - **Assignments:** due date and status; each opens the assignment detail.
   - **Grades:** the grade items of the course.
+- **Assignment detail (#129, P3 in the course's colour):** a ticket with
+  the due date and time, when it opened and the status, and a stub with the
+  days left; the instructions (Markdown); the attached files (download and
+  open like materials); the submission (status, closing time, grading
+  time) and its task. Every upcoming deadline of the Courses screen opens
+  it. Endpoints: `GET /courses/{id}/assignments`,
+  `GET /courses/{id}/assignments/{aid}`. Not built: "Open the submission
+  page" of the mockups and the submission format and grade rows (the
+  bridge does not offer them yet).
 - **Downloads:** materials are **listed, not stored or embedded**. Tapping
   download fetches the file without any model run and saves it to the
   phone's Downloads folder; the app keeps no copy. The file comes directly

@@ -24,6 +24,17 @@ object Routes {
 
     fun course(id: Long): String = "more/course/$id"
 
+    // ---- assignment detail (#129): by its id, or (id 0) by a deadline's name and due time
+    const val ASSIGNMENT = "more/course/{course}/assignment/{assignment}?name={name}&due={due}"
+    const val ASSIGNMENT_ARG = "assignment"
+    const val ASSIGNMENT_NAME_ARG = "name"
+    const val ASSIGNMENT_DUE_ARG = "due"
+
+    fun assignment(courseId: Long, assignmentId: Long): String = "more/course/$courseId/assignment/$assignmentId"
+
+    fun deadline(courseId: Long, name: String, due: Long?): String =
+        "more/course/$courseId/assignment/0?name=${android.net.Uri.encode(name)}&due=${due ?: -1}"
+
     /** Note ids are letters, digits and dashes (the bridge checks this); encoded all the same. */
     fun note(id: String): String = "more/note/${java.net.URLEncoder.encode(id, "UTF-8")}"
 

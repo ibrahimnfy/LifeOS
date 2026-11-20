@@ -259,7 +259,16 @@ with plain HTTPS requests.
   its course's colour with its icon, ornament, next deadline and the marker
   for new content). A course page has a header card in the course's colour
   with the next deadline, and Materials, Announcements, Assignments and
-  Grades; files and links carry the course's colour. Files
+  Grades; files and links carry the course's colour. Every deadline ticket
+  or row and every assignment of the Assignments tab opens the
+  **assignment detail**: a ticket in the course's colour with the due date,
+  the days left on its stub, when it opened and the status (a dot and the
+  words); the instructions (the site's Markdown: headings, lists, bold,
+  italic, web links that open in the browser); the attached files, which
+  download and open like other materials; the submission (status, when it
+  closes, when it is graded) and whether it is in the task list. (The
+  summary names a deadline by its name and time only, so the app finds the
+  assignment in the course's list by them.) Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
 - **Activity** (under More), two tabs:
@@ -570,6 +579,10 @@ running on the computer with the relay set up.
    phone's PDF viewer (or the system asks which app to use); back in LifeOS
    nothing changed. Delete the file in the Files app and tap **Open** again:
    "This file is no longer in Downloads", and the download arrow is back.
+   Tap a deadline ticket: the assignment opens with its due ticket in the
+   course's colour (days left on the stub), the instructions, its files
+   (download one) and the submission status. A course's Assignments tab:
+   tapping an assignment opens the same screen.
    The refresh arrow starts a sync.
 9. **Screen time** (More → Activity): "Usage access is needed" with an
    explanation. Tap **Open usage access settings**: the system page for
