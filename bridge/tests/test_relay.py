@@ -2,6 +2,7 @@
 """The relay path with an in-memory mailbox and a stand-in local API."""
 
 import json
+import shutil
 import threading
 import time
 
@@ -374,3 +375,82 @@ def test_the_phone_registers_its_push_address_through_the_sealed_channel(paired)
     phone.request("POST", "/push/token", {"token": "short"}, rid="r2")
     (refused,) = phone.receive()
     assert refused.header.kind == e2e.ERROR
+
+
+# ---- the audit log -----------------------------------------------------------------
+
+
+def audit_records(config):
+    return [
+        json.loads(line)
+        for path in sorted((config / "audit").glob("*.jsonl"))
+        for line in path.read_text().splitlines()
+    ]
+
+
+def wait_for(config, tool, count):
+    for _ in range(200):
+        found = [r for r in audit_records(config) if r["tool"] == tool]
+        if len(found) >= count:
+            return found
+        time.sleep(0.01)
+    raise AssertionError(f"{count} {tool} records were not written")
+
+
+def test_every_phone_request_is_recorded_without_bodies_or_ids(paired, isolated_config, settings):
+    from lifeos_bridge.app import create_app
+
+    service, phone, _box, _ = paired
+    service.routes = relay.route_table(create_app(settings))
+    phone.receive()
+    asks = [
+        ("GET", "/whoami", None, None),
+        ("POST", "/ask", {"prompt": "a private prompt"}, None),
+        ("GET", "/notes/i-0123456789ab", None, {"query": "private words"}),
+        ("PATCH", "/tasks/t-20270115-01", {"title": "private title"}, None),
+        ("GET", "/unknown/thing", None, None),
+        ("POST", "/push/token", {"token": "fcm-" + "z" * 40}, None),
+        ("GET", "/files/offer-id-secret", None, {"session_id": "s"}),
+    ]
+    for index, (method, path, body, query) in enumerate(asks):
+        phone.request(method, path, body, query, rid=f"r{index}")
+        phone.receive()
+        wait_for(isolated_config, "RelayRequest", index + 1)  # written after the answer
+    records = wait_for(isolated_config, "RelayRequest", len(asks))
+    assert [
+        (r["detail"]["method"], r["detail"]["route"], r["detail"]["status"]) for r in records
+    ] == [
+        ("GET", "/whoami", 200),
+        ("POST", "/ask", 200),
+        ("GET", "/notes/{note_id}", 404),
+        ("PATCH", "/tasks/{task_id}", 404),
+        ("GET", "(refused)", 404),
+        ("POST", "/push/token", 200),
+        ("GET", "/files/{offer_id}", 404),
+    ]
+    assert all(r["detail"]["device"] == phone.id.hex() and r["session_id"] == "" for r in records)
+    assert all(set(r["detail"]) == {"device", "method", "route", "status"} for r in records)
+    log = "".join(p.read_text() for p in (isolated_config / "audit").glob("*.jsonl"))
+    for secret in ("private", "0123456789ab", "20270115", "unknown/thing", "zzzz", "offer-id"):
+        assert secret not in log, secret
+
+
+def test_an_unwritable_audit_log_does_not_stop_the_answers(paired, isolated_config):
+    _service, phone, _box, _ = paired
+    phone.receive()
+    shutil.rmtree(isolated_config / "audit")
+    (isolated_config / "audit").write_text("not a folder")
+    phone.request("GET", "/whoami")
+    (answer,) = phone.receive()
+    assert answer.payload["status"] == 200
+
+
+def test_pairing_and_revocation_are_recorded(paired, isolated_config):
+    _service, phone, _box, _ = paired
+    assert [r["detail"] for r in wait_for(isolated_config, "DevicePaired", 1)] == [
+        {"device": phone.id.hex()}
+    ]
+    assert cli(["devices", "revoke", phone.id.hex()[:8]]) == 0
+    assert [r["detail"] for r in wait_for(isolated_config, "DeviceRevoked", 1)] == [
+        {"device": phone.id.hex()}
+    ]

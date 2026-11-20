@@ -33,6 +33,7 @@ from . import (
     push,
     relay,
     reminders,
+    routing,
     runcontrol,
     sdk_runner,
     session_meta,
@@ -170,7 +171,10 @@ def create_app(settings: Settings) -> FastAPI:
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
         phone_relay = await asyncio.to_thread(
-            relay.start_if_configured, settings, getattr(_app.state, "offers", None)
+            relay.start_if_configured,
+            settings,
+            getattr(_app.state, "offers", None),
+            relay.route_table(_app),
         )
         try:
             yield
@@ -351,12 +355,15 @@ def create_app(settings: Settings) -> FastAPI:
         if choice:
             await asyncio.to_thread(session_meta.update_session, session_id, choice)
         chosen = await asyncio.to_thread(session_meta.entry_for, session_id)
+        # The session's own choice, else LIFEOS_MODEL_ROUTING's chat=…, else the defaults.
+        default = routing.run_options(settings, "chat")
         run_args = {
             "session_id": session_id,
             "resume": resume,
             "cwd": cwd,
-            "model": chosen["model"],
-            "effort": chosen["effort"],
+            "model": chosen["model"] or default["model"],
+            "effort": chosen["effort"] or default["effort"],
+            "advisor": None if chosen["model"] else default["advisor"],
             "on_process": control.tracker(session_id),
         }
         run_args["context"] = phone_instructions
@@ -502,12 +509,19 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/models")
     async def list_models():
         """Models and effort levels the app may offer, and the defaults."""
+        chat = routing.route(settings, "chat")
         return {
             "models": list(settings.models),
             "efforts": list(await asyncio.to_thread(claude.effort_levels, settings)),
-            "default_model": settings.claude_model or settings.default_model,
-            "default_effort": settings.default_effort,
+            "default_model": settings.claude_model or chat.model or settings.default_model,
+            "default_effort": chat.effort or settings.default_effort,
         }
+
+    @app.get("/models/routing")
+    async def model_routing():
+        """Each model job: its model, effort and advisor, and the plan usage of its runs
+        today and this week. Never starts a run."""
+        return await asyncio.to_thread(routing.overview, settings)
 
     @app.post("/sessions/{session_id}/cancel")
     async def cancel_run(session_id: str):
@@ -781,9 +795,16 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/notes", status_code=201)
     async def add_note(request: Request):
-        """Quick capture into the inbox. Body: ``{"text": str}``."""
+        """Quick capture into the inbox. Body: ``{"text": str, "client_id"?: str}``.
+
+        A repeat with a known ``client_id`` answers 200 with the stored note and
+        writes nothing; the same ``client_id`` with other text answers 409.
+        """
         data = await read_json_object(request)
-        return await asyncio.to_thread(memory.add_note, brain, data.get("text"))
+        saved = await asyncio.to_thread(
+            memory.add_note, brain, data.get("text"), None, data.get("client_id")
+        )
+        return JSONResponse(saved, status_code=200 if saved["repeat"] else 201)
 
     @app.get("/notes")
     async def list_notes(query: str = "", limit: int = 100):
@@ -813,9 +834,14 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/tasks", status_code=201)
     async def add_task(request: Request):
-        """Body: ``{"title": str, "due"?: "YYYY-MM-DD", "project"?: str, "course"?: str}``."""
+        """Body: ``{"title", "due"?: "YYYY-MM-DD", "project"?, "course"?, "client_id"?}``.
+
+        A repeat with a known ``client_id`` answers 200 with the stored task and
+        writes nothing; the same ``client_id`` with other fields answers 409.
+        """
         data = await read_json_object(request)
-        return (await asyncio.to_thread(memory.add_task, brain, data)).as_json()
+        saved = await asyncio.to_thread(memory.save_task, brain, data)
+        return JSONResponse(saved, status_code=200 if saved["repeat"] else 201)
 
     @app.post("/tasks/{task_id}/complete")
     async def complete_task(task_id: str):

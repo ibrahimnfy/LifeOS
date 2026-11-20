@@ -101,6 +101,7 @@ documented here as they are built.
 | PATCH / DELETE | `/sessions/{id}/queue/{qid}` | yes | Changes or removes a waiting message |
 | POST | `/sessions/{id}/queue/resume` | yes | Sends the waiting messages after a hold |
 | GET | `/models` | yes | Models and effort levels the app may offer, and the defaults |
+| GET | `/models/routing` | yes | Model, effort and advisor of each job, and its plan usage today and this week |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
@@ -134,7 +135,8 @@ documented here as they are built.
 | GET | `/courses` | yes | The synced courses with their next deadline and "new" counters |
 | GET | `/courses/{id}/materials` | yes | Sections and files of a course (new ones marked), and its links |
 | GET | `/courses/{id}/announcements` | yes | The announcements of a course, newest first |
-| GET | `/courses/{id}/assignments` | yes | Assignments with due date and hand-in state |
+| GET | `/courses/{id}/assignments` | yes | Assignments with dates and hand-in state |
+| GET | `/courses/{id}/assignments/{aid}` | yes | One assignment in full: description, dates, state, attached files |
 | GET | `/courses/{id}/grades` | yes | The grade items of a course |
 | GET | `/courses/grades` | yes | The grades of all courses |
 | POST | `/courses/{id}/seen` | yes | Clears the "new" counters and marks of a course |
@@ -593,8 +595,37 @@ prompt is answered with a plain-text question.
   returns to the default. Unknown values are refused with `400` before
   anything runs.
 - Defaults: `LIFEOS_DEFAULT_MODEL` (`opus`) and `LIFEOS_DEFAULT_EFFORT`
-  (`high`). The bridge's own runs (coach plan, context map) use
-  `LIFEOS_BACKGROUND_MODEL` when set.
+  (`high`) for chat sessions.
+- **Model routing per job.** Every run the bridge starts on its own belongs
+  to a job with its own model: `coach_plan` (morning run and refresh) and
+  `coach_chat` (the coach conversation; today the run that files the
+  owner's answer to the coach's question) use Opus with high effort;
+  `consolidation`, `course_resources`, `summaries` and `context_map` use
+  Sonnet with Opus as **advisor** (Claude Code's documented `--advisor`
+  flag: the run may consult Opus at hard steps; see
+  `docs/research/claude-headless.md`, section 8). If the CLI refuses the
+  advisor at launch, the run is made once without it. Change any job with
+  `LIFEOS_MODEL_ROUTING` (`config/env.example`). `LIFEOS_BACKGROUND_MODEL`,
+  when set, still applies to the background jobs that setting does not
+  name, without advisor. Saving notes and tasks, the course sync and
+  notifications use no model.
+- `GET /models/routing` → `{"jobs": [{"job", "label", "model", "effort",
+  "advisor", "source": "default" | "routing" | "background_model",
+  "per_session", "usage": {"today": U, "week": U}}], "no_model", "today",
+  "week_from", "note"}` with `U` = `{"runs", "input_tokens",
+  "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+  "cost_usd", "models"}`: the plan usage the runs reported themselves
+  (`cost_usd` is Claude Code's own estimate, not a bill; "week" starts on
+  Monday). The coach conversation is counted apart from the morning run.
+  Chat sessions are one job (`chat`); a resumed run adds only the growth
+  of the session's cumulative cost (a session older than the counting
+  counts from its first resume on). Token counts are the main model's
+  (advisor tokens are not in them). Kept per day for two months in
+  `~/.config/lifeos/usage.json`, no text. Never starts a run.
+- Precedence for chat sessions: the session's own choice, then
+  `LIFEOS_MODEL_ROUTING`'s `chat=…`, then `LIFEOS_DEFAULT_MODEL`/`_EFFORT`.
+  `LIFEOS_CLAUDE_MODEL` (the guardrail probes' fixed model) replaces every
+  job's model and switches the advisor off.
 
 ### Files: offers and `GET /files/{offer}`
 
@@ -615,6 +646,9 @@ answer and returns a card instead:
   resolving links; no hidden files or folders; at most `LIFEOS_MAX_FILE_MB`
   (default 50). Cards never contain a path.
 - Offers and downloads are written to the audit log with name and size.
+  What else the audit log holds (course download addresses, every phone
+  request through the relay, pairing, revocation, allowed-folder changes,
+  Moodle sign-ins) is listed in [`security.md`](security.md#61-the-audit-log).
 - Through the relay the same offer is sent as sealed chunks (see "Paired
   phones and the relay").
 
@@ -670,7 +704,19 @@ commit there**, made as `lifeos-bridge`. The bridge refuses to write
 git, or **has a git remote**: the memory must stay on the computer.
 
 - `POST /notes` with `{"text": "…"}` appends a dated line to `inbox.md`
-  (`201`). Up to 4,000 characters; further lines are kept, indented.
+  (`201`). Up to 4,000 characters; further lines are kept, indented. The
+  answer is `{"saved": true, "repeat": false, "id": "i-…", "at": "…",
+  "client_id": … | null}`.
+- **Phone ids (offline saving).** `POST /notes` and `POST /tasks` take an
+  optional `client_id`: a random id the phone chose (16 to 64 letters,
+  digits, `-`, `_`; a UUID fits). A second create with the same `client_id`
+  and the same content answers `200` with the stored item and `"repeat":
+  true` and writes nothing, also after a restart, after the note was edited
+  (the answer carries its current id) or the task was completed (the answer
+  shows it done). The same `client_id` with different content answers `409
+  client_id_conflict`. The mapping lives in the memory's `phone-ids.md` (ids
+  and a fingerprint of the first request, no text), committed with the item.
+  Requests without `client_id` behave as before. None of this starts a run.
 - `GET /notes?query=&limit=` lists the captures of the inbox, newest first
   (`kind: "inbox"`), and the topic files under `notes/` (`kind: "topic"`,
   with their title), each with `id`, `at` and a `preview`; `query` searches
@@ -684,8 +730,9 @@ git, or **has a git remote**: the memory must stay on the computer.
   "t-20270115-01", "title": "…", "done": false, "due": "2027-01-20" | null,
   "project": …, "course": …, "added": "…"}]}`.
 - `POST /tasks` with `{"title": "…", "due": "YYYY-MM-DD", "project":
-  "file-name", "course": "file-name"}` (only `title` is required) adds a line
-  to `tasks.md` and returns the task with its new id (`201`).
+  "file-name", "course": "file-name", "client_id": "…"}` (only `title` is
+  required) adds a line to `tasks.md` and returns the task with its new id,
+  `client_id` and `"repeat": false` (`201`).
 - `POST /tasks/{id}/complete` moves the line to `tasks-done.md` with the
   date; `404 task_not_found` for an unknown or already finished task.
 - `GET /events?start=YYYY-MM-DD&end=YYYY-MM-DD` lists the events touching
@@ -890,8 +937,8 @@ is synced; the sign-in watch (see "Moodle sign-in") sends the notification,
 and the sync then asks again only every six hours until a new sign-in.
 
 **What one sync does.** It first reads everything from the site: the
-visible courses, each course page, assignments and the timeline of the next
-180 days, the announcements forum, the grade report, and the hand-in state
+visible courses, each course page, assignments, the pages and books, and
+the timeline of the next 180 days, the announcements forum, the grade report, and the hand-in state
 of recent assignments (at most 40 calls). If the site cannot be reached or
 refuses the token, the sync ends there and **nothing is changed**. A single
 call the site refuses for another reason (for example a course without a
@@ -909,9 +956,30 @@ previous data. Then, course by course:
     already in the folder and was not put there by the sync is never
     overwritten. A local copy the owner deleted or moved is not fetched
     again until the file changes on the site.
-  - `links.md`: the course's video and external links by section, and the
-    files that were not downloaded ("Not downloaded (too large)", "Not
-    downloaded yet").
+  - `pages/`: one Markdown file per **Page** and **Book** activity
+    (`<name>-<activity id>.md`): headings, paragraphs, lists, emphasis and
+    links kept, scripts and the HTML head dropped, images as their
+    alternative text. A book's chapters come in reading order (`##`
+    chapter, `###` sub-chapter). Page text comes from
+    `mod_page_get_pages_by_courses`; a book's chapters are listed on the
+    course page and each chapter's text is fetched from the site (in
+    memory, never kept as HTML). A file is rebuilt only when the site's
+    revision or time of the activity (or of a chapter) changed, so an
+    unchanged book costs no request. A book that could not be read keeps its
+    previous file and counts in `page_errors`; it is tried at the next sync.
+  - `assignments/`: one Markdown file per assignment
+    (`<name>-<assignment id>.md`: opening, due and cut-off times, the
+    submission state, the description as Markdown, the attached files) and
+    a folder of the same name with the attached files, downloaded like the
+    materials (only new or changed ones, within the same limits). The
+    description and attachments are what the site shows the owner (some
+    assignments hide them until they open).
+  - `links.md`: the course's video and external links by section; then
+    "In pages and books": every link and embedded video found in those
+    files, with the activity it came from, without the ones already listed
+    (one line per address); then the files that were not downloaded ("Not
+    downloaded (too large)", "Not downloaded yet"). A `token` or `wstoken`
+    parameter is always removed from an address.
   - `announcements.md`: newest first, `## <date> — <subject>` and the text
     without markup; at most 100 announcements of 5,000 characters, without
     authors.
@@ -938,6 +1006,19 @@ previous data. Then, course by course:
     a second one. An event the owner edited or removed by hand is left
     alone until the deadline itself changes. Deadlines already in the past
     at the first sync are not written.
+  - `tasks.md`: **one task per assignment**, titled `<short course name>:
+    <assignment>`, with its due date, `(course: <folder name>)` and
+    `(assignment: moodle-<id>)`. It is created once (found again by that
+    field if the sync's state is lost, so never twice), and only while work
+    can still be handed in: not for an assignment already submitted, nor for
+    one whose due and cut-off times are both past. When the site moves the
+    due date, the task's due date follows (a date the owner changed by hand
+    is kept until the site changes it again). When the site shows the work
+    as submitted, the task is completed (moved to `tasks-done.md`). A task
+    the owner completed or removed is never reopened or created again.
+    Open tasks get their hand-in state asked first. The deadline events
+    above stay as they are; `GET /courses/{id}/assignments` names each
+    assignment's `task`.
   - `courses/<folder name>.md` in the topic-file format: a summary made
     from counts and dates, and `## Facts` lines tagged
     `[external:moodle <date>]` (overall grade, number of files). Only those
@@ -958,9 +1039,10 @@ everything as known and reports nothing as new; it sends one notification,
 appears later. A course the site stops listing (hidden, or
 left) disappears from the lists but keeps its folder and its record, so
 nothing is fetched twice if it comes back. After that, a sync that found new or changed files, new
-announcements, new or moved deadlines, or new or changed grades sends
+or changed pages and books (their text changed, not only their revision),
+new announcements, new or moved deadlines, or new or changed grades sends
 **one** notification "LifeOS: new in your courses" whose text is built from
-counts only, for example "2 new files, 1 announcement, 1 grade.". It goes
+counts only, for example "2 new files, 1 page, 1 announcement, 1 grade.". It goes
 through `scripts/notify.sh`, so the phone will get it as a push once that
 exists. No notification, log line or error contains a course name, a file
 name, a grade or an address.
@@ -975,20 +1057,33 @@ a half hours). Times are the site's number plus `…_iso`.
   "stale"}`: what is due in the next 14 days, nearest first.
 - `GET /courses` → `{"courses": [{"id", "name", "shortname",
   "next_deadline": {"name", "due", "due_iso"} | null, "new": {"files",
-  "announcements", "deadlines", "grades"}, "has_new", "folder_exists"}]}`.
+  "pages", "announcements", "deadlines", "grades"}, "has_new",
+  "folder_exists"}]}`.
 - `GET /courses/{id}/materials` → `{"course_id", "name", "sections":
   [{"name", "files": [{"key", "name", "type", "size", "modified",
   "modified_iso", "new", "downloaded", "skipped"}]}], "links": [{"section",
   "name", "url"}]}`. `downloaded`: the computer has its copy. `skipped`:
   `null`, `"too_large"`, `"later"`, `"failed"` or `"unavailable"`. `links`
-  are addresses outside the university site as the course page gives them.
+  are addresses outside the university site as the course page gives them,
+  followed by the links found in pages and books, which also carry
+  `"source": "page" | "book"` (their `section` is the activity's name).
 - `GET /courses/{id}/announcements` → `{"announcements": [{"id",
   "subject", "text", "created", "created_iso", "modified_iso"}]}`.
-- `GET /courses/{id}/assignments` → `{"assignments": [{"id", "name", "due",
-  "due_iso", "cutoff_iso", "status": {"submission", "grading", "graded"} |
-  null}]}`. `submission` is the site's word (`new`, `draft`, `submitted`,
-  `reopened`). The state is asked for assignments without a date or due
+- `GET /courses/{id}/assignments` → `{"assignments": [{"id", "name",
+  "opens", "opens_iso", "due", "due_iso", "cutoff", "cutoff_iso", "status":
+  {"submission", "grading", "graded"} | null, "submitted", "files"}]}`
+  (`files`: how many attached files; `task`: the id of the assignment's
+  task in `/tasks`, or `null`). `submission` is the site's word
+  (`new`, `draft`, `submitted`, `reopened`); `submitted` is `true` for
+  `submitted`. The state is asked for assignments without a date or due
   less than 30 days ago; older ones have `null`.
+- `GET /courses/{id}/assignments/{assignment id}` → the same fields plus
+  `"course"`, `"grading_due"`, `"grading_due_iso"`, `"modified_iso"`,
+  `"description"` (Markdown; `""` when the site shows none) and `"files"`:
+  `[{"key", "name", "type", "size", "modified", "modified_iso", "new",
+  "downloaded", "skipped"}]`. An attached file downloads through the same
+  routes as a material: `POST /courses/{id}/files/{key}/address` or
+  `/offer`. `404 assignment_not_found` for an unknown id.
 - `GET /courses/{id}/grades` → `{"overall", "items": [{"name", "type",
   "grade", "range", "percentage", "feedback", "graded_at",
   "graded_at_iso"}]}`; `GET /courses/grades` → the same for every course:
@@ -1023,7 +1118,10 @@ the phone. Two ways, neither with a model run:
    never logs or stores this answer (it is sent with `Cache-Control:
    no-store`), and it is only meant to travel over the loopback API or
    inside the sealed relay channel, where the relay's operator cannot read
-   it. Do not paste it anywhere.
+   it. Do not paste it anywhere. Each address given out is recorded in the
+   audit log as `CourseFileAddress` with course id, file name and size
+   (never the address); when that record cannot be written the answer is
+   `503 audit_unavailable` and no address is given.
 2. `POST /courses/{id}/files/{key}/offer` → `{"offer", "name", "type",
    "size", "session_id"}`: an ordinary file offer for the **computer's
    copy** in the course folder. The phone fetches it with `GET
@@ -1303,6 +1401,12 @@ Memory (each write is a commit in the memory folder; check with
 H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787; J='Content-Type: application/json'
 curl -s -H "$H" -H "$J" -d '{"text":"test note"}' $B/notes
 curl -s -H "$H" -H "$J" -d '{"title":"Test task","due":"2027-01-20"}' $B/tasks     # note the id
+# offline saving: send the same create twice; the second answers 200 "repeat":true, one line only
+P=$(python3 -c 'import uuid; print(uuid.uuid4())')
+curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"phone note\",\"client_id\":\"$P\"}" $B/notes
+curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"phone note\",\"client_id\":\"$P\"}" $B/notes
+curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"other text\",\"client_id\":\"$P\"}" $B/notes   # 409
+grep -c 'phone note' ~/brain/inbox.md            # 1
 curl -s -H "$H" $B/tasks
 curl -s -H "$H" -X POST $B/tasks/<id>/complete
 curl -s -H "$H" -H "$J" -d '{"title":"Test event","date":"2027-01-20","start":"14:00"}' $B/events
@@ -1335,6 +1439,8 @@ runs; replace `<id>` with that session's id):
 ```
 H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787; J='Content-Type: application/json'
 curl -s -H "$H" $B/models
+curl -s -H "$H" $B/models/routing | python3 -c 'import json,sys; [print(j["job"], j["model"], j["effort"], j["advisor"], j["usage"]["today"]["runs"]) for j in json.load(sys.stdin)["jobs"]]'
+#   coach_plan opus high None …; context_map sonnet … opus …; after a coach refresh its "runs" is 1
 curl -s -H "$H" -H "$J" -d '{"prompt":"and then?"}' $B/sessions/<id>/messages          # 202, queued
 curl -s -H "$H" $B/sessions/<id>/queue
 curl -s -H "$H" -X POST $B/sessions/<id>/cancel         # the first request ends with "cancelled"
@@ -1371,17 +1477,30 @@ Courses (needs `MOODLE_DOWNLOAD_DIR` in the env file, naming an allowed folder; 
 ```
 curl -s -H "$H" $B/courses/sync                  # "configured":true; "last_sync" set within a minute of starting
 curl -s -X POST -H "$H" $B/courses/refresh       # 202 "started":true; again at once: 429 "too_soon"
-ls "$MOODLE_DOWNLOAD_DIR"                        # one folder per course: materials/ links.md announcements.md grades.md
+ls "$MOODLE_DOWNLOAD_DIR"                        # one folder per course: materials/ pages/ links.md announcements.md grades.md
+ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/pages  # one .md per Page or Book; open one and compare with the site
+grep -A5 '## In pages and books' "$MOODLE_DOWNLOAD_DIR"/<course folder>/links.md   # links from pages and books, once each
+curl -s -H "$H" $B/courses/sync | python3 -c 'import json,sys; r=json.load(sys.stdin)["last_result"]; print(r["pages"], r["page_errors"])'
 curl -s -H "$H" $B/courses/summary               # deadlines of the next two weeks, "new_total"
 curl -s -H "$H" $B/courses                       # the courses; note an id
 curl -s -H "$H" $B/courses/<id>/materials        # sections and files with "key", "new", "downloaded"; links
 curl -s -H "$H" $B/courses/<id>/announcements
-curl -s -H "$H" $B/courses/<id>/assignments
+curl -s -H "$H" $B/courses/<id>/assignments    # note an assignment id with "files" > 0
+curl -s -H "$H" $B/courses/<id>/assignments/<aid>   # "description" as Markdown; "files" with "key"
+ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/assignments   # <name>-<aid>.md and a folder with the attached files
+grep 'assignment: moodle-' ~/brain/tasks.md      # one task per open assignment, with its due date
+curl -s -H "$H" $B/tasks                         # the same tasks carry "assignment" and "course"
+# after handing in an assignment on the site: refresh, then its task is in tasks-done.md
+curl -s -X POST -H "$H" $B/courses/refresh; sleep 60; grep 'assignment: moodle-<aid>' ~/brain/tasks-done.md
 curl -s -H "$H" $B/courses/<id>/grades ; curl -s -H "$H" $B/courses/grades
 curl -s -X POST -H "$H" $B/courses/<id>/seen     # {"seen":true}; the course's "new" counters are 0 afterwards
 curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/offer    # a card; fetch it with /files/<offer>?session_id=<session_id>
 curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/address | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)))'
 #   prints the field names only: the "url" holds the Moodle token, do not print or paste it
+tail -n 2 ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl | grep -c CourseFileAddress   # 1: course, name, size
+grep -c token= ~/.config/lifeos/audit/*.jsonl    # 0 in every file: never an address or the token
+# after using the app through the relay: one "RelayRequest" per request, route templates only
+grep RelayRequest ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl | tail -n 3
 git -C ~/brain log -1 --format=%s                # "Sync courses from the university platform" after the first sync
 curl -s -H "$H" "$B/events?start=<today>&end=<in 30 days>"   # upcoming deadlines, each with a note "moodle:…"
 ```

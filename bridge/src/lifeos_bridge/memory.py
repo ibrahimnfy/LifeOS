@@ -9,6 +9,7 @@ the computer.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -117,27 +118,131 @@ def _raise_value() -> date:
     raise ValueError
 
 
+# --------------------------------------------------------------------------- phone ids
+#
+# The phone saves a note or task offline and sends it later, maybe more than
+# once. It names each new item with a random id of its own (``client_id``);
+# the bridge keeps which memory item that id became in ``phone-ids.md``, so a
+# repeated create is answered with the stored item and writes nothing. The
+# file holds ids and a short fingerprint of the original request, never text.
+
+CLIENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$")
+IDS_FILE = "phone-ids.md"
+IDS_HEADER = (
+    "# Phone ids\n\n"
+    "Notes and tasks the phone created with an id of its own, so that a re-send is never "
+    "saved twice. Written by the bridge: `- <phone id> | note or task | <memory id> | "
+    "<fingerprint of the first request>`.\n\n"
+)
+ID_LINE = re.compile(r"^- ([A-Za-z0-9_-]+) \| (note|task) \| (\S+) \| ([0-9a-f]{16})\s*$")
+
+
+def read_client_id(value: object) -> str | None:
+    """The phone's id of a new item: absent (old clients), or a random-looking id."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not CLIENT_ID.fullmatch(value):
+        raise bad("`client_id` must be 16 to 64 letters, digits, `-` or `_` (a random id)")
+    return value
+
+
+def _fingerprint(kind: str, content: object) -> str:
+    text = json.dumps([kind, content], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def _phone_ids(memory: Path) -> dict[str, tuple[str, str, str]]:
+    """``client_id`` → (kind, memory id, fingerprint)."""
+    found: dict[str, tuple[str, str, str]] = {}
+    for line in read_text(memory / IDS_FILE).splitlines():
+        match = ID_LINE.match(line)
+        if match:
+            found[match.group(1)] = (match.group(2), match.group(3), match.group(4))
+    return found
+
+
+def _known(memory: Path, client_id: str | None, kind: str, fingerprint: str) -> str | None:
+    """The memory id a ``client_id`` became, or None when it is new. 409 on a conflict."""
+    if client_id is None:
+        return None
+    stored = _phone_ids(memory).get(client_id)
+    if stored is None:
+        return None
+    if stored[0] != kind or stored[2] != fingerprint:
+        raise ClaudeError(
+            "client_id_conflict", 409, "this client_id was already used for a different item"
+        )
+    return stored[1]
+
+
+def _remember(memory: Path, client_id: str, kind: str, item_id: str, fingerprint: str) -> None:
+    current = read_text(memory / IDS_FILE) or IDS_HEADER
+    if not current.endswith("\n"):
+        current += "\n"
+    write_text(memory / IDS_FILE, current + f"- {client_id} | {kind} | {item_id} | {fingerprint}\n")
+
+
+def _renamed(memory: Path, old_id: str, new_id: str) -> bool:
+    """An edited inbox note got a new id: the phone ids that named it follow."""
+    text = read_text(memory / IDS_FILE)
+    lines, changed = text.splitlines(), False
+    for index, line in enumerate(lines):
+        match = ID_LINE.match(line)
+        if match and match.group(2) == "note" and match.group(3) == old_id:
+            lines[index] = f"- {match.group(1)} | note | {new_id} | {match.group(4)}"
+            changed = True
+    if changed:
+        write_text(memory / IDS_FILE, "\n".join(lines) + "\n")
+    return changed
+
+
 # --------------------------------------------------------------------------- notes
 
 
-def add_note(memory: Path, text: object, now: datetime | None = None) -> dict:
-    """Append a quick capture to the inbox."""
+def add_note(
+    memory: Path, text: object, now: datetime | None = None, client_id: object = None
+) -> dict:
+    """Append a quick capture to the inbox; a repeat of a known ``client_id`` writes nothing.
+
+    Returns ``{"saved", "repeat", "id", "at", "client_id"}``. The note's id
+    follows its text (as for every inbox note); ``client_id`` is the phone's.
+    """
     if not isinstance(text, str) or not text.strip():
         raise bad("`text` must be non-empty text")
     if len(text) > MAX_TEXT:
         raise bad(f"`text` is longer than {MAX_TEXT} characters")
+    phone_id = read_client_id(client_id)
     now = now or now_local()
     lines = [line.rstrip() for line in text.strip().splitlines() if line.strip()]
     entry = f"- {now:%Y-%m-%d %H:%M} {lines[0]}\n" + "".join(f"  {line}\n" for line in lines[1:])
+    fingerprint = _fingerprint("note", "\n".join(lines))
     with LOCK:
         check_repo(memory)
         path = memory / "inbox.md"
+        stored_id = _known(memory, phone_id, "note", fingerprint)
+        if stored_id is not None:
+            entry_now = next(
+                (e for e in _inbox_entries(read_text(path)) if e["id"] == stored_id), None
+            )
+            at = (
+                datetime.strptime(entry_now["at"], "%Y-%m-%d %H:%M").astimezone()
+                if entry_now
+                else None
+            )
+            return {"saved": True, "repeat": True, "id": stored_id, "client_id": phone_id,
+                    "at": at.isoformat(timespec="minutes") if at else None}  # fmt: skip
         current = read_text(path) or "# Inbox\n\n"
         if not current.endswith("\n"):
             current += "\n"
         write_text(path, current + entry)
-        commit(memory, "Capture a note from the phone", ["inbox.md"])
-    return {"saved": True, "at": now.isoformat(timespec="minutes")}
+        note_id = _inbox_entries(read_text(path))[-1]["id"]
+        paths = ["inbox.md"]
+        if phone_id is not None:
+            _remember(memory, phone_id, "note", note_id, fingerprint)
+            paths.append(IDS_FILE)
+        commit(memory, "Capture a note from the phone", paths)
+    return {"saved": True, "repeat": False, "id": note_id, "client_id": phone_id,
+            "at": now.isoformat(timespec="minutes")}  # fmt: skip
 
 
 INBOX_ENTRY = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (.*)$")
@@ -242,8 +347,9 @@ def update_note(memory: Path, note_id: str, text: object) -> dict:
         lines = current.splitlines()
         lines[entry["start"] : entry["end"]] = block
         write_text(path, "\n".join(lines) + "\n")
-        commit(memory, "Edit a captured note", ["inbox.md"])
         updated = next(e for e in _inbox_entries(read_text(path)) if e["start"] == entry["start"])
+        renamed = updated["id"] != note_id and _renamed(memory, note_id, updated["id"])
+        commit(memory, "Edit a captured note", ["inbox.md", *([IDS_FILE] if renamed else [])])
     return {"id": updated["id"], "kind": "inbox", "title": None, "at": updated["at"],
             "text": updated["text"]}  # fmt: skip
 
@@ -262,7 +368,7 @@ class Task:
         item: dict = {"id": self.id, "title": self.title, "done": self.done}
         for name in ("due", "project", "course", "added"):
             item[name] = self.fields.get(name)
-        for name in ("blocked-by", "next", "effort"):
+        for name in ("blocked-by", "next", "effort", "assignment"):
             if name in self.fields:
                 item[name] = self.fields[name]
         if self.done:
@@ -301,11 +407,21 @@ def list_tasks(memory: Path) -> list[Task]:
     return [t for line in read_text(memory / "tasks.md").splitlines() if (t := parse_task(line))]
 
 
-def add_task(memory: Path, data: dict, now: datetime | None = None) -> Task:
+def find_task(memory: Path, task_id: str) -> Task | None:
+    """A task by id, open (``tasks.md``) or finished (``tasks-done.md``)."""
+    for name in ("tasks.md", "tasks-done.md"):
+        for line in read_text(memory / name).splitlines():
+            task = parse_task(line)
+            if task is not None and task.id == task_id:
+                return task
+    return None
+
+
+def _task_fields(data: dict) -> tuple[str, dict[str, str]]:
+    """Title and fields of a new task, validated."""
     unknown = set(data) - {"title", "due", "project", "course"}
     if unknown:
-        raise bad("allowed fields: title, due, project, course")
-    now = now or now_local()
+        raise bad("allowed fields: title, due, project, course, client_id")
     title = clean_line(data.get("title"), "title", MAX_TITLE)
     if "(" in title or ")" in title:
         title = title.replace("(", "[").replace(")", "]")
@@ -318,23 +434,88 @@ def add_task(memory: Path, data: dict, now: datetime | None = None) -> Task:
             if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", value):
                 raise bad(f"`{name}` must be a file name such as example-project")
             fields[name] = value
-    fields["added"] = now.date().isoformat()
+    return title, fields
+
+
+def _append_task(memory: Path, title: str, fields: dict[str, str], now: datetime) -> Task:
+    """Write one new open task (the caller holds the lock and commits)."""
+    path = memory / "tasks.md"
+    current = read_text(path) or "# Tasks\n\n## Open\n"
+    done_text = read_text(memory / "tasks-done.md")
+    task = Task(_next_id("t", TASK_ID, [current, done_text], now.date()), title, fields)
+    if "## Open" not in current:
+        current = current.rstrip("\n") + "\n\n## Open\n"
+    if not current.endswith("\n"):
+        current += "\n"
+    write_text(path, current + task.line() + "\n")
+    return task
+
+
+def task_with_field(memory: Path, name: str, value: str) -> Task | None:
+    """The task (open or finished) that carries ``(name: value)``, e.g. a synced assignment."""
+    for file in ("tasks.md", "tasks-done.md"):
+        for line in read_text(memory / file).splitlines():
+            task = parse_task(line)
+            if task is not None and task.fields.get(name) == value:
+                return task
+    return None
+
+
+def add_synced_task(
+    memory: Path, title: str, fields: dict[str, str], now: datetime | None = None
+) -> Task:
+    """A task the bridge creates itself (from a course assignment); the caller commits.
+
+    ``title`` is outside text: it is made one plain line without id markers.
+    """
+    now = now or now_local()
+    plain = " ".join(title.replace("^", "").split())[:MAX_TITLE].strip() or "Assignment"
+    plain = plain.replace("(", "[").replace(")", "]")
+    clean = {k: " ".join(v.replace("(", "[").replace(")", "]").split()) for k, v in fields.items()}
     with LOCK:
         check_repo(memory)
-        path = memory / "tasks.md"
-        current = read_text(path) or "# Tasks\n\n## Open\n"
-        done_text = read_text(memory / "tasks-done.md")
-        task = Task(_next_id("t", TASK_ID, [current, done_text], now.date()), title, fields)
-        if "## Open" not in current:
-            current = current.rstrip("\n") + "\n\n## Open\n"
-        if not current.endswith("\n"):
-            current += "\n"
-        write_text(path, current + task.line() + "\n")
+        return _append_task(memory, plain, {**clean, "added": now.date().isoformat()}, now)
+
+
+def save_task(memory: Path, data: dict, now: datetime | None = None) -> dict:
+    """Add a task from the phone; a repeat of a known ``client_id`` writes nothing.
+
+    Returns the task's JSON with ``client_id`` and ``repeat``. A repeat whose
+    task was removed on the computer meanwhile answers ``gone: true``.
+    """
+    data = dict(data)
+    phone_id = read_client_id(data.pop("client_id", None))
+    title, fields = _task_fields(data)
+    fingerprint = _fingerprint("task", {"title": title, **fields})
+    now = now or now_local()
+    with LOCK:
+        check_repo(memory)
+        stored_id = _known(memory, phone_id, "task", fingerprint)
+        if stored_id is not None:
+            found = find_task(memory, stored_id)
+            body = found.as_json() if found else {"id": stored_id, "gone": True}
+            return {**body, "client_id": phone_id, "repeat": True}
+        task = _append_task(memory, title, {**fields, "added": now.date().isoformat()}, now)
+        paths = ["tasks.md"]
+        if phone_id is not None:
+            _remember(memory, phone_id, "task", task.id, fingerprint)
+            paths.append(IDS_FILE)
+        commit(memory, "Add a task from the phone", paths)
+    return {**task.as_json(), "client_id": phone_id, "repeat": False}
+
+
+def add_task(memory: Path, data: dict, now: datetime | None = None) -> Task:
+    """Add a task (no phone id)."""
+    title, fields = _task_fields(data)
+    now = now or now_local()
+    with LOCK:
+        check_repo(memory)
+        task = _append_task(memory, title, {**fields, "added": now.date().isoformat()}, now)
         commit(memory, "Add a task from the phone", ["tasks.md"])
     return task
 
 
-def update_task(memory: Path, task_id: str, data: dict) -> Task:
+def update_task(memory: Path, task_id: str, data: dict, *, commit_now: bool = True) -> Task:
     """Change a task's title or due date (``"due": null`` removes the date)."""
     if not data or set(data) - {"title", "due"}:
         raise bad("allowed fields: title, due")
@@ -360,12 +541,16 @@ def update_task(memory: Path, task_id: str, data: dict) -> Task:
                     }
             lines[index] = task.line()
             write_text(path, "\n".join(lines) + "\n")
-            commit(memory, "Edit a task", ["tasks.md"])
+            if commit_now:
+                commit(memory, "Edit a task", ["tasks.md"])
             return task
     raise ClaudeError("task_not_found", 404, "no open task has this id")
 
 
-def complete_task(memory: Path, task_id: str, now: datetime | None = None) -> Task:
+def complete_task(
+    memory: Path, task_id: str, now: datetime | None = None, *, commit_now: bool = True
+) -> Task:
+    """Move an open task to ``tasks-done.md``. With ``commit_now=False`` the caller commits."""
     now = now or now_local()
     with LOCK:
         check_repo(memory)
@@ -386,7 +571,8 @@ def complete_task(memory: Path, task_id: str, now: datetime | None = None) -> Ta
             archived += "\n"
         write_text(archive, archived + found.line() + "\n")
         write_text(path, "\n".join(kept) + "\n")
-        commit(memory, "Complete a task", ["tasks.md", "tasks-done.md"])
+        if commit_now:
+            commit(memory, "Complete a task", ["tasks.md", "tasks-done.md"])
     return found
 
 

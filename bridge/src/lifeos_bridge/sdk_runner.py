@@ -147,6 +147,7 @@ def build_command(
     model: str | None = None,
     effort: str | None = None,
     policy: claude.Policy = claude.READ_ONLY,
+    advisor: str | None = None,
 ) -> list[str]:
     """The command of a live session: the flags of ``claude -p``, with the bridge as host.
 
@@ -167,6 +168,7 @@ def build_command(
             model=model,
             effort=effort,
             host=True,
+            advisor=advisor,
         ),
         *INPUT_FLAGS,
     ]
@@ -281,6 +283,7 @@ class Launch:
     context: str | None
     # Read-only unless the guardrail check passed for this runner (#106).
     policy: claude.Policy = claude.READ_ONLY
+    advisor: str | None = None
 
 
 def observed(message: UserMessage) -> dict:
@@ -367,6 +370,7 @@ class LiveSession:
             model=launch.model,
             effort=launch.effort,
             policy=launch.policy,
+            advisor=launch.advisor,
         )
         env = child_env(capable=launch.policy.capable)
         self.transport = InstalledCLITransport(command, launch.cwd, env)
@@ -607,14 +611,14 @@ def _wake_phones(kind: str, session_id: str) -> None:
 
 def _audit(record: dict, decision: str, why: str = "") -> bool:
     """Write an approval step to the audit log; False (the call is then refused) if impossible."""
-    from .capable import audit_dir  # capable imports claude only; no cycle at call time
+    from . import audit  # the bridge's own records, in the same monthly files as the gate's
 
     entry = {"ts": datetime.now(UTC).isoformat(timespec="milliseconds"), **record}
     entry["decision"] = decision
     if why:
         entry["why"] = why
     try:
-        gate.write_audit(audit_dir(), entry)
+        audit.write(entry)
     except OSError:
         return False
     return True
@@ -724,13 +728,19 @@ async def _events(
     answering: bool = False,
     policy: claude.Policy = claude.READ_ONLY,
     observer: Callable[[dict], None] | None = None,
+    advisor: str | None = None,
 ) -> AsyncIterator[tuple[str, Any]]:
     """``delta`` and ``interaction`` events, then ``("done", RunResult)``; failures raise.
 
     The time limit does not run while the owner is being asked.
     """
     launch = Launch(
-        cwd=cwd or settings.ask_dir, model=model, effort=effort, context=context, policy=policy
+        cwd=cwd or settings.ask_dir,
+        model=model,
+        effort=effort,
+        context=context,
+        policy=policy,
+        advisor=advisor,
     )
     live = await pool.session_for(session_id, launch, resume=resume, name=name)
     if on_process is not None:
@@ -798,6 +808,7 @@ async def stream(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
     on_process: Callable[[LiveSession], None] | None = None,
     policy: claude.Policy = claude.READ_ONLY,
     observer: Callable[[dict], None] | None = None,
@@ -812,6 +823,7 @@ async def stream(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
         answering=answering, policy=policy, observer=observer,
+        advisor=advisor,
     )  # fmt: skip
     try:
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
@@ -848,6 +860,7 @@ async def run(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
     on_process: Callable[[LiveSession], None] | None = None,
     policy: claude.Policy = claude.READ_ONLY,
     observer: Callable[[dict], None] | None = None,
@@ -858,6 +871,7 @@ async def run(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
         policy=policy, observer=observer,
+        advisor=advisor,
     )  # fmt: skip
     async with contextlib.aclosing(events):
         async for event, payload in events:

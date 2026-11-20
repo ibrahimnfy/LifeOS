@@ -188,10 +188,13 @@ def test_assignments(site, client_):
     sent = site.named("mod_assign_get_assignments")[0]
     assert (sent["courseids[0]"], sent["courseids[1]"]) == ("5", "7")
     assert found[0] == {
-        "id": 31, "course": 5, "name": "Example assignment",
+        "id": 31, "cmid": None, "course": 5, "name": "Example assignment", "intro": "<p>ignored</p>",
+        "attachments": [],
         "duedate": 1796000000, "duedate_iso": moodle.iso(1796000000),
         "cutoffdate": None, "cutoffdate_iso": None,
         "allowsubmissionsfromdate": 1794000000, "allowsubmissionsfromdate_iso": moodle.iso(1794000000),
+        "gradingduedate": None, "gradingduedate_iso": None,
+        "timemodified": None, "timemodified_iso": None,
     }  # fmt: skip
     assert found[1]["course"] == 5 and found[1]["duedate"] is None and len(found) == 2
     client_.assignments()

@@ -11,8 +11,9 @@ end-to-end layer of [`docs/security.md`](../docs/security.md), the relay
 client and the app lock. On top of that, **Today, Tasks, Capture, Calendar,
 Notes and Courses work on the owner's real data** through that connection,
 with saved copies for when the computer is unreachable and an outbox for
-writes made offline. Chat and the other screens under More are still
-placeholders.
+writes made offline. **Activity** shows the phone's screen time (usage
+access) and sends it to the computer once a day. Chat and the other screens
+under More are still placeholders.
 
 ## Requirements
 
@@ -127,6 +128,7 @@ app/                         Gradle root (this folder)
         │   ├── pairing/             QR text, pairing flow, storage, Keystore vault
         │   ├── relay/               mailbox (REST + stream), relay account, requests
         │   ├── data/                API calls and models, saved copies, outbox, downloads
+        │   ├── activity/            screen time: usage events, per-day store, daily measurement, upload
         │   ├── lock/                lock timeout, system confirmation dialog
         │   ├── settings/            theme, language, lock timeout (DataStore)
         │   └── ui/
@@ -196,29 +198,49 @@ with plain HTTPS requests.
   opened (tapping it opens a "Coach conversation" placeholder);
   "Assistant's picks" is the plan's top three with their reasons; "Today"
   lists overdue and today's tasks, three visible and the rest by scrolling
-  inside the card. Pulling down asks the computer for a fresh plan (a model
-  run there; it quietly keeps the old plan when one was made in the last ten
-  minutes).
+  inside the card. Pulling down only reads the plan and the agenda again; it
+  never starts a model run. The coach card's **Rerun** button asks the
+  computer for a new plan (a model run of a few minutes there); the card
+  shows the progress and, when a plan was made in the last ten minutes, the
+  computer's refusal. Without a plan the card offers **Prepare a plan**.
 - **Tasks:** with a plan, "Most important" (the first five of the coach's
   order) and "Show all (n)", which opens the whole ordered list with filters
   (overdue, today, upcoming, no date). Without a plan, the open tasks by
-  date. A tick hides the task at once and can be undone for a few seconds;
-  then it is sent.
+  date. The round check ticks a task: it is hidden at once and the tick can
+  be undone for a few seconds; then it is sent. Tapping the rest of the row
+  (here and on Today) opens the task to change its title and due date (or
+  remove the date); the change is shown at once with "Waiting to sync" until
+  the computer confirmed it.
 - **Capture:** a note or a task with an optional due date. Also reachable
   from the home-screen shortcut (long-press on the app icon) and from other
   apps' "share" (text or a link).
 - **Calendar** (under More): the agenda by day from a week ago to two months
   ahead, a month strip to jump, adding and changing events (all day, timed,
   several days). Course deadlines are ordinary events here.
-- **Notes** (under More): only the notes captured on this phone that still
-  wait to be sent, and a line saying that the others live on the computer.
-- **Courses** (under More): summary card with the deadlines of the next two
-  weeks and "All grades", the course list with markers for new content, the
-  refresh action (starts a sync on the computer and waits for it), and a
-  course page with Materials, Announcements, Assignments and Grades. Files
+- **Notes** (under More): the computer's notes, captures newest first and
+  then the topic notes, each with its first lines and date, and a search
+  field (the computer searches; while it cannot be reached, the saved copy is
+  searched). Notes captured on this phone that are not sent yet are on top.
+  Tapping a note opens it in full; a capture can be edited there (topic notes
+  are read-only for now). The computer gives an edited capture a new id, so
+  the note screen closes after saving and the list shows the new text.
+- **Courses** (under More): the top bar has the title, the refresh action
+  (starts a sync on the computer and waits for it) and **All grades** (the
+  medal icon). Below: the summary card with the upcoming deadlines of the
+  next two weeks and nothing else (a deadline that has passed since the saved
+  copy was made is left out), the course list with markers for new content,
+  the time of the last sync, and a course page with Materials, Announcements, Assignments and Grades. Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
-- **More:** Sessions, Projects and Activity are placeholder screens.
+- **Activity** (under More): screen time. Without usage access, an
+  explanation of what is read and where it goes, and a button to the system
+  setting (this app's own page where the phone has one). With it: today's
+  screen time and unlocks, a 7 or 30 day bar chart (average as a dashed
+  line; tapping a bar chooses the day), the chosen day's apps (a minute or
+  more, the home screen and LifeOS left out) as bars, and the switch "Send
+  screen time once a day" with the state of sending and "Send now". Sleep is
+  not built yet.
+- **More:** Sessions and Projects are placeholder screens.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
   (immediately / 1 minute / 5 minutes), app version.
@@ -237,16 +259,21 @@ Nothing on these screens is sample content any more. Not paired, they show
   computer does not answer, the screen shows it with "Saved copy · updated
   … ago". Nothing is read while the app is locked; everything is deleted on
   unpair; the files are excluded from backup and device transfer.
-- **Outbox** (`data/Outbox.kt`): new notes and tasks, ticks, new and changed
-  events are stored on the phone first and sent in order as soon as the
-  computer answers. "Attempt started" is stored before an item is sent.
-  If nothing left the phone, the item keeps waiting. If it left but no
-  answer came, a tick or an event change is repeated later (harmless; a tick
-  answered with "task not found" counts as done), while a new note, task or
-  event is marked **"Please check"** and is sent again only when the owner
-  says so, and not before the first attempt can no longer arrive (six
-  minutes). A refusal by the computer is shown as "Not accepted". Unsent
-  items are deleted on unpair.
+- **Outbox** (`data/Outbox.kt`): new notes and tasks, ticks, task and note
+  edits, new and changed events are stored on the phone first and sent in
+  order as soon as the computer answers. "Attempt started" is stored before
+  an item is sent. If nothing left the phone, the item keeps waiting. If it
+  left but no answer came, a tick, a task edit or an event change is
+  repeated later (harmless; a tick answered with "task not found" counts as
+  done), while a new note, task or event and a note edit are marked
+  **"Please check"** and are sent again only when the owner says so, and
+  not before the first attempt can no longer arrive (six minutes). A note
+  edit sent again that is answered with "note not found" counts as done (the
+  first attempt arrived and gave the note its new id). A second edit of a
+  note replaces the first one while that is still waiting; once the first is
+  on its way, the note cannot be edited until it is confirmed. A refusal by
+  the computer is shown as "Not accepted". Unsent items are deleted on
+  unpair.
 - **Downloads** (`data/Downloads.kt`, `data/Download.kt`): first the direct
   way: the computer sends the file's address through the sealed channel and
   the phone fetches it over HTTPS straight into the Downloads collection
@@ -257,13 +284,37 @@ Nothing on these screens is sample content any more. Not paired, they show
   which must arrive in sequence and match the announced size and SHA-256;
   after a dropped connection the transfer continues once at the missing
   chunk. An incomplete file is removed. The app keeps no copy and no record;
-  "Saved to Downloads" is shown until the app is closed. Direct saving needs
+  "Saved to Downloads" and an **Open** button are shown until the app is
+  closed. Open hands the file's entry in Downloads to the phone's app for
+  its type (a view intent that only lends that app read access; the type is
+  the site's, else Android's, else the one of the file name's extension). If
+  no app can open it, or the file was removed from Downloads meanwhile, a
+  short message says so. Direct saving needs
   Android 10 or newer; on Android 8 and 9 the system's "save as" screen asks
   where to put the file.
+- **Screen time** (`activity/`): with the owner's usage access
+  (`PACKAGE_USAGE_STATS`, granted in the system settings), the system's
+  usage events of the last seven days are turned into minutes per local day
+  and app and the number of unlocks (`UsageMath`; a stretch across midnight
+  is split, a day without any event is left out, not counted as zero). The
+  days are kept in `activity/activity.json` in the app's private files (400
+  days at most, excluded from backup like everything else, deleted on
+  unpair) so the charts work offline. App names come from the package
+  manager; `<queries>` asks only for apps with a home-screen icon and the
+  home screen itself, not for all packages. **Measuring** happens when
+  Activity is shown and once a day in the background (WorkManager,
+  `UsageWorker`), so nothing is lost when the app is not opened for some
+  days (the system forgets its events after about a week). **Sending**
+  (`ActivitySync` → `POST /activity/usage`, each finished day once, with the
+  total, the unlocks and the 20 most used apps' names and minutes) needs the
+  device secret, which is available only while the app is unlocked: it
+  happens when the app connects to the computer (at most once an hour) or
+  on "Send now", never in the background. A day the computer has confirmed
+  is not sent again unless its numbers change.
 
 What the bridge does not offer yet, and the app therefore does not do:
-listing or editing notes, editing, reopening or deleting a task, deleting an
-event, and listing finished tasks (no "done" filter).
+editing topic notes or moving notes, reopening or deleting a task, deleting
+an event, and listing finished tasks (no "done" filter).
 
 ## Connection to the computer
 
@@ -347,9 +398,9 @@ The pairing text is the key. Never put it into a file, a log or a report.
 ## What is not in it yet
 
 - No push notifications.
-- Chat does not send; the coach conversation, Sessions, Projects and
-  Activity are placeholders.
-- Tasks cannot be edited or moved, notes cannot be browsed (see above).
+- Chat does not send; the coach conversation, Sessions and Projects are
+  placeholders; Activity has screen time but no sleep yet.
+- Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course" and renewing the sign-in from the phone.
 - No instrumented (on-device) tests; only JVM unit tests.
 
@@ -397,9 +448,14 @@ running on the computer with the relay set up.
    line is at the end of `inbox.md` in the memory folder. Choose **Task**,
    pick a due date of today, Save.
 2. **Today:** the task is in the "Today" card (and among the picks if the
-   coach has a plan). Tap it: it disappears and "Marked as done · Undo"
-   appears. Tap **Undo**: it is back. Tap it again and wait: on the computer
-   the task has moved to `tasks-done.md`.
+   coach has a plan). Tap its round check: it disappears and "Marked as done
+   · Undo" appears. Tap **Undo**: it is back. Tap the check again and wait:
+   on the computer the task has moved to `tasks-done.md`. Pull Today down:
+   the cards reload within seconds and no plan run starts (the "prepared …
+   ago" line of the coach card stays as it was). Tap **Rerun** on the
+   coach card: "Preparing a new plan…", and a few minutes later the card
+   shows a message of the new plan. Tap **Rerun** again at once: "A plan was
+   made less than ten minutes ago".
 3. **Tasks:** with open tasks and a plan, "Most important" and "Show all
    (n)" with the four filters; without a plan, sections by date.
 4. **Calendar** (More → Calendar): the agenda with a month strip. **+** adds
@@ -407,14 +463,43 @@ running on the computer with the relay set up.
    time). The computer's `calendar/events.md` has the line.
 5. **Offline:** switch the phone to flight mode. After a moment the dot
    turns amber and the screens show "Saved copy · updated … ago". Capture a
-   note: "Waiting to sync"; More → Notes lists it. Switch flight mode off:
-   within seconds the note is in `inbox.md`, once, and the list is empty.
-6. **Shortcut and share:** long-press the app icon → "Capture"; in another
+   note: "Waiting to sync"; More → Notes lists it on top under "Waiting to
+   sync". Switch flight mode off: within seconds the note is in `inbox.md`,
+   once, and on the Notes screen it moves into the computer's list.
+6. **Notes and task edits:** capture a note; More → Notes shows it at the
+   top of the list (newest first) together with the older captures and the
+   topic notes. Type a word of it into the search field: only matching notes
+   remain. Tap the note → **Edit**, change the text, Save: "Saved", the
+   screen closes and the list shows the new text; on the computer the line in
+   `inbox.md` has the new text and its original time. A topic note opens
+   read-only. On Tasks, tap a task's title (not the check): change the title,
+   pick another date (or **Remove** it), Save; the row changes at once and
+   `tasks.md` has the new title and date. In flight mode the same edits show
+   "Waiting to sync" and reach the computer once it is off.
+7. **Shortcut and share:** long-press the app icon → "Capture"; in another
    app, share a piece of text → "Capture in LifeOS": the sheet opens with it.
-7. **Courses** (More → Courses; needs the course sync on the computer and a
-   bridge that has the `/courses` endpoints): the summary card, "All grades",
-   the course list; a course's four tabs; the download arrow of a file →
-   "Saved to Downloads", and the file is in the phone's Downloads folder.
-   The refresh arrow in the top bar starts a sync.
-8. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies
-   and waiting items are gone.
+8. **Courses** (More → Courses; needs the course sync on the computer and a
+   bridge that has the `/courses` endpoints): the top bar shows "Courses",
+   the refresh arrow and the medal; the medal opens "All grades". The
+   summary card shows only "Upcoming deadlines" (no button, no count of new
+   items); the course list and "Last sync …" follow. A course's four tabs;
+   the download arrow of a file → "Saved to Downloads", and the file is in
+   the phone's Downloads folder. Tap **Open** next to it: a PDF opens in the
+   phone's PDF viewer (or the system asks which app to use); back in LifeOS
+   nothing changed. Delete the file in the Files app and tap **Open** again:
+   "This file is no longer in Downloads", and the download arrow is back.
+   The refresh arrow starts a sync.
+9. **Screen time** (More → Activity): "Usage access is needed" with an
+   explanation. Tap **Open usage access settings**: the system page for
+   LifeOS opens (on some phones the list of apps; choose LifeOS). Switch
+   access on and go back: Activity shows today's screen time and unlocks,
+   the bar chart and the apps of today. Use a few apps for a couple of
+   minutes and open Activity again: the numbers grew. **30 days** widens the
+   chart; tapping a bar shows that day's apps. The next day, open the app
+   (unlocked, the dot green): "Last sent … ago", and on the computer the
+   memory's `activity/` file of the month has a `screen` line for yesterday
+   with the total, the unlocks and the apps. Switch "Send screen time once a
+   day" off: nothing more is sent. Revoking usage access in the system
+   settings brings back the explanation.
+10. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
+   waiting items and the screen time stored on the phone are gone.

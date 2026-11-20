@@ -45,6 +45,9 @@ Official documentation lives at `https://code.claude.com/docs/en/` (index:
 | [sdk-py] | https://code.claude.com/docs/en/agent-sdk/python |
 | [sdk-sessions] | https://code.claude.com/docs/en/agent-sdk/sessions |
 | [sdk-cost] | https://code.claude.com/docs/en/agent-sdk/cost-tracking |
+| [advisor] | https://code.claude.com/docs/en/advisor (fetched 2026-11-20, for section 8) |
+| [model-config] | https://code.claude.com/docs/en/model-config (fetched 2026-11-20, for section 8) |
+| [api-advisor] | https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool (linked from [advisor]) |
 | [support-sdk] | https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan |
 | [support-plan] | https://support.claude.com/en/articles/11145838-using-claude-code-with-your-pro-or-max-plan |
 
@@ -735,6 +738,40 @@ drawn here; see Open questions):
 
 ---
 
+## 8. Models, the advisor and per-job routing
+
+Checked for #123 (model routing per job) against the pages [advisor],
+[model-config], [cli] and [api-advisor] only; installed CLI 2.1.328.
+
+### Model aliases
+
+- **Documented** [model-config]: `opus` "Uses the latest Opus model for complex reasoning tasks", `sonnet` "Uses the latest Sonnet model for daily coding tasks", `haiku` the Haiku model; on the Anthropic API they resolve to **Opus 5.5, Sonnet 5.5 and Haiku 5.5**. `default` clears an override; on Pro, Max, Ultra, Team, Enterprise and the API it "defaults to Opus 5.5". `claude --help` says the same: "Use an alias for the latest model (e.g. 'fable', 'opus', or 'sonnet') or a model's full name."
+- **Decision for the bridge:** the routing uses the family aliases (`opus`, `sonnet`), so jobs move to a newer model of the family with Claude Code updates; a full name (`claude-sonnet-5-5`) pins one.
+- **Documented** [model-config]: effort levels for Opus 5.5 and Sonnet 5.5 are `low`, `medium`, `high`, `xhigh`, `max`; both default to `medium`. An unsupported level falls back to the highest supported one below it.
+
+### Is there an advisor mechanism? Yes, documented
+
+- **Documented** [advisor]: "The advisor tool lets Claude consult a second, typically stronger model at key moments during a task, such as before committing to an approach, when stuck on a recurring error, or before declaring a task complete. The advisor receives the full conversation, including every tool call and result". It "runs server-side on Anthropic's infrastructure as a server tool, available to both subscription and API-billed accounts".
+- **How to enable** [advisor]: the `/advisor` command, the `advisorModel` setting, or "**`--advisor` flag**: set the advisor for a single session at launch" (`claude --advisor opus`). "It doesn't list `--advisor` in `claude --help`" (confirmed: 2.1.328's help does not show it). [cli] lists it: "`--advisor <model>` | Enable the server-side advisor tool for this session with a model alias, `fable`, `opus`, or `sonnet`, or a full model ID. Takes precedence over the `advisorModel` setting for the session." `/advisor` "also works … in non-interactive mode with `-p` … This requires Claude Code v2.1.260 or later."
+- **Pairings** [advisor]: "an advisor must rank at or above your session's main model". For a **Sonnet 5.5** main model the accepted advisors are "Fable, Opus 5 or later, Sonnet 5.5"; for Opus 5 or 5.5: "Fable, Opus 5 or later". The page lists "Sonnet main + Opus advisor" as a common pairing: "Sonnet handles routine work and escalates planning, ambiguous failures, and completion checks to Opus".
+- **When it is called** [advisor]: "Claude decides when to call the advisor … There is no setting to cap or force advisor calls".
+- **Failure modes** [advisor], [model-config]: with `--advisor`, "Claude Code exits with an error at launch if" the main model does not support the advisor, the requested model cannot act as one, the `availableModels` allow-list excludes it, or Fable needs a consent. An advisor ranking below the main model is silently not attached. If the API refuses a pairing, "Claude Code resends that request without the advisor".
+- **Requirements** [advisor]: experimental; the Anthropic API (or two named cloud offerings), not Bedrock, Google's Agent Platform or Foundry; it "needs a feature flag fetched from Anthropic", so a session with a variable such as `DISABLE_TELEMETRY` lacks it. `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` turns it off entirely.
+- **Cost** [advisor]: "each call consumes tokens at the advisor model's rates"; on subscription plans "advisor usage counts toward your plan's usage limits". [api-advisor]: "Top-level `usage` fields reflect executor tokens only. Advisor tokens are not rolled into the top-level totals because they are billed at a different rate"; they are reported in `usage.iterations[]` entries with `type: "advisor_message"`. So the bridge's token counts (taken from top-level `usage`) leave out advisor tokens. Whether the CLI's `result` message includes the advisor's tokens in `modelUsage` or `total_cost_usd` is **not documented**.
+- **Not documented**: whether a `-p` run actually calls the advisor as often as an interactive one (only the `/advisor` command is confirmed for `-p`), and how the advisor's use shows up in `stream-json` events.
+
+### What the bridge does with it
+
+- Every bridge run belongs to a job (`bridge/src/lifeos_bridge/routing.py`). Coach morning run/refresh and coach conversation: `--model opus --effort high`. Routine jobs (consolidation proposals, course resource research, summaries, context map): `--model sonnet --advisor opus`. Chat sessions: the owner's default (`LIFEOS_DEFAULT_MODEL`/`_EFFORT`, Opus with high effort), selectable per session; no advisor.
+- The flag is used rather than the `advisorModel` setting because runs pass `--restricted`, which ignores user and project settings.
+- Because a refused advisor makes the CLI exit at launch, a background run that fails to start with `--advisor` is made once more without it.
+- `LIFEOS_MODEL_ROUTING` changes any job (`job=model[/effort][+advisor]`, `+none` to switch the advisor off).
+
+### Plan usage per job
+
+- The bridge adds up, per local day and job, what each run's final `result` message reports: `usage` (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`; main loop only), `total_cost_usd` (Claude Code's estimate, not billing) and the model names in `modelUsage`. `GET /models/routing` shows today and this week (from Monday).
+- A resumed run reports the session's **cumulative** `total_cost_usd` (section 2), so for a resumed run only the growth since the session's previous run is added. Whether the token counts in `usage` are cumulative on resume too is **not documented**; they are added as reported. The guardrail probes of `verify.py` are not counted.
+
 ## Recommended invocation for the bridge
 
 ### Common rules
@@ -843,3 +880,4 @@ Use `--fork-session` instead of refusing only if a diverging copy is acceptable.
     - The `claude daemon` command (`status`, `logs`, `stop`) is documented [agent-view] and works, but is not in the command list of `claude --help`.
     - Re-check all of this after CLI updates.
 15. **How does the bridge confirm its `--settings` deny file was applied?** Invalid settings are ignored silently in `-p` mode and the `init` event was not seen to list active rules. A startup self-test (ask for a read of a denied path and expect a `permission_denials` entry) would cost one small run.
+16. **Advisor in `-p` runs and its usage report** (section 8): how often a headless run consults the advisor, and whether its tokens appear in the `result` message. Check on the first real routine runs (`GET /models/routing` lists the models each job reported).

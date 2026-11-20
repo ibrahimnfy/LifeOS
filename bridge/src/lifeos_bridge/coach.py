@@ -35,7 +35,7 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
-from . import claude, memory, notifications, store
+from . import claude, memory, notifications, routing, store
 from .claude import ClaudeError
 from .config import Settings, config_dir
 from .memory import Task
@@ -488,7 +488,7 @@ async def prepare_plan(settings: Settings, clock: Clock | None = None) -> dict:
             PLAN_PROMPT,
             session_id=str(uuid.uuid4()),
             resume=False,
-            model=settings.background_model,
+            **routing.run_options(settings, "coach_plan"),
             cwd=memory_dir,
             context=context,
         )
@@ -767,7 +767,7 @@ async def _file_answer(settings: Settings, question: dict, text: str, now: datet
             prompt,
             session_id=str(uuid.uuid4()),
             resume=False,
-            model=settings.background_model,
+            **routing.run_options(settings, "coach_chat"),
             cwd=memory_dir,
             context=context,
         )

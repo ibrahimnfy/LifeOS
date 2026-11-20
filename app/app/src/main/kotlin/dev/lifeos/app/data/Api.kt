@@ -92,6 +92,20 @@ class Api(private val transport: Transport) {
         call("POST", "/tasks", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }
 
+    /** Change a task's title and due date; a null [due] removes the date. */
+    suspend fun editTask(id: String, title: String, due: String?) {
+        val body = buildJsonObject {
+            put("title", JsonPrimitive(title))
+            put("due", if (due == null) JsonNull else JsonPrimitive(due))
+        }
+        call("PATCH", "/tasks/$id", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
+    /** Change the text of a captured note. The computer gives it a new id. */
+    suspend fun editNote(id: String, text: String) {
+        call("PATCH", "/notes/$id", body = buildJsonObject { put("text", JsonPrimitive(text)) }, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
     suspend fun completeTask(id: String) {
         call("POST", "/tasks/$id/complete", timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }

@@ -44,6 +44,7 @@ import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.GradeItem
 import dev.lifeos.app.data.Grades
 import dev.lifeos.app.data.Materials
+import dev.lifeos.app.data.OpenResult
 import dev.lifeos.app.data.SyncState
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
@@ -165,6 +166,12 @@ fun CoursesScreen(
                     enabled = !syncing && summary !is UiState.NotPaired,
                     onClick = startSync,
                 )
+                TopBarAction(
+                    LifeIcons.Grades,
+                    stringResource(R.string.courses_all_grades),
+                    enabled = summary !is UiState.NotPaired,
+                    onClick = onGrades,
+                )
             },
         )
         RefreshBox(refreshing = summary.isRefreshing || courses.isRefreshing, onRefresh = refreshLists, modifier = Modifier.fillMaxSize()) {
@@ -185,16 +192,15 @@ fun CoursesScreen(
                     )
                 }
                 if (summary !is UiState.NotPaired) noticeOf(sync)?.let { SyncNoticeCard(it) }
+                // The summary card holds the upcoming deadlines and nothing else.
                 StateHost(summary, "", onRetry = refreshLists, onPair = onPair, skeletonRows = 2) { data: CourseSummary ->
+                    val upcoming = data.upcoming(System.currentTimeMillis() / 1000)
                     LifeCard {
-                        SectionHeader(
-                            title = stringResource(R.string.courses_deadlines),
-                            note = if (data.newTotal > 0) pluralStringResource(R.plurals.courses_new, data.newTotal, data.newTotal) else null,
-                        )
-                        if (data.deadlines.isEmpty()) {
+                        SectionHeader(title = stringResource(R.string.courses_deadlines))
+                        if (upcoming.isEmpty()) {
                             EmptyLine(stringResource(R.string.courses_no_deadlines))
                         }
-                        data.deadlines.forEachIndexed { index, deadline ->
+                        upcoming.forEachIndexed { index, deadline ->
                             if (index > 0) RowDivider(startIndent = 0.dp)
                             Column(Modifier.padding(vertical = 8.dp)) {
                                 Text(deadline.name, style = LifeType.rowTitle, color = colors.text)
@@ -205,15 +211,6 @@ fun CoursesScreen(
                                 )
                             }
                         }
-                        Text(
-                            text = relativeIso(data.lastSync)?.let { stringResource(R.string.courses_last_sync, it) }
-                                ?: stringResource(R.string.courses_never_synced),
-                            style = LifeType.small,
-                            color = colors.muted,
-                            modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
-                        )
-                        SecondaryButton(text = stringResource(R.string.courses_all_grades), onClick = onGrades)
-                        Spacer(Modifier.height(4.dp))
                     }
                 }
                 if (summary !is UiState.NotPaired && summary !is UiState.Error) {
@@ -249,6 +246,15 @@ fun CoursesScreen(
                             }
                         }
                     }
+                }
+                // When the computer last synced: under the list, outside the deadline card.
+                (summary as? UiState.Content<CourseSummary>)?.data?.let { data ->
+                    Text(
+                        text = relativeIso(data.lastSync)?.let { stringResource(R.string.courses_last_sync, it) }
+                            ?: stringResource(R.string.courses_never_synced),
+                        style = LifeType.small,
+                        color = colors.muted,
+                    )
                 }
             }
         }
@@ -396,6 +402,16 @@ private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
     val start = {
         if (core.downloads.needsPicker) picker.launch(dev.lifeos.app.data.DownloadRules.safeName(file.name)) else core.downloads.start(courseId, file)
     }
+    val snackbar = LocalSnackbar.current
+    val noApp = stringResource(R.string.download_open_no_app)
+    val gone = stringResource(R.string.download_open_gone)
+    val open = {
+        when (core.downloads.open(context, file.key, file.name)) {
+            OpenResult.NO_APP -> snackbar(noApp)
+            OpenResult.GONE -> snackbar(gone)
+            OpenResult.OPENED -> Unit
+        }
+    }
     Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -424,7 +440,11 @@ private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
             }
             when (state) {
                 is DownloadState.Running -> TopBarAction(LifeIcons.Close, stringResource(R.string.download_cancel, file.name)) { core.downloads.cancel(file.key) }
-                DownloadState.Saved -> Icon(LifeIcons.Check, contentDescription = null, tint = colors.ok, modifier = Modifier.padding(12.dp))
+                is DownloadState.Saved -> PillButton(
+                    text = stringResource(R.string.download_open),
+                    onClick = open,
+                    onClickLabel = stringResource(R.string.download_open_label, file.name),
+                )
                 else -> TopBarAction(LifeIcons.Download, stringResource(R.string.download_start, file.name), onClick = start)
             }
         }
@@ -435,7 +455,7 @@ private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
                 } else {
                     stringResource(R.string.download_running)
                 }
-            DownloadState.Saved -> stringResource(R.string.download_saved)
+            is DownloadState.Saved -> stringResource(R.string.download_saved)
             is DownloadState.Failed -> stringResource(
                 when (state.reason) {
                     DownloadFailure.Reason.NO_COPY, DownloadFailure.Reason.DIRECT -> R.string.download_failed_no_copy

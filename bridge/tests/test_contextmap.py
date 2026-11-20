@@ -70,6 +70,9 @@ def test_refresh_writes_one_file_per_folder_and_commits(world, auth):
     # the run was read-only and happened inside the folder
     call = json.loads((project / ".fake-claude-calls.jsonl").read_text().splitlines()[-1])
     assert call["args"][call["args"].index("--tools") + 1] == "Read,Glob,Grep"
+    # a routine job: Sonnet, with Opus as the advisor on hard steps (routing.py)
+    assert call["args"][call["args"].index("--model") + 1] == "sonnet"
+    assert call["args"][call["args"].index("--advisor") + 1] == "opus"
 
 
 def test_rerun_updates_in_place_and_keeps_facts(world, auth):

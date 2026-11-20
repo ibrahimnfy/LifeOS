@@ -115,7 +115,7 @@ def test_missing_cli_is_a_clean_error(sdk_settings):
 
 
 def test_flags_are_those_of_claude_p_with_the_bridge_as_permission_host(sdk_settings, fake_claude):
-    choice = {"context": "MEMORY", "model": "sonnet", "effort": "low"}
+    choice = {"context": "MEMORY", "model": "sonnet", "effort": "low", "advisor": "opus"}
     sdk = sdk_runner.build_command(sdk_settings, session_id="s", resume=True, **choice)
     cli = claude.build_command(sdk_settings, session_id="s", resume=True, stream=True, **choice)
     assert sdk[0] == str(fake_claude)
@@ -137,6 +137,7 @@ def test_flags_are_those_of_claude_p_with_the_bridge_as_permission_host(sdk_sett
     for flag in ("--restricted", "--strict-mcp-config", "--disable-slash-commands"):
         assert flag in sdk
     assert sdk[sdk.index("--tools") + 1] == "Read,Glob,Grep,AskUserQuestion"
+    assert sdk[sdk.index("--advisor") + 1] == "opus"
     assert "--permission-prompts" not in sdk
     assert sdk[sdk.index("--append-system-prompt") + 1] == "MEMORY"
     for absent in ("--settings", "--mcp-config", "--system-prompt", "--add-dir", "--allowedTools"):

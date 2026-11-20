@@ -215,10 +215,37 @@
     <string name="coach_kind_question">A question</string>
     <string name="coach_prepared_recently">Prepared less than an hour ago</string>
     <string name="coach_stale">%1$s · not from today</string>
+    <string name="coach_rerun">Rerun</string>
+    <string name="coach_prepare">Prepare a plan</string>
+    <string name="coach_no_plan">The coach has not prepared a plan yet.</string>
+    <string name="coach_rerun_running">Preparing a new plan… this takes a few minutes.</string>
+    <string name="coach_rerun_too_soon">A plan was made less than ten minutes ago. Try again later.</string>
+    <string name="coach_rerun_unreachable">The computer could not be reached.</string>
+    <string name="coach_rerun_no_answer">No answer yet. The new plan may still arrive; pull down later.</string>
+    <string name="coach_rerun_failed">The coach could not prepare a new plan. The previous one stays.</string>
 
     <!-- Notes -->
-    <string name="notes_explanation">Captured notes live on your computer; browsing them arrives with a later step. Notes captured here that have not been sent yet are listed below.</string>
-    <string name="notes_none_waiting">No notes are waiting on this phone.</string>
+    <string name="notes_empty">Nothing captured yet.</string>
+    <string name="notes_search_hint">Search notes</string>
+    <string name="notes_search_clear">Clear the search</string>
+    <string name="notes_search_saved">The computer cannot be asked right now, so the saved copy was searched (the start of each note).</string>
+    <string name="notes_search_empty">No notes match this search.</string>
+    <string name="notes_topic">Topic</string>
+    <string name="note_title">Note</string>
+    <string name="note_gone">This note is no longer on the computer. It may have been changed or moved there.</string>
+    <string name="note_topic_read_only">Topic notes are edited on the computer for now.</string>
+    <string name="note_edit_needs_full">Only the start of this note is saved on the phone. You can edit it when the computer answers.</string>
+    <string name="note_edit">Edit</string>
+    <string name="note_edit_title">Edit note</string>
+    <string name="note_edit_busy">An earlier change of this note is on its way. You can edit it again once the computer has confirmed it.</string>
+
+    <!-- Task editing -->
+    <string name="task_open">Open the task</string>
+    <string name="task_check">Mark %1$s as done</string>
+    <string name="task_edit_title">Edit task</string>
+    <string name="task_edit_field">Title</string>
+    <string name="task_edit_done">Mark as done</string>
+    <string name="task_edit_hint">Changes are saved on the phone first and sent to the computer as soon as it answers.</string>
 
     <!-- Calendar -->
     <string name="calendar_add">Add event</string>
@@ -279,6 +306,10 @@
     <string name="download_progress">Downloading… %1$d%%</string>
     <string name="download_running">Downloading…</string>
     <string name="download_saved">Saved to Downloads</string>
+    <string name="download_open">Open</string>
+    <string name="download_open_label">Open %1$s</string>
+    <string name="download_open_no_app">No app on this phone can open this kind of file.</string>
+    <string name="download_open_gone">This file is no longer in Downloads. You can download it again.</string>
     <string name="download_failed_no_copy">This file could not be downloaded: the direct way failed and the computer has no copy it can send (missing, or too large for that route).</string>
     <string name="download_failed_sign_in">This file could not be downloaded: the sign-in at the university site has run out. For now, renew it on the computer.</string>
     <string name="download_failed_damaged">The file arrived incomplete and was removed. Please try again.</string>
@@ -296,6 +327,39 @@
         <item quantity="one">Prepared %1$d hour ago</item>
         <item quantity="other">Prepared %1$d hours ago</item>
     </plurals>
+    <!-- Activity: screen time -->
+    <string name="usage_hm">%1$d h %2$02d min</string>
+    <string name="usage_m">%1$d min</string>
+    <string name="activity_access_title">Usage access is needed</string>
+    <string name="activity_access_text">To show your screen time, LifeOS reads from Android\'s usage records how long each app was in front and how often the phone was unlocked. It sees nothing inside the apps. The numbers stay on this phone and, once a day, go to your own computer through the encrypted connection, nowhere else.</string>
+    <string name="activity_access_hint">In the list, choose LifeOS, switch on usage access, then come back here.</string>
+    <string name="activity_access_button">Open usage access settings</string>
+    <string name="activity_access_missing">This phone has no settings screen for usage access.</string>
+    <string name="activity_today">Today</string>
+    <plurals name="activity_unlocks">
+        <item quantity="one">%d unlock</item>
+        <item quantity="other">%d unlocks</item>
+    </plurals>
+    <string name="activity_range_week">7 days</string>
+    <string name="activity_range_month">30 days</string>
+    <string name="activity_per_day">Screen time per day</string>
+    <string name="activity_average">Average %1$s</string>
+    <plurals name="activity_chart_description">
+        <item quantity="one">Bar chart of screen time over the last day. Tap it to see its apps below.</item>
+        <item quantity="other">Bar chart of screen time per day over the last %d days, with the average as a dashed line. Tap a day to see its apps below.</item>
+    </plurals>
+    <string name="activity_no_data">Nothing measured yet.</string>
+    <string name="activity_apps_none">No app was used for a minute or more.</string>
+    <string name="activity_sync_switch">Send screen time once a day</string>
+    <string name="activity_sync_text">Each finished day is sent once to your computer: the total, the unlocks and the 20 most used apps with their minutes. It goes the next time the app is open and connected; the phone cannot send it in the background.</string>
+    <string name="activity_sync_last">Last sent %1$s</string>
+    <string name="activity_sync_never">Nothing sent yet</string>
+    <plurals name="activity_sync_waiting">
+        <item quantity="one">%d day waiting</item>
+        <item quantity="other">%d days waiting</item>
+    </plurals>
+    <string name="activity_sync_now">Send now</string>
+
     <string name="action_undo">Undo</string>
     <string name="tasks_done_message">Marked as done</string>
 </resources>
