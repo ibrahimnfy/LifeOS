@@ -30,6 +30,10 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setenv("LIFEOS_NOTIFY_PUSH", "off")
     # Tests never start a real guardrail check by themselves (test_guardcheck opts in).
     monkeypatch.setenv("LIFEOS_GUARD_AUTOCHECK", "off")
+    # ...and never stop a real user service (what an interrupted check would leave).
+    from lifeos_bridge import verify
+
+    monkeypatch.setattr(verify, "stop_leftover_service", lambda: None)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return config
 

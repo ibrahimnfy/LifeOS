@@ -421,17 +421,25 @@ is off until they pass, and the owner is notified".
   edited by hand.
 - **Rerun by itself** (`bridge/src/lifeos_bridge/guardcheck.py`):
   - When: at bridge start and every 15 minutes.
-  - Which runners: those checked on this computer before; `sdk` only while
-    it is selected.
-  - How often: once per version pair. A probe failure is final for that
-    pair. A check that could not complete is retried up to 3 times, 30
-    minutes apart.
+  - Which runners: the SDK runner always while it has no valid marker,
+    selected or not (#140), and `claude -p` when it was checked on this
+    computer before. One check at a time, in the terminal and then in the
+    real service environment.
+  - How often: once per version pair. Only a probe that failed in this
+    check's own results is final for the pair. A check that did not finish
+    (bridge stopped, crash, time limit, another check running) is "not
+    run", never "failed". It is retried up to 3 times, 30 minutes apart,
+    and runs again at the next bridge start.
+  - Before it starts, a check stops the service-environment run an
+    interrupted check may have left, and moves an old scratch folder to
+    the trash.
   - The bridge never writes a marker itself; only a full pass of the
     check does.
 - **Notified** at the start and at the end (passed, failed, incomplete),
   with fixed texts that carry no versions, paths or results.
-- **Plan usage:** about twenty short runs on the small model per runner and
-  update.
+- **Plan usage:** about 16 short runs on the small model for the `claude -p`
+  runner and about 24 for the SDK runner (both environments), so about 40
+  when one restart checks both.
 
 ### 9.9 Folders inside another git repository (owner, #139)
 

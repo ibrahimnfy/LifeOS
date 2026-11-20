@@ -259,7 +259,7 @@ repository. The message names the repository root to allow instead.
 Subfolders of the memory folder are fine. Details:
 `permission-policy.md`, section 9.9.
 
-**After an update the check reruns by itself (#107).**
+**After an update the check reruns by itself (#107, #140).**
 
 - Every capable request compares the installed versions with the marker,
   read at that moment: the Claude Code version and the Agent SDK version
@@ -267,23 +267,47 @@ Subfolders of the memory folder are fine. Details:
 - The marker is signed with a key kept next to it (`guardrail-key`), so a
   marker changed by hand is ignored. While a check runs, the mode of that
   runner is off.
-- At bridge start and every 15 minutes, the bridge looks for runners that
-  were checked on this computer before (`sdk` only while it is selected)
-  and whose marker no longer matches. It then starts
-  `scripts/verify-guardrails` for them by itself, once per version pair.
-  It notifies the owner when the check starts and when it ends, with fixed
-  texts: passed (the mode is on again), failed (a probe failed; final for
-  these versions), or incomplete (it could not complete after 3 attempts,
-  30 minutes apart).
-- **Plan usage:** one automatic check costs about twenty short runs on the
-  small model per runner and update (the suite in the terminal and in the
-  service environment).
+- At bridge start and every 15 minutes, the bridge starts the check by
+  itself (`scripts/verify-guardrails`) for every runner whose marker does
+  not match, once per version pair:
+  - the SDK runner **always**, whether or not it is selected, so one
+    restart of the bridge produces its marker;
+  - the `claude -p` runner if it was checked on this computer before.
+  Checks run one after the other, each in the terminal environment and
+  then in the real service environment. The owner is notified when a check
+  starts and when it ends, with fixed texts.
+- **Outcomes.**
+  - **Passed:** the mode is on again.
+  - **Failed:** this check's own results show a failed probe. This is final
+    for these versions.
+  - **Not run:** everything else: the bridge stopped, a crash, the 3-hour
+    time limit, another check still running, or only the check's own
+    environment failed. It is never recorded as failed. It is retried 3
+    times, 30 minutes apart; after that it is "incomplete", and it runs
+    again from the start at the next bridge start.
+  - Each check gets an id that it writes into its results, so results of
+    an earlier check never count.
+- **Clean-up.** Only one check runs at a time (a lock in the private
+  settings folder). Before it starts, a check stops the service-environment
+  run that an interrupted check may have left (a transient user service
+  with the fixed name `lifeos-guardrail-check`). It also moves an old
+  scratch folder to the memory folder's trash.
+- **Plan usage of one restart:** a runner needs a check after an update of
+  Claude Code or the Agent SDK, or when it was never checked.
+  - The `claude -p` suite takes about 8 short runs on the small model per
+    environment.
+  - The SDK suite takes about 12 per environment, because it adds the
+    approval probes.
+  - Both runners in both environments come to **about 40 short runs**.
+    Probes without a model run (invalid settings, nested folders) are not
+    counted.
+  - A restart where both markers still match costs nothing.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
-  still goes off after an update; run the check by hand then.
+  still goes off after an update; run the check by hand then. The owner
+  keeps it on (2026-11-21).
 - A marker written before #107 has no signature. After this update the
-  mode is therefore off once, until the check reruns by itself (or by
-  hand).
+  mode is therefore off once, until the check reruns by itself.
 After the check, restart the service (`systemctl --user restart
 lifeos-bridge`) if the bridge code changed since it was started.
 
