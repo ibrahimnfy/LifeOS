@@ -220,3 +220,10 @@ a new entry is added that says what changed and why.
 ### Implementation choices for the coach conversation (agent, #110, 2026-11-21; cheap to change)
 - **One session in the memory folder, through the chat path:** the coach conversation is a normal session (either runner) recognised by its id, always on the `coach_chat` job, read-only, its model fixed; shown as "Coach", pinned. The SDK runner now records usage per job too.
 - **Compaction at about 400 KB of transcript**, before the next message: one turn in the old session proposes at most ten facts and a summary; the bridge writes checked `[owner …]`/`[inferred …]` lines into existing profile, project or course files and the summary into `coach/conversation.md`, one commit. A failed compaction renews the session anyway (no unbounded growth), keeping the previous summary.
+
+### Implementation choices in the autonomous period (agent, 2026-11-21; cheap to change)
+- **Notices from `scripts/notify.sh`** (new owner issues, guardrail results) use the reminders channel on the phone; there are four channels only.
+- **Questions and approvals notify even when a session's replies are muted**, because they block a run.
+- **A failed course-resources run counts the syllabus as read**; the owner asks again from the app. Counts of a course push are shown only after the app is unlocked.
+- **Which further sites course resources may be downloaded from is an open owner decision (#146);** until then only the built-in open-access hosts and the hosts named in the private settings are used, everything else is listed with its link.
+- **Test isolation:** the bridge test session runs in a temporary home and config folder underneath the per-test isolation, after one test had written a test marker into the real private config folder. The SDK runner's marker was re-created by the bridge's own check.
