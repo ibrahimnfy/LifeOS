@@ -11,8 +11,9 @@ end-to-end layer of [`docs/security.md`](../docs/security.md), the relay
 client and the app lock. On top of that, **Today, Tasks, Capture, Calendar,
 Notes and Courses work on the owner's real data** through that connection,
 with saved copies for when the computer is unreachable and an outbox for
-writes made offline. Chat and the other screens under More are still
-placeholders.
+writes made offline. **Activity** shows the phone's screen time (usage
+access) and sends it to the computer once a day. Chat and the other screens
+under More are still placeholders.
 
 ## Requirements
 
@@ -83,6 +84,7 @@ app/                         Gradle root (this folder)
         │   ├── pairing/             QR text, pairing flow, storage, Keystore vault
         │   ├── relay/               mailbox (REST + stream), relay account, requests
         │   ├── data/                API calls and models, saved copies, outbox, downloads
+        │   ├── activity/            screen time: usage events, per-day store, daily measurement, upload
         │   ├── lock/                lock timeout, system confirmation dialog
         │   ├── settings/            theme, language, lock timeout (DataStore)
         │   └── ui/
@@ -186,7 +188,15 @@ with plain HTTPS requests.
   the time of the last sync, and a course page with Materials, Announcements, Assignments and Grades. Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
-- **More:** Sessions, Projects and Activity are placeholder screens.
+- **Activity** (under More): screen time. Without usage access, an
+  explanation of what is read and where it goes, and a button to the system
+  setting (this app's own page where the phone has one). With it: today's
+  screen time and unlocks, a 7 or 30 day bar chart (average as a dashed
+  line; tapping a bar chooses the day), the chosen day's apps (a minute or
+  more, the home screen and LifeOS left out) as bars, and the switch "Send
+  screen time once a day" with the state of sending and "Send now". Sleep is
+  not built yet.
+- **More:** Sessions and Projects are placeholder screens.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
   (immediately / 1 minute / 5 minutes), app version.
@@ -238,6 +248,25 @@ Nothing on these screens is sample content any more. Not paired, they show
   short message says so. Direct saving needs
   Android 10 or newer; on Android 8 and 9 the system's "save as" screen asks
   where to put the file.
+- **Screen time** (`activity/`): with the owner's usage access
+  (`PACKAGE_USAGE_STATS`, granted in the system settings), the system's
+  usage events of the last seven days are turned into minutes per local day
+  and app and the number of unlocks (`UsageMath`; a stretch across midnight
+  is split, a day without any event is left out, not counted as zero). The
+  days are kept in `activity/activity.json` in the app's private files (400
+  days at most, excluded from backup like everything else, deleted on
+  unpair) so the charts work offline. App names come from the package
+  manager; `<queries>` asks only for apps with a home-screen icon and the
+  home screen itself, not for all packages. **Measuring** happens when
+  Activity is shown and once a day in the background (WorkManager,
+  `UsageWorker`), so nothing is lost when the app is not opened for some
+  days (the system forgets its events after about a week). **Sending**
+  (`ActivitySync` → `POST /activity/usage`, each finished day once, with the
+  total, the unlocks and the 20 most used apps' names and minutes) needs the
+  device secret, which is available only while the app is unlocked: it
+  happens when the app connects to the computer (at most once an hour) or
+  on "Send now", never in the background. A day the computer has confirmed
+  is not sent again unless its numbers change.
 
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
@@ -325,8 +354,8 @@ The pairing text is the key. Never put it into a file, a log or a report.
 ## What is not in it yet
 
 - No push notifications.
-- Chat does not send; the coach conversation, Sessions, Projects and
-  Activity are placeholders.
+- Chat does not send; the coach conversation, Sessions and Projects are
+  placeholders; Activity has screen time but no sleep yet.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course" and renewing the sign-in from the phone.
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -416,5 +445,17 @@ running on the computer with the relay set up.
    nothing changed. Delete the file in the Files app and tap **Open** again:
    "This file is no longer in Downloads", and the download arrow is back.
    The refresh arrow starts a sync.
-9. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies
-   and waiting items are gone.
+9. **Screen time** (More → Activity): "Usage access is needed" with an
+   explanation. Tap **Open usage access settings**: the system page for
+   LifeOS opens (on some phones the list of apps; choose LifeOS). Switch
+   access on and go back: Activity shows today's screen time and unlocks,
+   the bar chart and the apps of today. Use a few apps for a couple of
+   minutes and open Activity again: the numbers grew. **30 days** widens the
+   chart; tapping a bar shows that day's apps. The next day, open the app
+   (unlocked, the dot green): "Last sent … ago", and on the computer the
+   memory's `activity/` file of the month has a `screen` line for yesterday
+   with the total, the unlocks and the apps. Switch "Send screen time once a
+   day" off: nothing more is sent. Revoking usage access in the system
+   settings brings back the explanation.
+10. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
+   waiting items and the screen time stored on the phone are gone.

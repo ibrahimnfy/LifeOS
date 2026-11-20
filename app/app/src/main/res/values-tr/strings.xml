@@ -325,6 +325,39 @@
         <item quantity="one">%1$d saat önce hazırlandı</item>
         <item quantity="other">%1$d saat önce hazırlandı</item>
     </plurals>
+    <!-- Etkinlik: ekran süresi -->
+    <string name="usage_hm">%1$d sa %2$02d dk</string>
+    <string name="usage_m">%1$d dk</string>
+    <string name="activity_access_title">Kullanım erişimi gerekli</string>
+    <string name="activity_access_text">Ekran süreni göstermek için LifeOS, Android\'in kullanım kayıtlarından her uygulamanın ne kadar süre önde olduğunu ve telefonun kaç kez kilidinin açıldığını okur. Uygulamaların içinde hiçbir şey görmez. Rakamlar bu telefonda kalır ve günde bir kez şifreli bağlantı üzerinden yalnızca kendi bilgisayarına gider.</string>
+    <string name="activity_access_hint">Listede LifeOS\'u seç, kullanım erişimini aç, sonra buraya geri dön.</string>
+    <string name="activity_access_button">Kullanım erişimi ayarlarını aç</string>
+    <string name="activity_access_missing">Bu telefonda kullanım erişimi için bir ayar ekranı yok.</string>
+    <string name="activity_today">Bugün</string>
+    <plurals name="activity_unlocks">
+        <item quantity="one">%d kilit açma</item>
+        <item quantity="other">%d kilit açma</item>
+    </plurals>
+    <string name="activity_range_week">7 gün</string>
+    <string name="activity_range_month">30 gün</string>
+    <string name="activity_per_day">Günlük ekran süresi</string>
+    <string name="activity_average">Ortalama %1$s</string>
+    <plurals name="activity_chart_description">
+        <item quantity="one">Son günün ekran süresini gösteren çubuk grafik. Uygulamalarını aşağıda görmek için ona dokun.</item>
+        <item quantity="other">Son %d günün günlük ekran süresini gösteren çubuk grafik; ortalama kesikli çizgiyle gösterilir. Uygulamalarını aşağıda görmek için bir güne dokun.</item>
+    </plurals>
+    <string name="activity_no_data">Henüz ölçüm yok.</string>
+    <string name="activity_apps_none">Hiçbir uygulama bir dakika ya da daha uzun kullanılmadı.</string>
+    <string name="activity_sync_switch">Ekran süresini günde bir kez gönder</string>
+    <string name="activity_sync_text">Biten her gün bilgisayarına bir kez gönderilir: toplam süre, kilit açma sayısı ve en çok kullanılan 20 uygulama dakikalarıyla. Uygulama bir sonraki açılıp bağlandığında gider; telefon bunu arka planda gönderemez.</string>
+    <string name="activity_sync_last">Son gönderim %1$s</string>
+    <string name="activity_sync_never">Henüz bir şey gönderilmedi</string>
+    <plurals name="activity_sync_waiting">
+        <item quantity="one">%d gün bekliyor</item>
+        <item quantity="other">%d gün bekliyor</item>
+    </plurals>
+    <string name="activity_sync_now">Şimdi gönder</string>
+
     <string name="action_undo">Geri al</string>
     <string name="tasks_done_message">Tamamlandı olarak işaretlendi</string>
 </resources>

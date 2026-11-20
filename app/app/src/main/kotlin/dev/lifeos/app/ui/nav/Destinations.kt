@@ -15,6 +15,7 @@ object Routes {
     const val NOTE_ARG = "note"
     const val CALENDAR = "more/calendar"
     const val COURSES = "more/courses"
+    const val ACTIVITY = "more/activity"
     const val GRADES = "more/courses/grades"
     const val COURSE = "more/course/{course}"
     const val COURSE_ARG = "course"
@@ -31,6 +32,7 @@ object Routes {
         MoreSection.NOTES -> NOTES
         MoreSection.CALENDAR -> CALENDAR
         MoreSection.COURSES -> COURSES
+        MoreSection.ACTIVITY -> ACTIVITY
         else -> "more/section/${section.id}"
     }
 }

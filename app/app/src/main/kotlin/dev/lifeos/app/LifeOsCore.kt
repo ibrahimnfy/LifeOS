@@ -2,6 +2,14 @@ package dev.lifeos.app
 
 import android.app.Application
 import android.os.SystemClock
+import dev.lifeos.app.activity.ActivityStore
+import dev.lifeos.app.activity.ActivitySync
+import dev.lifeos.app.activity.UsageReader
+import dev.lifeos.app.activity.UsageWorker
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.time.LocalDate
+import java.time.ZoneId
 import com.goterl.lazysodium.LazySodiumAndroid
 import com.goterl.lazysodium.SodiumAndroid
 import dev.lifeos.app.crypto.E2e
@@ -117,6 +125,12 @@ class LifeOsCore(private val app: Application) {
     val lastContactMillis: StateFlow<Long?> = lastContactState
     val pairProgress: StateFlow<PairState> = pairState
 
+    private val activityState = MutableStateFlow(0)
+    private val activityLock = Mutex()
+
+    @Volatile
+    private var lastActivitySync = 0L
+
     private class Session(val job: Job, val channel: Channel, val client: RelayClient)
 
     // ------------------------------------------------------------------ data
@@ -167,7 +181,10 @@ class LifeOsCore(private val app: Application) {
         if (connectionState.value == now) return
         connectionState.value = now
         reloadState.value++
-        if (answered) drainOutbox()
+        if (answered) {
+            drainOutbox()
+            syncActivity()
+        }
     }
 
     val api = Api(TestAids.transport(app, relayTransport))
@@ -340,6 +357,47 @@ class LifeOsCore(private val app: Application) {
         coachPick = picked
         settings.setCoachRecent(CoachRotation.remember(recent, picked, ids))
         return plan.messages.first { it.id == picked }
+    }
+
+    // ---- screen time (usage access)
+
+    /** Screen time per day, on the phone only (see [ActivityStore]). */
+    val activity: ActivityStore get() = (app as LifeOsApplication).activityStore
+
+    /** Changes whenever the stored screen time changed (measured, sent or wiped). */
+    val activityChanged: StateFlow<Int> = activityState
+
+    fun usageAccess(): Boolean = UsageReader.hasAccess(app)
+
+    /** Measure the last days now; with usage access this also plans the daily background measurement. */
+    suspend fun measureUsage() {
+        val measured = withContext(Dispatchers.IO) {
+            activityLock.withLock {
+                if (!usageAccess()) return@withLock false
+                activity.putDays(UsageReader(app).measure(), LocalDate.now(ZoneId.systemDefault()))
+                UsageWorker.schedule(app)
+                true
+            }
+        }
+        if (measured) activityState.value++
+    }
+
+    /**
+     * Send the completed days the computer does not have yet ("daily": each day is sent once,
+     * when it is over). Runs when the connection comes back, at most once an hour, and when the
+     * owner asks ([force]); only while sending is switched on. In the background it cannot run:
+     * the device secret is available only while the app is unlocked.
+     */
+    fun syncActivity(force: Boolean = false) {
+        scope.launch {
+            if (connectionState.value != ConnectionState.CONNECTED || !settings.usageSync.first() || !usageAccess()) return@launch
+            val now = System.currentTimeMillis()
+            if (!force && now - lastActivitySync < ACTIVITY_SYNC_GAP_MILLIS) return@launch
+            lastActivitySync = now
+            measureUsage()
+            withContext(Dispatchers.IO) { activityLock.withLock { ActivitySync.upload(activity, api, now) } }
+            activityState.value++
+        }
     }
 
     val downloads = Downloads(app, api, scope)
@@ -640,6 +698,9 @@ class LifeOsCore(private val app: Application) {
         outbox.wipe()
         downloads.clear()
         rerunState.value = CoachRerun.State.Idle
+        // Screen time measured on this phone goes too, like everything else of the pairing.
+        activity.wipe()
+        activityState.value++
         tickTimers.values.forEach { it.cancel() }
         tickTimers.clear()
         tickedState.value = emptySet()
@@ -661,6 +722,7 @@ class LifeOsCore(private val app: Application) {
         const val CHECK_TIMEOUT_MILLIS = 20_000L
         const val SUBMIT_WAIT_MILLIS = 8_000L
         const val RECHECK_MILLIS = 60_000L
+        const val ACTIVITY_SYNC_GAP_MILLIS = 60 * 60_000L
     }
 }
 
@@ -669,4 +731,7 @@ const val UNDO_MILLIS = 6_000L
 
 class LifeOsApplication : Application() {
     val core: LifeOsCore by lazy { LifeOsCore(this) }
+
+    /** Screen time per day, shared by the app and the daily background measurement (one instance per process). */
+    val activityStore: ActivityStore by lazy { ActivityStore(File(filesDir, "activity/activity.json")) }
 }

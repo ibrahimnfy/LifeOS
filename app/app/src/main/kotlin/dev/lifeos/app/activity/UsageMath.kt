@@ -126,6 +126,34 @@ object UsageMath {
         date.atStartOfDay(zone).toInstant().toEpochMilli() to date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
 }
 
+/** What the Screen time tab shows, worked out without Android classes. */
+object UsageView {
+    /** How many days back the phone is measured each time; the system keeps its events about a week. */
+    const val MEASURE_DAYS = 7
+
+    /**
+     * Whether a measurement holds anything. A day without a single event is not "no use": the
+     * system has forgotten it, or the phone was off. Such a day is neither kept nor sent.
+     */
+    fun hasData(raw: UsageMath.Raw): Boolean = raw.totalMillis > 0 || raw.unlocks > 0
+
+    /** The last [count] days up to [today], oldest first; a day without a measurement is null. */
+    fun window(days: List<DayUsage>, today: LocalDate, count: Int): List<Pair<LocalDate, DayUsage?>> {
+        val byDate = days.associateBy { it.date }
+        return (count - 1 downTo 0).map { back -> today.minusDays(back.toLong()).let { it to byDate[it.toString()] } }
+    }
+
+    /** The average screen time of the measured days that are over (today is not), or null. */
+    fun average(window: List<Pair<LocalDate, DayUsage?>>): Int? {
+        val measured = window.mapNotNull { it.second }.filter { it.complete }
+        return if (measured.isEmpty()) null else measured.sumOf { it.screenMinutes } / measured.size
+    }
+
+    /** The day to show below the chart: the chosen one if it was measured, else the newest measured. */
+    fun selected(window: List<Pair<LocalDate, DayUsage?>>, chosen: LocalDate?): DayUsage? =
+        window.firstOrNull { it.first == chosen }?.second ?: window.lastOrNull { it.second != null }?.second
+}
+
 /**
  * A guess of last night from when the phone was not used.
  *

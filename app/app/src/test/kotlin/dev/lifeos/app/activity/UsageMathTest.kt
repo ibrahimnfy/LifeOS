@@ -187,4 +187,30 @@ class UsageMathTest {
         assertEquals(LocalTime.of(5, 0), SleepPromptTime.parse("25:99"))
         assertEquals(LocalTime.of(6, 30), SleepPromptTime.parse("06:30"))
     }
+
+    @Test
+    fun `a day without any event is no data, not zero use`() {
+        assertEquals(false, UsageView.hasData(measure(emptyList())))
+        assertEquals(true, UsageView.hasData(measure(listOf(unlock("2027-01-15T08:00:00")))))
+        assertEquals(true, UsageView.hasData(measure(listOf(resumed("2027-01-15T08:00:00", "a"), paused("2027-01-15T08:01:00", "a")))))
+    }
+
+    @Test
+    fun `the chart window runs up to today with gaps for days not measured`() {
+        val days = listOf(
+            DayUsage("2027-01-13", 120, 30, complete = true),
+            DayUsage("2027-01-15", 60, 10, complete = false),
+            DayUsage("2027-01-01", 500, 99, complete = true),
+        )
+        val window = UsageView.window(days, day, 3)
+        assertEquals(listOf("2027-01-13", "2027-01-14", "2027-01-15"), window.map { it.first.toString() })
+        assertEquals(listOf(120, null, 60), window.map { it.second?.screenMinutes })
+        // Today is not over: it does not count in the average.
+        assertEquals(120, UsageView.average(window))
+        assertNull(UsageView.average(UsageView.window(emptyList(), day, 7)))
+        // The chosen day if it was measured, else the newest measured one.
+        assertEquals("2027-01-13", UsageView.selected(window, LocalDate.of(2027, 1, 13))?.date)
+        assertEquals("2027-01-15", UsageView.selected(window, LocalDate.of(2027, 1, 14))?.date)
+        assertEquals("2027-01-15", UsageView.selected(window, null)?.date)
+    }
 }

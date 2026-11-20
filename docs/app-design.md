@@ -331,8 +331,13 @@ the platform the data comes from.*
   always-running service, no network.
 - **States:** permission missing (explains why usage access is needed, with a
   button to the system setting) · not enough data yet · normal.
-- **Endpoints:** daily upload of usage and sleep *(planned, Phase 6)*. Charts
-  are drawn from data stored on the phone, so they always work offline.
+- **Endpoints:** daily upload of usage (`POST /activity/usage`, built) and
+  sleep (`POST /activity/sleep`, with #36). Charts are drawn from data stored
+  on the phone, so they always work offline. The phone measures in the
+  background once a day, but sends only while the app is unlocked and
+  connected (the device secret is not available otherwise); each finished
+  day is sent once. Built so far: the Screen time tab (without tabs while
+  Sleep is missing).
 
 ### 3.11 Settings
 

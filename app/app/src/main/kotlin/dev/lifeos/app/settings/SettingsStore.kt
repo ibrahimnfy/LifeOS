@@ -51,7 +51,17 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[COACH_RECENT] = ids.joinToString(",") }
     }
 
+    /** Whether screen time is sent to the computer once a day (on by default; it needs usage access anyway). */
+    val usageSync: Flow<Boolean> = dataStore.data
+        .map { it[USAGE_SYNC] != "0" }
+        .distinctUntilChanged()
+
+    suspend fun setUsageSync(on: Boolean) {
+        dataStore.edit { it[USAGE_SYNC] = if (on) "1" else "0" }
+    }
+
     private companion object {
+        val USAGE_SYNC = stringPreferencesKey("usage_sync")
         val COACH_RECENT = stringPreferencesKey("coach_recent")
         val THEME = stringPreferencesKey("theme")
         val LOCK_TIMEOUT = stringPreferencesKey("lock_timeout")

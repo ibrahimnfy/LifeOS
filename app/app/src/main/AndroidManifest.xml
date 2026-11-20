@@ -9,6 +9,22 @@
     <uses-feature
         android:name="android.hardware.camera"
         android:required="false" />
+    <!-- Screen time and per-app use; granted by the owner in the system settings ("usage access"). -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!-- App names for screen time: only apps with an icon on the home screen, and the home screen itself. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
+    </queries>
 
     <application
         android:name=".LifeOsApplication"

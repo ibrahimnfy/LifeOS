@@ -327,6 +327,39 @@
         <item quantity="one">Prepared %1$d hour ago</item>
         <item quantity="other">Prepared %1$d hours ago</item>
     </plurals>
+    <!-- Activity: screen time -->
+    <string name="usage_hm">%1$d h %2$02d min</string>
+    <string name="usage_m">%1$d min</string>
+    <string name="activity_access_title">Usage access is needed</string>
+    <string name="activity_access_text">To show your screen time, LifeOS reads from Android\'s usage records how long each app was in front and how often the phone was unlocked. It sees nothing inside the apps. The numbers stay on this phone and, once a day, go to your own computer through the encrypted connection, nowhere else.</string>
+    <string name="activity_access_hint">In the list, choose LifeOS, switch on usage access, then come back here.</string>
+    <string name="activity_access_button">Open usage access settings</string>
+    <string name="activity_access_missing">This phone has no settings screen for usage access.</string>
+    <string name="activity_today">Today</string>
+    <plurals name="activity_unlocks">
+        <item quantity="one">%d unlock</item>
+        <item quantity="other">%d unlocks</item>
+    </plurals>
+    <string name="activity_range_week">7 days</string>
+    <string name="activity_range_month">30 days</string>
+    <string name="activity_per_day">Screen time per day</string>
+    <string name="activity_average">Average %1$s</string>
+    <plurals name="activity_chart_description">
+        <item quantity="one">Bar chart of screen time over the last day. Tap it to see its apps below.</item>
+        <item quantity="other">Bar chart of screen time per day over the last %d days, with the average as a dashed line. Tap a day to see its apps below.</item>
+    </plurals>
+    <string name="activity_no_data">Nothing measured yet.</string>
+    <string name="activity_apps_none">No app was used for a minute or more.</string>
+    <string name="activity_sync_switch">Send screen time once a day</string>
+    <string name="activity_sync_text">Each finished day is sent once to your computer: the total, the unlocks and the 20 most used apps with their minutes. It goes the next time the app is open and connected; the phone cannot send it in the background.</string>
+    <string name="activity_sync_last">Last sent %1$s</string>
+    <string name="activity_sync_never">Nothing sent yet</string>
+    <plurals name="activity_sync_waiting">
+        <item quantity="one">%d day waiting</item>
+        <item quantity="other">%d days waiting</item>
+    </plurals>
+    <string name="activity_sync_now">Send now</string>
+
     <string name="action_undo">Undo</string>
     <string name="tasks_done_message">Marked as done</string>
 </resources>

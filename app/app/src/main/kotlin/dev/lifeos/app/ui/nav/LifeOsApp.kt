@@ -39,6 +39,7 @@ import dev.lifeos.app.ui.components.CaptureSheet
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
+import dev.lifeos.app.ui.screens.ActivityScreen
 import dev.lifeos.app.ui.screens.AllGradesScreen
 import dev.lifeos.app.ui.screens.AllTasksScreen
 import dev.lifeos.app.ui.screens.Authenticate
@@ -188,6 +189,9 @@ fun LifeOsApp(
                     onConnectionClick = openSettings,
                     onPair = openPair,
                 )
+            }
+            composable(Routes.ACTIVITY) {
+                ActivityScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings)
             }
             composable(Routes.CALENDAR) {
                 CalendarScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
