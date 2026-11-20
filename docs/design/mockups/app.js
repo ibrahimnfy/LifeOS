@@ -1,6 +1,7 @@
 /*
  * LifeOS visual-direction mockups.
- * One content model, one EN/TR string table, three direction skins.
+ * One content model, one EN/TR string table, four direction skins
+ * (D — monochrome is the chosen one; A, B and C are kept for reference).
  * Everything shown is invented placeholder content. No network, no build step.
  */
 (function () {
@@ -17,30 +18,35 @@
       ctlView: "View", viewSingle: "One direction", viewCompare: "Compare all",
       ctlDir: "Direction", ctlScreen: "Screen", ctlTheme: "Theme", ctlLang: "Language",
       light: "Light", dark: "Dark",
-      dirName: { A: "Calm paper", B: "Material You", C: "Dark console" },
+      notChosen: "not chosen",
+      dirName: { A: "Calm paper", B: "Material You", C: "Dark console", D: "Monochrome" },
       dirBlurb: {
+        D: "Quiet and plain: pure white or pure black, neutral greys, thin line icons, an icon-only bottom bar, hairline dividers. Colour appears only where it carries meaning.",
         A: "A quiet notebook: warm paper, serif titles, hairline cards, one deep-teal accent.",
         B: "Native and familiar: tonal surfaces and standard Material 3 shapes. Colours would follow the phone's wallpaper; one example palette is shown.",
         C: "A focused tool: near-black, high contrast, monospace headings and numbers, one amber accent. Dark is its primary look."
       },
-      today: "Today", chat: "Chat", tasks: "Tasks", more: "More", activity: "Activity",
+      today: "Today", chat: "Chat", tasks: "Tasks", more: "More", activity: "Activity", sessions: "Sessions",
       capture: "Capture a note or task", back: "Back", nav: "Main navigation",
       connected: "Connected", connectedLong: "Connected to the computer",
-      greeting: "Good morning",
-      secEvents: "Next events", eventsMeta: "2 today",
-      ev1Title: "Example course", ev1Sub: "Lecture · Room 101",
-      ev2Title: "Project Alpha check-in", ev2Sub: "Video call",
-      secTasks: "Tasks", tasksMeta: "1 overdue",
-      task1: "Submit Example assignment 1", task1Sub: "Yesterday · Example course",
-      task2: "Draft the Project Alpha outline", task2Sub: "Today",
-      task3: "Buy printer paper", task3Sub: "Done",
+      search: "Search", reminders: "Reminders",
+      adviceLabel: "Today's focus",
+      adviceText: "Finish the Project Alpha outline before anything else. The rest of the week builds on it.",
+      why: "Why",
+      adviceWhy: "Due today, and two other tasks wait for it.",
+      secTop: "Top three", topNote: "chosen by the assistant",
+      secToday: "Today", todayNote: "4 tasks · 1 done",
+      task1: "Draft the Project Alpha outline", task1Why: "Due today; two tasks depend on it", task1Sub: "Today · Project Alpha",
+      task2: "Submit Example assignment 1", task2Why: "One day late; about 30 minutes of work", task2Sub: "Yesterday · Example course",
+      task3: "Reply about the seminar topic", task3Why: "Waiting for 6 days", task3Sub: "No date · Example seminar",
+      task4: "Read chapter 3 of the example book", task4Sub: "Today · Example seminar",
+      task5: "Buy printer paper", task5Sub: "Done",
+      task6: "Review the check-in notes", task6Sub: "Thursday · Project Alpha",
+      task7: "Renew the library book", task7Sub: "Friday",
       overdue: "Overdue",
-      secDeadlines: "Upcoming deadlines", deadlinesMeta: "next 7 days",
-      dl1: "Example assignment 2", dl1Course: "Example course",
-      dl2: "Example quiz", dl2Course: "Example seminar",
-      inDays: function (n) { return "in " + n + " days"; },
-      tileSleep: "Last night", tileScreen: "Screen time",
-      tileScreenSub: function (n) { return n + " unlocks"; },
+      secImportant: "Most important", importantNote: "ordered by the assistant",
+      showAll: function (n) { return "Show all (" + n + ")"; },
+      tasksFoot: function (shown, n) { return shown + " of " + n + " open tasks shown"; },
       newChat: "New chat", you: "You", assistant: "LifeOS",
       chatQ1: "What is still open for Project Alpha this week?",
       chatA1: "Three things are still open:",
@@ -50,6 +56,8 @@
       chatA2: "The notes are in the project folder:",
       codeLabel: "shell",
       chatQ2: "Add the summary as a task for Monday.",
+      coach: "Coach", skip: "Skip", answer: "Answer",
+      coachQ: "“Reply about the seminar topic” has been waiting for 6 days. What is hard about it?",
       working: "Working…", cancel: "Cancel",
       composer: "Message LifeOS", send: "Send",
       tabSleep: "Sleep", tabScreen: "Screen time",
@@ -66,7 +74,14 @@
       topApps: "Top apps",
       apps: ["Browser", "Messages", "Video", "Maps"],
       appsSummary: function (list) { return "Top apps today: " + list + "."; },
-      unitH: "h", unitMin: "min"
+      unitH: "h", unitMin: "min",
+      searchSessions: "Search sessions",
+      pinned: "Pinned", byFolder: "By folder", yourGroup: "your group", automatic: "automatic",
+      group1: "Thesis", group2: "Side project",
+      inUse: "In use", reminderSet: "Reminder set",
+      ses1: "Weekly plan", ses2: "Chapter 2 outline", ses3: "Literature notes",
+      ses4: "Fix the login bug", ses5: "Summarise lecture 4", ses6: "Tidy the backup script",
+      ago12m: "12 min ago", ago2h: "2 h ago", yesterday: "Yesterday", ago3d: "3 days ago", lastWeek: "Last week"
     },
     tr: {
       pageTitle: "LifeOS uygulaması — görsel yönler",
@@ -74,30 +89,35 @@
       ctlView: "Görünüm", viewSingle: "Tek yön", viewCompare: "Hepsini karşılaştır",
       ctlDir: "Yön", ctlScreen: "Ekran", ctlTheme: "Tema", ctlLang: "Dil",
       light: "Açık", dark: "Koyu",
-      dirName: { A: "Sakin kâğıt", B: "Material You", C: "Koyu konsol" },
+      notChosen: "seçilmedi",
+      dirName: { A: "Sakin kâğıt", B: "Material You", C: "Koyu konsol", D: "Monokrom" },
       dirBlurb: {
+        D: "Sakin ve yalın: saf beyaz ya da saf siyah zemin, nötr griler, ince çizgi ikonlar, yalnızca ikonlu alt çubuk, ince ayırıcı çizgiler. Renk yalnızca anlam taşıdığı yerde kullanılır.",
         A: "Sessiz bir defter: sıcak kâğıt tonu, serif başlıklar, ince çizgili kartlar, tek bir koyu turkuaz vurgu.",
         B: "Tanıdık ve yerel: tonlu yüzeyler ve standart Material 3 biçimleri. Renkler telefonun duvar kâğıdından gelir; burada örnek bir palet gösteriliyor.",
         C: "Odaklı bir araç: siyaha yakın zemin, yüksek kontrast, eş aralıklı başlık ve rakamlar, tek bir kehribar vurgu. Asıl görünümü koyu temadır."
       },
-      today: "Bugün", chat: "Sohbet", tasks: "Görevler", more: "Diğer", activity: "Aktivite",
+      today: "Bugün", chat: "Sohbet", tasks: "Görevler", more: "Daha fazla", activity: "Aktivite", sessions: "Oturumlar",
       capture: "Not ya da görev ekle", back: "Geri", nav: "Ana gezinme",
       connected: "Bağlı", connectedLong: "Bilgisayara bağlı",
-      greeting: "Günaydın",
-      secEvents: "Sıradaki etkinlikler", eventsMeta: "bugün 2",
-      ev1Title: "Örnek ders", ev1Sub: "Ders · Derslik 101",
-      ev2Title: "Alfa Projesi görüşmesi", ev2Sub: "Görüntülü görüşme",
-      secTasks: "Görevler", tasksMeta: "1 gecikmiş",
-      task1: "Örnek ödev 1'i teslim et", task1Sub: "Dün · Örnek ders",
-      task2: "Alfa Projesi taslağını hazırla", task2Sub: "Bugün",
-      task3: "Yazıcı kâğıdı al", task3Sub: "Tamamlandı",
+      search: "Ara", reminders: "Hatırlatıcılar",
+      adviceLabel: "Bugünün odağı",
+      adviceText: "Her şeyden önce Alfa Projesi taslağını bitir. Haftanın geri kalanı ona dayanıyor.",
+      why: "Neden",
+      adviceWhy: "Son günü bugün; iki görev de onu bekliyor.",
+      secTop: "İlk üç", topNote: "asistanın seçimi",
+      secToday: "Bugün", todayNote: "4 görev · 1 tamam",
+      task1: "Alfa Projesi taslağını hazırla", task1Why: "Son gün bugün; iki görev buna bağlı", task1Sub: "Bugün · Alfa Projesi",
+      task2: "Örnek ödev 1'i teslim et", task2Why: "Bir gün gecikti; yaklaşık 30 dakikalık iş", task2Sub: "Dün · Örnek ders",
+      task3: "Seminer konusu için yanıt yaz", task3Why: "6 gündür bekliyor", task3Sub: "Tarihsiz · Örnek seminer",
+      task4: "Örnek kitabın 3. bölümünü oku", task4Sub: "Bugün · Örnek seminer",
+      task5: "Yazıcı kâğıdı al", task5Sub: "Tamamlandı",
+      task6: "Görüşme notlarını gözden geçir", task6Sub: "Perşembe · Alfa Projesi",
+      task7: "Kütüphane kitabının süresini uzat", task7Sub: "Cuma",
       overdue: "Gecikti",
-      secDeadlines: "Yaklaşan teslimler", deadlinesMeta: "sonraki 7 gün",
-      dl1: "Örnek ödev 2", dl1Course: "Örnek ders",
-      dl2: "Örnek sınav", dl2Course: "Örnek seminer",
-      inDays: function (n) { return n + " gün sonra"; },
-      tileSleep: "Dün gece", tileScreen: "Ekran süresi",
-      tileScreenSub: function (n) { return n + " kilit açma"; },
+      secImportant: "En önemliler", importantNote: "asistan sıraladı",
+      showAll: function (n) { return "Tümünü göster (" + n + ")"; },
+      tasksFoot: function (shown, n) { return n + " açık görevden " + shown + " tanesi gösteriliyor"; },
       newChat: "Yeni sohbet", you: "Sen", assistant: "LifeOS",
       chatQ1: "Alfa Projesi için bu hafta neler kaldı?",
       chatA1: "Hâlâ açık üç iş var:",
@@ -107,6 +127,8 @@
       chatA2: "Notlar proje klasöründe:",
       codeLabel: "kabuk",
       chatQ2: "Özeti pazartesiye görev olarak ekle.",
+      coach: "Koç", skip: "Geç", answer: "Yanıtla",
+      coachQ: "“Seminer konusu için yanıt yaz” 6 gündür bekliyor. Seni zorlayan ne?",
       working: "Çalışıyor…", cancel: "İptal",
       composer: "LifeOS'a yaz", send: "Gönder",
       tabSleep: "Uyku", tabScreen: "Ekran süresi",
@@ -123,7 +145,14 @@
       topApps: "En çok kullanılanlar",
       apps: ["Tarayıcı", "Mesajlar", "Video", "Haritalar"],
       appsSummary: function (list) { return "Bugün en çok kullanılanlar: " + list + "."; },
-      unitH: "sa", unitMin: "dk"
+      unitH: "sa", unitMin: "dk",
+      searchSessions: "Oturumlarda ara",
+      pinned: "Sabitlenenler", byFolder: "Klasöre göre", yourGroup: "senin grubun", automatic: "otomatik",
+      group1: "Tez", group2: "Yan proje",
+      inUse: "Kullanımda", reminderSet: "Hatırlatıcı var",
+      ses1: "Haftalık plan", ses2: "2. bölüm taslağı", ses3: "Kaynak notları",
+      ses4: "Giriş hatasını düzelt", ses5: "4. dersi özetle", ses6: "Yedekleme betiğini toparla",
+      ago12m: "12 dk önce", ago2h: "2 sa önce", yesterday: "Dün", ago3d: "3 gün önce", lastWeek: "Geçen hafta"
     }
   };
 
@@ -135,19 +164,42 @@
   var TODAY = new Date(2026, 9, 14); // fixed, invented "today": a Wednesday
 
   var DATA = {
-    events: [
-      { start: "10:30", end: "12:00", title: "ev1Title", sub: "ev1Sub" },
-      { start: "15:00", end: "15:30", title: "ev2Title", sub: "ev2Sub" }
+    // Today: the assistant's three picks, then everything that belongs to today.
+    top: [
+      { title: "task1", why: "task1Why" },
+      { title: "task2", why: "task2Why" },
+      { title: "task3", why: "task3Why" }
     ],
-    tasks: [
-      { title: "task1", sub: "task1Sub", overdue: true, done: false },
-      { title: "task2", sub: "task2Sub", overdue: false, done: false },
-      { title: "task3", sub: "task3Sub", overdue: false, done: true }
+    today: [
+      { title: "task1", sub: "task1Sub" },
+      { title: "task2", sub: "task2Sub", overdue: true },
+      { title: "task4", sub: "task4Sub" },
+      { title: "task5", sub: "task5Sub", done: true }
     ],
-    deadlines: [
-      { inDays: 2, title: "dl1", course: "dl1Course" },
-      { inDays: 5, title: "dl2", course: "dl2Course" }
+    // Tasks: the assistant's short list out of all open tasks.
+    important: [
+      { title: "task1", sub: "task1Sub" },
+      { title: "task2", sub: "task2Sub", overdue: true },
+      { title: "task3", sub: "task3Sub" },
+      { title: "task6", sub: "task6Sub" },
+      { title: "task7", sub: "task7Sub" }
     ],
+    openTasks: 23,
+    // Sessions: pinned, owner-made groups, then automatic groups by folder.
+    sessions: {
+      pinned: [{ title: "ses1", folder: "planning", when: "ago12m", inUse: true }],
+      groups: [
+        { name: "group1", items: [
+          { title: "ses2", folder: "thesis", when: "ago2h", reminder: true },
+          { title: "ses3", folder: "thesis", when: "yesterday" }
+        ] },
+        { name: "group2", items: [{ title: "ses4", folder: "project-alpha", when: "yesterday" }] }
+      ],
+      folders: [
+        { folder: "course-notes", items: [{ title: "ses5", when: "ago3d" }] },
+        { folder: "scripts", items: [{ title: "ses6", when: "lastWeek" }] }
+      ]
+    },
     lastNight: { bed: "23:40", wake: "07:05", minutes: 445 },
     // Seven nights ending last night, oldest first. Minutes asleep.
     sleep: [
@@ -170,12 +222,20 @@
 
   var OPTIONS = {
     view: ["single", "compare"],
-    dir: ["A", "B", "C"],
-    screen: ["today", "chat", "activity"],
+    dir: ["A", "B", "C", "D"],
+    screen: ["today", "chat", "tasks", "sessions", "activity"],
     theme: ["light", "dark"],
     lang: ["en", "tr"]
   };
-  var state = { view: "single", dir: "A", screen: "today", theme: "light", lang: "en" };
+  // Screens drawn per direction. Tasks and Sessions exist only in the chosen direction.
+  var DIR_SCREENS = {
+    A: ["today", "chat", "activity"],
+    B: ["today", "chat", "activity"],
+    C: ["today", "chat", "activity"],
+    D: ["today", "chat", "tasks", "sessions", "activity"]
+  };
+  var CHOSEN = "D";
+  var state = { view: "single", dir: CHOSEN, screen: "today", theme: "light", lang: "en" };
 
   function readUrl() {
     var params;
@@ -262,9 +322,12 @@
     plane: '<path class="solid" d="M3.5 20.5l18-8.5-18-8.5v6.6l11 1.9-11 1.9z"/>',
     back: '<path d="M15 5l-7 7 7 7"/>',
     compose: '<path d="M12 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5V12"/><path d="M17.6 3.6l2.8 2.8-8 8-3.4.6.6-3.4z"/>',
-    moon: '<path d="M20 14.2A8 8 0 1 1 9.8 4a6.4 6.4 0 0 0 10.2 10.2z"/>',
-    phone: '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17.5h2"/>',
-    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>'
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>',
+    bell: '<path d="M6.5 17v-6a5.5 5.5 0 0 1 11 0v6M4.5 17h15M10 20h4"/>',
+    pin: '<path d="M9 3.5h6l-1 6 3 3.5H7l3-3.5zM12 13v7.5"/>',
+    clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.2 2"/>',
+    folder: '<path d="M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/>'
   };
 
   function icon(name, extraClass) {
@@ -294,36 +357,59 @@
     html += '<h2 class="tb-title">' + (dir === "C" ? '<span class="prompt" aria-hidden="true">&gt;</span>' : "") +
       esc(title) + "</h2>";
     html += '<span class="tb-spacer"></span>';
-    if (opts.newChat) {
+    if (opts.newChat && dir !== "D") {
       html += '<span class="tb-action" role="button">' + icon(dir === "C" ? "plus" : "compose") +
         '<span class="tb-action-lbl">' + esc(s.newChat) + "</span></span>";
     }
-    html += '<span class="status" role="button" title="' + esc(s.connectedLong) + '">' +
+    html += '<span class="status" role="button" title="' + esc(s.connectedLong) + '" aria-label="' + esc(s.connectedLong) + '">' +
       '<span class="status-dot" aria-hidden="true"></span>' +
       '<span class="status-lbl">' + esc(s.connected) + "</span></span>";
+    if (dir === "D") {
+      // Monochrome: icon-only actions, each named for screen readers.
+      (opts.icons || []).forEach(function (name) {
+        var label = { bell: s.reminders, clock: s.sessions, compose: s.newChat, search: s.search }[name];
+        html += '<span class="tb-icon" role="button" aria-label="' + esc(label) + '" title="' + esc(label) + '">' + icon(name) + "</span>";
+      });
+    }
     return html + "</header>";
   }
+
+  function fab(s) {
+    return '<span class="fab" role="button" aria-label="' + esc(s.capture) + '" title="' + esc(s.capture) + '">' + icon("plus") + "</span>";
+  }
+
+  /** Floating capture button. In D the button sits in the bottom bar instead. */
+  function floatingFab(dir, s) { return dir === "D" ? "" : fab(s); }
 
   function bottomBar(dir, s, current) {
     var items = ["today", "chat", "tasks", "more"];
     var html = '<nav class="bottombar" aria-label="' + esc(s.nav) + '">';
-    items.forEach(function (key) {
+    items.forEach(function (key, i) {
       var on = key === current;
-      html += '<span class="nav-item' + (on ? " on" : "") + '"' + (on ? ' aria-current="page"' : "") + ">" +
+      if (dir === "D" && i === 2) { html += fab(s); }
+      // The label is hidden in D (icon-only bar), so the name also goes on the item.
+      html += '<span class="nav-item' + (on ? " on" : "") + '" role="link" aria-label="' + esc(s[key]) + '" title="' + esc(s[key]) + '"' +
+        (on ? ' aria-current="page"' : "") + ">" +
         '<span class="nav-ind">' + icon(key, on ? "is-on" : "") + "</span>" +
-        '<span class="nav-lbl">' + esc(s[key]) + "</span></span>";
+        '<span class="nav-lbl" aria-hidden="true">' + esc(s[key]) + "</span></span>";
     });
     return html + '<span class="gesture" aria-hidden="true"></span></nav>';
   }
 
-  function fab(s) {
-    return '<span class="fab" role="button" aria-label="' + esc(s.capture) + '">' + icon("plus") + "</span>";
-  }
-
-  function section(label, meta, body, extraClass) {
+  function section(label, note, body, extraClass) {
     return '<section class="sec ' + (extraClass || "") + '"><div class="sec-head"><h3>' + esc(label) + "</h3>" +
       '<span class="sec-rule" aria-hidden="true"></span>' +
-      (meta ? '<span class="sec-meta">' + meta + "</span>" : "") + "</div>" + body + "</section>";
+      (note ? '<span class="sec-meta">' + note + "</span>" : "") + "</div>" + body + "</section>";
+  }
+
+  /** A task as a checkbox row: title, then one line of context. */
+  function taskRow(s, t) {
+    var cls = "row task" + (t.done ? " done" : "") + (t.overdue ? " overdue" : "");
+    return '<div class="' + cls + '"><span class="check" role="checkbox" aria-checked="' + (t.done ? "true" : "false") +
+      '" aria-label="' + esc(s[t.title]) + '">' + (t.done ? icon("check") : "") + "</span>" +
+      '<div class="main"><div class="row-t">' + esc(s[t.title]) + '</div><div class="row-s">' +
+      (t.overdue ? '<span class="tag tag-alert"><span class="tag-mark" aria-hidden="true">!</span>' + esc(s.overdue) + "</span>" : "") +
+      "<span>" + esc(s[t.sub]) + "</span></div></div></div>";
   }
 
   /* ------------------------------------------------------------------ */
@@ -332,47 +418,23 @@
 
   function screenToday(dir, lang) {
     var s = STRINGS[lang];
-    var dateLong = fmtDate(TODAY, { weekday: "long", day: "numeric", month: "long" }, lang);
 
-    var events = DATA.events.map(function (ev) {
-      return '<div class="row event"><div class="lead lead-time"><b>' + ev.start + "</b><span>" + ev.end + "</span></div>" +
-        '<div class="main"><div class="row-t">' + esc(s[ev.title]) + '</div><div class="row-s">' + esc(s[ev.sub]) + "</div></div></div>";
+    var advice = '<section class="card advice"><div class="advice-k">' + esc(s.adviceLabel) + "</div>" +
+      '<p class="advice-t">' + esc(s.adviceText) + "</p>" +
+      '<p class="advice-why"><b>' + esc(s.why) + "</b> " + esc(s.adviceWhy) + "</p></section>";
+
+    var top = DATA.top.map(function (t, i) {
+      return '<div class="row pick"><span class="rank num" aria-hidden="true">' + (i + 1) + "</span>" +
+        '<div class="main"><div class="row-t">' + esc(s[t.title]) + '</div><div class="row-s"><span>' + esc(s[t.why]) + "</span></div></div></div>";
     }).join("");
 
-    var tasks = DATA.tasks.map(function (t) {
-      var cls = "row task" + (t.done ? " done" : "") + (t.overdue ? " overdue" : "");
-      return '<div class="' + cls + '"><span class="check" role="checkbox" aria-checked="' + (t.done ? "true" : "false") +
-        '" aria-label="' + esc(s[t.title]) + '">' + (t.done ? icon("check") : "") + "</span>" +
-        '<div class="main"><div class="row-t">' + esc(s[t.title]) + '</div><div class="row-s">' +
-        (t.overdue ? '<span class="tag tag-alert"><span class="tag-mark" aria-hidden="true">!</span>' + esc(s.overdue) + "</span>" : "") +
-        "<span>" + esc(s[t.sub]) + "</span></div></div></div>";
-    }).join("");
+    var tasks = DATA.today.map(function (t) { return taskRow(s, t); }).join("");
 
-    var deadlines = DATA.deadlines.map(function (d) {
-      var date = addDays(TODAY, d.inDays);
-      return '<div class="row deadline"><div class="lead lead-date"><b>' + fmtDate(date, { day: "numeric" }, lang) +
-        "</b><span>" + esc(fmtDate(date, { month: "short" }, lang)) + "</span></div>" +
-        '<div class="main"><div class="row-t">' + esc(s[d.title]) + '</div><div class="row-s"><span>' +
-        esc(fmtDate(date, { weekday: "long" }, lang)) + " · " + esc(s[d.course]) + "</span></div></div>" +
-        '<span class="when">' + esc(s.inDays(d.inDays)) + "</span></div>";
-    }).join("");
-
-    var tiles = '<div class="tiles">' +
-      '<div class="tile tile-sleep" role="link"><div class="tile-lbl">' + icon("moon") + "<span>" + esc(s.tileSleep) + "</span></div>" +
-      '<div class="tile-val">' + durHtml(DATA.lastNight.minutes, lang) + "</div>" +
-      '<div class="tile-sub">' + DATA.lastNight.bed + " – " + DATA.lastNight.wake + "</div></div>" +
-      '<div class="tile tile-screen" role="link"><div class="tile-lbl">' + icon("phone") + "<span>" + esc(s.tileScreen) + "</span></div>" +
-      '<div class="tile-val">' + durHtml(DATA.screenMinutes, lang) + "</div>" +
-      '<div class="tile-sub">' + esc(s.tileScreenSub(DATA.unlocks)) + "</div></div></div>";
-
-    return topBar(dir, s, s.today) +
-      '<div class="content content-today">' +
-      '<div class="greeting"><h1>' + esc(s.greeting) + (dir === "C" ? '<span class="cursor" aria-hidden="true">_</span>' : "") +
-      '</h1><p class="greet-date">' + esc(dateLong) + "</p></div>" +
-      section(s.secEvents, esc(s.eventsMeta), '<div class="card list">' + events + "</div>") +
-      section(s.secTasks, esc(s.tasksMeta), '<div class="card list">' + tasks + "</div>") +
-      section(s.secDeadlines, esc(s.deadlinesMeta), '<div class="card list">' + deadlines + "</div>") +
-      tiles + "</div>" + fab(s) + bottomBar(dir, s, "today");
+    return topBar(dir, s, s.today, { icons: ["bell"] }) +
+      '<div class="content content-today">' + advice +
+      section(s.secTop, esc(s.topNote), '<div class="card list">' + top + "</div>", "sec-top") +
+      section(s.secToday, esc(s.todayNote), '<div class="card list">' + tasks + "</div>", "sec-today") +
+      "</div>" + floatingFab(dir, s) + bottomBar(dir, s, "today");
   }
 
   /* ------------------------------------------------------------------ */
@@ -394,6 +456,12 @@
     function userMsg(text) {
       return '<div class="msg msg-user"><div class="who">' + esc(s.you) + '</div><div class="bubble"><p>' + esc(text) + "</p></div></div>";
     }
+    // A question the assistant asks on its own initiative: labelled, and skippable.
+    var coach = '<div class="msg msg-bot msg-coach"><div class="coach-head"><span class="coach-tag">' + esc(s.coach) + "</span>" +
+      '<span class="coach-time num">08:30</span></div>' +
+      '<div class="bubble"><p>' + esc(s.coachQ) + "</p></div>" +
+      '<div class="coach-acts"><span class="coach-answer" role="button">' + esc(s.answer) + "</span>" +
+      '<span class="coach-skip" role="button">' + esc(s.skip) + "</span></div></div>";
     var answer = '<div class="msg msg-bot"><div class="who" lang="en">' + esc(s.assistant) + '</div><div class="bubble">' +
       "<p>" + esc(s.chatA1) + "</p><ul><li>" + esc(s.chatLi1) + "</li><li>" + esc(s.chatLi2) + "</li><li>" + esc(s.chatLi3) + "</li></ul>" +
       "<p>" + esc(s.chatA2) + "</p>" +
@@ -409,9 +477,61 @@
       '<span class="send" role="button" aria-label="' + esc(s.send) + '">' +
       (dir === "C" ? '<span class="send-lbl">' + esc(s.send) + "</span>" : icon(dir === "B" ? "plane" : "up")) + "</span></div>";
 
-    return topBar(dir, s, s.chat, { newChat: true }) +
-      '<div class="content content-chat"><div class="thread">' + userMsg(s.chatQ1) + answer + userMsg(s.chatQ2) + working + "</div></div>" +
-      composer + fab(s) + bottomBar(dir, s, "chat");
+    return topBar(dir, s, s.chat, { newChat: true, icons: ["clock", "compose"] }) +
+      '<div class="content content-chat"><div class="thread">' + coach + userMsg(s.chatQ1) + answer + userMsg(s.chatQ2) + working + "</div></div>" +
+      composer + floatingFab(dir, s) + bottomBar(dir, s, "chat");
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Screen: Tasks                                                       */
+  /* ------------------------------------------------------------------ */
+
+  function screenTasks(dir, lang) {
+    var s = STRINGS[lang];
+    var rows = DATA.important.map(function (t) { return taskRow(s, t); }).join("");
+    return topBar(dir, s, s.tasks, { icons: ["search"] }) +
+      '<div class="content content-tasks">' +
+      section(s.secImportant, esc(s.importantNote), '<div class="card list">' + rows + "</div>", "sec-important") +
+      '<span class="btn btn-wide" role="button">' + esc(s.showAll(DATA.openTasks)) + "</span>" +
+      '<p class="foot-note">' + esc(s.tasksFoot(DATA.important.length, DATA.openTasks)) + "</p>" +
+      "</div>" + floatingFab(dir, s) + bottomBar(dir, s, "tasks");
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Screen: Sessions                                                    */
+  /* ------------------------------------------------------------------ */
+
+  function sessionRow(s, ses, folder, pinned) {
+    var name = ses.folder || folder;
+    return '<div class="row session"><span class="thumb" aria-hidden="true">' + esc(name.charAt(0).toUpperCase()) + "</span>" +
+      '<div class="main"><div class="row-t">' + esc(s[ses.title]) + '</div><div class="row-s">' +
+      (ses.folder ? '<span class="path">' + esc(ses.folder) + '</span><span aria-hidden="true">·</span>' : "") +
+      "<span>" + esc(s[ses.when]) + "</span></div></div>" +
+      (ses.inUse ? '<span class="tag tag-live"><span class="live-dot" aria-hidden="true"></span>' + esc(s.inUse) + "</span>" : "") +
+      (ses.reminder ? '<span class="row-icon" role="img" aria-label="' + esc(s.reminderSet) + '" title="' + esc(s.reminderSet) + '">' + icon("bell") + "</span>" : "") +
+      (pinned ? '<span class="row-icon row-pin" aria-hidden="true">' + icon("pin") + "</span>" : "") + "</div>";
+  }
+
+  function screenSessions(dir, lang) {
+    var s = STRINGS[lang];
+    var data = DATA.sessions;
+    function rows(items, folder, pinned) {
+      return '<div class="card list">' + items.map(function (ses) { return sessionRow(s, ses, folder, pinned); }).join("") + "</div>";
+    }
+
+    var search = '<div class="search" role="search">' + icon("search") + '<span class="placeholder">' + esc(s.searchSessions) + "</span></div>";
+    var groups = data.groups.map(function (g) {
+      return section(s[g.name], esc(s.yourGroup), rows(g.items), "sec-group");
+    }).join("");
+    var folders = data.folders.map(function (f) {
+      return '<div class="folder-head">' + icon("folder") + '<span class="path">' + esc(f.folder) + "</span></div>" + rows(f.items, f.folder);
+    }).join("");
+
+    return topBar(dir, s, s.sessions, { back: true, icons: ["compose"] }) +
+      '<div class="content content-sessions">' + search +
+      section(s.pinned, "", rows(data.pinned, "", true), "sec-pinned") + groups +
+      section(s.byFolder, esc(s.automatic), folders, "sec-folders") +
+      "</div>" + floatingFab(dir, s) + bottomBar(dir, s, "more");
   }
 
   /* ------------------------------------------------------------------ */
@@ -421,7 +541,8 @@
   var CHART = {
     A: { width: 322, barW: 16, radius: 3, rowH: 25, barH: 6, right: 66 },
     B: { width: 326, barW: 26, radius: 9, rowH: 24, barH: 10, right: 66 },
-    C: { width: 358, barW: 30, radius: 0, rowH: 24, barH: 12, right: 80 }
+    C: { width: 358, barW: 30, radius: 0, rowH: 24, barH: 12, right: 80 },
+    D: { width: 358, barW: 20, radius: 5, rowH: 26, barH: 6, right: 70 }
   };
 
   function sleepStats() {
@@ -567,14 +688,14 @@
 
     return topBar(dir, s, s.activity, { back: true }) +
       '<div class="content content-activity">' + tabs + last + chart + screen + "</div>" +
-      fab(s) + bottomBar(dir, s, "more");
+      floatingFab(dir, s) + bottomBar(dir, s, "more");
   }
 
   /* ------------------------------------------------------------------ */
   /* Page assembly                                                       */
   /* ------------------------------------------------------------------ */
 
-  var SCREENS = { today: screenToday, chat: screenChat, activity: screenActivity };
+  var SCREENS = { today: screenToday, chat: screenChat, tasks: screenTasks, sessions: screenSessions, activity: screenActivity };
 
   function phone(dir, screen, theme, lang, caption, sub) {
     return '<figure class="frame"><div class="device"><div class="phone screen-' + screen + '" data-dir="' + dir +
@@ -592,6 +713,10 @@
     return html + "</span></div>";
   }
 
+  function dirLabel(s, d) {
+    return d + " · " + s.dirName[d] + (d === CHOSEN ? "" : " (" + s.notChosen + ")");
+  }
+
   function render() {
     var s = STRINGS[state.lang];
     var compare = state.view === "compare";
@@ -606,7 +731,7 @@
       '<div class="chrome-title"><h1>' + esc(s.pageTitle) + "</h1><p>" + esc(s.pageNote) + "</p></div>" +
       '<div class="ctls">' +
       segmented("view", s.ctlView, [{ value: "single", label: s.viewSingle }, { value: "compare", label: s.viewCompare }]) +
-      segmented("dir", s.ctlDir, OPTIONS.dir.map(function (d) { return { value: d, label: d + " · " + s.dirName[d] }; }), compare) +
+      segmented("dir", s.ctlDir, OPTIONS.dir.map(function (d) { return { value: d, label: dirLabel(s, d) }; }), compare) +
       segmented("screen", s.ctlScreen, OPTIONS.screen.map(function (k) { return { value: k, label: s[k] }; }), !compare) +
       segmented("theme", s.ctlTheme, [{ value: "light", label: s.light }, { value: "dark", label: s.dark }]) +
       segmented("lang", s.ctlLang, [{ value: "en", label: "EN" }, { value: "tr", label: "TR" }]) +
@@ -614,12 +739,14 @@
 
     var stage = "";
     if (compare) {
-      OPTIONS.dir.forEach(function (d) {
-        stage += phone(d, state.screen, state.theme, state.lang, d + " · " + s.dirName[d], s.dirBlurb[d]);
+      // The chosen direction first; directions without this screen are left out.
+      [CHOSEN].concat(OPTIONS.dir.filter(function (d) { return d !== CHOSEN; })).forEach(function (d) {
+        if (DIR_SCREENS[d].indexOf(state.screen) === -1) { return; }
+        stage += phone(d, state.screen, state.theme, state.lang, dirLabel(s, d), s.dirBlurb[d]);
       });
     } else {
-      stage += '<p class="blurb"><strong>' + esc(state.dir + " · " + s.dirName[state.dir]) + "</strong> " + esc(s.dirBlurb[state.dir]) + "</p>";
-      OPTIONS.screen.forEach(function (k) {
+      stage += '<p class="blurb"><strong>' + esc(dirLabel(s, state.dir)) + "</strong> " + esc(s.dirBlurb[state.dir]) + "</p>";
+      DIR_SCREENS[state.dir].forEach(function (k) {
         stage += phone(state.dir, k, state.theme, state.lang, s[k], "");
       });
     }
