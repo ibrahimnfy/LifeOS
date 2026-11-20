@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import (
     __version__,
+    activity,
     allowed,
     capable,
     claude,
@@ -749,6 +750,27 @@ def create_app(settings: Settings) -> FastAPI:
     async def update_event(event_id: str, request: Request):
         data = await read_json_object(request)
         return (await asyncio.to_thread(memory.update_event, brain, event_id, data)).as_json()
+
+    @app.post("/activity/usage", status_code=201)
+    async def record_usage(request: Request):
+        """One day of screen time, unlocks and app usage from the phone."""
+        data = await read_json_object(request)
+        return await asyncio.to_thread(activity.record_usage, brain, data)
+
+    @app.post("/activity/sleep", status_code=201)
+    async def record_sleep(request: Request):
+        """One night's sleep: entered by the owner, or estimated by the phone."""
+        data = await read_json_object(request)
+        return await asyncio.to_thread(activity.record_sleep, brain, data)
+
+    @app.get("/activity")
+    async def read_activity(start: str | None = None, end: str | None = None):
+        """Recorded days (default: the last 30)."""
+        last = read_day(end, "end")
+        first = memory.read_date(start, "start") if start is not None else last - timedelta(days=29)
+        if first > last or (last - first).days > 400:
+            raise ClaudeError("bad_request", 400, "`start` and `end` must span at most 400 days")
+        return {"days": await asyncio.to_thread(activity.read, brain, first, last)}
 
     @app.get("/agenda")
     async def agenda(day: str | None = None, days: int = 7):

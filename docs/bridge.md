@@ -112,6 +112,8 @@ documented here as they are built.
 | GET / POST | `/events` | yes | Lists or creates calendar events |
 | PATCH | `/events/{id}` | yes | Changes an event |
 | GET | `/agenda` | yes | Today's events and tasks, overdue tasks, the coming days |
+| POST | `/activity/usage`, `/activity/sleep` | yes | The phone's daily screen-time and sleep summaries |
+| GET | `/activity` | yes | Recorded days of phone activity |
 | GET | `/context-map` | yes | Allowed folders and their summary files in the memory |
 | POST | `/context-map/refresh` | yes | Writes or updates those summaries |
 | GET / POST / DELETE | `/allowed-paths` | yes | Lists, adds or removes an allowed folder |
@@ -530,6 +532,14 @@ git, or **has a git remote**: the memory must stay on the computer.
   today in the computer's local time) returns `events_today`, `tasks_today`,
   `tasks_overdue` and `upcoming` (`events` and task `deadlines` of the next
   `days` days).
+
+- **Phone activity.** `POST /activity/usage` with `{"date",
+  "screen_minutes", "unlocks", "apps": [{"label", "minutes"}]}` and
+  `POST /activity/sleep` with `{"date" (the morning), "bed": "HH:MM",
+  "wake": "HH:MM", "estimated": bool}` store one line per day and kind in
+  `activity/YYYY-MM.md` of the memory folder (a second upload for the same
+  day replaces the line; at most 20 apps are kept). `GET /activity?start=
+  &end=` returns the recorded days (default: the last 30).
 
 **Memory in `/ask`.** A conversation in the memory folder starts with the
 memory loaded: the bridge passes the memory's `CLAUDE.md`, `INDEX.md`,
