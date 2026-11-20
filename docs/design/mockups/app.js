@@ -1,7 +1,8 @@
 /*
  * LifeOS visual-direction mockups.
- * One content model, one EN/TR string table, four direction skins
- * (D — monochrome is the chosen one; A, B and C are kept for reference).
+ * One content model, one EN/TR string table, four direction skins.
+ * D is the chosen skin and comes in three token variants (D1, D2, D3) that
+ * share every layout rule; A, B and C are kept for reference.
  * Everything shown is invented placeholder content. No network, no build step.
  */
 (function () {
@@ -15,13 +16,15 @@
     en: {
       pageTitle: "LifeOS app — visual directions",
       pageNote: "Static mockup. All content is invented placeholder data.",
-      ctlView: "View", viewSingle: "One direction", viewCompare: "Compare all",
+      ctlView: "View", viewSingle: "One direction", viewCompare: "Compare D1 · D2 · D3", viewDirections: "Earlier directions",
       ctlDir: "Direction", ctlScreen: "Screen", ctlTheme: "Theme", ctlLang: "Language",
-      light: "Light", dark: "Dark",
+      light: "Light", dark: "Dark", both: "Both",
       notChosen: "not chosen",
-      dirName: { A: "Calm paper", B: "Material You", C: "Dark console", D: "Monochrome" },
+      dirName: { A: "Calm paper", B: "Material You", C: "Dark console", D1: "Blue night", D2: "Warm glow", D3: "Balanced" },
       dirBlurb: {
-        D: "Quiet and plain: pure white or pure black, neutral greys, thin line icons, an icon-only bottom bar, hairline dividers. Colour appears only where it carries meaning.",
+        D1: "Cool and calm: a soft blue-white in light, a deep blue-black in dark. The accent is led by blue and runs through violet to pink; the ring is thin.",
+        D2: "Warm and lively: a warm off-white in light, charcoal in dark. The accent is led by the gradient, from orange through pink to violet; the ring is the widest.",
+        D3: "In between: neutral soft greys in light, a blue-tinted charcoal in dark. The accent runs from violet through pink to orange; the ring is medium.",
         A: "A quiet notebook: warm paper, serif titles, hairline cards, one deep-teal accent.",
         B: "Native and familiar: tonal surfaces and standard Material 3 shapes. Colours would follow the phone's wallpaper; one example palette is shown.",
         C: "A focused tool: near-black, high contrast, monospace headings and numbers, one amber accent. Dark is its primary look."
@@ -30,6 +33,8 @@
       capture: "Capture a note or task", back: "Back", nav: "Main navigation",
       connected: "Connected", connectedLong: "Connected to the computer",
       search: "Search", reminders: "Reminders",
+      newReminders: function (n) { return n + " new reminders"; },
+      unread: function (n) { return n + " unread"; },
       adviceLabel: "Today's focus",
       adviceText: "Finish the Project Alpha outline before anything else. The rest of the week builds on it.",
       why: "Why",
@@ -86,13 +91,15 @@
     tr: {
       pageTitle: "LifeOS uygulaması — görsel yönler",
       pageNote: "Durağan taslak. Tüm içerik uydurma örnek veridir.",
-      ctlView: "Görünüm", viewSingle: "Tek yön", viewCompare: "Hepsini karşılaştır",
+      ctlView: "Görünüm", viewSingle: "Tek yön", viewCompare: "D1 · D2 · D3'ü karşılaştır", viewDirections: "Önceki yönler",
       ctlDir: "Yön", ctlScreen: "Ekran", ctlTheme: "Tema", ctlLang: "Dil",
-      light: "Açık", dark: "Koyu",
+      light: "Açık", dark: "Koyu", both: "İkisi de",
       notChosen: "seçilmedi",
-      dirName: { A: "Sakin kâğıt", B: "Material You", C: "Koyu konsol", D: "Monokrom" },
+      dirName: { A: "Sakin kâğıt", B: "Material You", C: "Koyu konsol", D1: "Mavi gece", D2: "Sıcak ışıltı", D3: "Dengeli" },
       dirBlurb: {
-        D: "Sakin ve yalın: saf beyaz ya da saf siyah zemin, nötr griler, ince çizgi ikonlar, yalnızca ikonlu alt çubuk, ince ayırıcı çizgiler. Renk yalnızca anlam taşıdığı yerde kullanılır.",
+        D1: "Serin ve sakin: açık temada yumuşak mavimsi beyaz, koyu temada derin lacivert-siyah. Vurguyu mavi taşır; geçiş maviden mora, oradan pembeye uzanır. Halka incedir.",
+        D2: "Sıcak ve canlı: açık temada sıcak kırık beyaz, koyu temada kömür grisi. Vurguyu renk geçişi taşır: turuncudan pembeye, oradan mora. Halka en kalın olanıdır.",
+        D3: "İkisinin arası: açık temada nötr yumuşak griler, koyu temada mavimsi kömür grisi. Geçiş mordan pembeye, oradan turuncuya uzanır. Halka orta kalınlıktadır.",
         A: "Sessiz bir defter: sıcak kâğıt tonu, serif başlıklar, ince çizgili kartlar, tek bir koyu turkuaz vurgu.",
         B: "Tanıdık ve yerel: tonlu yüzeyler ve standart Material 3 biçimleri. Renkler telefonun duvar kâğıdından gelir; burada örnek bir palet gösteriliyor.",
         C: "Odaklı bir araç: siyaha yakın zemin, yüksek kontrast, eş aralıklı başlık ve rakamlar, tek bir kehribar vurgu. Asıl görünümü koyu temadır."
@@ -101,6 +108,8 @@
       capture: "Not ya da görev ekle", back: "Geri", nav: "Ana gezinme",
       connected: "Bağlı", connectedLong: "Bilgisayara bağlı",
       search: "Ara", reminders: "Hatırlatıcılar",
+      newReminders: function (n) { return n + " yeni hatırlatıcı"; },
+      unread: function (n) { return n + " okunmamış"; },
       adviceLabel: "Bugünün odağı",
       adviceText: "Her şeyden önce Alfa Projesi taslağını bitir. Haftanın geri kalanı ona dayanıyor.",
       why: "Neden",
@@ -185,13 +194,16 @@
       { title: "task7", sub: "task7Sub" }
     ],
     openTasks: 23,
+    // Counts shown as red badges (direction D): the bell on Today and the chat icon.
+    newReminders: 3,
+    unreadChat: 1,
     // Sessions: pinned, owner-made groups, then automatic groups by folder.
     sessions: {
       pinned: [{ title: "ses1", folder: "planning", when: "ago12m", inUse: true }],
       groups: [
         { name: "group1", items: [
           { title: "ses2", folder: "thesis", when: "ago2h", reminder: true },
-          { title: "ses3", folder: "thesis", when: "yesterday" }
+          { title: "ses3", folder: "thesis", when: "yesterday", unread: 2 }
         ] },
         { name: "group2", items: [{ title: "ses4", folder: "project-alpha", when: "yesterday" }] }
       ],
@@ -221,20 +233,25 @@
   /* ------------------------------------------------------------------ */
 
   var OPTIONS = {
-    view: ["single", "compare"],
-    dir: ["A", "B", "C", "D"],
+    view: ["single", "compare", "directions"],
+    dir: ["D1", "D2", "D3", "A", "B", "C"],
     screen: ["today", "chat", "tasks", "sessions", "activity"],
-    theme: ["light", "dark"],
+    theme: ["light", "dark", "both"],
     lang: ["en", "tr"]
   };
-  // Screens drawn per direction. Tasks and Sessions exist only in the chosen direction.
-  var DIR_SCREENS = {
+  // D1, D2 and D3 are token variants of one skin ("D"): same markup, same
+  // layout rules, different custom-property values.
+  var VARIANTS = ["D1", "D2", "D3"];
+  function skinOf(dir) { return VARIANTS.indexOf(dir) === -1 ? dir : "D"; }
+  // Screens drawn per skin. Tasks and Sessions exist only in the chosen skin.
+  var SKIN_SCREENS = {
     A: ["today", "chat", "activity"],
     B: ["today", "chat", "activity"],
     C: ["today", "chat", "activity"],
     D: ["today", "chat", "tasks", "sessions", "activity"]
   };
-  var CHOSEN = "D";
+  var CHOSEN = "D1"; // the default variant
+  var ALIASES = { dir: { d: "D1" } }; // links made before D was split still work
   var state = { view: "single", dir: CHOSEN, screen: "today", theme: "light", lang: "en" };
 
   function readUrl() {
@@ -245,8 +262,10 @@
     Object.keys(OPTIONS).forEach(function (key) {
       var raw = given[key];
       if (!raw) { return; }
+      var wanted = raw.toLowerCase();
+      if (ALIASES[key] && ALIASES[key][wanted]) { wanted = ALIASES[key][wanted].toLowerCase(); }
       var match = OPTIONS[key].filter(function (opt) {
-        return opt.toLowerCase() === raw.toLowerCase();
+        return opt.toLowerCase() === wanted;
       })[0];
       if (match) { state[key] = match; }
     });
@@ -365,13 +384,21 @@
       '<span class="status-dot" aria-hidden="true"></span>' +
       '<span class="status-lbl">' + esc(s.connected) + "</span></span>";
     if (dir === "D") {
-      // Monochrome: icon-only actions, each named for screen readers.
+      // Icon-only actions, each named for screen readers. The bell can carry a count.
       (opts.icons || []).forEach(function (name) {
         var label = { bell: s.reminders, clock: s.sessions, compose: s.newChat, search: s.search }[name];
-        html += '<span class="tb-icon" role="button" aria-label="' + esc(label) + '" title="' + esc(label) + '">' + icon(name) + "</span>";
+        var count = name === "bell" ? opts.bellCount : 0;
+        if (count) { label += " (" + s.newReminders(count) + ")"; }
+        html += '<span class="tb-icon" role="button" aria-label="' + esc(label) + '" title="' + esc(label) + '">' + icon(name) +
+          (count ? badge(count, "badge-corner") : "") + "</span>";
       });
     }
     return html + "</header>";
+  }
+
+  /** A small red count. Its meaning is carried by the parent's aria-label. */
+  function badge(count, extraClass) {
+    return '<span class="badge num ' + (extraClass || "") + '" aria-hidden="true">' + count + "</span>";
   }
 
   function fab(s) {
@@ -386,11 +413,14 @@
     var html = '<nav class="bottombar" aria-label="' + esc(s.nav) + '">';
     items.forEach(function (key, i) {
       var on = key === current;
+      // In D the chat icon shows an unread count while another screen is open.
+      var count = dir === "D" && key === "chat" && !on ? DATA.unreadChat : 0;
+      var name = s[key] + (count ? " (" + s.unread(count) + ")" : "");
       if (dir === "D" && i === 2) { html += fab(s); }
       // The label is hidden in D (icon-only bar), so the name also goes on the item.
-      html += '<span class="nav-item' + (on ? " on" : "") + '" role="link" aria-label="' + esc(s[key]) + '" title="' + esc(s[key]) + '"' +
+      html += '<span class="nav-item' + (on ? " on" : "") + '" role="link" aria-label="' + esc(name) + '" title="' + esc(name) + '"' +
         (on ? ' aria-current="page"' : "") + ">" +
-        '<span class="nav-ind">' + icon(key, on ? "is-on" : "") + "</span>" +
+        '<span class="nav-ind">' + icon(key, on ? "is-on" : "") + (count ? badge(count, "badge-corner") : "") + "</span>" +
         '<span class="nav-lbl" aria-hidden="true">' + esc(s[key]) + "</span></span>";
     });
     return html + '<span class="gesture" aria-hidden="true"></span></nav>';
@@ -419,7 +449,10 @@
   function screenToday(dir, lang) {
     var s = STRINGS[lang];
 
-    var advice = '<section class="card advice"><div class="advice-k">' + esc(s.adviceLabel) + "</div>" +
+    // The featured "coach card". In D it carries the coach label and the accent ring.
+    var advice = '<section class="card advice"><div class="advice-k">' +
+      (dir === "D" ? '<span class="coach-tag">' + esc(s.coach) + "</span>" : "") +
+      "<span>" + esc(s.adviceLabel) + "</span></div>" +
       '<p class="advice-t">' + esc(s.adviceText) + "</p>" +
       '<p class="advice-why"><b>' + esc(s.why) + "</b> " + esc(s.adviceWhy) + "</p></section>";
 
@@ -430,7 +463,7 @@
 
     var tasks = DATA.today.map(function (t) { return taskRow(s, t); }).join("");
 
-    return topBar(dir, s, s.today, { icons: ["bell"] }) +
+    return topBar(dir, s, s.today, { icons: ["bell"], bellCount: DATA.newReminders }) +
       '<div class="content content-today">' + advice +
       section(s.secTop, esc(s.topNote), '<div class="card list">' + top + "</div>", "sec-top") +
       section(s.secToday, esc(s.todayNote), '<div class="card list">' + tasks + "</div>", "sec-today") +
@@ -503,11 +536,12 @@
 
   function sessionRow(s, ses, folder, pinned) {
     var name = ses.folder || folder;
-    return '<div class="row session"><span class="thumb" aria-hidden="true">' + esc(name.charAt(0).toUpperCase()) + "</span>" +
+    return '<div class="row session"><span class="thumb' + (pinned ? " is-featured" : "") + '" aria-hidden="true">' + esc(name.charAt(0).toUpperCase()) + "</span>" +
       '<div class="main"><div class="row-t">' + esc(s[ses.title]) + '</div><div class="row-s">' +
       (ses.folder ? '<span class="path">' + esc(ses.folder) + '</span><span aria-hidden="true">·</span>' : "") +
       "<span>" + esc(s[ses.when]) + "</span></div></div>" +
       (ses.inUse ? '<span class="tag tag-live"><span class="live-dot" aria-hidden="true"></span>' + esc(s.inUse) + "</span>" : "") +
+      (ses.unread ? '<span class="badge num" role="img" aria-label="' + esc(s.unread(ses.unread)) + '" title="' + esc(s.unread(ses.unread)) + '">' + ses.unread + "</span>" : "") +
       (ses.reminder ? '<span class="row-icon" role="img" aria-label="' + esc(s.reminderSet) + '" title="' + esc(s.reminderSet) + '">' + icon("bell") + "</span>" : "") +
       (pinned ? '<span class="row-icon row-pin" aria-hidden="true">' + icon("pin") + "</span>" : "") + "</div>";
   }
@@ -698,8 +732,10 @@
   var SCREENS = { today: screenToday, chat: screenChat, tasks: screenTasks, sessions: screenSessions, activity: screenActivity };
 
   function phone(dir, screen, theme, lang, caption, sub) {
-    return '<figure class="frame"><div class="device"><div class="phone screen-' + screen + '" data-dir="' + dir +
-      '" data-theme="' + theme + '" lang="' + lang + '">' + statusBar() + SCREENS[screen](dir, lang) + "</div></div>" +
+    var skin = skinOf(dir);
+    return '<figure class="frame"><div class="device"><div class="phone screen-' + screen + '" data-dir="' + skin + '"' +
+      (skin === dir ? "" : ' data-variant="' + dir + '"') +
+      ' data-theme="' + theme + '" lang="' + lang + '">' + statusBar() + SCREENS[screen](skin, lang) + "</div></div>" +
       '<figcaption><strong>' + esc(caption) + "</strong>" + (sub ? "<span>" + esc(sub) + "</span>" : "") + "</figcaption></figure>";
   }
 
@@ -714,42 +750,57 @@
   }
 
   function dirLabel(s, d) {
-    return d + " · " + s.dirName[d] + (d === CHOSEN ? "" : " (" + s.notChosen + ")");
+    return d + " · " + s.dirName[d] + (skinOf(d) === "D" ? "" : " (" + s.notChosen + ")");
   }
 
   function render() {
     var s = STRINGS[state.lang];
-    var compare = state.view === "compare";
+    var single = state.view === "single";
+    // "both" draws a light band and a dark band; the page chrome itself stays light.
+    var themes = state.theme === "both" ? ["light", "dark"] : [state.theme];
     uid = 0;
 
     document.documentElement.lang = state.lang;
     document.title = s.pageTitle;
-    document.body.setAttribute("data-page-theme", state.theme);
+    document.body.setAttribute("data-page-theme", themes[0]);
     document.body.setAttribute("data-view", state.view);
 
     document.getElementById("chrome").innerHTML =
       '<div class="chrome-title"><h1>' + esc(s.pageTitle) + "</h1><p>" + esc(s.pageNote) + "</p></div>" +
       '<div class="ctls">' +
-      segmented("view", s.ctlView, [{ value: "single", label: s.viewSingle }, { value: "compare", label: s.viewCompare }]) +
-      segmented("dir", s.ctlDir, OPTIONS.dir.map(function (d) { return { value: d, label: dirLabel(s, d) }; }), compare) +
-      segmented("screen", s.ctlScreen, OPTIONS.screen.map(function (k) { return { value: k, label: s[k] }; }), !compare) +
-      segmented("theme", s.ctlTheme, [{ value: "light", label: s.light }, { value: "dark", label: s.dark }]) +
+      segmented("view", s.ctlView, [{ value: "single", label: s.viewSingle }, { value: "compare", label: s.viewCompare },
+        { value: "directions", label: s.viewDirections }]) +
+      segmented("dir", s.ctlDir, OPTIONS.dir.map(function (d) { return { value: d, label: dirLabel(s, d) }; }), !single) +
+      segmented("screen", s.ctlScreen, OPTIONS.screen.map(function (k) { return { value: k, label: s[k] }; }), single) +
+      segmented("theme", s.ctlTheme, [{ value: "light", label: s.light }, { value: "dark", label: s.dark }, { value: "both", label: s.both }]) +
       segmented("lang", s.ctlLang, [{ value: "en", label: "EN" }, { value: "tr", label: "TR" }]) +
       "</div>";
 
+    // compare: the three variants of the chosen skin. directions: the default
+    // variant next to the earlier directions that have this screen.
+    var dirs = state.view === "compare" ? VARIANTS : [CHOSEN, "A", "B", "C"].filter(function (d) {
+      return SKIN_SCREENS[skinOf(d)].indexOf(state.screen) !== -1;
+    });
+
     var stage = "";
-    if (compare) {
-      // The chosen direction first; directions without this screen are left out.
-      [CHOSEN].concat(OPTIONS.dir.filter(function (d) { return d !== CHOSEN; })).forEach(function (d) {
-        if (DIR_SCREENS[d].indexOf(state.screen) === -1) { return; }
-        stage += phone(d, state.screen, state.theme, state.lang, dirLabel(s, d), s.dirBlurb[d]);
-      });
-    } else {
+    if (single) {
       stage += '<p class="blurb"><strong>' + esc(dirLabel(s, state.dir)) + "</strong> " + esc(s.dirBlurb[state.dir]) + "</p>";
-      DIR_SCREENS[state.dir].forEach(function (k) {
-        stage += phone(state.dir, k, state.theme, state.lang, s[k], "");
-      });
     }
+    themes.forEach(function (theme, i) {
+      stage += '<section class="band" data-page-theme="' + theme + '">';
+      if (themes.length > 1) { stage += '<h2 class="band-title">' + esc(s[theme]) + "</h2>"; }
+      if (single) {
+        SKIN_SCREENS[skinOf(state.dir)].forEach(function (k) {
+          stage += phone(state.dir, k, theme, state.lang, s[k], "");
+        });
+      } else {
+        dirs.forEach(function (d) {
+          // The description is printed once, under the first band.
+          stage += phone(d, state.screen, theme, state.lang, dirLabel(s, d), i === 0 ? s.dirBlurb[d] : "");
+        });
+      }
+      stage += "</section>";
+    });
     document.getElementById("stage").innerHTML = stage;
     document.getElementById("foot").textContent = s.pageNote;
     writeUrl();

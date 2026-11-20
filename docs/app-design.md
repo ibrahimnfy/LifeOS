@@ -2,7 +2,7 @@
 
 Status: **in review.** Navigation, chat behaviour, the screen list and the
 content of Today, Tasks and Sessions are agreed with the owner. The visual
-direction is being refined from the mockups of direction D in
+direction is being refined from the mockups of the variants D1 to D3 in
 [`docs/design/mockups/`](design/mockups/). No app code is
 written before the review issue is closed. Examples below are generic
 placeholders.
@@ -311,22 +311,31 @@ direction and is refined from its mockups in
 [`docs/design/mockups/`](design/mockups/) (open `index.html` in a browser;
 light and dark, English and Turkish).
 
-### D. Monochrome *(working direction)*
+### D. Soft tones with colour where it matters *(working direction)*
 
-- **Feel:** quiet and plain, following layout conventions that are familiar
-  from mainstream photo-sharing apps: structure and proportions only.
-- **Colour:** pure white background in light mode, pure black in dark mode,
-  neutral greys, almost no colour. Colour appears only where it carries
-  meaning (a small status dot).
-- **Bottom bar:** slim, icons only, thin line icons; the capture button in
-  the centre.
-- **Shapes and spacing:** generous spacing, hairline dividers, list rows with
-  a round mark on the left, full-width rounded buttons.
-- **Type:** the system sans-serif; bold screen titles on the left of a
-  compact top bar, one or two line icons on the right.
-- **Own designs only:** icons and buttons are drawn for this project. No
-  third-party logos, assets, gradients, icon sets or product names anywhere
-  in the repository.
+The first mockup of D was plain black and white; the owner found the
+structure right but the look flat and too stark. D is now mocked up in three
+variants, **D1, D2, D3**, to be compared side by side (light and dark).
+
+- **Structure (accepted):** layout conventions familiar from mainstream
+  photo-sharing apps, structure and proportions only: a slim icon-only bottom
+  bar with the capture button in its centre, a compact top bar with a bold
+  title and one or two line icons, list rows with a round mark on the left,
+  hairline dividers, generous spacing, full-width rounded buttons, the system
+  sans-serif.
+- **Base:** a slightly soft white in light mode; a deep blue-black or
+  charcoal in dark mode; soft grey card surfaces; subtle dividers.
+- **Colour where it matters:** a vivid blue for primary buttons and links;
+  red for notification badges and counts; a warm multi-colour gradient (own
+  tones in the pink / orange / purple range) as a ring or highlight on
+  featured elements: the coach card, pinned sessions, the active state.
+- **Variants:** D1 cool (blue-black dark mode, blue-led accent, thin ring);
+  D2 warm (warm off-white, charcoal, gradient-led accent, thick ring); D3 in
+  between. Exact tones and contrast ratios are listed in the mockups'
+  README; body text meets the usual contrast recommendation in all six.
+- **Own designs only:** icons, buttons and tones are made for this project.
+  No third-party logos, assets, gradients, icon sets or product names
+  anywhere in the repository.
 
 Earlier proposals, **not chosen**. All four share: Material 3 components,
 light and dark themes, generous spacing, large readable type, edge-to-edge
@@ -391,4 +400,4 @@ layout, subtle motion (short fades and slides, nothing bouncy).
 | Tasks: prioritised, the rest behind "show all" | set by the owner |
 | Sessions: groups, rename, pin, reminders, reply notifications | set by the owner |
 | Coach: questions in chat, nudges with limits | set by the owner; design in `coach-design.md` |
-| Visual direction | A, B, C not chosen; **D** mocked up, **open**: the owner refines from the mockups |
+| Visual direction | A, B, C not chosen; D's structure accepted; variants **D1, D2, D3** mocked up, **open**: the owner chooses and refines |

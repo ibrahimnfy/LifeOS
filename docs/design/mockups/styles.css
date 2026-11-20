@@ -7,10 +7,12 @@
  *   3. Direction A — Calm paper     (tokens, then components)
  *   4. Direction B — Material You   (tokens, then components)
  *   5. Direction C — Dark console   (tokens, then components)
- *   6. Direction D — Monochrome     (tokens, then components) — the chosen one
+ *   6. Direction D — the chosen one. One set of component rules and three
+ *      token variants (D1, D2, D3): one custom-property block per variant
+ *      and theme, nothing else differs between them.
  *
- * Tokens are scoped to each .phone via data-dir / data-theme, so several
- * directions can sit on one page (comparison view).
+ * Tokens are scoped to each .phone via data-dir / data-variant / data-theme,
+ * so several directions, variants and themes can sit on one page.
  */
 
 /* ===================================================================== */
@@ -19,7 +21,7 @@
 
 * { box-sizing: border-box; }
 
-body {
+body, [data-page-theme="light"] {
   --page-bg: #e7e7ea;
   --page-text: #1c1c20;
   --page-muted: #55555e;
@@ -27,12 +29,14 @@ body {
   --page-line: #c9c9d1;
   --page-on: #1c1c20;
   --page-on-text: #ffffff;
+}
+body {
   margin: 0;
   background: var(--page-bg);
   color: var(--page-text);
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
 }
-body[data-page-theme="dark"] {
+[data-page-theme="dark"] {
   --page-bg: #17171a;
   --page-text: #ececf0;
   --page-muted: #a9a9b4;
@@ -65,17 +69,23 @@ body[data-page-theme="dark"] {
 .ctl-seg button:disabled { cursor: default; }
 .ctl-seg button:focus-visible { outline: 2px solid #3b82f6; outline-offset: -2px; }
 
-.stage {
+/* One band per theme shown; with theme=both a light band sits above a dark one. */
+.band {
   display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start;
-  gap: 28px 24px; padding: 24px 24px 40px;
+  gap: 28px 24px; padding: 24px 24px 36px;
+  background: var(--page-bg); color: var(--page-text);
 }
-.blurb { flex: 0 0 100%; max-width: 1240px; margin: 0 auto; text-align: center; color: var(--page-muted); }
+.band-title {
+  flex: 0 0 100%; margin: 0; text-align: center;
+  font-size: 12px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--page-muted);
+}
+.blurb { max-width: 1240px; margin: 0 auto; padding: 20px 24px 0; text-align: center; color: var(--page-muted); }
 .blurb strong { color: var(--page-text); margin-right: 6px; }
 .frame { margin: 0; width: 410px; }
 .frame figcaption { margin-top: 14px; text-align: center; display: flex; flex-direction: column; gap: 4px; }
 .frame figcaption strong { font-size: 15px; }
 .frame figcaption span { color: var(--page-muted); font-size: 13px; padding: 0 8px; }
-.chrome-foot { padding: 0 24px 28px; text-align: center; color: var(--page-muted); font-size: 12.5px; }
+.chrome-foot { padding: 12px 24px 28px; text-align: center; color: var(--page-muted); font-size: 12.5px; }
 
 /* ===================================================================== */
 /* 2. Phone frame and shared skeleton                                     */
@@ -198,6 +208,7 @@ body[data-page-theme="dark"] {
 }
 
 /* Tasks and Sessions (drawn in direction D only) */
+.badge { flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .btn { display: flex; align-items: center; justify-content: center; white-space: nowrap; }
 .foot-note { text-align: center; }
 .search { flex: none; display: flex; align-items: center; gap: 8px; }
@@ -558,28 +569,73 @@ body[data-page-theme="dark"] {
 [data-dir="C"] .screen-meta { font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
 
 /* ===================================================================== */
-/* 6. Direction D — Monochrome (the chosen direction)                     */
-/*    Pure white / pure black, neutral greys, thin line icons, icon-only  */
-/*    bottom bar. Colour only where it carries meaning: the status dot,   */
-/*    the "in use" dot and the overdue mark.                              */
+/* 6. Direction D — the chosen direction, in three token variants         */
+/*    Soft base tones instead of pure white and black, grey card          */
+/*    surfaces, subtle dividers. Colour sits on what matters: a vivid     */
+/*    blue for primary buttons and links, red for counts, and a warm      */
+/*    three-stop gradient as a ring or highlight on featured and active   */
+/*    elements. All hex values below were picked for this project.        */
 /* ===================================================================== */
 
+/* Shared by every variant: fonts, metrics, and tokens derived from the   */
+/* variant tokens. No colour is set here directly.                        */
 .phone[data-dir="D"] {
   --font-ui: system-ui, -apple-system, "Segoe UI", "Roboto", "Noto Sans", "Helvetica Neue", Arial, sans-serif;
   --font-display: var(--font-ui);
   --font-mono: ui-monospace, "Noto Sans Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
   --font-num: var(--font-ui);
-  --pad: 16px; --gap: 20px; --nav-h: 64px; --composer-h: 60px; --fab: 40px;
+  --pad: 16px; --gap: 20px; --nav-h: 64px; --composer-h: 60px; --fab: 46px;
+  --grad: linear-gradient(135deg, var(--grad-1), var(--grad-2), var(--grad-3));
+  --border: var(--divider); --on-text: var(--bg); --alert: var(--badge);
+  --chart: var(--text); --chart-line: var(--text); --hatch-bg: var(--bg); --grid: var(--divider); --track: var(--surface-2);
 }
-.phone[data-dir="D"][data-theme="light"] {
-  --bg: #ffffff; --surface: #f3f3f3; --border: #e3e3e3; --text: #0c0c0c; --muted: #6e6e6e;
-  --on-text: #ffffff; --ok: #1e9e58; --alert: #cf2f24;
-  --chart: #0c0c0c; --chart-line: #0c0c0c; --hatch-bg: #ffffff; --grid: #e3e3e3; --track: #ececec;
+
+/* D1 — Blue night: cool base, blue-led accent (blue, violet, pink), thin ring. */
+.phone[data-variant="D1"][data-theme="light"] {
+  --bg: #f6f8fc; --surface: #ebeff6; --surface-2: #dfe5ef; --divider: #d5dce8;
+  --text: #121826; --muted: #535e72;
+  --primary: #1b62e8; --on-primary: #ffffff; --link: #1553cc;
+  --badge: #d91f3a; --on-badge: #ffffff; --ok: #157a43;
+  --grad-1: #2f6bff; --grad-2: #7a55f2; --grad-3: #e0489a; --ring-w: 2px;
 }
-.phone[data-dir="D"][data-theme="dark"] {
-  --bg: #000000; --surface: #191919; --border: #2b2b2b; --text: #f4f4f4; --muted: #a3a3a3;
-  --on-text: #000000; --ok: #3fd684; --alert: #ff6f61;
-  --chart: #f4f4f4; --chart-line: #f4f4f4; --hatch-bg: #000000; --grid: #2b2b2b; --track: #222222;
+.phone[data-variant="D1"][data-theme="dark"] {
+  --bg: #0b1220; --surface: #141d2e; --surface-2: #1e293d; --divider: #28344b;
+  --text: #e8edf6; --muted: #9ba7bb;
+  --primary: #1f66e8; --on-primary: #ffffff; --link: #78acff;
+  --badge: #dc2742; --on-badge: #ffffff; --ok: #3fd684;
+  --grad-1: #4f86ff; --grad-2: #9273ff; --grad-3: #f065ad; --ring-w: 2px;
+}
+
+/* D2 — Warm glow: warm base, gradient-led accent (orange, pink, violet), widest ring. */
+.phone[data-variant="D2"][data-theme="light"] {
+  --bg: #faf7f2; --surface: #f1ece4; --surface-2: #e6dfd4; --divider: #ddd5c8;
+  --text: #1f1b17; --muted: #61594f;
+  --primary: #2260e0; --on-primary: #ffffff; --link: #1a51c4;
+  --badge: #d42a2a; --on-badge: #ffffff; --ok: #1b7a3f;
+  --grad-1: #e5631a; --grad-2: #e63f7c; --grad-3: #8f4fe8; --ring-w: 4px;
+}
+.phone[data-variant="D2"][data-theme="dark"] {
+  --bg: #171615; --surface: #222120; --surface-2: #2e2c2a; --divider: #393633;
+  --text: #f1ede7; --muted: #aaa399;
+  --primary: #2466e6; --on-primary: #ffffff; --link: #82b1ff;
+  --badge: #dc3030; --on-badge: #ffffff; --ok: #4ed58a;
+  --grad-1: #ff9550; --grad-2: #f55c92; --grad-3: #a574ff; --ring-w: 4px;
+}
+
+/* D3 — Balanced: neutral base, accent from violet through pink to orange, medium ring. */
+.phone[data-variant="D3"][data-theme="light"] {
+  --bg: #f8f8fa; --surface: #eeeef2; --surface-2: #e3e3e9; --divider: #d9d9e1;
+  --text: #17171c; --muted: #595966;
+  --primary: #1e60e6; --on-primary: #ffffff; --link: #1852c8;
+  --badge: #d62438; --on-badge: #ffffff; --ok: #177a41;
+  --grad-1: #6a5cf2; --grad-2: #d845a4; --grad-3: #e8651e; --ring-w: 3px;
+}
+.phone[data-variant="D3"][data-theme="dark"] {
+  --bg: #101218; --surface: #1a1d25; --surface-2: #252933; --divider: #303541;
+  --text: #ecedf2; --muted: #a1a5b1;
+  --primary: #2165e8; --on-primary: #ffffff; --link: #7dafff;
+  --badge: #dc2a3e; --on-badge: #ffffff; --ok: #45d688;
+  --grad-1: #8577ff; --grad-2: #ec5fb2; --grad-3: #ff9458; --ring-w: 3px;
 }
 
 [data-dir="D"] .icon { stroke-width: 1.5; }
@@ -602,7 +658,19 @@ body[data-page-theme="dark"] {
 [data-dir="D"] .row + .row::before { content: ""; position: absolute; top: 0; right: 0; left: 58px; border-top: 1px solid var(--border); }
 [data-dir="D"] .row-t { font-size: 15px; font-weight: 600; }
 [data-dir="D"] .row-s { margin-top: 1px; font-size: 13px; color: var(--muted); }
-[data-dir="D"] .rank, [data-dir="D"] .thumb { width: 44px; height: 44px; line-height: 44px; border-radius: 50%; background: var(--surface); font-size: 16px; font-weight: 600; text-align: center; }
+[data-dir="D"] .rank, [data-dir="D"] .thumb { width: 44px; height: 44px; line-height: 44px; border-radius: 50%; background: var(--surface-2); font-size: 16px; font-weight: 600; text-align: center; }
+/* Featured mark (pinned session): gradient ring, a thin gap in the page colour, then the mark. */
+[data-dir="D"] .thumb.is-featured {
+  line-height: 1; border: var(--ring-w) solid transparent;
+  background: linear-gradient(var(--surface-2), var(--surface-2)) padding-box, var(--grad) border-box;
+  box-shadow: inset 0 0 0 2px var(--bg);
+}
+
+/* Counts: a small red pill; in a corner of an icon it gets a rim in the page colour. */
+[data-dir="D"] .badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--badge); color: var(--on-badge); font-size: 11.5px; font-weight: 700; line-height: 1; }
+[data-dir="D"] .badge-corner { position: absolute; top: 3px; left: 21px; min-width: 16px; height: 16px; padding: 0 4px; font-size: 10.5px; box-shadow: 0 0 0 2px var(--bg); }
+[data-dir="D"] .tb-icon, [data-dir="D"] .nav-ind { position: relative; }
+[data-dir="D"] .nav-ind .badge-corner { top: -6px; left: 15px; }
 [data-dir="D"] .check { width: 24px; height: 24px; margin: 0 10px; border: 1.5px solid var(--muted); border-radius: 50%; }
 [data-dir="D"] .check .icon { width: 13px; height: 13px; stroke-width: 2.5; }
 [data-dir="D"] .done .check { background: var(--text); border-color: var(--text); color: var(--on-text); }
@@ -615,8 +683,13 @@ body[data-page-theme="dark"] {
 [data-dir="D"] .content-today { gap: 14px; }
 [data-dir="D"] .content-today .row { min-height: 54px; padding: 6px 0; }
 [data-dir="D"] .content-today .rank { width: 40px; height: 40px; line-height: 40px; margin: 0 2px; }
-[data-dir="D"] .advice { gap: 8px; padding: 16px; border-radius: 18px; background: var(--surface); }
-[data-dir="D"] .advice-k { font-size: 13px; font-weight: 600; }
+/* The coach card: a grey surface inside a gradient ring. */
+[data-dir="D"] .advice {
+  gap: 8px; padding: calc(16px - var(--ring-w)) calc(17px - var(--ring-w)) calc(17px - var(--ring-w)); border-radius: 20px; border: var(--ring-w) solid transparent;
+  background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--grad) border-box;
+}
+[data-dir="D"] .advice-k { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+[data-dir="D"] .advice .coach-tag { --tag-bg: var(--surface); }
 [data-dir="D"] .advice-t { font-size: 18px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; }
 [data-dir="D"] .advice-why { font-size: 13.5px; }
 [data-dir="D"] .advice-why b { font-weight: 600; margin-right: 4px; }
@@ -627,8 +700,14 @@ body[data-page-theme="dark"] {
 [data-dir="D"] .nav-item { position: relative; height: 100%; }
 [data-dir="D"] .nav-item .icon { width: 26px; height: 26px; }
 [data-dir="D"] .nav-item.on .icon { stroke-width: 2.25; }
-[data-dir="D"] .nav-item.on::after { content: ""; position: absolute; bottom: 4px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--text); }
-[data-dir="D"] .fab { position: static; justify-self: center; border-radius: 14px; background: var(--text); color: var(--on-text); }
+[data-dir="D"] .nav-item.on::after { content: ""; position: absolute; bottom: 2px; left: 50%; width: 18px; height: 3px; margin-left: -9px; border-radius: 2px; background: var(--grad); }
+/* Capture button: the same ring-gap-fill construction as the featured mark. */
+[data-dir="D"] .fab {
+  position: static; justify-self: center; border-radius: 16px; color: var(--on-text);
+  border: var(--ring-w) solid transparent;
+  background: linear-gradient(var(--text), var(--text)) padding-box, var(--grad) border-box;
+  box-shadow: inset 0 0 0 2px var(--bg);
+}
 [data-dir="D"] .fab .icon { width: 22px; height: 22px; stroke-width: 2; }
 [data-dir="D"] .gesture { opacity: 0.9; }
 
@@ -643,20 +722,23 @@ body[data-page-theme="dark"] {
 [data-dir="D"] .code { align-self: stretch; background: var(--surface); border-radius: 10px; }
 [data-dir="D"] .c-dim { color: var(--muted); }
 [data-dir="D"] .coach-head { padding-left: 2px; font-size: 12.5px; }
-[data-dir="D"] .coach-tag { padding: 1px 9px; font-weight: 600; }
+[data-dir="D"] .coach-tag {
+  padding: 1px 9px; font-size: 12.5px; font-weight: 600; color: var(--text); border: 1.5px solid transparent;
+  background: linear-gradient(var(--tag-bg, var(--bg)), var(--tag-bg, var(--bg))) padding-box, var(--grad) border-box;
+}
 [data-dir="D"] .coach-acts { gap: 6px; margin-top: 8px; }
 [data-dir="D"] .coach-answer, [data-dir="D"] .coach-skip { display: inline-flex; align-items: center; height: 32px; padding: 0 16px; border-radius: 10px; }
-[data-dir="D"] .coach-answer { background: var(--text); color: var(--on-text); }
-[data-dir="D"] .coach-skip { background: var(--surface); color: var(--text); }
+[data-dir="D"] .coach-answer { background: var(--primary); color: var(--on-primary); }
+[data-dir="D"] .coach-skip { background: var(--surface-2); color: var(--text); }
 [data-dir="D"] .working { min-height: 28px; font-size: 13.5px; color: var(--muted); }
-[data-dir="D"] .w-cancel { color: var(--text); }
+[data-dir="D"] .w-cancel { color: var(--link); }
 [data-dir="D"] .composer { gap: 0; position: relative; }
 [data-dir="D"] .field { height: 44px; padding: 0 52px 0 18px; border: 1px solid var(--border); border-radius: 22px; color: var(--muted); }
-[data-dir="D"] .send { position: absolute; right: calc(var(--pad) + 5px); top: 50%; width: 34px; min-width: 0; height: 34px; margin-top: -17px; border-radius: 50%; background: var(--text); color: var(--on-text); }
+[data-dir="D"] .send { position: absolute; right: calc(var(--pad) + 5px); top: 50%; width: 34px; min-width: 0; height: 34px; margin-top: -17px; border-radius: 50%; background: var(--primary); color: var(--on-primary); }
 [data-dir="D"] .send .icon { width: 18px; height: 18px; stroke-width: 2; }
 
 /* Tasks */
-[data-dir="D"] .btn { height: 46px; border-radius: 12px; background: var(--surface); font-size: 15px; font-weight: 600; }
+[data-dir="D"] .btn { height: 46px; border-radius: 12px; background: var(--primary); color: var(--on-primary); font-size: 15px; font-weight: 600; }
 [data-dir="D"] .foot-note { margin-top: -8px; font-size: 13px; color: var(--muted); }
 
 /* Sessions */
@@ -675,7 +757,9 @@ body[data-page-theme="dark"] {
 [data-dir="D"] .content-activity { gap: 16px; padding-top: 0; }
 [data-dir="D"] .tabs { margin: 0 calc(var(--pad) * -1); border-bottom: 1px solid var(--border); }
 [data-dir="D"] .tab { flex: 1; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; color: var(--muted); border-bottom: 1.5px solid transparent; margin-bottom: -1px; }
-[data-dir="D"] .tab.on { color: var(--text); border-bottom-color: var(--text); }
+[data-dir="D"] .tab { position: relative; }
+[data-dir="D"] .tab.on { color: var(--text); }
+[data-dir="D"] .tab.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1.5px; height: 2px; background: var(--grad); }
 [data-dir="D"] .stats { border-radius: 16px; background: var(--surface); }
 [data-dir="D"] .stat { padding: 10px 16px 12px; }
 [data-dir="D"] .stat-k { font-size: 12.5px; color: var(--muted); }
@@ -683,7 +767,7 @@ body[data-page-theme="dark"] {
 [data-dir="D"] .dur .unit { font-size: 0.6em; font-weight: 500; letter-spacing: 0; color: var(--muted); }
 [data-dir="D"] .seg { gap: 4px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 [data-dir="D"] .seg-i { padding: 2px 10px; border-radius: 10px; }
-[data-dir="D"] .seg-i.on { background: var(--surface); color: var(--text); }
+[data-dir="D"] .seg-i.on { background: var(--surface-2); color: var(--text); }
 [data-dir="D"] .chart-card { padding-top: 6px; }
 [data-dir="D"] .legend { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
 [data-dir="D"] .summary { margin-top: 6px; font-size: 13px; line-height: 1.4; color: var(--muted); }
