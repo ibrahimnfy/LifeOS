@@ -177,8 +177,11 @@ Today and pinned at the top of the Chat tab (owner, sixth round).
   Facts`, and the summary to `coach/conversation.md`, as one commit
   "Compact the coach conversation". Then a new session starts with the
   summary in its instructions; the old one stays in the list as "Coach
-  (earlier)". If the compaction turn fails, the session is renewed anyway
-  with the previous summary, so it never grows without bound.
+  (earlier)". If the compaction turn fails, or the memory cannot be written
+  (then no turn is run at all), the session is renewed anyway with the
+  previous summary, so it never grows without bound. The compaction turn
+  wakes no phone, and a message that arrives meanwhile waits and goes to
+  the new session.
 - **Usage** of the conversation, its compaction and the filing of answers is
   counted as the `coach_chat` job, apart from the morning run (`coach_plan`),
   as the runs report it.

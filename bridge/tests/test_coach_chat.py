@@ -142,6 +142,32 @@ def test_a_long_conversation_is_compacted_and_learns(
     assert session_meta.entry_for(old)["title"] == "Coach (earlier)"
 
 
+def test_the_compaction_turn_wakes_no_phone(coach_client, auth, monkeypatch):
+    import time
+
+    from lifeos_bridge import push
+
+    woken = []
+    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: woken.append(event))
+    monkeypatch.setattr(coach_chat, "LIMIT_BYTES", 10)
+    say(coach_client, auth, "first")
+    say(coach_client, auth, "second")  # compaction turn, then this message
+    time.sleep(0.3)
+    assert woken == ["answer", "answer"]  # one per message of the owner, none for the compaction
+
+
+def test_without_a_usable_memory_no_turn_is_paid_for(coach_client, auth, brain, calls, monkeypatch):
+    monkeypatch.setattr(coach_chat, "LIMIT_BYTES", 10)
+    say(coach_client, auth, "first")
+    old = coach_chat.state()["session_id"]
+    git(brain, "remote", "add", "origin", "https://example.invalid/memory.git")
+    before = len(calls())
+    reply = say(coach_client, auth, "second")
+    assert reply.status_code == 200 and len(calls()) == before + 1  # only the owner's message
+    assert coach_chat.state()["session_id"] != old
+    assert coach_chat.state()["last_compaction"]["result"] == "memory_failed"
+
+
 def test_a_failed_compaction_still_starts_a_new_session(coach_client, auth, brain, answers):
     assert coach_client.post("/coach/chat/compact", headers=auth).status_code == 409
     say(coach_client, auth, "first")

@@ -178,6 +178,41 @@ def apply_compaction(settings: Settings, answer: str | None, now: datetime) -> d
     learned = _learned(memory_dir, proposal)
     summary = _summary(proposal)
     written: list[str] = []
+    try:
+        _write_learned(memory_dir, learned, summary, now, written)
+        stored = True
+    except (claude.ClaudeError, OSError):
+        stored = False  # the session is renewed anyway; the summary stays in the state
+        written.clear()
+    with _LOCK:
+        data = state()
+        old = data["session_id"]
+        fresh = str(uuid.uuid4())
+        if not stored:
+            result = "memory_failed"
+        else:
+            result = "ok" if answer is not None and summary else "no_summary"
+        data.update(
+            session_id=fresh,
+            compactions=int(data.get("compactions") or 0) + 1,
+            summary=summary or data.get("summary"),
+            last_compaction={
+                "at": now.isoformat(timespec="seconds"),
+                "result": result,
+                "facts": len(written),
+            },
+            earlier=[*list(data.get("earlier") or [])[-19:], old],
+        )
+        store.write_json(_path(), data)
+    session_meta.update_session(old, {"title": f"{TITLE} (earlier)", "pinned": False})
+    _name(fresh)
+    return {"facts": sorted(set(written)), "summary": summary is not None, "session_id": fresh}
+
+
+def _write_learned(
+    memory_dir: Path, learned: list, summary: str | None, now: datetime, written: list[str]
+) -> None:
+    """The checked facts and the summary, as one commit in the memory."""
     with memory.LOCK:
         memory.check_repo(memory_dir)
         day = now.date().isoformat()
@@ -197,25 +232,6 @@ def apply_compaction(settings: Settings, answer: str | None, now: datetime) -> d
             paths.append(SUMMARY_FILE)
         if paths:
             memory.commit(memory_dir, "Compact the coach conversation", paths)
-    with _LOCK:
-        data = state()
-        old = data["session_id"]
-        fresh = str(uuid.uuid4())
-        data.update(
-            session_id=fresh,
-            compactions=int(data.get("compactions") or 0) + 1,
-            summary=summary or data.get("summary"),
-            last_compaction={
-                "at": now.isoformat(timespec="seconds"),
-                "result": "ok" if answer is not None and summary else "no_summary",
-                "facts": len(learned),
-            },
-            earlier=[*list(data.get("earlier") or [])[-19:], old],
-        )
-        store.write_json(_path(), data)
-    session_meta.update_session(old, {"title": f"{TITLE} (earlier)", "pinned": False})
-    _name(fresh)
-    return {"facts": sorted(set(written)), "summary": summary is not None, "session_id": fresh}
 
 
 def view(settings: Settings) -> dict:

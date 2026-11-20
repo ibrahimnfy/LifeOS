@@ -277,6 +277,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.state.sdk_pool = sdk_pool
     drains: set[asyncio.Task] = set()
     app.state.drains = drains
+    silent_runs: set[str] = set()  # sessions whose current run must not wake the phone
 
     def read_choice(data: dict, name: str, allowed: tuple[str, ...]) -> str | None:
         value = data.get(name)
@@ -310,7 +311,9 @@ def create_app(settings: Settings) -> FastAPI:
         """A run of the session ended: free it and send what is waiting, if anything."""
         slots.release(session_id)
         control.finished(session_id)
-        if session_meta.entry_for(session_id)["notify_replies"]:
+        silent = session_id in silent_runs  # the bridge's own turn (a coach compaction)
+        silent_runs.discard(session_id)
+        if not silent and session_meta.entry_for(session_id)["notify_replies"]:
             # The owner need not keep the app open: a sealed hint says an answer is there.
             wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "answer", session_id))
             drains.add(wake)
@@ -979,18 +982,32 @@ def create_app(settings: Settings) -> FastAPI:
             "morning_usage": jobs["coach_plan"]["usage"],
         }
 
+    coach_compacting = asyncio.Lock()  # a coach message waits while the session is renewed
+
     async def compact_coach() -> dict:
-        """One turn in the old session proposes facts and a summary; then a new session."""
+        """One turn in the old session proposes facts and a summary; then a new session.
+
+        The caller holds ``coach_compacting``. The turn wakes no phone. When the
+        memory cannot be written, no turn is paid for; the session is renewed anyway.
+        """
         session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
         if session_id in slots.active:
             raise ClaudeError("session_in_use", 409, "the coach is answering; try again shortly")
         answer = None
-        with contextlib.suppress(ClaudeError):
-            prompt = await asyncio.to_thread(coach_chat.compact_prompt, settings.ask_dir)
-            result = await run_prompt(
-                {"prompt": prompt}, session_id=session_id, resume=True, cwd=settings.ask_dir
-            )
-            answer = result.get("answer") if isinstance(result, dict) else None
+        try:
+            await asyncio.to_thread(memory.check_repo, settings.ask_dir)
+            usable = True
+        except ClaudeError:
+            usable = False
+        if usable:
+            with contextlib.suppress(ClaudeError):
+                prompt = await asyncio.to_thread(coach_chat.compact_prompt, settings.ask_dir)
+                silent_runs.add(session_id)
+                result = await run_prompt(
+                    {"prompt": prompt}, session_id=session_id, resume=True, cwd=settings.ask_dir
+                )
+                answer = result.get("answer") if isinstance(result, dict) else None
+            silent_runs.discard(session_id)
         return await asyncio.to_thread(
             coach_chat.apply_compaction, settings, answer, memory.now_local()
         )
@@ -1008,13 +1025,14 @@ def create_app(settings: Settings) -> FastAPI:
             raise ClaudeError(
                 "bad_request", 400, "the coach conversation is read-only and uses its own model"
             )
-        session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
         compacted = None
-        if session_id not in slots.active and await asyncio.to_thread(
-            coach_chat.too_long, settings
-        ):
-            compacted = await compact_coach()
-            session_id = compacted["session_id"]
+        async with coach_compacting:  # never into a session that is being compacted
+            session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
+            if session_id not in slots.active and await asyncio.to_thread(
+                coach_chat.too_long, settings
+            ):
+                compacted = await compact_coach()
+                session_id = compacted["session_id"]
         resume = await asyncio.to_thread(coach_chat.started, settings, session_id)
         answer = await run_prompt(data, session_id=session_id, resume=resume, cwd=settings.ask_dir)
         if compacted is not None and isinstance(answer, dict):
@@ -1027,7 +1045,8 @@ def create_app(settings: Settings) -> FastAPI:
         session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
         if not await asyncio.to_thread(coach_chat.started, settings, session_id):
             raise ClaudeError("nothing_to_compact", 409, "the coach conversation is empty")
-        return await compact_coach()
+        async with coach_compacting:
+            return await compact_coach()
 
     def listed_session(session_id: str) -> sessions.SessionInfo:
         info = sessions.find_session(session_id, settings.allowed_roots)
