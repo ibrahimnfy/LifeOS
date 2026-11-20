@@ -1,13 +1,11 @@
 package dev.lifeos.app.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -236,24 +234,7 @@ private fun RerunLine(rerun: CoachRerun.State, onRerun: () -> Unit, label: Int =
                 .weight(1f)
                 .semantics { liveRegion = LiveRegionMode.Polite },
         )
-        Box(
-            modifier = Modifier
-                .heightIn(min = LifeDimens.minTouch)
-                .clip(RoundedCornerShape(50))
-                .clickable(enabled = !running, role = Role.Button, onClick = onRerun),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(
-                modifier = Modifier
-                    .border(1.5.dp, colors.divider, RoundedCornerShape(50))
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Icon(LifeIcons.Refresh, contentDescription = null, tint = if (running) colors.muted else colors.text, modifier = Modifier.size(16.dp))
-                Text(stringResource(label), style = LifeType.label, color = if (running) colors.muted else colors.text)
-            }
-        }
+        PillButton(text = stringResource(label), onClick = onRerun, icon = LifeIcons.Refresh, enabled = !running)
     }
 }
 

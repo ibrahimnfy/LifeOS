@@ -304,6 +304,10 @@
     <string name="download_progress">İndiriliyor… %%%1$d</string>
     <string name="download_running">İndiriliyor…</string>
     <string name="download_saved">İndirilenler\'e kaydedildi</string>
+    <string name="download_open">Aç</string>
+    <string name="download_open_label">Aç: %1$s</string>
+    <string name="download_open_no_app">Bu telefonda bu tür dosyayı açabilecek bir uygulama yok.</string>
+    <string name="download_open_gone">Bu dosya artık İndirilenler\'de değil. Yeniden indirebilirsin.</string>
     <string name="download_failed_no_copy">Bu dosya indirilemedi: doğrudan yol başarısız oldu ve bilgisayarda gönderilebilecek bir kopya yok (eksik ya da o yol için fazla büyük).</string>
     <string name="download_failed_sign_in">Bu dosya indirilemedi: üniversite sitesindeki oturumun süresi dolmuş. Şimdilik oturumu bilgisayarda yenile.</string>
     <string name="download_failed_damaged">Dosya eksik ulaştı ve silindi. Lütfen yeniden dene.</string>

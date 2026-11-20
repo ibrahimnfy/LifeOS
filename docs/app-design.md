@@ -299,7 +299,9 @@ the platform the data comes from.*
   phone's Downloads folder; the app keeps no copy. The file comes directly
   from the university site over HTTPS, with a one-time address the computer
   sends through the encrypted channel (no relay quota is used); if that
-  fails, the computer's copy is sent through the relay.
+  fails, the computer's copy is sent through the relay. After a download the
+  file shows **Open**, which opens it from Downloads in the phone's app for
+  its type (view intent; a clear message when no app can open it).
 - **Staying current:** the computer syncs every 6 hours and on the manual
   **refresh** action here; new files, announcements, deadlines or grades
   arrive as a notification and appear in the lists by themselves.

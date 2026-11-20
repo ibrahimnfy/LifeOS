@@ -173,4 +173,19 @@ class DownloadTest {
             assertTrue(sink.aborted)
         }
     }
+
+    @Test
+    fun `a saved file is opened with the best known type`() {
+        val byExtension = mapOf("pdf" to "application/pdf", "docx" to "application/vnd.openxmlformats-officedocument.wordprocessingml.document")::get
+        // The site's type comes first, then Android's, then the extension.
+        assertEquals("application/pdf", OpenRules.type("application/pdf", "text/plain", "x.docx", byExtension))
+        assertEquals("text/plain", OpenRules.type(null, "text/plain", "x.pdf", byExtension))
+        assertEquals("application/pdf", OpenRules.type(" ", null, "Lecture 1.PDF", byExtension))
+        // A generic binary type gives way to anything more precise.
+        assertEquals("application/pdf", OpenRules.type("application/octet-stream", "application/octet-stream", "notes.pdf", byExtension))
+        assertEquals("application/octet-stream", OpenRules.type("application/octet-stream", null, "data.bin", byExtension))
+        // Nothing known: any app that opens files may offer itself.
+        assertEquals(OpenRules.ANY, OpenRules.type(null, null, "README", byExtension))
+        assertEquals(OpenRules.ANY, OpenRules.type("nonsense", null, "file.", byExtension))
+    }
 }

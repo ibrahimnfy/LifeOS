@@ -44,6 +44,7 @@ import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.GradeItem
 import dev.lifeos.app.data.Grades
 import dev.lifeos.app.data.Materials
+import dev.lifeos.app.data.OpenResult
 import dev.lifeos.app.data.SyncState
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
@@ -401,6 +402,16 @@ private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
     val start = {
         if (core.downloads.needsPicker) picker.launch(dev.lifeos.app.data.DownloadRules.safeName(file.name)) else core.downloads.start(courseId, file)
     }
+    val snackbar = LocalSnackbar.current
+    val noApp = stringResource(R.string.download_open_no_app)
+    val gone = stringResource(R.string.download_open_gone)
+    val open = {
+        when (core.downloads.open(context, file.key, file.name)) {
+            OpenResult.NO_APP -> snackbar(noApp)
+            OpenResult.GONE -> snackbar(gone)
+            OpenResult.OPENED -> Unit
+        }
+    }
     Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -429,7 +440,11 @@ private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
             }
             when (state) {
                 is DownloadState.Running -> TopBarAction(LifeIcons.Close, stringResource(R.string.download_cancel, file.name)) { core.downloads.cancel(file.key) }
-                DownloadState.Saved -> Icon(LifeIcons.Check, contentDescription = null, tint = colors.ok, modifier = Modifier.padding(12.dp))
+                is DownloadState.Saved -> PillButton(
+                    text = stringResource(R.string.download_open),
+                    onClick = open,
+                    onClickLabel = stringResource(R.string.download_open_label, file.name),
+                )
                 else -> TopBarAction(LifeIcons.Download, stringResource(R.string.download_start, file.name), onClick = start)
             }
         }
@@ -440,7 +455,7 @@ private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
                 } else {
                     stringResource(R.string.download_running)
                 }
-            DownloadState.Saved -> stringResource(R.string.download_saved)
+            is DownloadState.Saved -> stringResource(R.string.download_saved)
             is DownloadState.Failed -> stringResource(
                 when (state.reason) {
                     DownloadFailure.Reason.NO_COPY, DownloadFailure.Reason.DIRECT -> R.string.download_failed_no_copy

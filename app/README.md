@@ -230,7 +230,12 @@ Nothing on these screens is sample content any more. Not paired, they show
   which must arrive in sequence and match the announced size and SHA-256;
   after a dropped connection the transfer continues once at the missing
   chunk. An incomplete file is removed. The app keeps no copy and no record;
-  "Saved to Downloads" is shown until the app is closed. Direct saving needs
+  "Saved to Downloads" and an **Open** button are shown until the app is
+  closed. Open hands the file's entry in Downloads to the phone's app for
+  its type (a view intent that only lends that app read access; the type is
+  the site's, else Android's, else the one of the file name's extension). If
+  no app can open it, or the file was removed from Downloads meanwhile, a
+  short message says so. Direct saving needs
   Android 10 or newer; on Android 8 and 9 the system's "save as" screen asks
   where to put the file.
 
@@ -406,6 +411,10 @@ running on the computer with the relay set up.
    summary card shows only "Upcoming deadlines" (no button, no count of new
    items); the course list and "Last sync …" follow. A course's four tabs;
    the download arrow of a file → "Saved to Downloads", and the file is in
-   the phone's Downloads folder. The refresh arrow starts a sync.
+   the phone's Downloads folder. Tap **Open** next to it: a PDF opens in the
+   phone's PDF viewer (or the system asks which app to use); back in LifeOS
+   nothing changed. Delete the file in the Files app and tap **Open** again:
+   "This file is no longer in Downloads", and the download arrow is back.
+   The refresh arrow starts a sync.
 9. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies
    and waiting items are gone.

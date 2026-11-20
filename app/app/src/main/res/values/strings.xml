@@ -306,6 +306,10 @@
     <string name="download_progress">Downloading… %1$d%%</string>
     <string name="download_running">Downloading…</string>
     <string name="download_saved">Saved to Downloads</string>
+    <string name="download_open">Open</string>
+    <string name="download_open_label">Open %1$s</string>
+    <string name="download_open_no_app">No app on this phone can open this kind of file.</string>
+    <string name="download_open_gone">This file is no longer in Downloads. You can download it again.</string>
     <string name="download_failed_no_copy">This file could not be downloaded: the direct way failed and the computer has no copy it can send (missing, or too large for that route).</string>
     <string name="download_failed_sign_in">This file could not be downloaded: the sign-in at the university site has run out. For now, renew it on the computer.</string>
     <string name="download_failed_damaged">The file arrived incomplete and was removed. Please try again.</string>

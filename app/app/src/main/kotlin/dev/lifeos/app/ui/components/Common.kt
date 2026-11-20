@@ -361,6 +361,38 @@ fun TaskRow(
     }
 }
 
+/** A small outlined pill with an optional icon, for an action inside a card or row (48 dp target). */
+@Composable
+fun PillButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    enabled: Boolean = true,
+    onClickLabel: String? = null,
+) {
+    val colors = LifeTheme.colors
+    val tint = if (enabled) colors.text else colors.muted
+    Box(
+        modifier = modifier
+            .heightIn(min = LifeDimens.minTouch)
+            .clip(RoundedCornerShape(50))
+            .clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier = Modifier
+                .border(1.5.dp, colors.divider, RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (icon != null) Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+            Text(text, style = LifeType.label, color = tint)
+        }
+    }
+}
+
 /** Full-width rounded primary button (blue fill). */
 @Composable
 fun PrimaryButton(
