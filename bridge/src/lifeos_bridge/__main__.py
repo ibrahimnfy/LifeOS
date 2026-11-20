@@ -1,7 +1,8 @@
 """Command-line entry point: ``lifeos-bridge``.
 
-Without arguments it starts the server. ``lifeos-bridge devices`` lists the
-paired phones; ``lifeos-bridge devices revoke <id>`` unpairs one.
+Without arguments it starts the server. ``lifeos-bridge pair [name]`` pairs a
+phone, ``lifeos-bridge devices`` lists the paired phones and
+``lifeos-bridge devices revoke <id>`` unpairs one.
 """
 
 from __future__ import annotations
@@ -44,12 +45,40 @@ def devices_command(args: list[str]) -> int:
     return 0
 
 
+def pair_command(args: list[str]) -> int:
+    """Pair a phone: QR code in the terminal, comparison code, confirmation."""
+    from . import google, mailbox, relay
+
+    name = " ".join(args) or "phone"
+    try:
+        box, info = mailbox.Mailbox(), relay.relay_info()
+    except google.FirebaseConfigError as error:
+        print(f"lifeos-bridge: {error}", file=sys.stderr)
+        return 2
+
+    def confirm(code: str) -> bool:
+        print(f"\nThe phone shows a six-digit code. This computer shows:  {code}")
+        return input("Do both codes match? Type yes to pair: ").strip().lower() == "yes"
+
+    try:
+        device = relay.pair(box, name, info, confirm, print)
+    except (mailbox.MailboxError, devices.PairingError) as error:
+        print(f"lifeos-bridge: {error}", file=sys.stderr)
+        return 1
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelled. Nothing was stored.", file=sys.stderr)
+        return 1
+    return 0 if device else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["devices"]:
         return devices_command(argv[1:])
+    if argv[:1] == ["pair"]:
+        return pair_command(argv[1:])
     if argv:
-        print("usage: lifeos-bridge [devices [revoke <id>]]", file=sys.stderr)
+        print("usage: lifeos-bridge [pair [name] | devices [revoke <id>]]", file=sys.stderr)
         return 2
     try:
         settings = load_settings()

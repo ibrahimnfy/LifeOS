@@ -1,0 +1,264 @@
+# ruff: noqa: E501
+"""The relay path with an in-memory mailbox and a stand-in local API."""
+
+import json
+import threading
+import time
+
+import pytest
+
+from lifeos_bridge import devices, e2e, mailbox, relay
+from lifeos_bridge.__main__ import main as cli
+
+
+class Phone:
+    """The phone's side: scans the QR text, talks only through the mailbox."""
+
+    def __init__(self, box, qr_text: str) -> None:
+        data = json.loads(devices._unb64(qr_text[len(devices.QR_PREFIX) :]))
+        self.box, self.relay = box, data["r"]
+        self.id, self.secret = bytes.fromhex(data["d"]), devices._unb64(data["s"])
+        self.counter, self.seen = 0, set()
+
+    def seal(self, kind, payload, rid="r1"):
+        self.counter += 1
+        header = e2e.Header(self.id, e2e.PHONE_TO_BRIDGE, self.counter, kind)
+        return e2e.seal(self.secret, header, int(time.time()), rid, payload)
+
+    def hello(self, uid="uid123"):
+        self.box.put(
+            f"pair/{self.id.hex()}/hello", mailbox.encode(self.seal(e2e.HELLO, {"uid": uid}))
+        )
+
+    def request(self, method, path, body=None, query=None, rid="r1"):
+        payload = {"m": method, "path": path, "q": query or {}, "body": body}
+        blob = self.seal(e2e.REQUEST, payload, rid)
+        self.box.put(f"lifeos/{self.id.hex()}/b/{mailbox.new_key()}", mailbox.encode(blob))
+
+    def receive(self, until_end=True, timeout=5.0):
+        """Take messages for the phone out of the mailbox (acknowledging by deleting)."""
+        got, deadline = [], time.time() + timeout
+        while time.time() < deadline:
+            for key in self.box.keys(f"lifeos/{self.id.hex()}/p"):
+                value = self.box.get(f"lifeos/{self.id.hex()}/p/{key}")
+                self.box.delete(f"lifeos/{self.id.hex()}/p/{key}")
+                message = e2e.open_sealed(self.secret, mailbox.decode(value))
+                assert message.header.direction == e2e.BRIDGE_TO_PHONE
+                got.append(message)
+            if got and (not until_end or got[-1].header.kind in (e2e.END, e2e.ERROR)):
+                return got
+            time.sleep(0.02)
+        return got
+
+
+def fake_local(method, path, query, body):
+    if path == "/whoami":
+        return 200, "json", iter([{"status": "ok", "version": "test"}])
+    if path == "/ask" and body.get("stream"):
+        events = [("session", {"session_id": "s1"})]
+        events += [("delta", {"text": f"word{i} "}) for i in range(50)]
+        events += [("done", {"answer": "all words", "session_id": "s1"})]
+        return 200, "sse", iter(events)
+    if path == "/ask":
+        return 200, "json", iter([{"answer": "echo: " + body["prompt"], "session_id": "s1"}])
+    if path == "/sessions":
+        return 200, "json", iter([{"sessions": ["x" * 1000] * 1500, "limit": query.get("limit")}])
+    if path == "/tasks":
+        raise RuntimeError("boom")
+    return 404, "json", iter([{"error": "not_found"}])
+
+
+@pytest.fixture
+def paired(isolated_config):
+    """A bridge relay with one paired phone, both on the same recording mailbox."""
+    box = mailbox.MemoryMailbox()
+    holder = {}
+
+    def show(text):
+        if "lifeos-pair:" in holder.get("qr", "") or not hasattr(show, "qr"):
+            pass
+
+    def run_pairing():
+        original = devices.begin_pairing
+
+        def begin(name, info, now=None):
+            device_id, qr = original(name, info, now)
+            holder["qr"] = qr
+            return device_id, qr
+
+        devices.begin_pairing = begin
+        try:
+            holder["device"] = relay.pair(
+                box, "Test phone", {"k": "memory"}, lambda code: holder.setdefault("code", code) is not None,
+                lambda text: None, wait_seconds=5, poll_seconds=0.01)  # fmt: skip
+        finally:
+            devices.begin_pairing = original
+
+    thread = threading.Thread(target=run_pairing)
+    thread.start()
+    while "qr" not in holder:
+        time.sleep(0.005)
+    phone = Phone(box, holder["qr"])
+    phone.hello()
+    thread.join(10)
+    service = relay.Relay(box, fake_local)
+    service.start()
+    yield service, phone, box, holder
+    service.close()
+
+
+def test_pairing_through_the_mailbox(paired, isolated_config):
+    _service, phone, box, holder = paired
+    device = holder["device"]
+    assert device is not None and device.relay_uid == "uid123"
+    assert len(holder["code"].replace(" ", "")) == 6
+    assert box.get(f"access/{phone.id.hex()}") == "uid123"
+    assert box.get(f"pair/{phone.id.hex()}/hello") is None  # the pairing mailbox is emptied
+    (first,) = phone.receive()
+    assert first.payload == {"paired": True, "name": "Test phone"}
+    assert phone.relay == {"k": "memory"}
+
+
+def test_request_and_answer(paired):
+    _service, phone, box, _ = paired
+    phone.receive()
+    phone.request("GET", "/whoami")
+    (answer,) = phone.receive()
+    assert answer.header.kind == e2e.END and answer.request_id == "r1"
+    assert answer.payload == {"status": 200, "body": {"status": "ok", "version": "test"}}
+    assert box.keys(f"lifeos/{phone.id.hex()}/b") == []  # taken out as soon as it was handled
+
+    phone.request("POST", "/ask", {"prompt": "hello"}, rid="r2")
+    (answer,) = phone.receive()
+    assert answer.payload["body"]["answer"] == "echo: hello" and answer.request_id == "r2"
+
+
+def test_streamed_answers_arrive_in_few_chunks(paired, monkeypatch):
+    _service, phone, _box, _ = paired
+    phone.receive()
+    phone.request("POST", "/ask", {"prompt": "x", "stream": True})
+    messages = phone.receive()
+    kinds = [m.payload.get("event") for m in messages[:-1]]
+    assert kinds[0] == "session" and kinds[-1] == "done"
+    text = "".join(m.payload["data"]["text"] for m in messages if m.payload.get("event") == "delta")
+    assert text == "".join(f"word{i} " for i in range(50))
+    assert len([k for k in kinds if k == "delta"]) < 10  # gathered, not one message per word
+    assert messages[-1].header.kind == e2e.END and messages[-1].payload == {
+        "status": 200,
+        "stream": True,
+    }
+
+
+def test_large_answers_are_split(paired):
+    _service, phone, _box, _ = paired
+    phone.receive()
+    phone.request("GET", "/sessions", query={"limit": 5})
+    messages = phone.receive()
+    parts = [m.payload for m in messages[:-1]]
+    assert len(parts) >= 3 and [p["i"] for p in parts] == list(range(len(parts)))
+    body = json.loads("".join(p["part"] for p in parts))
+    assert body["limit"] == 5 and len(body["sessions"]) == 1500
+    assert messages[-1].payload == {"status": 200, "parts": len(parts)}
+
+
+def test_paths_outside_the_list_and_failures(paired):
+    _service, phone, _box, _ = paired
+    phone.receive()
+    for index, (method, path) in enumerate(
+        [
+            ("GET", "/health/../etc"),
+            ("GET", "/unknown"),
+            ("TRACE", "/ask"),
+            ("GET", "/files/x"),
+            ("GET", "/askx"),
+        ]
+    ):
+        phone.request(method, path, rid=f"bad{index}")
+        (answer,) = phone.receive()
+        assert answer.header.kind == e2e.ERROR and answer.payload["status"] == 404, path
+    phone.request("GET", "/tasks", rid="boom")
+    (answer,) = phone.receive()
+    assert answer.payload == {"status": 502, "error": "relay_failed"}
+
+
+def test_forged_replayed_and_foreign_entries_cause_nothing(paired, isolated_config):
+    _service, phone, box, _ = paired
+    phone.receive()
+    path = f"lifeos/{phone.id.hex()}/b"
+    genuine = phone.seal(e2e.REQUEST, {"m": "GET", "path": "/whoami", "q": {}, "body": None})
+    box.put(f"{path}/{mailbox.new_key()}", mailbox.encode(genuine))
+    assert len(phone.receive()) == 1
+    box.put(f"{path}/{mailbox.new_key()}", mailbox.encode(genuine))  # replay
+    box.put(f"{path}/{mailbox.new_key()}", "not base64 !!")
+    box.put(f"{path}/{mailbox.new_key()}", mailbox.encode(b"junk" * 30))
+    stranger = e2e.seal(
+        e2e.random_bytes(32), e2e.Header(phone.id, 1, 99, e2e.REQUEST), int(time.time()), "r", {}
+    )
+    box.put(f"{path}/{mailbox.new_key()}", mailbox.encode(stranger))
+    time.sleep(0.3)
+    assert phone.receive(timeout=0.3) == []
+    assert box.keys(path) == []  # everything is removed from the mailbox, answered or not
+    drops = json.loads((isolated_config / "relay-drops.json").read_text())
+    assert drops["replay"] == 1 and drops["authentication"] == 1
+
+
+def test_the_mailbox_never_holds_plaintext(paired):
+    _service, phone, box, _ = paired
+    phone.receive()
+    phone.request("POST", "/ask", {"prompt": "secret-prompt-4471"})
+    phone.receive()
+    everything = json.dumps(box.recorded)
+    for word in ("secret-prompt-4471", "echo:", "Test phone", "/ask", devices._b64(phone.secret)):
+        assert word not in everything
+
+
+def test_revoking_stops_listening_and_cleans_the_mailbox(paired, capsys):
+    service, phone, box, _ = paired
+    phone.receive()
+    assert cli(["devices", "revoke", phone.id.hex()[:8]]) == 0
+    service.rescan()
+    assert box.get(f"access/{phone.id.hex()}") is None
+    phone.request("GET", "/whoami")
+    time.sleep(0.2)
+    assert phone.receive(timeout=0.3) == []
+
+
+def test_sweep_removes_old_entries_only(paired):
+    service, phone, box, _ = paired
+    phone.receive()
+    side = f"lifeos/{phone.id.hex()}/p"
+    box.put(f"{side}/{mailbox.new_key(time.time() - 3600)}", "old")
+    box.put(f"{side}/{mailbox.new_key()}", "new")
+    box.put(f"{side}/strange-key", "x")
+    service.rescan()
+    assert service.sweep() == 2
+    assert len(box.keys(side)) == 1
+
+
+def test_pairing_without_a_phone_or_without_confirmation_stores_nothing(isolated_config):
+    box = mailbox.MemoryMailbox()
+    assert (
+        relay.pair(
+            box, "x", {}, lambda code: True, lambda text: None, wait_seconds=0.1, poll_seconds=0.01
+        )
+        is None
+    )
+    assert devices.list_devices() == [] and not list(
+        (isolated_config / "devices").glob("pending-*")
+    )
+
+
+def test_relay_is_not_started_without_the_firebase_files(settings, isolated_config):
+    assert relay.configured() is False
+    assert relay.start_if_configured(settings) is None
+
+
+def test_pair_command_needs_the_firebase_files(isolated_config, capsys):
+    assert cli(["pair", "My", "phone"]) == 2
+    assert "settings file" in capsys.readouterr().err
+
+
+def test_keys_and_key_times():
+    key = mailbox.new_key(1_800_000_000.5)
+    assert mailbox.key_time(key) == 1_800_000_000.5 and mailbox.key_time("strange-key") is None
+    assert mailbox.decode(mailbox.encode(b"\x00\x01")) == b"\x00\x01" and mailbox.decode(5) is None

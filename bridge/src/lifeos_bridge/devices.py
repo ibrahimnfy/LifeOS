@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import json
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from pathlib import Path
 from . import e2e, notifications, store
 from .config import config_dir
 
+# One writer at a time for device records: receiving and sending both update counters.
+LOCK = threading.RLock()
 PAIRING_SECONDS = 120
 FRESHNESS_SECONDS = 300
 RATE_LIMIT = 240  # messages per minute and device
@@ -55,6 +58,7 @@ class Device:
     sent: int = 0  # last used counter, bridge -> phone
     sent_push: int = 0
     revoked_at: int | None = None
+    relay_uid: str | None = None  # the phone's account id at the relay (not a secret)
 
     @property
     def revoked(self) -> bool:
@@ -71,6 +75,7 @@ class Device:
             "sent": self.sent,
             "sent_push": self.sent_push,
             "revoked_at": self.revoked_at,
+            "relay_uid": self.relay_uid,
         }
 
     def public(self) -> dict:
@@ -93,6 +98,7 @@ def _from_record(record: dict) -> Device:
         sent=int(record.get("sent") or 0),
         sent_push=int(record.get("sent_push") or 0),
         revoked_at=record.get("revoked_at"),
+        relay_uid=record.get("relay_uid") or None,
     )
 
 
@@ -179,15 +185,16 @@ class Receiver:
         neither does the sender.
         """
         now = time.time() if now is None else now
-        try:
-            message, device = self._check(blob, now)
-        except e2e.Rejected as rejected:
-            count_drop(rejected.reason)
-            return None
-        # Stored before the message is acted on: a repeat is rejected even after a restart.
-        device.received = message.header.counter
-        device.last_seen = int(now)
-        save(device)
+        with LOCK:
+            try:
+                message, device = self._check(blob, now)
+            except e2e.Rejected as rejected:
+                count_drop(rejected.reason)
+                return None
+            # Stored before the message is acted on: a repeat is rejected even after a restart.
+            device.received = message.header.counter
+            device.last_seen = int(now)
+            save(device)
         return message
 
     def _check(self, blob: bytes, now: float) -> tuple[e2e.Message, Device]:
@@ -232,6 +239,17 @@ def seal_for_phone(
     )
 
 
+def seal_to(
+    device_id: bytes, kind: int, request_id: str, payload: object, now: float | None = None
+) -> bytes:
+    """Load the device, seal a message for it and store the new counter, as one step."""
+    with LOCK:
+        device = load(device_id)
+        if device is None:
+            raise PairingError("unknown device")
+        return seal_for_phone(device, kind, request_id, payload, now)
+
+
 # --------------------------------------------------------------------------- pairing
 
 
@@ -242,6 +260,7 @@ class Pending:
     secret: bytes
     expires_at: float
     hello: str | None = None  # base64 of the first hello message, once received
+    relay_uid: str | None = None
 
     def record(self) -> dict:
         return {
@@ -250,6 +269,7 @@ class Pending:
             "secret": _b64(self.secret),
             "expires_at": self.expires_at,
             "hello": self.hello,
+            "relay_uid": self.relay_uid,
         }
 
 
@@ -262,6 +282,7 @@ def _load_pending(device_id: bytes) -> Pending | None:
             _unb64(record["secret"]),
             float(record["expires_at"]),
             record.get("hello"),
+            record.get("relay_uid") or None,
         )
     except (KeyError, ValueError, TypeError):
         return None
@@ -336,6 +357,10 @@ def receive_hello(blob: bytes, now: float | None = None) -> str | None:
         count_drop("pairing_conflict")
         return None
     pending.hello = encoded
+    # The phone tells the bridge its relay account id inside the sealed hello.
+    uid = message.payload.get("uid") if isinstance(message.payload, dict) else None
+    if isinstance(uid, str) and 0 < len(uid) <= 128 and uid.isascii() and uid.isalnum():
+        pending.relay_uid = uid
     store.write_json(_path(pending.id, pending=True), pending.record())
     return e2e.comparison_code(pending.secret, blob)
 
@@ -352,6 +377,7 @@ def confirm_pairing(
         _destroy_pending(device_id)
         raise PairingError("the pairing has expired; start again")
     device = Device(pending.id, pending.name, pending.secret, int(now), int(now), received=1)
+    device.relay_uid = pending.relay_uid
     save(device)
     _destroy_pending(device_id)
     notifications.send(

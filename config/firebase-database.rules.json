@@ -1,0 +1,28 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "pair": {
+      "$device": {
+        "hello": {
+          ".write": "auth != null && !data.exists() && newData.isString() && newData.val().length < 4000"
+        }
+      }
+    },
+    "lifeos": {
+      "$device": {
+        ".read": "auth != null && root.child('access').child($device).val() === auth.uid",
+        "b": {
+          "$message": {
+            ".write": "auth != null && root.child('access').child($device).val() === auth.uid && !data.exists() && newData.isString() && newData.val().length < 2000000"
+          }
+        },
+        "p": {
+          "$message": {
+            ".write": "auth != null && root.child('access').child($device).val() === auth.uid && data.exists() && !newData.exists()"
+          }
+        }
+      }
+    }
+  }
+}

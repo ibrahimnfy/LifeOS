@@ -1,9 +1,12 @@
 # Security design and threat model: phone ↔ bridge through a relay
 
-Status: **design; the relay-independent part is built** (`e2e.py`,
-`devices.py`: sealing, receiver checks, device store, pairing logic, with
-the tests of section 10). The relay backend, the pairing command and the
-phone side are not built yet. The relay is the only
+Status: **the bridge side is built** (`e2e.py`, `devices.py`, `mailbox.py`,
+`relay.py`: sealing, receiver checks, device store, pairing with the `pair`
+command, the Realtime Database mailbox with streaming and polling, the
+request dispatcher; with the tests of section 10 and one end-to-end check
+through the real mailbox with a simulated phone). Not built yet: the phone
+side, push, file transfer. This layer has had no independent security
+review. The relay is the only
 transport (the earlier VPN plan was dropped, see `decisions.md`). The relay
 runs on Google Cloud; which form it takes (see
 [`research/connectivity.md`](research/connectivity.md)) does not change this
@@ -164,7 +167,12 @@ one encrypted public value through the relay.
 - Carries opaque blobs between one phone and the bridge; keeps a blob only
   until it is acknowledged, with an upper bound of minutes, then deletes it.
 - Has its own, separate access control (who may read or write which mailbox)
-  so strangers cannot fill it or run up cost. Relay access data is **not** an
+  so strangers cannot fill it or run up cost. Here: database rules
+  (`config/firebase-database.rules.json`) that give each phone's relay
+  account its own mailbox only. A phone gets that access when the bridge,
+  after the comparison code was confirmed, records the account id the phone
+  sent inside its sealed hello. During the two minutes of pairing the hello
+  is written to a place that only somebody who has the QR code can name. Relay access data is **not** an
   end-to-end key: leaking it allows disturbance and shows metadata, nothing
   more.
 - Learns unavoidable **metadata**: that the two endpoints talk, when, how

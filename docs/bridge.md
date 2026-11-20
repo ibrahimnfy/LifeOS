@@ -623,17 +623,47 @@ ticking tasks, skipping a question and changing settings cost nothing.
   `~/.config/lifeos/coach/settings.json`; skips are remembered in
   `coach/state.json` next to it.
 
-## Paired phones
+## Paired phones and the relay
+
+The phone never connects to the computer. Both sides make outbound HTTPS
+requests to a mailbox in the owner's Firebase Realtime Database and leave
+sealed messages for each other there (design: [`security.md`](security.md)).
+When the two files in `~/.config/lifeos/firebase/` exist, the bridge starts
+the relay by itself: it listens for each paired phone (a streaming request,
+with polling as the fallback), checks every message, calls its own local API
+for requests, and sends the answer back sealed. Without those files the
+bridge is local only.
 
 ```
 cd bridge
+uv run lifeos-bridge pair "My phone"         # QR code in the terminal
 uv run lifeos-bridge devices                 # id, state, name, paired, last seen
 uv run lifeos-bridge devices revoke <id>     # the first characters of the id are enough
 ```
 
-Revoking deletes the phone's secret on the computer; from that moment its
-messages are dropped. It needs no network. Pairing a phone (`pair`) arrives
-with the relay backend. Design: [`security.md`](security.md).
+- **Pairing** shows a QR code that is valid for two minutes and for one
+  phone. The app scans it and both sides show a six-digit code; type `yes`
+  only if they match. Pairing is a one-time step per phone; afterwards the
+  phone and the bridge reconnect by themselves. The QR code is the key: do
+  not photograph or share it.
+- **Revoking** deletes the phone's secret on the computer; from that moment
+  its messages are dropped. It needs no network; the phone's mailbox is
+  removed the next time the relay runs.
+- **What a phone may call:** the endpoints of this document under `/ask`,
+  `/sessions`, `/session-groups`, `/reminders`, `/notes`, `/tasks`,
+  `/events`, `/agenda`, `/coach`, `/context-map`, `/allowed-paths`,
+  `/models`, `/moodle` and `/whoami`. A request is `{"m": method, "path":
+  "/…", "q": {query}, "body": {…}}`; the answer is one final message
+  `{"status", "body"}`, or, for large or streamed answers, chunks followed by
+  a final message. File downloads through the relay are a separate step.
+- **In the mailbox:** only sealed messages; each is deleted as soon as it is
+  taken, and anything older than 15 minutes is swept. Dropped messages are
+  counted by reason in `~/.config/lifeos/relay-drops.json`, nothing else is
+  kept.
+- **Database rules:** `config/firebase-database.rules.json` restricts each
+  phone to its own mailbox. The owner installs them once in the Firebase
+  console (Realtime Database → Rules). The bridge itself uses the service
+  account, which is not subject to the rules.
 
 ## Moodle sign-in
 

@@ -25,6 +25,7 @@ from . import (
     files,
     history,
     memory,
+    relay,
     reminders,
     runcontrol,
     session_meta,
@@ -139,9 +140,14 @@ def create_app(settings: Settings) -> FastAPI:
             await asyncio.to_thread(coach.send_daily_notification, settings)
 
         task = asyncio.create_task(watch_reminders())
+        # Phones reach the bridge through the relay; without the owner's Firebase
+        # files the bridge is local only.
+        phone_relay = await asyncio.to_thread(relay.start_if_configured, settings)
         try:
             yield
         finally:
+            if phone_relay is not None:
+                phone_relay.close()
             for pending in (task, *coach_runs):
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
