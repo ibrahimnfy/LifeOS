@@ -169,6 +169,7 @@
     <string name="error_no_answer">Bilgisayar yanıt vermedi. Açık mı, köprü çalışıyor mu?</string>
     <string name="error_server">Bilgisayar hata ile yanıt verdi.</string>
     <string name="error_not_set_up">Bu bölüm bilgisayarda henüz kurulmamış.</string>
+    <string name="error_folder_in_repository">Bu klasör daha büyük bir git deposunun içinde; burada değişiklik ve komuta izin verilmiyor. Bilgisayarda deponun ana klasörünü izinli klasör olarak ekle ve orada çalış.</string>
     <string name="error_details_status">Ayrıntı: köprü %1$d durum koduyla yanıt verdi.</string>
     <string name="action_retry">Yeniden dene</string>
     <string name="action_details">Ayrıntılar</string>

@@ -171,6 +171,7 @@
     <string name="error_no_answer">The computer did not answer. Is it on, and is the bridge running?</string>
     <string name="error_server">The computer answered with an error.</string>
     <string name="error_not_set_up">This part is not set up on the computer yet.</string>
+    <string name="error_folder_in_repository">This folder is inside a larger git repository, so changes and commands are not allowed here. Add the repository\'s main folder as an allowed folder on the computer and work there.</string>
     <string name="error_details_status">Details: the bridge answered with status %1$d.</string>
     <string name="action_retry">Retry</string>
     <string name="action_details">Details</string>

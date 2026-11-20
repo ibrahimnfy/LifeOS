@@ -234,6 +234,7 @@ fun ErrorNotice(problem: Problem, status: Int, onRetry: () -> Unit, modifier: Mo
                         Problem.NO_ANSWER -> R.string.error_no_answer
                         Problem.SERVER -> R.string.error_server
                         Problem.NOT_SET_UP -> R.string.error_not_set_up
+                        Problem.FOLDER_IN_REPOSITORY -> R.string.error_folder_in_repository
                     },
                 ),
                 style = LifeType.body,

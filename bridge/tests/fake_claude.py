@@ -223,7 +223,10 @@ if prompt.startswith("FAKE_GARBAGE"):
     print("this is not json")
     sys.exit(0)
 
-project.mkdir(parents=True, exist_ok=True)
+if "--no-session-persistence" in args:
+    transcript = Path(os.devnull)  # like the real CLI: nothing is written to disk
+else:
+    project.mkdir(parents=True, exist_ok=True)
 with transcript.open("a") as handle:
     line = {
         "type": "user",

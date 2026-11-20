@@ -22,7 +22,7 @@ sealed interface UiState<out T> {
     data class Error(val problem: Problem, val status: Int = 0) : UiState<Nothing>
 }
 
-enum class Problem { UNREACHABLE, NO_ANSWER, SERVER, NOT_SET_UP }
+enum class Problem { UNREACHABLE, NO_ANSWER, SERVER, NOT_SET_UP, FOLDER_IN_REPOSITORY }
 
 /** What the last request for an endpoint ended with; null while it is still running. */
 sealed interface Outcome<out T> {
@@ -31,6 +31,9 @@ sealed interface Outcome<out T> {
 }
 
 object UiStates {
+    /** Bridge error code: the folder sits inside another git repository (capable mode). */
+    const val FOLDER_IN_REPOSITORY = "folder_inside_repository"
+
     /**
      * The one rule that turns "paired?", the saved copy and the last request into a screen state:
      * a fresh answer wins; otherwise the saved copy is shown (marked as such); only without
@@ -58,6 +61,11 @@ object UiStates {
     fun problemOf(error: ApiException): Problem = when (error.kind) {
         ApiException.Kind.NOT_SENT, ApiException.Kind.NOT_PAIRED, ApiException.Kind.REFUSED -> Problem.UNREACHABLE
         ApiException.Kind.UNCERTAIN -> Problem.NO_ANSWER
-        ApiException.Kind.HTTP -> if (error.status == 503) Problem.NOT_SET_UP else Problem.SERVER
+        ApiException.Kind.HTTP -> when {
+            // The capable mode refuses a folder inside another git repository (bridge #139).
+            error.code == FOLDER_IN_REPOSITORY -> Problem.FOLDER_IN_REPOSITORY
+            error.status == 503 -> Problem.NOT_SET_UP
+            else -> Problem.SERVER
+        }
     }
 }

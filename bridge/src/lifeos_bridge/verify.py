@@ -602,6 +602,31 @@ class Suite:
             not (self.run_dir / "read-only.txt").exists(),
         )
 
+    def probe_nested_repository(self) -> None:
+        """No model run: the bridge refuses a folder nested inside another repository."""
+        outer = self.run_dir / "nested-repo-probe"
+        inner = outer / "inside"
+        inner.mkdir(parents=True)
+        (outer / ".git").mkdir()
+        (outer / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        nested = dataclasses.replace(self.settings, allowed_paths=(outer, inner))
+        try:
+            capable.build_policy(nested, inner)
+            refused = ""
+        except claude.ClaudeError as error:
+            refused = error.code
+        self.add(
+            "folders: a folder inside another repository is refused",
+            refused == "folder_inside_repository",
+            refused,
+        )
+        try:
+            capable.build_policy(nested, outer)
+            root_ok = True
+        except claude.ClaudeError:
+            root_ok = False
+        self.add("folders: the repository root itself is accepted", root_ok)
+
     def probe_project_files(self) -> None:
         self.add(
             "run folder: its own hook did not run", not (self.run_dir / "PROJECT_HOOK_RAN").exists()
@@ -627,18 +652,54 @@ class Suite:
                 self.probe_audit_unwritable()
                 self.probe_read_only_after_capable(session_id)
                 self.probe_project_files()
+                self.probe_nested_repository()
             finally:
                 self.clean_outside()
                 self.retire()
         return self.probes
 
 
+# One check at a time: the lock, and a fixed name for the service-environment run,
+# so that what an interrupted check left behind can be found and stopped.
+LOCK_FILE = "guardrail-check.lock"
+SERVICE_UNIT = "lifeos-guardrail-check"
+BUSY = 75  # exit status: another check holds the lock; nothing was run
+
+
+def take_lock():
+    """The check's lock (held until this process ends), or None when another check holds it."""
+    import fcntl
+
+    config_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
+    handle = (config_dir() / LOCK_FILE).open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+    return handle
+
+
+def stop_leftover_service() -> None:
+    """Stop the service-environment run of an interrupted earlier check, if one is left."""
+    if shutil.which("systemctl") is None:
+        return
+    for action in ("stop", "reset-failed"):
+        subprocess.run(  # noqa: S603
+            ["systemctl", "--user", action, f"{SERVICE_UNIT}.service"],  # noqa: S607
+            capture_output=True, timeout=60, check=False,
+        )  # fmt: skip
+
+
 def service_suite(bridge_dir: Path, out: Path, runner: str = "cli") -> list[dict] | None:
     """Run the suite again as a transient user service with the bridge unit's settings."""
     if shutil.which("systemd-run") is None:
         return None
+    with contextlib.suppress(OSError):
+        out.unlink()  # never read the results of an earlier, interrupted run
     command = [
         "systemd-run", "--user", "--wait", "--collect", "--pipe", "--quiet",
+        f"--unit={SERVICE_UNIT}",
         "-p", f"WorkingDirectory={bridge_dir}",
         "-p", f"Environment=PATH={SERVICE_PATH.format(home=Path.home())}",
         "-p", "UMask=0077",
@@ -666,6 +727,7 @@ def main(argv: list[str] | None = None) -> int:
         default="cli",
         help="which runner to check: claude -p (cli, default) or the Agent SDK (sdk)",
     )
+    parser.add_argument("--check-id", default="", help=argparse.SUPPRESS)
     parser.add_argument(
         "--no-service",
         action="store_true",
@@ -692,6 +754,11 @@ def main(argv: list[str] | None = None) -> int:
         f"{version}, runner {args.runner}" + (f" (Agent SDK {sdk_version})" if sdk_version else "")
     )
     if not args.suite_only:
+        lock = take_lock()
+        if lock is None:
+            print("Another guardrail check is running; nothing was run.", file=sys.stderr)
+            return BUSY
+        stop_leftover_service()  # what an interrupted check left; its scratch folder: prepare()
         with contextlib.suppress(OSError):
             capable.marker_path(args.runner).unlink()  # off until this check passed completely
         capable.set_check_running(args.runner, True)
@@ -728,6 +795,7 @@ def finish(args: argparse.Namespace, settings: Settings, version: str, sdk_versi
     ]
     complete = not failed and "service" in environments
     report = {
+        "check_id": args.check_id,  # lets the bridge tell this check's results from older ones
         "runner": args.runner,
         "claude_version": version,
         "sdk_version": sdk_version,

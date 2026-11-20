@@ -260,6 +260,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | Each tool call appears in the audit log before its result | yes |
 | Audit log made unwritable | run stops before the first command |
 | A read-only request on a session that was capable | has no shell and no write tool |
+| An allowed folder inside another git repository; that repository's root (no model run) | refused with `folder_inside_repository`; the root is accepted |
 | Deletion and hard-reset commands | refused with the approval explanation (pattern layer) |
 | SDK runner only: a deletion answered no / yes; a never-allowed command with an answering client | no: does not run; yes: runs, only after the yes; never-allowed: refused, not asked |
 
@@ -392,9 +393,8 @@ Built on the SDK runner; the `claude -p` path is unchanged.
     a sandboxed command could write a file in the root of the git checkout
     that contained the run folder.
   - It looks like a consequence of that layout, not of the SDK: the owner's
-    memory folder is the root of its own git repository. It should still
-    be understood before any allowed folder that sits inside a larger git
-    repository is used with the capable mode.
+    memory folder is the root of its own git repository. The owner's
+    decision is in section 9.9.
   - No marker was written for the owner. The service environment was not
     run (it would use the real memory folder).
 
@@ -421,14 +421,50 @@ is off until they pass, and the owner is notified".
   edited by hand.
 - **Rerun by itself** (`bridge/src/lifeos_bridge/guardcheck.py`):
   - When: at bridge start and every 15 minutes.
-  - Which runners: those checked on this computer before; `sdk` only while
-    it is selected.
-  - How often: once per version pair. A probe failure is final for that
-    pair. A check that could not complete is retried up to 3 times, 30
-    minutes apart.
+  - Which runners: the SDK runner always while it has no valid marker,
+    selected or not (#140), and `claude -p` when it was checked on this
+    computer before. One check at a time, in the terminal and then in the
+    real service environment.
+  - How often: once per version pair. Only a probe that failed in this
+    check's own results is final for the pair. A check that did not finish
+    (bridge stopped, crash, time limit, another check running) is "not
+    run", never "failed". It is retried up to 3 times, 30 minutes apart,
+    and runs again at the next bridge start.
+  - Before it starts, a check stops the service-environment run an
+    interrupted check may have left, and moves an old scratch folder to
+    the trash.
   - The bridge never writes a marker itself; only a full pass of the
     check does.
 - **Notified** at the start and at the end (passed, failed, incomplete),
   with fixed texts that carry no versions, paths or results.
-- **Plan usage:** about twenty short runs on the small model per runner and
-  update.
+- **Plan usage:** about 16 short runs on the small model for the `claude -p`
+  runner and about 24 for the SDK runner (both environments), so about 40
+  when one restart checks both.
+
+### 9.9 Folders inside another git repository (owner, #139)
+
+Found with the probe suite (section 9.7): Claude Code's sandbox lets
+commands write in the root of the git repository that contains the run
+folder. That root can be much larger than the folder the owner allowed.
+
+- **Rule (owner, 2026-11-21).** The capable mode refuses to run in a folder
+  that sits inside another git repository, unless the folder is itself that
+  repository's root.
+  - The repository root is found as git finds it: the nearest folder at or
+    above the run folder that holds a `.git` folder with a `HEAD`, or a
+    `.git` file pointing elsewhere (worktrees, submodules).
+  - A repository of its own nested inside a larger one is its own root, and
+    is accepted.
+- **Applies to every folder a capable run may write:** the run folder, and
+  the memory folder when the run is elsewhere.
+  - A subfolder of the memory folder stays usable. Its enclosing root, the
+    memory folder, is writable in every capable run anyway.
+  - The memory folder itself is refused if it sits inside another
+    repository.
+- **Enforced in the bridge before every capable run, on both runners**
+  (`capable.build_policy`), not only when a folder is added.
+  - The refusal is `403 folder_inside_repository`. Its message names the
+    enclosing repository root as the folder to allow instead.
+  - The app shows its own EN/TR text for this code.
+- **Guardrail probe** (no model run): a folder nested inside a scratch
+  repository is refused, and that repository's root is accepted.

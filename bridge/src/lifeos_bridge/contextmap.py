@@ -123,6 +123,7 @@ async def refresh_folder(settings: Settings, folder: Path, today: date | None = 
         session_id=str(uuid.uuid4()),
         resume=False,
         cwd=folder,
+        persist=False,  # a one-off: never a session in the owner's list (#141)
         **routing.run_options(settings, "context_map"),
     )
     data = claude.json_from_answer(result.answer)

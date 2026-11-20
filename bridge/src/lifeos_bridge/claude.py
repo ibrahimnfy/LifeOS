@@ -123,13 +123,14 @@ def build_command(
     model: str | None = None,
     effort: str | None = None,
     advisor: str | None = None,
+    persist: bool = True,
 ) -> list[str]:
     command = [settings.claude_bin, "-p"]
     if stream:
         command += STREAM_OUTPUT_FLAGS
     else:
         command += ["--output-format", "json"]
-    return command + run_flags(
+    command += run_flags(
         settings,
         session_id=session_id,
         resume=resume,
@@ -140,6 +141,12 @@ def build_command(
         effort=effort,
         advisor=advisor,
     )
+    if not persist and not resume:
+        # A one-off run of the bridge itself (the context map): nothing is written to
+        # disk, so it never shows up in the owner's session list.
+        at = command.index("--session-id")
+        command[at : at + 2] = ["--no-session-persistence"]
+    return command
 
 
 def run_flags(
@@ -348,6 +355,7 @@ async def run(
     advisor: str | None = None,
     job: str = "chat",
     on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
+    persist: bool = True,
 ) -> RunResult:
     """Run one read-only prompt to completion and return the answer.
 
@@ -359,7 +367,7 @@ async def run(
         return await _run_once(
             settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
             grace=grace, context=context, model=model, effort=effort, advisor=advisor,
-            job=job, on_process=on_process,
+            job=job, on_process=on_process, persist=persist,
         )  # fmt: skip
     except ClaudeError as error:
         if not advisor or error.code != "claude_failed":
@@ -367,7 +375,7 @@ async def run(
     return await _run_once(
         settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, advisor=None, job=job,
-        on_process=on_process,
+        on_process=on_process, persist=persist,
     )  # fmt: skip
 
 
@@ -386,6 +394,7 @@ async def _run_once(
     advisor: str | None,
     job: str,
     on_process: Callable[[asyncio.subprocess.Process], None] | None,
+    persist: bool = True,
 ) -> RunResult:
     command = build_command(
         settings,
@@ -397,6 +406,7 @@ async def _run_once(
         model=model,
         effort=effort,
         advisor=advisor,
+        persist=persist,
     )
     process = await _start(settings, command, cwd or settings.ask_dir)
     if on_process is not None:
