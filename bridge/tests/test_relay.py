@@ -226,11 +226,13 @@ def test_revoking_stops_listening_and_cleans_the_mailbox(paired, capsys):
 def test_sweep_removes_old_entries_only(paired):
     service, phone, box, _ = paired
     phone.receive()
+    service.rescan()
+    service.stop.set()  # the service sweeps by itself too; here only the explicit call counts
+    service._thread.join(5)
     side = f"lifeos/{phone.id.hex()}/p"
     box.put(f"{side}/{mailbox.new_key(time.time() - 3600)}", "old")
     box.put(f"{side}/{mailbox.new_key()}", "new")
     box.put(f"{side}/strange-key", "x")
-    service.rescan()
     assert service.sweep() == 2
     assert len(box.keys(side)) == 1
 
@@ -262,3 +264,73 @@ def test_keys_and_key_times():
     key = mailbox.new_key(1_800_000_000.5)
     assert mailbox.key_time(key) == 1_800_000_000.5 and mailbox.key_time("strange-key") is None
     assert mailbox.decode(mailbox.encode(b"\x00\x01")) == b"\x00\x01" and mailbox.decode(5) is None
+
+
+# ---------------------------------------------------------------- file transfer
+
+
+@pytest.fixture
+def with_file(paired, settings, ask_dir, monkeypatch):
+    from lifeos_bridge import files
+
+    monkeypatch.setattr(files, "CHUNK_BYTES", 1000)
+    monkeypatch.setattr(relay, "FILE_POLL_SECONDS", 0.01)
+    service, phone, box, _ = paired
+    content = bytes(range(256)) * 20  # 5120 bytes: six chunks
+    (ask_dir / "Slides 2027.pdf").write_bytes(content)
+    offers = files.Offers(settings)
+    service.offers = offers
+    _, cards, _ = offers.from_answer("[[file: Slides 2027.pdf]]", "session-1", ask_dir)
+    phone.receive()
+    return service, phone, box, cards[0]["offer"], content
+
+
+def test_file_arrives_in_sealed_chunks_and_matches_its_hash(with_file):
+    import hashlib
+
+    _service, phone, box, offer, content = with_file
+    phone.request("GET", f"/files/{offer}", query={"session_id": "session-1"})
+    messages = phone.receive(timeout=10)
+    chunks = [m.payload for m in messages[:-1]]
+    assert [c["i"] for c in chunks] == list(range(6)) and all(c["n"] == 6 for c in chunks)
+    data = b"".join(mailbox.decode(c["b64"]) for c in chunks)
+    assert data == content
+    assert messages[-1].payload == {
+        "status": 200,
+        "file": {"size": 5120, "chunks": 6, "sha256": hashlib.sha256(content).hexdigest()},
+    }
+    assert box.keys(f"lifeos/{phone.id.hex()}/p") == []
+    recorded = json.dumps(box.recorded)
+    assert "Slides" not in recorded and mailbox.encode(content[:300]) not in recorded
+
+
+def test_only_a_few_chunks_wait_and_a_stalled_transfer_is_cleaned_up(with_file, monkeypatch):
+    _service, phone, box, offer, _ = with_file
+    monkeypatch.setattr(relay, "FILE_STALL_SECONDS", 0.3)
+    phone.request("GET", f"/files/{offer}", query={"session_id": "session-1"})
+    side = f"lifeos/{phone.id.hex()}/p"
+    time.sleep(0.15)  # the phone takes nothing
+    assert len(box.keys(side)) == relay.FILE_WINDOW
+    time.sleep(1.0)
+    (left,) = phone.receive(timeout=2)  # only the notice that the transfer was abandoned
+    assert left.header.kind == e2e.ERROR and left.payload["error"] == "transfer_abandoned"
+    assert box.keys(side) == []
+
+
+def test_a_transfer_can_continue_at_a_chunk(with_file):
+    _service, phone, _box, offer, content = with_file
+    phone.request("GET", f"/files/{offer}", query={"session_id": "session-1", "from": 4})
+    messages = phone.receive(timeout=10)
+    assert [m.payload["i"] for m in messages[:-1]] == [4, 5]
+    assert b"".join(mailbox.decode(m.payload["b64"]) for m in messages[:-1]) == content[4000:]
+
+
+def test_foreign_expired_or_unknown_offers_send_nothing(with_file):
+    _service, phone, _box, offer, _ = with_file
+    for index, (path, query) in enumerate(
+        [(f"/files/{offer}", {"session_id": "another"}), ("/files/unknown", {"session_id": "session-1"}),
+         (f"/files/{offer}/x", {"session_id": "session-1"}), (f"/files/{offer}", {"session_id": "session-1", "from": "x"})]
+    ):  # fmt: skip
+        phone.request("GET", path, query=query, rid=f"f{index}")
+        (answer,) = phone.receive()
+        assert answer.header.kind == e2e.ERROR and answer.payload["status"] in (400, 404)

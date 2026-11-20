@@ -21,7 +21,8 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import devices, e2e, google, mailbox
+from . import devices, e2e, files, google, mailbox
+from .claude import ClaudeError
 from .config import Settings
 
 # What a phone may call. Everything else answers 404 without touching the local API.
@@ -37,6 +38,9 @@ RESCAN_SECONDS = 5.0
 SWEEP_SECONDS = 600.0
 KEEP_SECONDS = 15 * 60  # nothing stays in the mailbox longer than this
 MAX_WORKERS = 4
+FILE_WINDOW = 3  # at most this many file chunks wait in the mailbox
+FILE_STALL_SECONDS = 120.0  # give up when the phone stops taking chunks
+FILE_POLL_SECONDS = 0.3
 
 # One local call: (status, kind, items). kind "json": one object; kind "sse": (event, data) pairs.
 LocalCall = Callable[[str, str, dict, object], tuple[int, str, Iterator]]
@@ -100,9 +104,10 @@ def allowed(method: object, path: object) -> bool:
 
 
 class Relay:
-    def __init__(self, box, call_local: LocalCall) -> None:
+    def __init__(self, box, call_local: LocalCall, offers: files.Offers | None = None) -> None:
         self.box = box
         self.call_local = call_local
+        self.offers = offers
         self.receiver = devices.Receiver()
         self.stop = threading.Event()
         self._listeners: dict[str, threading.Event] = {}
@@ -110,9 +115,12 @@ class Relay:
         self._thread: threading.Thread | None = None
 
     # -- sending ----------------------------------------------------------------
-    def send(self, device_id: bytes, kind: int, request_id: str, payload: object) -> None:
+    def send(self, device_id: bytes, kind: int, request_id: str, payload: object) -> str:
+        """Seal one message for the phone and put it into its mailbox. Returns the entry's key."""
         blob = devices.seal_to(device_id, kind, request_id, payload)
-        self.box.put(f"lifeos/{device_id.hex()}/p/{mailbox.new_key()}", mailbox.encode(blob))
+        key = mailbox.new_key()
+        self.box.put(f"lifeos/{device_id.hex()}/p/{key}", mailbox.encode(blob))
+        return key
 
     # -- receiving --------------------------------------------------------------
     def on_entry(self, device_hex: str, key: str, value: object) -> None:
@@ -128,6 +136,11 @@ class Relay:
 
     def _answer(self, message: e2e.Message) -> None:
         device_id, rid = message.header.device_id, message.request_id
+        request = message.payload
+        if isinstance(request, dict) and str(request.get("path") or "").startswith("/files/"):
+            with contextlib.suppress(Exception):
+                self.send_file(device_id, rid, request)
+            return
         try:
             for kind, payload in self.dispatch(message.payload):
                 self.send(device_id, kind, rid, payload)
@@ -136,6 +149,53 @@ class Relay:
         except Exception:  # never let one request take the relay down
             with contextlib.suppress(Exception):
                 self.send(device_id, e2e.ERROR, rid, {"status": 502, "error": "relay_failed"})
+
+    def send_file(self, device_id: bytes, rid: str, request: dict) -> None:
+        """Send an offered file in sealed chunks; only a few wait in the mailbox at a time.
+
+        The phone takes a chunk out of the mailbox as soon as it has it, which
+        is the acknowledgement. If it stops taking chunks, the transfer is
+        abandoned and what is still in the mailbox is removed. ``q.from``
+        continues an interrupted transfer at that chunk.
+        """
+        query = request.get("q") if isinstance(request.get("q"), dict) else {}
+        offer_id = str(request.get("path"))[len("/files/") :]
+        try:
+            if self.offers is None or request.get("m") != "GET" or "/" in offer_id:
+                raise ClaudeError("offer_not_found", 404, "")
+            offer = self.offers.take(offer_id, str(query.get("session_id") or ""))
+            first = int(query.get("from") or 0)
+        except ClaudeError as error:
+            self.send(device_id, e2e.ERROR, rid, {"status": error.status, "error": error.code})
+            return
+        except (TypeError, ValueError):
+            self.send(device_id, e2e.ERROR, rid, {"status": 400, "error": "bad_request"})
+            return
+        side = f"lifeos/{device_id.hex()}/p"
+        total = max(1, -(-offer.size // files.CHUNK_BYTES))
+        written: list[str] = []
+        try:
+            for index, block in enumerate(files.chunks(offer)):
+                if index < first:
+                    continue
+                waited = 0.0
+                while len(set(self.box.keys(side)) & set(written)) >= FILE_WINDOW:
+                    if waited >= FILE_STALL_SECONDS or self.stop.is_set():
+                        raise TimeoutError
+                    time.sleep(FILE_POLL_SECONDS)
+                    waited += FILE_POLL_SECONDS
+                payload = {"i": index, "n": total, "b64": mailbox.encode(block)}
+                written.append(self.send(device_id, e2e.CHUNK, rid, payload))
+            done = {"status": 200, "file": {"size": offer.size, "chunks": total,
+                                            "sha256": files.digest(offer)}}  # fmt: skip
+            self.send(device_id, e2e.END, rid, done)
+        except (TimeoutError, OSError, mailbox.MailboxError, devices.PairingError):
+            # Nothing of an abandoned transfer stays in the mailbox.
+            for key in set(self.box.keys(side)) & set(written):
+                with contextlib.suppress(mailbox.MailboxError):
+                    self.box.delete(f"{side}/{key}")
+            with contextlib.suppress(Exception):
+                self.send(device_id, e2e.ERROR, rid, {"status": 504, "error": "transfer_abandoned"})
 
     def dispatch(self, request: object) -> Iterator[tuple[int, object]]:
         """Turn one request from the phone into the messages of its answer."""
@@ -252,12 +312,12 @@ def configured() -> bool:
     ).is_file()
 
 
-def start_if_configured(settings: Settings) -> Relay | None:
+def start_if_configured(settings: Settings, offers: files.Offers | None = None) -> Relay | None:
     """Start the relay when the owner's Firebase files exist; otherwise the bridge is local only."""
     if not configured():
         return None
     try:
-        relay = Relay(mailbox.Mailbox(), local_api(settings))
+        relay = Relay(mailbox.Mailbox(), local_api(settings), offers)
     except google.FirebaseConfigError:
         return None
     relay.start()

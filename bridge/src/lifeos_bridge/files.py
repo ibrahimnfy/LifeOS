@@ -156,10 +156,10 @@ class Offers:
         return offer
 
 
-def chunks(offer: Offer, size: int = CHUNK_BYTES) -> Iterator[bytes]:
+def chunks(offer: Offer, size: int | None = None) -> Iterator[bytes]:
     """The file in pieces, for the local download and for the relay transfer."""
     with offer.path.open("rb") as handle:
-        while block := handle.read(size):
+        while block := handle.read(size or CHUNK_BYTES):
             yield block
 
 

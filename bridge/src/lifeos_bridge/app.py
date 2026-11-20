@@ -142,7 +142,9 @@ def create_app(settings: Settings) -> FastAPI:
         task = asyncio.create_task(watch_reminders())
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
-        phone_relay = await asyncio.to_thread(relay.start_if_configured, settings)
+        phone_relay = await asyncio.to_thread(
+            relay.start_if_configured, settings, getattr(_app.state, "offers", None)
+        )
         try:
             yield
         finally:
