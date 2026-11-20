@@ -16,7 +16,7 @@ TEST_TOKEN = "test-token-" + "x" * 32
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
-    """Tests never read the real ~/.config/lifeos or real LIFEOS_* variables."""
+    """Tests never read the real ~/.config/lifeos or real LIFEOS_* variables, and never notify."""
     import os
 
     for name in list(os.environ):
@@ -25,6 +25,8 @@ def isolated_config(tmp_path, monkeypatch):
     config = tmp_path / "config"
     config.mkdir(mode=0o700)
     monkeypatch.setenv("LIFEOS_CONFIG_DIR", str(config))
+    # Tests must never notify the owner: no real notification script, ever.
+    monkeypatch.setenv("LIFEOS_NOTIFY_SCRIPT", "off")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return config
 

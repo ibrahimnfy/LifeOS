@@ -174,3 +174,28 @@ def test_the_bridge_checks_reminders_while_running(settings, session, notified, 
             if lines():
                 break
     assert len(lines()) == 1
+
+
+def test_tests_can_never_reach_the_real_notification_script(session, monkeypatch):
+    """Regression: firing without an explicit script once ran the real scripts/notify.sh."""
+    import subprocess
+
+    from lifeos_bridge import notifications
+
+    assert notifications.default_script() is None
+    started = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: started.append(a))
+    clock = Clock("2027-01-15T08:00:00+00:00")
+    reminders.create(session, {"at": "2027-01-15T08:30:00+00:00"}, clock)
+    clock.advance(hours=1)
+    assert len(reminders.fire_due(clock)) == 1
+    assert started == []
+
+
+def test_the_notification_script_can_be_replaced_or_switched_off(monkeypatch, tmp_path):
+    from lifeos_bridge import notifications
+
+    monkeypatch.setenv("LIFEOS_NOTIFY_SCRIPT", str(tmp_path / "other.sh"))
+    assert notifications.default_script() == tmp_path / "other.sh"
+    monkeypatch.delenv("LIFEOS_NOTIFY_SCRIPT")
+    assert notifications.default_script().name == "notify.sh"

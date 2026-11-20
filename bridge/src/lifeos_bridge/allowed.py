@@ -7,16 +7,15 @@ notification never contains the path.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import notifications
 from .claude import ClaudeError
 from .config import read_allowed_paths
-from .paths import refusal_reason, repo_dir
+from .paths import refusal_reason
 
 CHANGE_LOG_NAME = "allowed_paths.log"
 HEADER = (
@@ -56,17 +55,8 @@ def _record(file: Path, action: str, path: Path) -> None:
 
 def notify(action: str, count: int, script: Path | None = None) -> None:
     """Tell the owner on the computer. Never fails the request; never names the path."""
-    if script is None:
-        repo = repo_dir()
-        script = repo / "scripts" / "notify.sh" if repo else None
-    if script is None or not script.is_file():
-        return
     message = f"A folder was {action}; {count} allowed now. If this was not you, check the bridge."
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(  # noqa: S603
-            [str(script), "LifeOS: allowed folders changed", message, ""],
-            capture_output=True, timeout=10, check=False,
-        )  # fmt: skip
+    notifications.send("LifeOS: allowed folders changed", message, "", script)
 
 
 def _resolved_entries(file: Path) -> list[Path]:
