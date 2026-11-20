@@ -24,7 +24,9 @@ import dev.lifeos.app.R
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.Dates
 import dev.lifeos.app.data.Endpoints
+import dev.lifeos.app.data.LocalItems
 import dev.lifeos.app.data.OutboxItem
+import dev.lifeos.app.data.listAtMillis
 import dev.lifeos.app.data.Task
 import dev.lifeos.app.data.TaskList
 import dev.lifeos.app.data.TaskLists
@@ -57,6 +59,10 @@ fun TaskSection.title(): String = stringResource(
  */
 @Composable
 fun OpenTaskRow(core: LifeOsCore, task: Task) {
+    if (LocalItems.isWaiting(task)) {
+        WaitingTaskRow(task)
+        return
+    }
     val undo = LocalUndo.current
     val snackbar = LocalSnackbar.current
     val scope = rememberCoroutineScope()
@@ -107,29 +113,18 @@ fun OpenTaskRow(core: LifeOsCore, task: Task) {
     }
 }
 
-/** A task captured on this phone that has not reached the computer yet: no tick, no id. */
+/**
+ * A task saved on this phone that has not reached the computer yet: shown where it belongs,
+ * marked "Waiting to sync"; it can be ticked or changed once the computer has it (it has no
+ * id there yet).
+ */
 @Composable
-fun WaitingTaskRow(item: OutboxItem) {
+fun WaitingTaskRow(task: Task) {
     MarkRow(
-        title = item.text,
-        subtitle = listOfNotNull(stringResource(R.string.outbox_waiting), dueLabel(item.due)).joinToString(" · "),
+        title = task.title,
+        subtitle = listOfNotNull(dueLabel(task.due), stringResource(R.string.outbox_waiting)).joinToString(" · "),
     ) {
         Icon(LifeIcons.Clock, contentDescription = null, tint = LifeTheme.colors.muted)
-    }
-}
-
-@Composable
-private fun WaitingTasks(core: LifeOsCore) {
-    val outbox by core.outbox.items.collectAsStateWithLifecycle()
-    val locked by core.locked.collectAsStateWithLifecycle()
-    val waiting = if (locked) emptyList() else TaskLists.waiting(outbox)
-    if (waiting.isEmpty()) return
-    LifeCard {
-        SectionHeader(title = stringResource(R.string.outbox_waiting_title))
-        waiting.forEachIndexed { index, item ->
-            if (index > 0) RowDivider()
-            WaitingTaskRow(item)
-        }
     }
 }
 
@@ -155,6 +150,7 @@ fun TasksScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onPair: () -> U
     val tasksState by tasksModel.state.collectAsStateWithLifecycle()
     val planState by planModel.state.collectAsStateWithLifecycle()
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
+    val confirmed by core.confirmed.items.collectAsStateWithLifecycle()
     val ticked by core.justTicked.collectAsStateWithLifecycle()
     val refresh = {
         tasksModel.refresh()
@@ -173,16 +169,19 @@ fun TasksScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onPair: () -> U
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 OutboxNotices(core, TASK_KINDS)
-                WaitingTasks(core)
                 val plan = (planState as? UiState.Content<CoachPlan>)?.data?.takeIf { it.exists }
                 if (plan != null) {
                     val ordered = TaskLists.open(plan.order, outbox, ticked)
+                    // New tasks of this phone that the plan does not have yet: on top, at once.
+                    val known = plan.order.map { it.id }.toSet()
+                    val added = TaskLists.open(LocalItems.tasks(outbox, confirmed, planState.listAtMillis), outbox, ticked).filter { it.id !in known }
                     if ((planState as UiState.Content).fromCache && !planState.isRefreshing) {
                         SavedCopyLine((planState as UiState.Content).savedAtMillis)
                     }
-                    if (ordered.isEmpty()) {
+                    if (added.isNotEmpty()) TaskCard(core, stringResource(R.string.tasks_just_added), added)
+                    if (ordered.isEmpty() && added.isEmpty()) {
                         EmptyLine(stringResource(R.string.tasks_empty))
-                    } else {
+                    } else if (ordered.isNotEmpty()) {
                         TaskCard(core, stringResource(R.string.section_most_important), ordered.take(MOST_IMPORTANT), stringResource(R.string.section_most_important_note))
                         PrimaryButton(text = stringResource(R.string.tasks_show_all, ordered.size), onClick = onShowAll)
                         Text(
@@ -191,12 +190,16 @@ fun TasksScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onPair: () -> U
                             color = LifeTheme.colors.muted,
                         )
                     }
+                } else if (tasksState is UiState.Content || tasksState is UiState.Empty) {
+                    // The computer's tasks with this phone's new ones, by date, each where it belongs.
+                    val state = tasksState
+                    if (state is UiState.Content && state.fromCache && !state.refreshing) SavedCopyLine(state.savedAtMillis)
+                    val server = (state as? UiState.Content<TaskList>)?.data?.tasks.orEmpty()
+                    val open = TaskLists.open(LocalItems.withTasks(server, LocalItems.tasks(outbox, confirmed, state.listAtMillis)), outbox, ticked)
+                    if (open.isEmpty()) EmptyLine(stringResource(R.string.tasks_empty))
+                    Dates.sections(open, today()).forEach { (section, tasks) -> TaskCard(core, section.title(), tasks) }
                 } else {
-                    StateHost(tasksState, stringResource(R.string.tasks_empty), onRetry = refresh, onPair = onPair, skeletonRows = 4) { list: TaskList ->
-                        val open = TaskLists.open(list.tasks, outbox, ticked)
-                        if (open.isEmpty()) EmptyLine(stringResource(R.string.tasks_empty))
-                        Dates.sections(open, today()).forEach { (section, tasks) -> TaskCard(core, section.title(), tasks) }
-                    }
+                    StateHost(tasksState, stringResource(R.string.tasks_empty), onRetry = refresh, onPair = onPair, skeletonRows = 4) { _: TaskList -> }
                 }
             }
         }
@@ -209,6 +212,7 @@ fun AllTasksScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
     val planModel = rememberLoad(core, Endpoints.plan) { false }
     val planState by planModel.state.collectAsStateWithLifecycle()
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
+    val confirmed by core.confirmed.items.collectAsStateWithLifecycle()
     val ticked by core.justTicked.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf<TaskSection?>(null) }
 
@@ -241,7 +245,10 @@ fun AllTasksScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -
                     skeletonRows = 6,
                 ) { plan: CoachPlan ->
                     val today = today()
-                    val shown = TaskLists.open(plan.order, outbox, ticked).filter { filter == null || Dates.sectionOf(it.due, today) == filter }
+                    // This phone's new tasks first (the plan does not have them yet), then the plan's order.
+                    val added = LocalItems.tasks(outbox, confirmed, planState.listAtMillis)
+                    val all = LocalItems.withTasks(added, plan.order)
+                    val shown = TaskLists.open(all, outbox, ticked).filter { filter == null || Dates.sectionOf(it.due, today) == filter }
                     if (shown.isEmpty()) {
                         EmptyLine(stringResource(if (filter == null) R.string.tasks_empty else R.string.tasks_filter_empty))
                     } else {

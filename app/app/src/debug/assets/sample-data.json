@@ -92,11 +92,36 @@
     "links": [{"section": "Week 2 · Core concepts", "name": "Reading list", "url": "https://example.invalid/reading"}]
   },
   "GET /courses/ID/announcements": {"announcements": [{"id": 1, "subject": "Lecture 2 slides are up", "text": "The slides and the first exercise sheet are in Week 2."}]},
-  "GET /courses/ID/assignments": {"assignments": [{"id": 1, "name": "Assignment 2", "due_in_days": 2, "status": {"submission": "new"}}]},
+  "GET /courses/ID/assignments": {"assignments": [
+    {"id": 1, "name": "Assignment 2", "due_in_days": 2, "status": {"submission": "new"}, "files": 2, "task": "t-2"},
+    {"id": 2, "name": "Lab report 1", "due_in_days": 5, "status": {"submission": "new"}},
+    {"id": 3, "name": "Quiz 1", "due_in_days": 9, "status": {"submission": "submitted"}, "submitted": true}
+  ]},
+  "GET /courses/ID/assignments/ID": {
+    "id": 1, "name": "Assignment 2", "course": "Signals and Systems", "opens_in_days": -5, "due_in_days": 2,
+    "status": {"submission": "new", "grading": "notgraded", "graded": false}, "submitted": false, "task": "t-2",
+    "description": "Solve problems **1–4** on the attached sheet.\n\n- Show your working\n- Hand in one PDF file\n\nThe [course outline](https://example.invalid/outline) has the grading scheme.",
+    "files": [
+      {"key": "f5", "name": "Assignment 2 sheet.pdf", "type": "application/pdf", "size": 300000},
+      {"key": "f6", "name": "Sample signals.zip", "type": "application/zip", "size": 1200000}
+    ]
+  },
   "GET /courses/ID/grades": {"overall": "82", "items": [{"name": "Assignment 1", "grade": "85", "range": "0–100"}]},
   "GET /courses/grades": {"courses": [
     {"id": 11, "name": "Signals and Systems", "overall": "82", "items": [{"name": "Assignment 1", "grade": "85", "range": "0–100"}]},
     {"id": 13, "name": "Linear Algebra", "overall": "90", "items": [{"name": "Quiz 0", "grade": "9", "range": "0–10"}]}
   ]},
-  "GET /activity": {"days": []}
+  "GET /activity": {"days": []},
+  "GET /models/routing": {
+    "jobs": [
+      {"job": "chat", "label": "Chat sessions", "model": "opus", "effort": "high", "advisor": null, "source": "default", "per_session": true,
+       "usage": {"today": {"runs": 4, "input_tokens": 12000, "output_tokens": 3400, "cache_creation_input_tokens": 8000, "cache_read_input_tokens": 120000, "cost_usd": 0.84}, "week": {"runs": 21, "input_tokens": 60000, "output_tokens": 15000, "cache_creation_input_tokens": 30000, "cache_read_input_tokens": 900000, "cost_usd": 5.2}}},
+      {"job": "coach_plan", "label": "Coach", "model": "opus", "effort": "high", "advisor": null, "source": "default", "per_session": false,
+       "usage": {"today": {"runs": 1, "input_tokens": 9000, "output_tokens": 1500, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 20000, "cost_usd": 0.31}, "week": {"runs": 6, "input_tokens": 50000, "output_tokens": 9000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 110000, "cost_usd": 1.7}}},
+      {"job": "summaries", "label": "Summaries", "model": "sonnet", "effort": null, "advisor": "opus", "source": "routing", "per_session": false,
+       "usage": {"today": {"runs": 0}, "week": {"runs": 2, "input_tokens": 4000, "output_tokens": 800, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "cost_usd": 0.004}}}
+    ],
+    "no_model": ["saving notes and tasks", "course sync", "notifications"],
+    "today": "2026-01-01", "week_from": "2025-12-29", "note": "Usage as the runs report it."
+  }
 }

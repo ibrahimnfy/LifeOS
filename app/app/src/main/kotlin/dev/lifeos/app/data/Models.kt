@@ -84,6 +84,31 @@ data class Note(
     val editable: Boolean get() = kind == "inbox"
 }
 
+/** The answer to a new note (`POST /notes`): the stored note's id and time (`at`, ISO). */
+@Serializable
+data class NoteSaved(
+    val id: String? = null,
+    val at: String? = null,
+    val repeat: Boolean = false,
+    @SerialName("client_id") val clientId: String? = null,
+)
+
+/** The answer to a new task (`POST /tasks`): the stored task, or `gone` when it was removed on the computer meanwhile. */
+@Serializable
+data class TaskSaved(
+    val id: String? = null,
+    val title: String = "",
+    val done: Boolean = false,
+    val due: String? = null,
+    val project: String? = null,
+    val course: String? = null,
+    val added: String? = null,
+    val gone: Boolean = false,
+    val repeat: Boolean = false,
+) {
+    fun task(): Task? = if (gone || id == null) null else Task(id, title, done, due, project, course, added)
+}
+
 @Serializable
 data class Agenda(
     val date: String? = null,
@@ -146,8 +171,8 @@ data class CourseSummary(
 }
 
 @Serializable
-data class NewCounts(val files: Int = 0, val announcements: Int = 0, val deadlines: Int = 0, val grades: Int = 0) {
-    val total: Int get() = files + announcements + deadlines + grades
+data class NewCounts(val files: Int = 0, val announcements: Int = 0, val deadlines: Int = 0, val grades: Int = 0, val pages: Int = 0) {
+    val total: Int get() = files + announcements + deadlines + grades + pages
 }
 
 @Serializable
@@ -203,7 +228,46 @@ data class Announcements(val announcements: List<Announcement> = emptyList())
 data class AssignmentStatus(val submission: String? = null, val grading: String? = null, val graded: Boolean = false)
 
 @Serializable
-data class Assignment(val id: Long = 0, val name: String = "", val due: Long? = null, val status: AssignmentStatus? = null)
+data class Assignment(
+    val id: Long = 0,
+    val name: String = "",
+    val due: Long? = null,
+    val status: AssignmentStatus? = null,
+    val opens: Long? = null,
+    val cutoff: Long? = null,
+    val submitted: Boolean = false,
+    /** How many files are attached (the detail lists them). */
+    val files: Int = 0,
+    /** The id of its task in the memory, or null. */
+    val task: String? = null,
+)
+
+/** One assignment in full (`GET /courses/{id}/assignments/{aid}`); [description] is Markdown. */
+@Serializable
+data class AssignmentDetail(
+    val id: Long = 0,
+    val name: String = "",
+    val course: String = "",
+    @SerialName("course_id") val courseId: Long = 0,
+    val opens: Long? = null,
+    val due: Long? = null,
+    val cutoff: Long? = null,
+    val status: AssignmentStatus? = null,
+    val submitted: Boolean = false,
+    @SerialName("grading_due") val gradingDue: Long? = null,
+    @SerialName("modified_iso") val modifiedIso: String? = null,
+    val description: String = "",
+    val files: List<CourseFile> = emptyList(),
+    val task: String? = null,
+)
+
+/** Which assignment a deadline of the summary is: the summary names it by name and due time only. */
+object AssignmentMatch {
+    fun find(assignments: List<Assignment>, name: String, due: Long?): Assignment? =
+        assignments.firstOrNull { it.name == name && it.due == due }
+            ?: assignments.filter { due != null && it.due == due }.singleOrNull()
+            ?: assignments.filter { it.name.equals(name, ignoreCase = true) }.singleOrNull()
+}
 
 @Serializable
 data class Assignments(val assignments: List<Assignment> = emptyList())
@@ -259,6 +323,69 @@ data class FileOffer(
     @SerialName("session_id") val sessionId: String = "",
 )
 
+// ---------------------------------------------------------------- model routing (#124)
+
+/** Plan usage of a job's runs, as the runs report it; [costUsd] is Claude Code's own estimate. */
+@Serializable
+data class JobUsage(
+    val runs: Int = 0,
+    @SerialName("input_tokens") val inputTokens: Long = 0,
+    @SerialName("output_tokens") val outputTokens: Long = 0,
+    @SerialName("cache_creation_input_tokens") val cacheCreationTokens: Long = 0,
+    @SerialName("cache_read_input_tokens") val cacheReadTokens: Long = 0,
+    @SerialName("cost_usd") val costUsd: Double = 0.0,
+    val models: List<String> = emptyList(),
+) {
+    /** All tokens the runs used, cache included. */
+    val tokens: Long get() = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens
+}
+
+@Serializable
+data class JobUsagePeriods(val today: JobUsage = JobUsage(), val week: JobUsage = JobUsage())
+
+/** One model job of the bridge: its model, effort and advisor, where that comes from, and its usage. */
+@Serializable
+data class ModelJob(
+    val job: String,
+    val label: String = "",
+    val model: String? = null,
+    val effort: String? = null,
+    val advisor: String? = null,
+    /** "default", "routing" (the owner's routing setting) or "background_model". */
+    val source: String = "default",
+    @SerialName("per_session") val perSession: Boolean = false,
+    val usage: JobUsagePeriods = JobUsagePeriods(),
+)
+
+@Serializable
+data class ModelRouting(
+    val jobs: List<ModelJob> = emptyList(),
+    @SerialName("no_model") val noModel: List<String> = emptyList(),
+    val today: String? = null,
+    @SerialName("week_from") val weekFrom: String? = null,
+    val note: String? = null,
+)
+
+/** Numbers of the Models screen, without Android classes. */
+object UsageNumbers {
+    /** 950 → "950", 12 345 → "12.3k", 4 200 000 → "4.2M". */
+    fun compact(value: Long): String = when {
+        value < 1_000 -> value.toString()
+        value < 1_000_000 -> trim(value / 1_000.0) + "k"
+        else -> trim(value / 1_000_000.0) + "M"
+    }
+
+    /** "$0.42"; amounts under a cent as "<$0.01", none as "$0". */
+    fun dollars(value: Double): String = when {
+        value <= 0.0 -> "$0"
+        value < 0.01 -> "<$0.01"
+        else -> "$" + String.format(java.util.Locale.ROOT, "%.2f", value)
+    }
+
+    private fun trim(value: Double): String =
+        String.format(java.util.Locale.ROOT, if (value >= 100) "%.0f" else "%.1f", value).removeSuffix(".0")
+}
+
 /** One endpoint a screen shows: where to ask, how to read the answer, and its place in the saved copies. */
 class Endpoint<T>(
     val key: String,
@@ -274,6 +401,9 @@ object Endpoints {
     val courseSummary = Endpoint("courses-summary", "/courses/summary", serializer = CourseSummary.serializer())
     val courses = Endpoint("courses", "/courses", serializer = CourseList.serializer())
     val allGrades = Endpoint("courses-grades", "/courses/grades", serializer = AllGrades.serializer())
+
+    /** Each model job and its plan usage (#124); read-only. */
+    val modelRouting = Endpoint("models-routing", "/models/routing", serializer = ModelRouting.serializer())
 
     /** All notes; this one has a saved copy. */
     val notes = Endpoint("notes", "/notes", serializer = NoteList.serializer())
@@ -292,5 +422,7 @@ object Endpoints {
         Endpoint("course-$id-announcements", "/courses/$id/announcements", serializer = Announcements.serializer())
     fun assignments(id: Long) =
         Endpoint("course-$id-assignments", "/courses/$id/assignments", serializer = Assignments.serializer())
+    fun assignment(id: Long, assignmentId: Long) =
+        Endpoint("course-$id-assignment-$assignmentId", "/courses/$id/assignments/$assignmentId", serializer = AssignmentDetail.serializer())
     fun grades(id: Long) = Endpoint("course-$id-grades", "/courses/$id/grades", serializer = Grades.serializer())
 }

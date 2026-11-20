@@ -24,6 +24,14 @@ sealed interface UiState<out T> {
 
 enum class Problem { UNREACHABLE, NO_ANSWER, SERVER, NOT_SET_UP, FOLDER_IN_REPOSITORY }
 
+/** When the list on screen was received (0 when there is none): what the phone added later is put into it. */
+val UiState<*>.listAtMillis: Long
+    get() = when (this) {
+        is UiState.Content<*> -> savedAtMillis
+        is UiState.Empty -> savedAtMillis
+        else -> 0L
+    }
+
 /** What the last request for an endpoint ended with; null while it is still running. */
 sealed interface Outcome<out T> {
     data class Success<T>(val data: T, val atMillis: Long) : Outcome<T>
