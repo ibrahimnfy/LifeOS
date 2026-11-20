@@ -102,6 +102,12 @@ bridge by hand.
 | GET | `/context-map` | yes | Allowed folders and their summary files in the memory |
 | POST | `/context-map/refresh` | yes | Writes or updates those summaries |
 | GET / POST / DELETE | `/allowed-paths` | yes | Lists, adds or removes an allowed folder |
+| GET | `/coach/plan` | yes | The coach's messages, top three and ordered tasks, with the plan's age |
+| POST | `/coach/plan/refresh` | yes | Prepares a new plan now |
+| GET | `/coach/question` | yes | The one open coach question, if any |
+| POST | `/coach/question/answer` | yes | Records the owner's answer and files what it says |
+| POST | `/coach/question/skip` | yes | Skips the open question |
+| GET / PUT | `/coach/settings` | yes | Notification frequency, quiet hours, questions on or off |
 
 ### `POST /ask`
 
@@ -394,6 +400,104 @@ The folders Claude may work in besides the memory folder, stored in
   announced on the computer through `scripts/notify.sh`. The notification
   says that a folder was added or removed, never which one.
 
+### Coach: `/coach/plan`, `/coach/question`, `/coach/settings`
+
+The daily plan and the coach's questions of
+[`coach-design.md`](coach-design.md). The model proposes, the bridge checks.
+
+**Plan usage:** one read-only run each morning, one per manual refresh and
+one per answered question, on the owner's Claude plan. Reading the plan,
+ticking tasks, skipping a question and changing settings cost nothing.
+
+- `GET /coach/plan` returns the last prepared plan against the tasks that
+  are open now, **without a model run**:
+  `{"prepared_at": "2027-01-15T06:30:00Z", "age_seconds": 5400, "stale":
+  false, "messages": [{"id": "m1", "kind": "focus" | "observation" |
+  "encouragement" | "question", "text": "…", "why": "…", "task":
+  "t-20270115-01"}], "notification": "m1" | null, "top_three": [{"task":
+  {task}, "reason": "…" | null}], "order": [{task}, …]}`. Tasks are full
+  objects as in `/tasks`. `why` and `task` are optional; a question also
+  carries `"question": "waiting" | "hard" | "easy" | "next" | "still"`.
+  `stale` is true when the plan is not from today.
+- A finished task leaves the plan at once: its messages are dropped, it
+  leaves the top three and the next task of the order moves up (with
+  `reason: null`). Tasks the plan does not know are appended to the order by
+  rule: overdue, then due date, then date added, then file order. Without
+  any plan, `prepared_at` and `age_seconds` are `null`, `messages` is empty
+  and the order and top three follow that rule.
+- **The morning run.** While the bridge runs it prepares one plan per day,
+  at 06:30 local time or, if the computer was off then, when the bridge next
+  starts. A failed run is tried again after an hour. Nothing runs while the
+  memory folder is not set up or has a git remote.
+- `POST /coach/plan/refresh` prepares a new plan now and returns it. At most
+  one run in ten minutes (`429 too_soon`); `429 busy` while a plan is being
+  prepared; `502 bad_plan` or `bad_output` when the result was not usable.
+  In all these cases **the previous plan stays**.
+- **Checks on a proposed plan:** every task id must be an open task; texts
+  are single lines (`text` up to 280 characters, `why` and `reason` up to
+  200); at most eight messages and one question; the top three are up to
+  three different open tasks; unknown fields are ignored. Invalid messages
+  are dropped; a result without any valid message is discarded.
+- The plan is stored in `~/.config/lifeos/coach/plan.json` (mode 600), never
+  in the memory folder.
+- **The daily notification.** When a plan is prepared, `scripts/notify.sh`
+  is called once per day with a fixed text ("Your daily note is ready.").
+  **The message itself is never in the notification.** Nothing is sent in
+  quiet hours; the notification waits for their end.
+- `GET /coach/question` → `{"question": {message} | null}`: the question of
+  the plan, at most one.
+- `POST /coach/question/answer` with `{"text": "…"}` (up to 4,000
+  characters) appends the question and the answer, in the owner's own words,
+  to `coach/log.md` in the memory folder (one commit). Then one short
+  read-only run proposes how to file it; the bridge writes only what passes
+  its checks, as a second commit: up to three `- [owner <date>] …` lines
+  under `## Facts` of `profile.md` or of an **existing** `projects/<name>.md`
+  or `courses/<name>.md`, and the fields `next`, `blocked-by` and `effort`
+  (`small`, `medium`, `large`) on the task's line in `tasks.md`. The request
+  waits for that run; if it fails or proposes nothing usable, the answer is
+  saved all the same. Returns `{"saved": true, "filed": {"facts":
+  ["profile.md"], "task_fields": ["next"]}}`. `404 no_question` when no
+  question is open; `503 memory_unavailable` as for all memory writes, and
+  the question then stays open.
+- `POST /coach/question/skip` closes the question without a run. The same
+  task gets no question for 14 days; three skips in a row pause all
+  questions for 7 days (`questions_paused_until` in the answer). An answer
+  ends the row. A question that was answered is not asked again in the
+  same form (`waiting`, `hard`, …) for that task.
+- `GET /coach/settings` → `{"frequency": "off" | "1" | "3", "quiet_start":
+  "22:00", "quiet_end": "08:00", "questions": true}` (these are the
+  defaults). `PUT /coach/settings` takes any of these fields; fields left
+  out keep their value. With `frequency` `off` no notification is sent; with
+  `questions` `false` the plan is served without its question. Stored in
+  `~/.config/lifeos/coach/settings.json`; skips are remembered in
+  `coach/state.json` next to it.
+
+## Paired phones
+
+```
+cd bridge
+uv run lifeos-bridge devices                 # id, state, name, paired, last seen
+uv run lifeos-bridge devices revoke <id>     # the first characters of the id are enough
+```
+
+Revoking deletes the phone's secret on the computer; from that moment its
+messages are dropped. It needs no network. Pairing a phone (`pair`) arrives
+with the relay backend. Design: [`security.md`](security.md).
+
+## Moodle sign-in
+
+```
+scripts/moodle-login            # sign in through the browser, store the token
+scripts/moodle-login --check    # test the stored token
+```
+
+The helper prints a link; the owner signs in on the institution's own page
+and pastes the address the browser ends on (it starts with
+`moodlemobile://token=`). The helper never sees the password, verifies the
+pasted value, and stores only the token in `~/.config/lifeos/env`. It needs
+`MOODLE_URL` in that file. Background:
+[`research/moodle-access.md`](research/moodle-access.md).
+
 ## Relay connection test
 
 ```
@@ -523,6 +627,25 @@ curl -s -H "$H" -X POST $B/tasks/<id>/complete
 curl -s -H "$H" -H "$J" -d '{"title":"Test event","date":"2027-01-20","start":"14:00"}' $B/events
 curl -s -H "$H" "$B/agenda?day=2027-01-20"
 scripts/ask "Which tasks are open?"        # the answer knows the task list without searching
+```
+
+Coach (the refresh and the answer each start one run on the owner's Claude
+plan; needs the memory folder and a few open tasks):
+
+```
+H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787; J='Content-Type: application/json'
+curl -s -H "$H" $B/coach/plan                    # before any plan: "prepared_at":null, tasks in rule order
+curl -s -H "$H" -X POST $B/coach/plan/refresh    # takes a while; messages, top_three, order
+curl -s -H "$H" -X POST $B/coach/plan/refresh    # again at once -> 429 {"error":"too_soon",...}
+curl -s -H "$H" -X POST $B/tasks/<id of a top-three task>/complete
+curl -s -H "$H" $B/coach/plan                    # at once: that task is gone, the next one moved up
+curl -s -H "$H" $B/coach/question                # {"question":{...}} or {"question":null}
+curl -s -H "$H" -H "$J" -d '{"text":"A test answer."}' $B/coach/question/answer
+tail -n 4 ~/brain/coach/log.md; git -C ~/brain log --oneline | head -n 3
+curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"1","quiet_start":"23:00"}' $B/coach/settings
+ls -l ~/.config/lifeos/coach/                    # plan.json, settings.json, state.json; mode 600
+# outside quiet hours, within about 30 seconds of the first plan of the day,
+# a desktop notification "LifeOS: coach" appears, once
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

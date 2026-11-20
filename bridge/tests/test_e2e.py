@@ -207,7 +207,7 @@ def test_a_recording_relay_sees_no_plaintext(paired):
 
 
 def test_two_identical_messages_never_look_the_same(paired):
-    phone, device = paired
+    _, device = paired
     first = devices.seal_for_phone(devices.load(device.id), e2e.CHUNK, "r", {"text": "same"}, NOW)
     second = devices.seal_for_phone(devices.load(device.id), e2e.CHUNK, "r", {"text": "same"}, NOW)
     assert first[e2e.HEADER.size :] != second[e2e.HEADER.size :]

@@ -19,6 +19,7 @@ from . import (
     allowed,
     capable,
     claude,
+    coach,
     contextmap,
     memory,
     reminders,
@@ -119,15 +120,28 @@ def create_app(settings: Settings) -> FastAPI:
                     await asyncio.to_thread(
                         reminders.fire_due, notify_script=settings.notify_script
                     )
+                with contextlib.suppress(Exception):  # the coach never stops the reminders
+                    await coach_tick()
                 await asyncio.sleep(reminders.CHECK_INTERVAL_SECONDS)
+
+        coach_runs: set[asyncio.Task] = set()
+
+        async def coach_tick() -> None:
+            """The morning plan (as its own task: a run takes a while) and its notification."""
+            if not coach_runs and await asyncio.to_thread(coach.due_for_morning_run):
+                run = asyncio.create_task(coach.morning_run(settings))
+                coach_runs.add(run)
+                run.add_done_callback(coach_runs.discard)
+            await asyncio.to_thread(coach.send_daily_notification, settings)
 
         task = asyncio.create_task(watch_reminders())
         try:
             yield
         finally:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            for pending in (task, *coach_runs):
+                pending.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await pending
 
     app = FastAPI(
         title="LifeOS bridge",
@@ -464,5 +478,43 @@ def create_app(settings: Settings) -> FastAPI:
         """Today's events and tasks, overdue tasks and the next ``days`` days."""
         days = max(1, min(days, 60))
         return await asyncio.to_thread(memory.agenda, brain, read_day(day, "day"), days)
+
+    # ---- coach: daily plan, the open question, settings -------------------
+
+    @app.get("/coach/plan")
+    async def coach_plan():
+        """The last prepared plan against the tasks open now. Never starts a run."""
+        return await asyncio.to_thread(coach.current_plan, settings)
+
+    @app.post("/coach/plan/refresh")
+    async def refresh_coach_plan():
+        """Prepare a new plan now (one run; at most one in ten minutes)."""
+        return await coach.refresh(settings)
+
+    @app.get("/coach/question")
+    async def coach_question():
+        return {"question": await asyncio.to_thread(coach.open_question, settings)}
+
+    @app.post("/coach/question/answer")
+    async def answer_coach_question(request: Request):
+        """Body: ``{"text": str}``: the owner's answer in their own words."""
+        data = await read_json_object(request)
+        return await coach.answer_question(settings, data.get("text"))
+
+    @app.post("/coach/question/skip")
+    async def skip_coach_question():
+        return await asyncio.to_thread(coach.skip_question, settings)
+
+    @app.get("/coach/settings")
+    async def coach_settings():
+        return coach.settings_view()
+
+    @app.put("/coach/settings")
+    async def update_coach_settings(request: Request):
+        """Body: any of ``{"frequency": "off"|"1"|"3", "quiet_start", "quiet_end", "questions"}``.
+
+        Fields left out keep their value.
+        """
+        return coach.update_settings(await read_json_object(request))
 
     return app
