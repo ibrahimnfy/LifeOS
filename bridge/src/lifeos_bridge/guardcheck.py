@@ -154,6 +154,7 @@ class GuardCheck:
             lambda title, text: notifications.send(title, text, event="notice")
         )
         self.task: asyncio.Task | None = None
+        self.recheck_passed: set[str] = set()
 
     @staticmethod
     def _path() -> Path:
@@ -176,6 +177,10 @@ class GuardCheck:
             if isinstance(entry, dict) and entry.get("result") in ("running", "not_run",
                                                                    "incomplete"):  # fmt: skip
                 self._save(runner, entry | {"result": "not_run", "attempts": 0, "next_try": 0})
+            elif isinstance(entry, dict) and entry.get("result") == "passed":
+                # A pass whose marker is gone or no longer valid (lost, replaced, edited)
+                # is checked once more after a restart, not left switched off for good.
+                self.recheck_passed.add(runner)
 
     async def due(self, now: float) -> list[tuple[str, dict]]:
         """The runners whose check should start now, with their state entries."""
@@ -195,6 +200,9 @@ class GuardCheck:
                 continue  # verified for exactly these versions
             except ClaudeError:
                 pass
+            if entry.get("result") == "passed" and runner in self.recheck_passed:
+                self.recheck_passed.discard(runner)  # once per start
+                entry = entry | {"attempts": 0, "result": "not_run", "next_try": 0}
             if entry.get("result") in ("failed", "incomplete", "passed"):
                 continue  # final until the versions change or the bridge restarts
             if entry["attempts"] >= MAX_ATTEMPTS or now < entry.get("next_try", 0):

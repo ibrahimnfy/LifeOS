@@ -80,6 +80,27 @@ def test_one_restart_checks_both_one_after_the_other(auto, settings):
     assert launches == ["cli", "sdk"]
 
 
+def test_a_pass_whose_marker_was_lost_is_checked_once_more_after_a_restart(auto, settings):
+    make, _notices, launches, outcome = auto
+    tick(make())
+    assert launches == ["sdk"] and available(settings, "sdk")
+    signed("sdk", sdk_version="0.0.1")  # the marker was replaced by one for other versions
+    same_bridge = make()
+    tick(same_bridge)
+    assert launches == ["sdk"]  # a running bridge does not start over by itself
+    restarted = make()
+    restarted.recover()
+    tick(restarted)
+    assert launches == ["sdk", "sdk"] and available(settings, "sdk")
+    capable.marker_path("sdk").unlink()
+    outcome["passes"] = False  # the check ends but leaves no valid marker
+    again = make()
+    again.recover()
+    tick(again)
+    tick(again)
+    assert launches == ["sdk", "sdk", "sdk"]  # once per start, never in a loop
+
+
 def test_after_an_update_the_check_runs_once_and_the_mode_comes_back(auto, settings):
     make, notices, launches, _ = auto
     signed("cli", claude_version="fake-claude 0.9")
