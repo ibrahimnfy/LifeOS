@@ -206,3 +206,8 @@ a new entry is added that says what changed and why.
 - **Course colours are stable.** A course keeps the colour (and icon) it was first given for as long as it exists; a new course takes the next free colour; existing courses are never re-coloured. Replaces the agent's choice "tone `id mod 7` … a course's colour can change when courses are added or removed".
 - **The agent may restart the bridge user service itself** whenever merged work needs it, lets the start-up guardrail check run and checks its result. Never with administrator rights.
 - **Autonomous periods:** the agent starts filed, unblocked issues without asking; anything that needs the owner becomes a human issue on a running list and work continues elsewhere. A pause instruction applies only until the owner's next message unless stated otherwise.
+
+### Implementation choices for push hints (agent, #38 bridge side, 2026-11-21; cheap to change)
+- **Hint fields:** `e` event kind, `c` channel (`chat`, `courses`, `coach`, `reminders`), `o` the screen to open, `r` the item, `n` counts (course sync only). Questions and approvals go to `chat`; the course sign-in to `courses`; notices from `scripts/notify.sh` (new owner issues, guardrail results) to `reminders`, because there are only four channels (to confirm by the owner).
+- **Counts travel inside the sealed hint only;** the lock-screen text stays fixed per kind. Counts are low-sensitivity, but the rule "a push carries no readable content" applies to what FCM and the lock screen can see, so the app shows them only when unlocked.
+- **New assignments are a kind of their own** (`assignments` in the course counters); a new assignment's deadline is not counted a second time as a deadline.

@@ -189,8 +189,11 @@ never holds push credentials.
   1. a **bare wake-up**: no fields beyond what FCM itself needs; or
   2. a **small hint encrypted with `k_push`** using the same construction
      and checks as section 3 (its own counter; a repeated or stale hint is
-     ignored). The hint says what kind of event happened and which session
-     or reminder it concerns, so the app can show the right notification.
+     ignored). The hint says what kind of event happened, its notification
+     channel, which screen and item it concerns (a session, reminder or
+     course id) and, for a course sync, how many items of each kind changed,
+     so the app can show the right notification. The lock-screen text is
+     fixed per event kind; counts and references are never shown there.
   In both cases the app then fetches from the relay and decrypts. Titles,
   prompts, answers, notes and paths never appear in a push.
 - **FCM "data" messages only**, with high priority where the owner expects

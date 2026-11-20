@@ -419,6 +419,7 @@ def test_first_sync_writes_folders_files_and_memory_without_news(
     assert result["new"] == {
         "files": 0,
         "pages": 0,
+        "assignments": 0,
         "announcements": 0,
         "deadlines": 0,
         "grades": 0,
@@ -673,6 +674,7 @@ def test_second_sync_fetches_and_reports_only_what_changed(
     assert result["new"] == {
         "files": 2,
         "pages": 0,
+        "assignments": 0,
         "announcements": 1,
         "deadlines": 1,
         "grades": 1,
@@ -684,6 +686,7 @@ def test_second_sync_fetches_and_reports_only_what_changed(
     assert stored["courses"][str(A)]["new"] == {
         "files": 2,
         "pages": 0,
+        "assignments": 0,
         "announcements": 1,
         "deadlines": 1,
         "grades": 1,
@@ -714,6 +717,33 @@ def test_second_sync_fetches_and_reports_only_what_changed(
     assert task.fields["due"] == moved.day.isoformat()
     assert "Overall grade: 80.00." in (brain / "courses" / f"{FOLDER_A}.md").read_text()
     assert "Example exam date" in (folder / FOLDER_A / "announcements.md").read_text()
+
+
+def test_every_change_of_one_sync_is_one_push_with_counts(site, configured, folder, monkeypatch):
+    from lifeos_bridge import push
+
+    hints = []
+    monkeypatch.setattr(
+        push, "send_hint", lambda event, ref="", **kw: hints.append((event, ref, kw))
+    )
+    sync(folder)
+    assert hints == [("courses", "", {"opens": None, "counts": None})]  # the first sync
+    change_the_site(site)  # a new and a changed file, an announcement, a grade, a moved date
+    site.text_pages[0].update(content="<p>Changed</p>", revision=2)
+    site.assignments[A].append(
+        {"id": 44, "course": A, "name": "New homework", "duedate": TS + 9 * DAY}
+    )
+    result = sync(folder, when=later(7))
+    assert result["new"] == {"files": 2, "pages": 1, "assignments": 1, "announcements": 1,
+                             "deadlines": 1, "grades": 1}  # fmt: skip
+    assert len(hints) == 2
+    assert hints[1] == ("courses", str(A), {"opens": "course", "counts": result["new"]})
+    # Changes in two courses: one push that opens the course list.
+    site.contents[B][0]["modules"].append(resource(32, "More", file_entry("more.pdf")))
+    site.discussions[61].insert(0, discussion(4, "Another", "x", TS + 200))
+    sync(folder, when=later(14))
+    assert hints[2][0:2] == ("courses", "") and hints[2][2]["opens"] == "courses"
+    assert hints[2][2]["counts"]["files"] == 1 and hints[2][2]["counts"]["announcements"] == 1
 
 
 def test_notification_text_is_built_from_counts_only():
@@ -1007,6 +1037,7 @@ def test_refused_parts_keep_what_was_known(site, configured, folder):
     assert result["new"] == {
         "files": 1,
         "pages": 0,
+        "assignments": 0,
         "announcements": 0,
         "deadlines": 0,
         "grades": 0,
@@ -1162,7 +1193,14 @@ def test_summary_and_list(bridge):
         True,
         True,
     )
-    assert first["new"] == {"files": 2, "pages": 0, "announcements": 1, "deadlines": 1, "grades": 1}
+    assert first["new"] == {
+        "files": 2,
+        "pages": 0,
+        "assignments": 0,
+        "announcements": 1,
+        "deadlines": 1,
+        "grades": 1,
+    }
     assert first["next_deadline"]["due"] == TS + 4 * DAY
     assert second["next_deadline"]["name"] == "Example quiz closes" and not second["has_new"]
 
@@ -1456,7 +1494,7 @@ def test_after_an_upgrade_existing_pages_and_attachments_are_not_news(site, conf
                 item.pop(name, None)
     ms.state_path().write_text(json.dumps(stored))
     result = sync(folder, when=later(7))
-    assert result["new"] == {"files": 0, "pages": 0, "announcements": 0, "deadlines": 0,
+    assert result["new"] == {"files": 0, "pages": 0, "assignments": 0, "announcements": 0, "deadlines": 0,
                              "grades": 0}  # fmt: skip
 
 

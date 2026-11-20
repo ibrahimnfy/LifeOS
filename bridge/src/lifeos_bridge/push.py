@@ -22,12 +22,53 @@ import urllib.request
 
 from . import devices, e2e, google
 
-EVENTS = frozenset(
-    {"answer", "reminder", "coach", "courses", "signin", "notice", "approval", "question"}
-)
+# Event kind → the Android notification channel it belongs to. The app shows a
+# fixed, content-free text per kind on the lock screen (docs/security.md 5.1).
+CHANNELS = {
+    "answer": "chat",
+    "question": "chat",
+    "approval": "chat",
+    "courses": "courses",
+    "signin": "courses",
+    "coach": "coach",
+    "reminder": "reminders",
+    "notice": "reminders",
+}
+EVENTS = frozenset(CHANNELS)
+# Event kind → the screen a tap opens; with ``r`` it names the item.
+OPENS = {
+    "answer": "session",
+    "question": "session",
+    "approval": "session",
+    "courses": "courses",
+    "signin": "moodle_signin",
+    "coach": "coach",
+    "reminder": "reminder",
+    "notice": "notice",
+}
 MAX_TOKEN = 4096
 MAX_REF = 300
+MAX_COUNT = 9999
 TIMEOUT = 15
+
+
+def hint_for(event: str, ref: str = "", opens: str | None = None,
+             counts: dict | None = None, **extra: str) -> dict:  # fmt: skip
+    """The sealed part of a push: kind, channel, screen to open, item, counts.
+
+    ``counts`` (whole numbers per kind, e.g. new course files) travel only
+    inside the sealed hint; the lock-screen text never shows them.
+    """
+    hint: dict = {"e": event, "c": CHANNELS[event], "o": opens or OPENS[event]}
+    values = {"r": ref, **extra}
+    hint |= {key: str(value)[:MAX_REF] for key, value in values.items() if value}
+    if counts:
+        hint["n"] = {
+            str(kind)[:20]: min(int(number), MAX_COUNT)
+            for kind, number in counts.items()
+            if isinstance(number, int) and not isinstance(number, bool) and number > 0
+        }
+    return hint
 
 
 def register(device_id: bytes, token: object) -> bool:
@@ -64,9 +105,9 @@ def _post(url: str, access_token: str, message: dict) -> int:
         return error.code
 
 
-def message_for(device: devices.Device, event: str, extra: dict) -> dict:
+def message_for(device: devices.Device, hint: dict) -> dict:
     """The FCM message for one device: nothing readable, only the sealed hint."""
-    blob = devices.seal_to(device.id, e2e.PUSH_HINT, "", {"e": event, **extra})
+    blob = devices.seal_to(device.id, e2e.PUSH_HINT, "", hint)
     return {
         "message": {
             "token": device.push_token,
@@ -76,7 +117,10 @@ def message_for(device: devices.Device, event: str, extra: dict) -> dict:
     }
 
 
-def send_hint(event: str, ref: str = "", **extra: str) -> int:
+def send_hint(
+    event: str, ref: str = "", *, opens: str | None = None, counts: dict | None = None,
+    **extra: str,
+) -> int:  # fmt: skip
     """Wake every paired phone that has a push address. Returns how many were reached.
 
     Never raises and never blocks for long: a push that cannot be sent is not
@@ -87,7 +131,7 @@ def send_hint(event: str, ref: str = "", **extra: str) -> int:
     targets = [d for d in devices.list_devices() if not d.revoked and d.push_token]
     if not targets:
         return 0
-    payload = {key: str(value)[:MAX_REF] for key, value in {"r": ref, **extra}.items() if value}
+    payload = hint_for(event, ref, opens, counts, **extra)
     reached = 0
     with contextlib.suppress(Exception):
         project = google.read_project()["project_id"]
@@ -95,7 +139,7 @@ def send_hint(event: str, ref: str = "", **extra: str) -> int:
         url = f"https://fcm.googleapis.com/v1/projects/{project}/messages:send"
         for device in targets:
             with contextlib.suppress(Exception):
-                status = _post(url, access, message_for(device, event, payload))
+                status = _post(url, access, message_for(device, payload))
                 if status == 200:
                     reached += 1
                 elif status == 404:  # the address is no longer registered
