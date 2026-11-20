@@ -105,6 +105,9 @@ def child_env(environ: Mapping[str, str] | None = None, *, capable: bool = False
     return {name: environ[name] for name in names if name in environ}
 
 
+STREAM_OUTPUT_FLAGS = ("--output-format", "stream-json", "--verbose", "--include-partial-messages")
+
+
 def build_command(
     settings: Settings,
     *,
@@ -119,10 +122,34 @@ def build_command(
 ) -> list[str]:
     command = [settings.claude_bin, "-p"]
     if stream:
-        command += ["--output-format", "stream-json", "--verbose", "--include-partial-messages"]
+        command += STREAM_OUTPUT_FLAGS
     else:
         command += ["--output-format", "json"]
-    command += [
+    return command + run_flags(
+        settings,
+        session_id=session_id,
+        resume=resume,
+        name=name,
+        policy=policy,
+        context=context,
+        model=model,
+        effort=effort,
+    )
+
+
+def run_flags(
+    settings: Settings,
+    *,
+    session_id: str,
+    resume: bool,
+    name: str | None = None,
+    policy: Policy = READ_ONLY,
+    context: str | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+) -> list[str]:
+    """Every restriction and choice of a run. Shared by the ``claude -p`` and the SDK runner."""
+    command = [
         # Nobody is at the computer: never wait for an approval, deny instead.
         "--permission-mode", "dontAsk",
         "--permission-prompts", "none",
@@ -202,12 +229,17 @@ def _startup_failure(returncode: int | None, stderr: bytes) -> ClaudeError:
     return ClaudeError("claude_failed", 502, f"claude exited with status {returncode}")
 
 
-async def sessions_in_use(settings: Settings, timeout: float = 20.0) -> set[str]:
+async def sessions_in_use(
+    settings: Settings, timeout: float = 20.0, *, ignore_pids: frozenset[int] = frozenset()
+) -> set[str]:
     """Ids of sessions that a live Claude Code process holds right now.
 
     Uses ``claude agents --json``, the supported way to read session state
     from outside. Fails closed: when the answer cannot be obtained, a
     ClaudeError is raised and the caller must not resume anything.
+    ``ignore_pids`` are the bridge's own live processes (the SDK runner keeps
+    one per active session): they hold their session, but they are not a
+    second writer.
     """
     failure = ClaudeError(
         "in_use_check_failed", 503, "could not check whether the session is in use"
@@ -241,7 +273,9 @@ async def sessions_in_use(settings: Settings, timeout: float = 20.0) -> set[str]
     return {
         entry["sessionId"]
         for entry in entries
-        if isinstance(entry, dict) and isinstance(entry.get("sessionId"), str)
+        if isinstance(entry, dict)
+        and isinstance(entry.get("sessionId"), str)
+        and not (isinstance(entry.get("pid"), int) and entry["pid"] in ignore_pids)
     }
 
 

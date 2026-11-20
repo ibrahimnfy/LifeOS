@@ -42,6 +42,109 @@ if args[:2] == ["agents", "--json"]:
     print(content)
     sys.exit(0)
 
+
+def sdk_mode():
+    """The Agent SDK's protocol (``--input-format stream-json``): a live process per session.
+
+    Answers ``initialize`` and ``interrupt`` control requests and one user
+    message after another. Prompts (first word): FAKE_SLEEP works until
+    interrupted; FAKE_HANG ignores the interrupt, end of input and SIGINT;
+    FAKE_EXIT ends the process mid-turn; FAKE_ERROR, FAKE_DENIED as in -p mode.
+    """
+
+    def opt(name):
+        return args[args.index(name) + 1] if name in args else None
+
+    resume = opt("--resume")
+    session_id = resume or opt("--session-id") or "00000000-0000-4000-8000-000000000000"
+    project = Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
+    transcript = project / f"{session_id}.jsonl"
+
+    def log(entry):
+        with open(".fake-claude-calls.jsonl", "a") as handle:
+            handle.write(json.dumps({"pid": os.getpid(), "cwd": os.getcwd(), **entry}) + "\n")
+
+    def emit(obj):
+        print(json.dumps(obj), flush=True)
+
+    def result(text="", **extra):
+        base = {
+            "type": "result", "subtype": "success", "is_error": False, "result": text,
+            "session_id": session_id, "duration_ms": 7, "duration_api_ms": 5, "num_turns": 1,
+            "permission_denials": [],
+        }  # fmt: skip
+        emit(base | extra)
+
+    log({"args": args, "env": dict(os.environ), "sdk": True})
+    if resume and not transcript.exists():
+        print(f"No conversation found with session ID: {resume}", file=sys.stderr, flush=True)
+        result(subtype="error_during_execution", is_error=True, num_turns=0)
+        sys.exit(1)
+
+    working = False
+    for raw in sys.stdin:
+        message = json.loads(raw)
+        if message.get("type") == "control_request":
+            request = message["request"]
+            emit(
+                {
+                    "type": "control_response",
+                    "response": {
+                        "subtype": "success",
+                        "request_id": message["request_id"],
+                        "response": {"commands": []} if request["subtype"] == "initialize" else {},
+                    },
+                }
+            )
+            if request["subtype"] == "interrupt":
+                log({"interrupt": True})
+                if working == "sleep":
+                    result(subtype="error_during_execution", is_error=True, result=None)
+                    working = False
+            continue
+        if message.get("type") != "user":
+            continue
+        prompt = message["message"]["content"]
+        log({"sdk_prompt": prompt})
+        project.mkdir(parents=True, exist_ok=True)
+        with transcript.open("a") as handle:
+            line = {"type": "user", "sessionId": session_id, "cwd": os.getcwd(),
+                    "message": {"role": "user", "content": prompt[:200]}}  # fmt: skip
+            handle.write(json.dumps(line) + "\n")
+        if prompt.startswith("FAKE_SLEEP"):
+            working = "sleep"
+            continue
+        if prompt.startswith("FAKE_HANG"):
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            working = "hang"
+            continue
+        if prompt.startswith("FAKE_EXIT"):
+            print("something broke", file=sys.stderr, flush=True)
+            sys.exit(1)
+        emit({"type": "system", "subtype": "init", "session_id": session_id})
+        for piece in ("echo: ", prompt):
+            emit(
+                {
+                    "type": "stream_event", "uuid": "u1", "session_id": session_id,
+                    "event": {"type": "content_block_delta",
+                              "delta": {"type": "text_delta", "text": piece}},
+                }
+            )  # fmt: skip
+        print("not json, must be skipped", flush=True)
+        if prompt.startswith("FAKE_ERROR"):
+            result(subtype="error_max_turns", is_error=True, errors=["turn limit"])
+        elif prompt.startswith("FAKE_DENIED"):
+            result("done", permission_denials=[{"tool_name": "Write", "tool_use_id": "x"}])
+        else:
+            result(f"echo: {prompt}")
+    if working == "hang":
+        time.sleep(60)
+    sys.exit(0)
+
+
+if "--input-format" in args and args[args.index("--input-format") + 1] == "stream-json":
+    sdk_mode()
+
 prompt = sys.stdin.read()
 
 
