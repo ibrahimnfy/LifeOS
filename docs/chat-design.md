@@ -243,21 +243,37 @@ would be exactly the fragile workaround the owner ruled out.
   change a logged decision (keep `claude -p`), so it is **a human decision**
   (section 7).
 
-## 7. What only the Agent SDK offers
+## 7. The Agent SDK
 
-| Wanted | With `claude -p` (current) | With the Agent SDK |
-|---|---|---|
-| Option cards for questions | not possible in a documented way | native |
-| List of available models | not available; configured aliases | native |
-| List of skills and commands | read from the folder (works) | native |
-| Reading a session's past messages | own reader of an internal format | official function |
-| Interrupt, queue | signals and the bridge's own queue (work) | native |
+The owner decided on 2026-11-20 to move the runs to the Agent SDK, to get
+question cards and approvals in the middle of a run, a live process per
+session (no restart between messages) and clean interruption. Conditions:
+the capable mode stays off until every guardrail check passes again on the
+new path (the current path stays as a fallback until then); after any
+version change of Claude Code or the SDK the checks rerun by themselves and
+the mode is off until they pass; sessions stay interchangeable with the
+terminal.
 
-Costs of switching the runs to the SDK: a large extra package that bundles
-its own copy of the CLI; the run path and the capable-mode guardrail check
-would have to be rebuilt and passed again; the capable mode would be off
-until then. Raised as a human decision; nothing here depends on it except
-the option cards.
+Findings from the official documentation and from the package itself
+(version 0.2.186; read, not installed, nothing run):
+
+| Topic | Finding |
+|---|---|
+| Package | About 166 MB; it bundles its own Claude Code binary (a newer patch version than the installed one) and uses the bundled one unless told otherwise. The bridge will name the installed binary explicitly, so the version that is verified is the version that runs |
+| Sign-in | **The SDK documentation describes API-key sign-in only** and says that subscription logins may not be offered by third-party developers in their products. Whether the owner's own use with the installed, signed-in Claude Code is acceptable is **the owner's decision (human issue); the SDK work waits for it** |
+| Questions and approvals | Supported through a callback, but **not in the permission mode the bridge uses today**: in that mode such calls are denied without asking. The SDK path therefore has to use the default mode with an explicit allow-list, which changes how every guardrail is expressed and is why the whole probe suite must pass again |
+| Audit before every call | A callback that runs before every tool call, with a documented option that blocks the call when the callback fails (the default lets the call through; the option is mandatory here) |
+| Sandbox settings | The SDK's own sandbox option does not document two fields the guardrails rely on (refusing to start without the sandbox, and hiding the home folder); the bridge keeps passing its complete settings JSON, and the probes must show that it is honoured |
+| Settings loading | By default the SDK loads the owner's personal and project settings like the terminal does; the bridge must switch all of that off explicitly, as today |
+| Sessions | Stored in the same place as terminal sessions and resumable by id in both directions (hidden from the terminal's session picker, which lists only its own); two writers on one session at the same time lose messages, so the bridge's one-run-per-session rule stays |
+| Model list, session history | Official functions exist for both |
+| Versions | The SDK version and the Claude Code version it starts can both be read, so the guardrail marker can be tied to both |
+
+Not documented, to be established by tests before anything is relied on:
+whether settings-file hooks passed by the bridge still run; how the sandbox's
+automatic approval of commands interacts with the approval callback; idle
+behaviour of a long-lived process; whether a subscription login works at
+all.
 
 ## 8. Build issues
 
