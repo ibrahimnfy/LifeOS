@@ -113,9 +113,9 @@ def test_missing_cli_is_a_clean_error(sdk_settings):
         sdk_runner.resolve_cli(dataclasses.replace(sdk_settings, claude_bin="no-such-claude-x"))
     assert caught.value.code == "claude_not_found"
 
-    choice = {"context": "MEMORY", "model": "sonnet", "effort": "low", "advisor": "opus"}
+
 def test_flags_are_the_read_only_flags_of_claude_p(sdk_settings, fake_claude):
-    choice = {"context": "MEMORY", "model": "sonnet", "effort": "low"}
+    choice = {"context": "MEMORY", "model": "sonnet", "effort": "low", "advisor": "opus"}
     sdk = sdk_runner.build_command(sdk_settings, session_id="s", resume=True, **choice)
     cli = claude.build_command(sdk_settings, session_id="s", resume=True, stream=True, **choice)
     assert sdk[0] == str(fake_claude)
