@@ -86,7 +86,11 @@ enum class ChatProblem {
     /** A first message was sent but nothing came back: the conversation may exist under Sessions. */
     NO_ANSWER,
 
-    /** The message did not arrive on the computer (it is not in the conversation there). */
+    /**
+     * The answer was lost on the way, the run is over, and the conversation on the computer
+     * does not end with this message: most likely it never arrived. The owner decides whether
+     * to send it again.
+     */
     NOT_DELIVERED,
 
     /** The session is open on the computer right now: the computer refuses a second writer. */
@@ -180,7 +184,9 @@ data class ChatState(
  * locked, a long silence), the run goes on there: the state becomes [ChatPhase.ELSEWHERE] and
  * [check] reads the result once the run has ended. A message is repeated only by the owner.
  *
- * The public functions are called from the main thread.
+ * The public functions are called from the main thread, except [onLocked] and [forget], which
+ * the core also calls from its own scope (the lock timer): the state is one atomic value, and
+ * work for a conversation that is no longer shown is dropped by its generation.
  */
 class Chat(
     private val api: Api,
@@ -194,7 +200,10 @@ class Chat(
 ) {
     private val mutable = MutableStateFlow(ChatState())
     private val keys = AtomicLong()
+    @Volatile
     private var run: Job? = null
+
+    @Volatile
     private var reading: Job? = null
 
     /**
@@ -668,14 +677,20 @@ class Chat(
         private fun put(messages: List<ChatMessage>, message: ChatMessage): List<ChatMessage> =
             if (messages.any { it.key == message.key }) messages.map { if (it.key == message.key) message else it } else messages + message
 
-        /** Is [stored] (a message as the computer has it, possibly cut) the message [sent]? */
-        private fun same(stored: String, sent: String): Boolean {
+        /**
+         * Is [stored] (a message as the computer's conversation has it) the message [sent]? The
+         * computer stores what was sent, but may cut a long text and leaves out parts it takes
+         * for its own markers, so a text that contains the other counts as the same. In doubt
+         * the answer is yes: a wrong "not there" would invite the owner to send a message twice.
+         */
+        internal fun same(stored: String, sent: String): Boolean {
             val a = stored.trim().replace(Regex("\\s+"), " ")
             val b = sent.trim().replace(Regex("\\s+"), " ")
-            return a == b || (a.length >= LONG && b.startsWith(a.take(LONG)))
+            return a == b || (b.isNotEmpty() && a.contains(b)) || (a.length >= PART && b.contains(a))
         }
 
-        private const val LONG = 2000
+        /** A stored text this long that is part of the sent one is the sent one, cut or trimmed. */
+        private const val PART = 20
 
         /** A waiting item the computer still lists stays answerable at least until the app looks again. */
         private const val STILL_WAITING_MILLIS = 15_000L

@@ -416,9 +416,9 @@ Nothing on these screens is sample content any more. Not paired, they show
     the run goes on there. The conversation then shows "The computer is still
     working on this", asks every five seconds while it is on screen (`GET
     /sessions/{id}/queue`), and reads the last messages (`GET
-    /sessions/{id}/history`) when the run has ended. If the message is not in
-    the conversation there, the app says that it did not arrive and offers
-    **Retry**; it never repeats a message on its own. A first message that
+    /sessions/{id}/history`) when the run has ended. If the conversation
+    there does not end with the message, the app says that it probably did
+    not arrive and offers **Retry**; it never repeats a message on its own. A first message that
     got no answer at all cannot be followed up (its session is not known):
     the app says that it may have arrived and points to Sessions.
   - A refusal (session open on the computer, too many runs, folder gone,

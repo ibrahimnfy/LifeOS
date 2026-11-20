@@ -658,6 +658,23 @@ class ChatTest {
     }
 
     @Test
+    fun `a message counts as arrived when the computer's conversation has it, also cut or trimmed`() {
+        assertTrue(Chat.same("  What is\nopen?  ", "What is open?"))
+        // The computer keeps at most a part of a very long message.
+        val long = "word ".repeat(30_000)
+        assertTrue(Chat.same(long.take(60_000), long))
+        // It leaves out a part it takes for one of its own markers.
+        assertTrue(Chat.same("Explain this line of the page to me", "<the-page class=x>\n\nExplain this line of the page to me"))
+        assertTrue(Chat.same("Earlier text. And now: do it", "do it"))
+        // An earlier short message is not the new longer one.
+        assertFalse(Chat.same("ok", "ok, and now delete the drafts"))
+        assertFalse(Chat.same("Earlier", "Did this arrive?"))
+        assertFalse(Chat.same("", "Hi"))
+        assertEquals("", SessionSummary("s", title = "(untitled)").shownTitle)
+        assertEquals("Plan", SessionSummary("s", title = " Plan ").shownTitle)
+    }
+
+    @Test
     fun `marker lines for file cards are not shown while the answer is written`() {
         assertEquals("One\nTwo", Chat.visible("One\n[[file: notes/a.md]]\nTwo\n"))
         assertEquals("One", Chat.visible("One\n  [[file: b.pdf]]  "))

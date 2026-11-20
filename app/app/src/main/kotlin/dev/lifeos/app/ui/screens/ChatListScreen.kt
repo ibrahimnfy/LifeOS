@@ -251,7 +251,7 @@ internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onC
         }
         Column(Modifier.weight(1f)) {
             Text(
-                text = session.title.ifBlank { stringResource(R.string.sessions_untitled) },
+                text = session.shownTitle.ifEmpty { stringResource(R.string.sessions_untitled) },
                 style = LifeType.rowTitle,
                 color = colors.text,
                 maxLines = 1,

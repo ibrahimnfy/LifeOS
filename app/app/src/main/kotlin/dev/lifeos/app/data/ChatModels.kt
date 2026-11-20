@@ -33,6 +33,13 @@ data class SessionSummary(
 ) {
     /** The folder's name as the rows show it. */
     val folderLabel: String get() = autoGroup.ifEmpty { folder.trimEnd('/').substringAfterLast('/') }
+
+    /** The title, or empty when the computer found none (it then says "(untitled)"). */
+    val shownTitle: String get() = title.trim().takeIf { it != NO_TITLE }.orEmpty()
+
+    private companion object {
+        const val NO_TITLE = "(untitled)"
+    }
 }
 
 @Serializable
@@ -98,7 +105,7 @@ object SessionLists {
         val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return sessions
         return sessions.filter { session ->
-            val text = (session.title + " " + session.folderLabel).lowercase()
+            val text = (session.shownTitle + " " + session.folderLabel).lowercase()
             words.all { it in text }
         }
     }
