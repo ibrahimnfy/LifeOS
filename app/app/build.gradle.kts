@@ -4,6 +4,33 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+/**
+ * Push needs four values of the owner's Firebase project. They are read at build time from
+ * the owner's private settings file (never from the repository) and compiled into the app as
+ * build-config fields; the file itself is not copied anywhere. Without the file the build
+ * works as before and the app simply has no push.
+ */
+fun firebaseValues(): Map<String, String> {
+    val file = File(System.getProperty("user.home"), ".config/lifeos/firebase/google-services.json")
+    val text = providers.fileContents(layout.file(provider { file })).asText.orNull ?: return emptyMap()
+    return try {
+        @Suppress("UNCHECKED_CAST")
+        val root = groovy.json.JsonSlurper().parseText(text) as Map<String, Any?>
+        val project = root["project_info"] as Map<String, Any?>
+        val client = (root["client"] as List<Map<String, Any?>>).first {
+            ((it["client_info"] as Map<String, Any?>)["android_client_info"] as Map<String, Any?>)["package_name"] == "dev.lifeos.app"
+        }
+        mapOf(
+            "FIREBASE_PROJECT_ID" to project["project_id"].toString(),
+            "FIREBASE_SENDER_ID" to project["project_number"].toString(),
+            "FIREBASE_APP_ID" to (client["client_info"] as Map<String, Any?>)["mobilesdk_app_id"].toString(),
+            "FIREBASE_API_KEY" to ((client["api_key"] as List<Map<String, Any?>>).first()["current_key"]).toString(),
+        )
+    } catch (_: Exception) {
+        emptyMap()
+    }
+}
+
 android {
     namespace = "dev.lifeos.app"
     compileSdk = 36
@@ -15,6 +42,11 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        val firebase = firebaseValues()
+        for (name in listOf("FIREBASE_PROJECT_ID", "FIREBASE_SENDER_ID", "FIREBASE_APP_ID", "FIREBASE_API_KEY")) {
+            buildConfigField("String", name, "\"${firebase[name].orEmpty().replace("\"", "")}\"")
+        }
 
         ndk {
             // libsodium ships for these; the JNA archive also carries ABIs no phone uses.
@@ -79,6 +111,8 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.zxing.core)
+    implementation(libs.androidx.work.runtime)
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     testImplementation(libs.lazysodium.java)

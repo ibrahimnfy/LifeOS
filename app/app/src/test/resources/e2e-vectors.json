@@ -134,6 +134,51 @@
    "nonce": "6d6005643d2792470fd8639db0e7a76984d52fe67ab0d8ae",
    "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf03000000000000000720",
    "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8DAAAAAAAAAAcgbWAFZD0nkkcP2GOdsOenaYTVL+Z6sNiu9ZeqLtBobS4m+3UGcFAnDRStNG+zTI5g8HeiXz8RGsByXs89AXBDNG8SkiYdKgn4ig6XdTkIrB6T8g29TN6TYf10faMYapOzhb/elKlhYQ=="
+  },
+  {
+   "name": "hint_answer",
+   "direction": 3,
+   "counter": 8,
+   "kind": 32,
+   "ts": 1800000008,
+   "rid": "",
+   "payload": {
+    "e": "answer",
+    "r": "session-1"
+   },
+   "nonce": "b4a051cbe4d672c9c40f976c8c284026d03a8f44fe1ff649",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf03000000000000000820",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8DAAAAAAAAAAggtKBRy+TWcsnED5dsjChAJtA6j0T+H/ZJHlmur/N9FpZPK7dDHedBwME18K1ugLvtIdZDA4ffCISBDITXF8xrhjAWSfyFdhHgUwNBt3YtjHjDIDgkldcjTEzlm9lkA5NO5jHK6Zg="
+  },
+  {
+   "name": "hint_notice",
+   "direction": 3,
+   "counter": 9,
+   "kind": 32,
+   "ts": 1800000009,
+   "rid": "",
+   "payload": {
+    "e": "notice",
+    "t": "Örnek başlık",
+    "l": "https://example.invalid/issue/1"
+   },
+   "nonce": "1ef4c164184899d85eb79c2b04fef10e6bf23735117afa0c",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf03000000000000000920",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8DAAAAAAAAAAkgHvTBZBhImdhet5wrBP7xDmvyNzURevoMXPtJCqaweRR23M41GNJKiw6t9MSL7toSTCZvcz/CWn+7UIsrp0YjbHN8bsHVzmz9CzjqYKnjGoz/z1VvYChUpTQdkea7YaJUNCSAH42PZkELqkApQHF9wWsoysalTATUfcjedcwoFks9W/H1o4UG48U5MHbDaJ87kw=="
+  },
+  {
+   "name": "hint_coach",
+   "direction": 3,
+   "counter": 10,
+   "kind": 32,
+   "ts": 1800000010,
+   "rid": "",
+   "payload": {
+    "e": "coach"
+   },
+   "nonce": "57f00bfad1111f74ca5939030b30828df983c266fef2ba40",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf03000000000000000a20",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8DAAAAAAAAAAogV/AL+tERH3TKWTkDCzCCjfmDwmb+8rpAdn2A37PVWSXwUzODBbRF67OwnHkAOluvT6ln4HKSTSIUOHtRjqRdPxV5ArE5OaVPe+5WJH9QSghF+Rsd"
   }
  ],
  "comparison_code": "703180",

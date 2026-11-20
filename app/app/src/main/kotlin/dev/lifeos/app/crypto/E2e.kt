@@ -148,14 +148,25 @@ class E2e(private val sodium: Sodium) {
 
     /** Decrypt one message. Success proves it was made by a holder of the device secret. */
     fun open(secret: ByteArray, blob: ByteArray): Message {
+        val key = deriveKey(secret, parseHeader(blob).direction)
+        try {
+            return openWithKey(key, blob)
+        } finally {
+            key.fill(0)
+        }
+    }
+
+    /**
+     * Decrypt one message with the sub-key of its direction, for a holder of only that
+     * sub-key (the push key). The caller checks that the direction is the key's own.
+     */
+    fun openWithKey(key: ByteArray, blob: ByteArray): Message {
         val header = parseHeader(blob)
         val packed = blob.copyOfRange(0, Wire.HEADER_BYTES)
         val nonce = blob.copyOfRange(Wire.HEADER_BYTES, Wire.HEADER_BYTES + Sodium.NONCE_BYTES)
-        val key = deriveKey(secret, header.direction)
         val plaintext = sodium.aeadDecrypt(
             blob.copyOfRange(Wire.HEADER_BYTES + Sodium.NONCE_BYTES, blob.size), packed, nonce, key,
         )
-        key.fill(0)
         if (plaintext == null) throw Rejected("authentication")
         try {
             val data: JsonObject = Json.parseToJsonElement(String(plaintext, Charsets.UTF_8)).jsonObject
