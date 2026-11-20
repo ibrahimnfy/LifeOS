@@ -25,6 +25,8 @@ from . import (
     files,
     history,
     memory,
+    moodle_api,
+    moodle_watch,
     relay,
     reminders,
     runcontrol,
@@ -127,6 +129,10 @@ def create_app(settings: Settings) -> FastAPI:
                     )
                 with contextlib.suppress(Exception):  # the coach never stops the reminders
                     await coach_tick()
+                with contextlib.suppress(Exception):  # at most one request to the site per day
+                    await asyncio.to_thread(
+                        moodle_watch.check, notify_script=settings.notify_script
+                    )
                 await asyncio.sleep(reminders.CHECK_INTERVAL_SECONDS)
 
         coach_runs: set[asyncio.Task] = set()
@@ -738,5 +744,8 @@ def create_app(settings: Settings) -> FastAPI:
     def session_commands(session_id: str):
         """Skills and commands of the session's folder. Listed only: not usable in runs yet."""
         return commands.listing(listed_session(session_id).folder)
+
+    # ---- the university Moodle: status, courses, assignments, deadlines ----
+    app.include_router(moodle_api.router())
 
     return app

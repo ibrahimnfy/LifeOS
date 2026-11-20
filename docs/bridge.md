@@ -120,6 +120,11 @@ documented here as they are built.
 | POST | `/coach/question/answer` | yes | Records the owner's answer and files what it says |
 | POST | `/coach/question/skip` | yes | Skips the open question |
 | GET / PUT | `/coach/settings` | yes | Notification frequency, quiet hours, questions on or off |
+| GET | `/moodle/status` | yes | Whether the Moodle sign-in is set up, its age and state |
+| GET | `/moodle/courses` | yes | The owner's courses on the university Moodle |
+| GET | `/moodle/courses/{id}` | yes | Sections, modules and files of one course |
+| GET | `/moodle/assignments` | yes | Assignments with their dates |
+| GET | `/moodle/deadlines` | yes | What is due in the coming days |
 
 ### `POST /ask`
 
@@ -427,8 +432,8 @@ answer and returns a card instead:
   resolving links; no hidden files or folders; at most `LIFEOS_MAX_FILE_MB`
   (default 50). Cards never contain a path.
 - Offers and downloads are written to the audit log with name and size.
-- Sending through the relay (sealed chunks, deleted on delivery) is not
-  built yet; `files.chunks` and `files.digest` are what it will use.
+- Through the relay the same offer is sent as sealed chunks (see "Paired
+  phones and the relay").
 
 ### Organising sessions: `PATCH /sessions/{id}` and `/session-groups`
 
@@ -623,6 +628,47 @@ ticking tasks, skipping a question and changing settings cost nothing.
   `~/.config/lifeos/coach/settings.json`; skips are remembered in
   `coach/state.json` next to it.
 
+### Moodle: `/moodle/...`
+
+Read-only views of the university Moodle, through the site's web service
+and the token that `scripts/moodle-login` stored (see "Moodle sign-in").
+Responses never contain the site's address, a file address or the token.
+Times are given twice: the site's number (seconds since 1970, `null` when
+not set) and `<field>_iso`, the same moment in local time.
+
+- `GET /moodle/courses` → `{"courses": [{"id", "shortname", "fullname",
+  "visible", "startdate", "enddate", "lastaccess", "…_iso"}]}`.
+- `GET /moodle/courses/{id}` → `{"course_id": 5, "sections": [{"id",
+  "number", "name", "visible", "modules": [{"id", "name", "type", "visible",
+  "files": [{"key", "filename", "filesize", "mimetype", "timemodified",
+  "timemodified_iso"}]}]}]}`. `type` is the kind of activity (`resource`,
+  `folder`, `assign`, …). A file has no address here: `key` is an opaque
+  name that the bridge can resolve again by re-reading the course.
+- `GET /moodle/assignments` (optional `?course=<id>`) → `{"assignments":
+  [{"id", "course", "name", "duedate", "cutoffdate",
+  "allowsubmissionsfromdate", "…_iso"}]}`.
+- `GET /moodle/deadlines?days=30` (1 to 365) → `{"from", "to", "deadlines":
+  [{"id", "name", "course_id", "module", "type", "timesort",
+  "timesort_iso"}]}`: the site's timeline, in order of time.
+- `GET /moodle/status` → `{"configured": true, "token_saved": "2027-01-15" |
+  null, "age_days": 12 | null, "state": "ok" | "expiring" | "expired" |
+  "unknown" | "not_configured", "last_check": "…" | null}`. It reads stored
+  state only and never contacts the site. `unknown`: not checked yet.
+  `token_saved` and `age_days` are `null` for a token stored before the
+  day was recorded.
+- **Caching.** Each answer is kept in memory for ten minutes per call (per
+  course, per `days`), to be gentle with the site. `?refresh=true` asks the
+  site again. Errors are not kept.
+- **Errors.** `503 moodle_not_configured` when the address or the token is
+  missing; `503 moodle_sign_in_needed` with the message "Run
+  scripts/moodle-login" when the site refuses the token; `502
+  moodle_unreachable` when the site does not answer; `502 moodle_error` for
+  any other refusal (the message carries the site's short error code, never
+  its text).
+- **Not built yet:** downloading files and the sync into an owner-approved
+  folder, the memory and the calendar. Nothing is downloaded by these
+  endpoints.
+
 ## Paired phones and the relay
 
 The phone never connects to the computer. Both sides make outbound HTTPS
@@ -655,7 +701,15 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
   `/models`, `/moodle` and `/whoami`. A request is `{"m": method, "path":
   "/…", "q": {query}, "body": {…}}`; the answer is one final message
   `{"status", "body"}`, or, for large or streamed answers, chunks followed by
-  a final message. File downloads through the relay are a separate step.
+  a final message.
+- **Files:** `{"m": "GET", "path": "/files/<offer>", "q": {"session_id":
+  "…"}}` sends an offered file as sealed chunks `{"i", "n", "b64"}` of about
+  700 KB, then a final message with size, chunk count and SHA-256. At most
+  three chunks wait in the mailbox; the phone takes each one out as soon as
+  it has it. If the phone stops for two minutes the transfer is abandoned
+  and the remaining chunks are removed; `"from": <chunk>` in the query
+  continues an interrupted transfer. Measured through the real mailbox: a
+  3 MB file in about 7 seconds.
 - **In the mailbox:** only sealed messages; each is deleted as soon as it is
   taken, and anything older than 15 minutes is swept. Dropped messages are
   counted by reason in `~/.config/lifeos/relay-drops.json`, nothing else is
@@ -668,16 +722,69 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
 ## Moodle sign-in
 
 ```
-scripts/moodle-login            # sign in through the browser, store the token
-scripts/moodle-login --check    # test the stored token
+scripts/moodle-login                 # sign in through the browser, store the token
+scripts/moodle-login --check         # test the stored token
+scripts/moodle-login --choose        # ask for the sign-in button again
+scripts/moodle-login --no-handler    # register nothing; paste the address by hand
 ```
 
-The helper prints a link; the owner signs in on the institution's own page
-and pastes the address the browser ends on (it starts with
-`moodlemobile://token=`). The helper never sees the password, verifies the
-pasted value, and stores only the token in `~/.config/lifeos/env`. It needs
-`MOODLE_URL` in that file. Background:
+It needs `MOODLE_URL` in `~/.config/lifeos/env`. Background:
 [`research/moodle-access.md`](research/moodle-access.md).
+
+1. The helper opens the sign-in page in the default browser by itself. The
+   link is also printed, on one line, in case the browser did not open (and
+   put on the clipboard when `wl-copy` or `xclip` is installed).
+2. The owner signs in on the institution's own page. The helper never sees
+   the password.
+3. At the end the browser asks whether to open the link with **"LifeOS
+   Moodle sign-in"**. After allowing it, the helper picks the sign-in up by
+   itself, verifies it and stores only the token (mode 600).
+
+The first run asks which sign-in button of the site the owner uses and
+remembers the choice (`MOODLE_LOGIN_ISSUER`: a number or `none`, never the
+button's name); `--choose` asks again.
+
+**What is registered temporarily.** While the helper waits, it registers a
+handler for `moodlemobile://` addresses for the owner's user account only
+(no `sudo`): the file `lifeos-moodle-signin.desktop` in
+`~/.local/share/applications`, made the default for that kind of address
+with `xdg-mime` (an entry in `~/.config/mimeapps.list`). When the helper
+ends, in whatever way (success, failure, Ctrl-C), the previous default is
+restored, or the entry removed if there was none, and the file is deleted.
+The handler only passes the address to the waiting helper through a file in
+`~/.config/lifeos/` (mode 600) that is deleted as soon as it is read.
+`--no-handler` skips all of this.
+
+**If nothing arrives** within five minutes, or the owner presses Enter, the
+helper asks for the address instead. It is not shown while pasted. Where to
+find it, as a last resort:
+
+1. Run `scripts/moodle-login --no-handler`. In the browser tab that opened,
+   press F12 (developer tools), choose "Network", tick "Preserve log" /
+   "Persist logs", and load the link again (it is printed in the terminal).
+2. Sign in. At the end the page stays blank or shows "address not
+   understood": that is expected. In the Network list click the last entry
+   named `launch.php`, open "Headers" and find the response header
+   `Location`. Its value starts with `moodlemobile://token=`. Copy that
+   whole value (or the address bar, if it shows it) and paste it into the
+   terminal.
+
+**Expiry warning.** The token stops working after a time the site sets
+(Moodle's default is 12 weeks). The helper stores the day of the sign-in
+(`MOODLE_TOKEN_SAVED`), and the running bridge asks the site once per day
+whether the token still works:
+
+- the site refuses it: a notification "LifeOS: Moodle sign-in needed — The
+  Moodle sign-in has expired. Run scripts/moodle-login.", once per day;
+- it is older than 77 days: "… will probably expire within a week. …", once
+  per three days. **The 77 days are an estimate** (12 weeks minus one): the
+  site does not tell a client when a token expires, it may use another
+  lifetime, and it may hand out a token it issued earlier. A token stored
+  before the day was recorded gets no such warning;
+- the site cannot be reached: no notification; tried again after an hour.
+
+The state is in `~/.config/lifeos/moodle-watch.json` and is shown by
+`GET /moodle/status`. The notifications contain no address and no names.
 
 ## Relay connection test
 
@@ -850,6 +957,24 @@ File offer (put any small file into the memory folder first):
 ```
 scripts/ask --json "Offer me the file <name> from this folder."   # note "files"[0]."offer" and "session_id"
 curl -s -H "$H" -o /tmp/check.out "$B/files/<offer>?session_id=<session id>"
+```
+
+Moodle (after `scripts/moodle-login`; these only read from the site):
+
+```
+scripts/moodle-login            # the browser opens; allow "LifeOS Moodle sign-in"; "The token works."
+scripts/moodle-login --check    # "The token works. Moodle <version>; ..."
+ls ~/.local/share/applications/lifeos-moodle-signin.desktop   # No such file: it was removed again
+xdg-mime query default x-scheme-handler/moodlemobile          # empty, or what it was before
+grep -c '^MOODLE_TOKEN_SAVED=\|^MOODLE_LOGIN_ISSUER=' ~/.config/lifeos/env    # 2
+H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787
+curl -s -H "$H" $B/moodle/status                 # "state":"ok" within a minute of starting the bridge
+curl -s -H "$H" $B/moodle/courses                # the courses; note an id
+curl -s -H "$H" $B/moodle/courses/<id>           # sections, modules, files with "key" and no address
+curl -s -H "$H" $B/moodle/assignments
+curl -s -H "$H" "$B/moodle/deadlines?days=30"
+curl -s -H "$H" "$B/moodle/courses?refresh=true" # asks the site again instead of the ten-minute copy
+# without MOODLE_URL or a token: 503 {"error":"moodle_not_configured",...}
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

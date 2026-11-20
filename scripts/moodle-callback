@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Receives the address the browser ends on after the Moodle sign-in
+# (moodlemobile://token=...) and hands it to the waiting scripts/moodle-login.
+# Started by the temporary address handler that scripts/moodle-login registers;
+# not meant to be run by hand. Prints nothing about the value.
+set -euo pipefail
+bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
+cd "$bridge_dir"
+if [ -x .venv/bin/python ]; then
+  exec .venv/bin/python -m lifeos_bridge.moodle_login --callback="${1:-}"
+elif command -v uv >/dev/null 2>&1; then
+  exec uv run -q python -m lifeos_bridge.moodle_login --callback="${1:-}"
+fi
+echo "error: bridge/.venv is missing and 'uv' is not installed (see docs/bridge.md, Setup)." >&2
+exit 2

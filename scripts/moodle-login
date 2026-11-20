@@ -2,8 +2,10 @@
 # Sign in to the university Moodle through the browser and store a token in
 # the private config folder. The password is typed only on the institution's
 # own page; this helper never sees it.
-# Usage: scripts/moodle-login            sign in and store the token
-#        scripts/moodle-login --check    test the stored token
+# Usage: scripts/moodle-login                 sign in and store the token
+#        scripts/moodle-login --check         test the stored token
+#        scripts/moodle-login --choose        ask for the sign-in button again
+#        scripts/moodle-login --no-handler    register nothing; paste the address by hand
 set -euo pipefail
 bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
 cd "$bridge_dir"

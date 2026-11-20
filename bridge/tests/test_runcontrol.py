@@ -62,6 +62,8 @@ def wait_for(condition, seconds=10):
 
 def prompts(ask_dir):
     log = ask_dir / ".fake-claude-calls.jsonl"
+    if not log.exists():
+        return []
     return [json.loads(line)["prompt"] for line in log.read_text().splitlines()]
 
 
