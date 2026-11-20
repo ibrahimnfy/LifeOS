@@ -130,6 +130,14 @@ Dropped messages are counted in a local log (count and reason only).
 4. If no hello arrives in two minutes, or the owner does not confirm, the
    secret is destroyed.
 
+**Pairing is a one-time step per phone** (owner's requirement). After it,
+the phone and the bridge reconnect by themselves, across restarts of either
+side, network changes and relay outages: the device secret and the counters
+are stored durably on both sides, and relay access is renewed
+automatically. The phone must be paired again only after a new phone, a
+reinstall of the app (the secret is deliberately not in backups) or a
+revocation.
+
 The QR code is the key. Whoever photographs it during those two minutes
 holds the same secret as the phone. Hence: shown only on the owner's own
 screen, short validity, single use, and the confirmation step, which reveals
@@ -255,9 +263,13 @@ forward secrecy; this design works where the VPN cannot, exposes no port,
 and trusts no intermediary, at the cost of more security-relevant code of
 our own and static keys.
 
-## 9. Open points for the owner
+## 9. Decided points
 
-1. **Pairing variant.** As designed, no key material ever crosses a network
+The owner chose the simple design below as it stands (2026-11-20): the whole
+key comes from the QR code; no key agreement and no forward secrecy for now.
+The variant remains possible later without changing the relay.
+
+1. **Pairing variant (not adopted).** As designed, no key material ever crosses a network
    (requirement met literally), and a photographed QR code is a full
    compromise of that pairing. Variant: the phone creates its own key pair
    and sends only its *public* key, encrypted with the QR secret, through the
@@ -266,9 +278,8 @@ our own and static keys.
    secure-channel protocol implementation rather than the simple
    constructions above. It is a trade-off between "nothing key-like on the
    network" and resistance to a leaked QR code.
-2. **Forward secrecy** (section 3.4): same prerequisite as point 1.
-
-Both are raised as one human decision issue.
+2. **Forward secrecy** (section 3.4, not adopted): same prerequisite as
+   point 1.
 
 ## 10. Tests the implementation must pass
 

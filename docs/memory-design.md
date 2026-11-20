@@ -1,7 +1,7 @@
 # Memory design
 
-Status: **proposal, waiting for the owner's approval.** Nothing is created in
-`~/brain` before that. All examples are invented placeholders.
+Status: **approved by the owner on 2026-11-20**, with the three open points
+answered (section 9). All examples are invented placeholders.
 
 The memory is a folder of plain Markdown files, `~/brain`, under local git
 with no remote. It is what lets the assistant start every conversation
@@ -55,12 +55,18 @@ section 2 and ideas 4, 10, 11, 15 and 18.
 │   └── example-person.md
 ├── notes/               everything else worth keeping, one topic per file
 │   └── example-topic.md
+├── calendar/            the local calendar (the chosen calendar backend)
+│   └── events.md
+├── coach/               what the coach asked and what the owner answered
+│   └── log.md
 └── .trash/              removed files are moved here, never deleted
 ```
 
-Later phases add their own folders when they are built (for example
-`calendar/` if the local calendar option is chosen, `activity/` for sleep and
-usage summaries). They follow the same rules.
+`calendar/` is part of the layout from the start (the owner chose the local
+calendar; its file format is defined by the calendar issue). `coach/` is
+described in [`coach-design.md`](coach-design.md). Later phases add their own
+folders when they are built (for example `activity/` for sleep and usage
+summaries). They follow the same rules.
 
 File names are lowercase words joined with hyphens. Dates are always
 absolute and written `YYYY-MM-DD`.
@@ -257,8 +263,8 @@ without the owner present and lets a model edit the memory):
 - **C. Automatic nightly** — runs and commits by itself; the owner reviews
   afterwards in the git history.
 
-B is recommended to start with: it shows what the job would do before it is
-trusted, and can be switched to C once it has proved itself.
+**Decided: B.** The run proposes, the owner approves, then it is applied. It
+may be switched to C later if it proves itself; that would be a new decision.
 
 ## 7. Search
 
@@ -275,10 +281,11 @@ Embedding-based search is a separate open decision.
 - No secrets in memory files.
 - Deleting means moving to `.trash/` and committing.
 
-## 9. Open points for the approval
+## 9. The owner's answers (2026-11-20)
 
-1. Is the folder layout right, or should something be added, renamed or
-   dropped?
-2. Consolidation trigger: **A**, **B** or **C**?
-3. May the assistant write `[inferred …]` facts on its own, or only facts the
-   owner stated?
+1. **Layout:** approved, with `calendar/` added now.
+2. **Consolidation trigger: B** (propose, then approve); C possibly later.
+3. **Inferred facts:** the assistant may write `[inferred …]` facts on its
+   own, always tagged as such, so that it gets to know the owner well. An
+   inferred fact never overrides an `[owner …]` fact, and the owner can
+   correct or remove any of them.

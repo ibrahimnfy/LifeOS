@@ -1,8 +1,8 @@
 # Coach design
 
-Status: **design.** Nothing here is built. It depends on the memory design
-([`memory-design.md`](memory-design.md), still under the owner's review) and
-on one open decision (section 8). Examples are generic placeholders.
+Status: **design, with the owner's decisions of 2026-11-20 applied**
+(section 8). Nothing here is built. It builds on the approved memory design
+([`memory-design.md`](memory-design.md)). Examples are generic placeholders.
 
 The owner's request (see `decisions.md`): the assistant should not only
 answer. It should ask the owner short questions about their work, learn from
@@ -13,12 +13,12 @@ and nudge the owner with notifications, without becoming noise.
 
 | Where | What |
 |---|---|
-| Today, top | **Advice card**: what to focus on today, and one line of why |
+| Today, top | **Coach card**: one message from today's batch (advice, an observation, a question), a different one each time the app is opened |
 | Today | **Top three**: the three most important tasks, each with a one-line reason |
 | Today | The tasks that belong to today |
 | Tasks | All open tasks in priority order; the first few shown, the rest behind "show all" |
 | Chat | **Coach questions**: short questions from the assistant, marked as such, with "Answer" and "Skip" |
-| Notifications | **Nudges**: a few per day at most, never at night |
+| Notifications | **The daily notification**: one message from today's batch; more only if the owner raises the setting; never at night |
 
 ## 2. Principles
 
@@ -38,17 +38,35 @@ and nudge the owner with notifications, without becoming noise.
 
 ## 3. The daily plan
 
-One headless Claude Code run (read-only tools, the memory folder as its
-folder) reads the open tasks, due dates, the daily logs of the last days and
-the coach's notes, and returns one small JSON object:
+**One scheduled run each morning** (owner's decision). A headless Claude
+Code run (read-only tools, the memory folder as its folder) reads the open
+tasks, due dates, the daily logs of the last days and the coach's notes, and
+returns one small JSON object with **a small batch of coach messages**:
 
 ```json
-{"advice": {"text": "…", "why": "…"},
+{"messages": [
+   {"id": "m1", "kind": "focus", "text": "…", "why": "…", "task": "t-20270115-01"},
+   {"id": "m2", "kind": "observation", "text": "…", "why": "…"},
+   {"id": "m3", "kind": "question", "question": "waiting", "text": "…", "task": "t-20270109-02"}],
+ "notification": "m1",
  "top_three": [{"task": "t-20270115-01", "reason": "…"}],
- "order": ["t-20270115-01", "t-20270112-03"],
- "question": {"task": "t-20270109-02", "kind": "waiting", "text": "…"},
- "nudges": [{"task": "t-20270115-01", "not_before": "14:00", "text": "…"}]}
+ "order": ["t-20270115-01", "t-20270112-03"]}
 ```
+
+- **The batch** holds about five to eight short messages: what to focus on
+  and why, observations, encouragement tied to something concrete, at most
+  one question (section 4).
+- **One of them is the daily notification** (`notification`); the bridge
+  sends it once, at the end of quiet hours or when the run finishes,
+  whichever is later.
+- **The others are shown one at a time at the top of the app**, a different
+  one each time the app is opened: the app picks at random among the
+  messages not shown most recently, so the same one does not appear twice in
+  a row and all get their turn. **Opening the app never starts a model
+  run**; the batch is fetched once and rotated on the phone. A message whose
+  task was ticked meanwhile is dropped from the rotation.
+- **Manual refresh** (pull down on Today) may start a new run and replaces
+  the batch; refreshes are rate-limited (at most one run in ten minutes).
 
 - The bridge **validates** it: every task id must exist and be open, the top
   three must be three different tasks from the order, texts have length
@@ -61,8 +79,8 @@ the coach's notes, and returns one small JSON object:
 - The plan is stored outside the memory's history, in
   `~/.config/lifeos/coach/plan.json` (mode 600): it is derived, changes
   daily, and can be rebuilt at any time.
-- When it is prepared is the owner's decision (section 8). The owner can
-  always press refresh.
+- If the computer was off in the morning, the run happens when the bridge
+  next starts, once for that day.
 
 What the model is told to weigh, in this order: hard deadlines and their
 lead time; tasks that block other tasks; what the owner said about a task
@@ -71,8 +89,9 @@ of day; balance, so that one area does not starve the others.
 
 ## 4. Questions and learning
 
-**When a question is asked.** The daily plan may propose at most one
-question. Typical triggers: a task has waited long, a task was moved out of
+**When a question is asked.** The morning batch may contain at most one
+question; it takes its turn in the rotation at the top of the app and also
+appears in Chat. Typical triggers: a task has waited long, a task was moved out of
 the top three by the owner several times, a task has no clear next step, a
 due date passed.
 
@@ -98,14 +117,12 @@ its own git like everything else there):
 - A line under `## Facts` of the matching topic file (project, course, or
   `profile.md` for general working habits), marked `[owner, <date>]` when the
   owner said it and `[inferred, <date>]` when the assistant concluded it,
-  following the memory design's rule on inferred facts.
+  following the memory design's rule on inferred facts (the owner allowed
+  inferred facts, always tagged).
 - Optional fields on the task line in `tasks.md`: `(blocked-by: …)`,
   `(next: …)`, `(effort: small|medium|large)`.
 
-The `coach/` folder is an addition to the memory layout, of the kind that
-document foresees ("later phases add their own folders"). Whether inferred
-facts may be written at all is one of the open points of the memory design;
-until it is answered, the coach stores only what the owner stated.
+The `coach/` folder is part of the approved memory layout.
 
 **The owner can always** read `coach/log.md`, correct or delete a fact, and
 say in chat "forget what I said about …" (the line is moved to the trash
@@ -113,20 +130,22 @@ folder, as the memory rules require).
 
 ## 5. Nudges
 
-A nudge is a short reminder about work: the next step of the top task, a
-deadline that is close, or the open coach question.
+A nudge is one message of the morning batch, sent as a notification. By
+default there is exactly one per day: the daily notification. If the owner
+raises the frequency, further notifications are taken from the same batch;
+they never need another model run.
 
-Limits, enforced by the bridge regardless of what the plan proposes:
+Limits, enforced by the bridge regardless of what the batch proposes:
 
 | Setting | Default | Range |
 |---|---|---|
-| Frequency | normal | off / low (1 per day) / normal (3 per day) |
+| Frequency | 1 per day | off / 1 per day / up to 3 per day |
 | Quiet hours | 22:00–08:00 | any start and end |
 | Minimum gap between nudges | 2 hours | fixed |
 | Open coach questions | 1 | fixed |
 
-- Nothing is sent in quiet hours; a nudge that falls into them is dropped,
-  not queued for the morning.
+- Nothing is sent in quiet hours. The daily notification waits for their
+  end; additional nudges that fall into them are dropped.
 - A nudge about a task that was ticked meanwhile is dropped.
 - Session reminders the owner set explicitly and reply notifications are not
   nudges and do not count against the cap.
@@ -138,9 +157,9 @@ Limits, enforced by the bridge regardless of what the plan proposes:
 
 ## 6. Cost and privacy
 
-- **Plan usage.** Each daily plan and each processed answer is one short
-  headless run on the owner's subscription. How often the plan may be
-  prepared without the owner asking is the decision in section 8.
+- **Plan usage.** One short headless run each morning, one per processed
+  answer, and one per manual refresh, on the owner's subscription. Opening
+  the app costs nothing.
 - **Privacy.** Tasks, answers and learned facts are read by the model
   provider during a run, as in every Claude Code session, and are stored
   only on the owner's computer. Nothing of it goes to the relay or the push
@@ -154,7 +173,7 @@ Endpoints (final shape decided in the building issue):
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /coach/plan` | Advice, top three, ordered tasks, age of the plan |
+| `GET /coach/plan` | The message batch, top three, ordered tasks, age of the plan |
 | `POST /coach/plan/refresh` | Prepare a new plan now |
 | `GET /coach/question` · `POST /coach/question/answer` · `POST /coach/question/skip` | The open question |
 | `GET` / `PUT /coach/settings` | Frequency and quiet hours |
@@ -163,18 +182,21 @@ Build order:
 
 | Issue | Content | Depends on |
 |---|---|---|
-| Bridge: task priorities and daily advice | sections 3 and 7 (plan) | memory structure, capture endpoints, memory wired into `/ask`, the decision in section 8 |
+| Bridge: task priorities and daily advice | sections 3 and 7 (plan) | memory structure, capture endpoints, memory wired into `/ask` |
 | Bridge: coach questions and learning | section 4 | priorities |
 | Bridge: nudges with cap and quiet hours | section 5 | priorities, push |
 | App: Today and prioritised Tasks | section 1 | app task screens, priorities |
 | App: coach questions, nudges, settings | sections 1, 4, 5 | chat screen, questions, nudges |
 
-## 8. Open decision for the owner
+## 8. Decisions
 
-**How often may the assistant run on its own to prepare the plan?** Once in
-the morning (recommended), up to three times a day, or only when the app is
-opened. Raised as a human decision issue because it spends plan usage.
-
-Defaults chosen without asking, because they are cheap to change in
-settings and the owner asked for sensible ones: the nudge limits in section
-5. They are logged in `decisions.md`.
+- **How often the assistant runs on its own (owner):** one scheduled run
+  each morning that prepares a small batch of coach messages. One is sent as
+  the daily notification; the others are shown one at a time at the top of
+  the app on each opening, rotating with some randomness, without a model run
+  per opening. Manual refresh may start a new run.
+- **Inferred facts (owner):** allowed, always tagged.
+- **Defaults chosen by the agent**, cheap to change in settings: quiet hours
+  22:00–08:00, the two-hour gap, the morning run at 06:30 local time, five to
+  eight messages per batch, one refresh run per ten minutes at most. They
+  are logged in `decisions.md`.

@@ -72,3 +72,13 @@ a new entry is added that says what changed and why.
 - **Per-session reminders:** "remind me about this session at <time>" with an optional note, one-off or repeating; the notification opens that session.
 - **Reply notifications:** when a run finishes, the phone gets a push notification, so the app need not stay open during long tasks; can be switched off per session.
 - **Android application id: `dev.lifeos.app`** (agent's choice; neutral, needed to register the app for push). Changing it later means re-registering the app with the push service.
+
+### Owner answers recorded 2026-11-20 (third round)
+- **Memory design (#17): approved**, with `calendar/` added to the layout now. Consolidation trigger: propose, then approve (may become automatic later, as a new decision). The assistant may write inferred facts on its own, always tagged as inferred.
+- **Relay form (#57): the Realtime Database mailbox** in the owner's Firebase project. It is tested on the managed network before anything is built on it.
+- **Pairing (#58): the simple design**, the whole key in the QR code. Pairing is a one-time step per phone; afterwards everything reconnects by itself. Pairing again only after a new phone, a reinstall or a revocation.
+- **Coach schedule (#62): one scheduled run each morning** prepares a small batch of coach messages. One is sent as the daily notification; the others are shown one at a time at the top of the app on each opening, rotating with some randomness, with no model run per opening. Manual refresh may start a new run. This replaces the agent's earlier default of three nudges per day: the default is one notification per day; the setting can raise it to three, taken from the same batch.
+- **Coach defaults (agent's choice, cheap to change):** morning run at 06:30 local time; five to eight messages per batch; at most one refresh run per ten minutes.
+- **Sandbox prerequisites (#49) and bridge service (#14): done by the owner**, verified by the agent.
+- **Capable mode: switched on by the guardrail check** for Claude Code 2.1.328, for runs in the memory folder. All probes passed in the terminal and in the service environment. Capable runs in other allowed folders stay refused until the check covers such a folder.
+- **Moodle (#26): the password token endpoint does not work** on the university Moodle (single sign-on). The owner is not asked to retry it. Other ways to obtain a token are investigated without the owner's credentials.

@@ -140,6 +140,10 @@ At the start of every session, and after every closed issue:
 4. When no workable issue remains, print a status report (closed this
    session, open human issues waiting, what each one blocks), send one
    notification (section 6) and stop.
+   **Every status report ends with the full list of what is waiting on the
+   owner**, ordered by what unblocks the most work: issue number, plain
+   steps with the exact commands to copy, rough time, what it unblocks. The
+   owner must never have to scroll back for earlier instructions.
 
 ---
 

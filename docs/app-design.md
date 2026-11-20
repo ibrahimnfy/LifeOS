@@ -80,15 +80,17 @@ decided in the issue that builds them.
 
 - **Purpose:** what to do today.
 - **Content, top to bottom:**
-  1. **Advice card:** what to focus on today, and one line of why.
+  1. **Coach card:** one message from the morning's batch (what to focus on
+     and why, an observation, a question); a different one each time the app
+     is opened, without a new model run.
   2. **Top three:** the three most important tasks, chosen by the assistant,
      each with a one-line reason.
   3. **Today:** the tasks that belong to today.
 
   Nothing else. Events, deadline lists, sleep and screen-time tiles are not
   on this screen; they live on their own screens.
-- **Actions:** tick a task; tap a task to open it; pull to refresh (asks the
-  computer for a fresh plan).
+- **Actions:** tick a task; tap a task to open it; pull to refresh (may ask
+  the computer for a fresh batch).
 - **States:** loading skeleton · saved copy with "prepared 2 h ago" when the
   computer is unreachable · empty ("Nothing for today") · no plan yet (tasks
   shown in date order, advice card hidden) · error with retry.
