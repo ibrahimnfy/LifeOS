@@ -231,3 +231,6 @@ a new entry is added that says what changed and why.
 ### Implementation choices for routing changes from the app (agent, #143, 2026-11-21; cheap to change)
 - **The app's choices sit on top** of `LIFEOS_MODEL_ROUTING`, `LIFEOS_BACKGROUND_MODEL` and the defaults, per job and per field, in `~/.config/lifeos/model-routing.json`; read on every run, so no restart. `null` returns a field to the default underneath, `reset` the whole job. Models from `LIFEOS_MODELS` or a full `claude-…` name. Audited before the change; no record, no change.
 - **The SDK runner is switched on** (`LIFEOS_RUNNER=sdk` in the private settings) after both runners passed the guardrail check in the terminal and the service environment. Checked on the running bridge: a read-only question is answered, and a second message in the same session is answered by the live process in about a second.
+
+### Implementation choices for coach nudges (agent, #72, 2026-11-21; cheap to change)
+- **Nudges after the daily note come from the same morning batch in its order**, two hours apart, only for today's batch, never in quiet hours (dropped that day), never about a task done meanwhile or a blocked question. Each push carries the message id (sealed); the visible text is fixed. `"low"` and `"normal"` are accepted for `"1"` and `"3"`.

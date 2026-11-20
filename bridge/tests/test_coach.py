@@ -469,6 +469,72 @@ def test_frequency_off_sends_nothing(client, auth, settings, planned, clock, not
     assert coach.send_daily_notification(settings, clock) is True and len(lines()) == 1
 
 
+@pytest.fixture
+def hints(monkeypatch):
+    """The coach pushes, as (event, ref) pairs."""
+    from lifeos_bridge import push
+
+    sent = []
+    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: sent.append((event, ref)))
+    return sent
+
+
+def test_more_nudges_from_the_same_batch_within_the_limits(
+    client, auth, settings, planned, clock, notified, hints, calls
+):
+    script, lines = notified
+    settings = dataclasses.replace(settings, notify_script=script)
+    runs = len(calls())
+    assert (
+        client.put("/coach/settings", headers=auth, json={"frequency": "normal"}).json()[
+            "frequency"
+        ]
+        == "3"
+    )
+    clock.at("2027-01-15T08:00:00+00:00")
+    assert coach.send_nudges(settings, clock) is False  # the daily notification comes first
+    assert coach.send_daily_notification(settings, clock) is True
+    assert coach.send_nudges(settings, clock) is False  # two hours apart
+    clock.at("2027-01-15T09:59:00+00:00")
+    assert coach.send_nudges(settings, clock) is False
+    clock.at("2027-01-15T10:00:00+00:00")
+    assert coach.send_nudges(settings, clock) is True
+    clock.at("2027-01-15T12:00:00+00:00")
+    assert coach.send_nudges(settings, clock) is True
+    clock.at("2027-01-15T16:00:00+00:00")
+    assert coach.send_nudges(settings, clock) is False  # three a day at most
+    assert hints == [("coach", "m1"), ("coach", "m2"), ("coach", "m3")]
+    assert (
+        lines()
+        == ["LifeOS: coach|Your daily note is ready.|"]
+        + ["LifeOS: coach|A note from your coach.|"] * 2
+    )  # fixed texts only
+    assert len(calls()) == runs  # no model run for a nudge
+
+
+def test_nudges_respect_quiet_hours_done_tasks_and_the_default(
+    client, auth, settings, planned, clock, hints
+):
+    clock.at("2027-01-15T08:00:00+00:00")
+    coach.send_daily_notification(settings, clock)
+    clock.at("2027-01-15T12:00:00+00:00")
+    assert coach.send_nudges(settings, clock) is False  # default: one a day, the daily one
+    client.put("/coach/settings", headers=auth, json={"frequency": "3", "quiet_start": "13:00"})
+    assert coach.send_nudges(settings, clock) is True  # m2
+    clock.at("2027-01-15T14:00:00+00:00")
+    assert coach.send_nudges(settings, clock) is False  # in quiet hours
+    client.put("/coach/settings", headers=auth, json={"quiet_start": "22:00"})
+    client.post(f"/tasks/{CALL}/complete", headers=auth)  # m3 is about a task now done
+    assert coach.send_nudges(settings, clock) is True  # so m4 goes instead
+    clock.at("2027-01-16T09:00:00+00:00")
+    assert coach.send_nudges(settings, clock) is False  # yesterday's batch is over
+    assert hints == [("coach", "m1"), ("coach", "m2"), ("coach", "m4")]
+    client.put("/coach/settings", headers=auth, json={"frequency": "off"})
+    assert client.get("/coach/settings", headers=auth).json()["frequency"] == "off"
+    bad = client.put("/coach/settings", headers=auth, json={"frequency": "often"})
+    assert bad.status_code == 400
+
+
 def test_quiet_hours_follow_the_settings(client, auth, settings, planned, clock, notified):
     script, lines = notified
     settings = dataclasses.replace(settings, notify_script=script)

@@ -156,6 +156,7 @@ def create_app(settings: Settings) -> FastAPI:
                 coach_runs.add(run)
                 run.add_done_callback(coach_runs.discard)
             await asyncio.to_thread(coach.send_daily_notification, settings)
+            await asyncio.to_thread(coach.send_nudges, settings)  # within the daily cap
 
         course_syncs: set[asyncio.Task] = set()
 

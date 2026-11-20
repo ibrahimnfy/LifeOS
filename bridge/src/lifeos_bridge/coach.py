@@ -51,6 +51,7 @@ KINDS = ("focus", "observation", "encouragement", "question")
 QUESTION_KINDS = ("waiting", "hard", "easy", "next", "still")
 EFFORTS = ("small", "medium", "large")
 FREQUENCIES = {"off": 0, "1": 1, "3": 3}
+FREQUENCY_NAMES = {"low": "1", "normal": "3"}  # the names of the decision log, accepted too
 MAX_MESSAGES = 8
 MAX_ID = 40
 MAX_TEXT = 280
@@ -229,9 +230,10 @@ def update_settings(data: dict) -> dict:
         raise bad("allowed fields: frequency, quiet_start, quiet_end, questions")
     changes: dict = {}
     if "frequency" in data:
-        if not isinstance(data["frequency"], str) or data["frequency"] not in FREQUENCIES:
-            raise bad('`frequency` must be "off", "1" or "3"')
-        changes["nudges_per_day"] = FREQUENCIES[data["frequency"]]
+        wanted = FREQUENCY_NAMES.get(data["frequency"], data["frequency"])
+        if not isinstance(wanted, str) or wanted not in FREQUENCIES:
+            raise bad('`frequency` must be "off", "1" (or "low") or "3" (or "normal")')
+        changes["nudges_per_day"] = FREQUENCIES[wanted]
     for name in ("quiet_start", "quiet_end"):
         if name in data:
             if _clock_time(data[name]) is None:
@@ -573,10 +575,58 @@ def send_daily_notification(settings: Settings, clock: Clock | None = None) -> b
             return False
         # Stored before sending, so a crash cannot make it go out twice.
         _write(PLAN_FILE, plan | {"notification_pending": False, "notification_sent_at": _iso(now)})
-        _write(STATE_FILE, state | {"notified_day": today})
+        first = plan.get("notification") or ""
+        nudged = {"day": today, "sent": [first] if first else [], "last_at": _iso(now)}
+        _write(STATE_FILE, state | {"notified_day": today, "nudges": nudged})
     notifications.send(
-        "LifeOS: coach", "Your daily note is ready.", "", settings.notify_script, event="coach"
-    )
+        "LifeOS: coach", "Your daily note is ready.", "", settings.notify_script, event="coach",
+        ref=first,
+    )  # fmt: skip
+    return True
+
+
+NUDGE_GAP = timedelta(hours=2)
+
+
+def send_nudges(settings: Settings, clock: Clock | None = None) -> bool:
+    """One more nudge from this morning's batch, within the owner's limits. No model run.
+
+    The daily notification is the first nudge of a day. With the frequency
+    "3", up to two more follow, taken from the same batch: not before the
+    daily notification, at least two hours apart, never in quiet hours (one
+    that would fall there is not sent that day), never about a task that is
+    done meanwhile or a question that is blocked, and never the same message
+    twice. The push carries the message id, sealed; the text stays fixed.
+    Returns True when one was sent.
+    """
+    now = _now(clock)
+    today = now.date().isoformat()
+    tasks = memory.list_tasks(settings.ask_dir)
+    with _FILES:
+        plan, state, prefs = load_plan(), _read(STATE_FILE), load_settings()
+        nudged = state.get("nudges") if isinstance(state.get("nudges"), dict) else {}
+        sent = list(nudged.get("sent") or []) if nudged.get("day") == today else []
+        last = _moment(nudged.get("last_at")) if nudged.get("day") == today else None
+        if (
+            plan is None
+            or plan["day"] != today
+            or state.get("notified_day") != today  # the daily notification comes first
+            or len(sent) >= prefs["nudges_per_day"]
+            or in_quiet_hours(now.time(), prefs)
+            or (last is not None and now - last < NUDGE_GAP)
+        ):
+            return False
+        waiting = [m for m in _view(plan, tasks, now, state, prefs)["messages"]
+                   if m["id"] not in sent]  # fmt: skip
+        if not waiting:
+            return False
+        message = waiting[0]
+        _write(STATE_FILE, state | {"nudges": {"day": today, "sent": [*sent, message["id"]],
+                                               "last_at": _iso(now)}})  # fmt: skip
+    notifications.send(
+        "LifeOS: coach", "A note from your coach.", "", settings.notify_script, event="coach",
+        ref=message["id"],
+    )  # fmt: skip
     return True
 
 

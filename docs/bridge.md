@@ -952,7 +952,11 @@ git -C ~/brain log -1 --format=%s     # "Compact the coach conversation" when fa
 - `GET /coach/settings` → `{"frequency": "off" | "1" | "3", "quiet_start":
   "22:00", "quiet_end": "08:00", "questions": true}` (these are the
   defaults). `PUT /coach/settings` takes any of these fields; fields left
-  out keep their value. With `frequency` `off` no notification is sent; with
+  out keep their value. `frequency`: `off` sends no notification, `"1"`
+  (`"low"`, the default) the daily note only, `"3"` (`"normal"`) the daily
+  note and up to two further nudges from the same batch, two hours apart,
+  never in quiet hours, never about a task done meanwhile (coach-design.md
+  section 5; no run per nudge). With
   `questions` `false` the plan is served without its question. Stored in
   `~/.config/lifeos/coach/settings.json`; skips are remembered in
   `coach/state.json` next to it.
@@ -1341,7 +1345,7 @@ are used, so it works while the app is closed.
   | `question`, `approval` | `chat` | `session` | session id | a run waits for the owner (SDK runner) |
   | `courses` | `courses` | `course` / `courses` | course id when one course changed, else none | a course sync found something (one push per sync) |
   | `signin` | `courses` | `moodle_signin` | – | the course sign-in needs renewal |
-  | `coach` | `coach` | `coach` | – | the coach's daily note |
+  | `coach` | `coach` | `coach` | message id of `GET /coach/plan` | the coach's daily note, and further nudges (frequency `"3"`) |
   | `reminder` | `reminders` | `reminder` | reminder id | a session reminder is due |
   | `notice` | `reminders` | `notice` | – (`t`, `l`) | `scripts/notify.sh` (for example a new owner issue) |
 
@@ -1593,6 +1597,9 @@ curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"1","quiet_start":"23:00"}' $B/c
 ls -l ~/.config/lifeos/coach/                    # plan.json, settings.json, state.json; mode 600
 # outside quiet hours, within about 30 seconds of the first plan of the day,
 # a desktop notification "LifeOS: coach" appears, once
+curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"3"}' $B/coach/settings   # "normal" works too
+# then, two and four hours after the daily note (outside quiet hours), "A note from your coach."
+# appears; never a fourth that day, never in quiet hours; no new run (`/models/routing` unchanged)
 ```
 
 Queue, cancel and models (in a second terminal while a longer question

@@ -155,6 +155,18 @@ Limits, enforced by the bridge regardless of what the batch proposes:
   that a nudge exists.
 - Tapping a nudge opens the task, or Chat for a question.
 
+**Built (#72).** The bridge's loop checks about every half minute
+(`coach.send_nudges`): the daily notification is the first nudge; with the
+frequency `"3"` (also accepted as `"normal"`; `"1"` as `"low"`) up to two
+more follow from the same batch, in the batch's order, at least two hours
+apart, never in quiet hours (a nudge whose turn falls there is not sent
+that day), never about a task done meanwhile or a question that is
+blocked, never a message twice, and only for today's batch. Each is one
+push with the `coach` event whose sealed reference `r` is the message id
+(the app finds it in `GET /coach/plan`); the lock screen and
+`scripts/notify.sh` show only a fixed text ("A note from your coach.").
+No nudge starts a model run.
+
 ### 4.1 The coach conversation (#110)
 
 One persistent conversation with the coach, opened from the coach card on
