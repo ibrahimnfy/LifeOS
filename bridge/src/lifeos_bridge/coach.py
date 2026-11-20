@@ -488,6 +488,7 @@ async def prepare_plan(settings: Settings, clock: Clock | None = None) -> dict:
             PLAN_PROMPT,
             session_id=str(uuid.uuid4()),
             resume=False,
+            model=settings.background_model,
             cwd=memory_dir,
             context=context,
         )
@@ -764,6 +765,7 @@ async def _file_answer(settings: Settings, question: dict, text: str, now: datet
             prompt,
             session_id=str(uuid.uuid4()),
             resume=False,
+            model=settings.background_model,
             cwd=memory_dir,
             context=context,
         )

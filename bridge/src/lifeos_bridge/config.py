@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -40,7 +41,17 @@ class Settings:
     max_concurrent: int = DEFAULT_MAX_CONCURRENT
     max_turns: int = DEFAULT_MAX_TURNS
     claude_bin: str = "claude"
+    # Fixed model for every run (overrides the per-session choice). Used by the
+    # guardrail probes; leave unset in normal use.
     claude_model: str | None = None
+    # What a session uses unless it names its own model and effort.
+    default_model: str | None = None
+    default_effort: str | None = None
+    # Model of the bridge's own runs (coach, context map); None = the default.
+    background_model: str | None = None
+    # Model names the app offers. The CLI validates the choice when a run starts.
+    models: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
+    max_file_mb: int = 50
     # Extra folders the owner allowed. The file is re-read on every use, so
     # changes made through the bridge apply without a restart.
     allowed_paths: tuple[Path, ...] = ()
@@ -159,6 +170,17 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         max_turns=_int_setting(values, "LIFEOS_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 200),
         claude_bin=values.get("LIFEOS_CLAUDE_BIN") or "claude",
         claude_model=values.get("LIFEOS_CLAUDE_MODEL") or None,
+        default_model=values.get("LIFEOS_DEFAULT_MODEL") or "opus",
+        default_effort=values.get("LIFEOS_DEFAULT_EFFORT") or "high",
+        background_model=values.get("LIFEOS_BACKGROUND_MODEL") or None,
+        models=tuple(
+            name
+            for name in re.split(
+                r"[,\s]+", values.get("LIFEOS_MODELS") or "opus,sonnet,haiku,fable"
+            )
+            if name
+        ),
+        max_file_mb=_int_setting(values, "LIFEOS_MAX_FILE_MB", 50, 1, 200),
         allowed_paths_file=config_dir(environ) / ALLOWED_PATHS_FILE_NAME,
     )
 

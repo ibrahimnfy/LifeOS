@@ -200,7 +200,9 @@ def test_no_context_without_a_memory_and_none_in_other_folders(
     from lifeos_bridge.app import create_app
 
     client.post("/ask", headers=auth, json={"prompt": "hello"})
-    assert "--append-system-prompt" not in calls()[-1]["args"]
+    args = calls()[-1]["args"]
+    # Only the standing instructions; no memory was loaded.
+    assert "=====" not in args[args.index("--append-system-prompt") + 1]
     (ask_dir / "CLAUDE.md").write_text("rules")
     project = tmp_path / "home" / "project"
     project.mkdir()
@@ -210,7 +212,8 @@ def test_no_context_without_a_memory_and_none_in_other_folders(
     import json
 
     call = json.loads((project / ".fake-claude-calls.jsonl").read_text().splitlines()[-1])
-    assert "--append-system-prompt" not in call["args"]
+    assert "=====" not in call["args"][call["args"].index("--append-system-prompt") + 1]
+    assert "rules" not in call["args"][call["args"].index("--append-system-prompt") + 1]
 
 
 def test_context_is_bounded(brain):

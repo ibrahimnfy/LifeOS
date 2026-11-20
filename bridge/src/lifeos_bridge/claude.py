@@ -15,6 +15,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -113,6 +114,8 @@ def build_command(
     name: str | None = None,
     policy: Policy = READ_ONLY,
     context: str | None = None,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> list[str]:
     command = [settings.claude_bin, "-p"]
     if stream:
@@ -139,8 +142,13 @@ def build_command(
         command += ["--settings", policy.settings_json]
         for folder in policy.add_dirs:
             command += ["--add-dir", str(folder)]
-    if settings.claude_model:
-        command += ["--model", settings.claude_model]
+    # A model named for this run wins; then the fixed override; then the default.
+    chosen = model or settings.claude_model or settings.default_model
+    if chosen:
+        command += ["--model", chosen]
+    level = effort or settings.default_effort
+    if level:
+        command += ["--effort", level]
     if context:
         # The always-loaded part of the memory; passed explicitly, never discovered.
         command += ["--append-system-prompt", context]
@@ -278,12 +286,24 @@ async def run(
     name: str | None = None,
     grace: float = 5.0,
     context: str | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
 ) -> RunResult:
     """Run one read-only prompt to completion and return the answer."""
     command = build_command(
-        settings, session_id=session_id, resume=resume, stream=False, name=name, context=context
+        settings,
+        session_id=session_id,
+        resume=resume,
+        stream=False,
+        name=name,
+        context=context,
+        model=model,
+        effort=effort,
     )
     process = await _start(settings, command, cwd or settings.ask_dir)
+    if on_process is not None:
+        on_process(process)
     try:
         stdout, stderr = await asyncio.wait_for(
             process.communicate(prompt.encode()), timeout=settings.ask_timeout
@@ -315,6 +335,9 @@ async def stream(
     policy: Policy = READ_ONLY,
     observer: Callable[[dict], None] | None = None,
     context: str | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run one prompt and yield ``(event, data)`` pairs as the answer is written.
 
@@ -329,8 +352,12 @@ async def stream(
         name=name,
         policy=policy,
         context=context,
+        model=model,
+        effort=effort,
     )
     process = await _start(settings, command, cwd or settings.ask_dir, capable=policy.capable)
+    if on_process is not None:
+        on_process(process)
     assert process.stdin and process.stdout and process.stderr  # noqa: S101
     final: dict | None = None
     try:
@@ -403,3 +430,27 @@ def json_from_answer(answer: str) -> dict:
     if not isinstance(data, dict):
         raise ClaudeError("bad_output", 502, "the answer did not contain the expected data")
     return data
+
+
+FALLBACK_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+_efforts_cache: dict[str, tuple[str, ...]] = {}
+
+
+def effort_levels(settings: Settings) -> tuple[str, ...]:
+    """The effort levels the installed CLI accepts, read from its help text."""
+    cached = _efforts_cache.get(settings.claude_bin)
+    if cached:
+        return cached
+    levels: tuple[str, ...] = ()
+    try:
+        done = subprocess.run(  # noqa: S603
+            [settings.claude_bin, "--help"],
+            capture_output=True, text=True, timeout=20, check=False, env=child_env(),
+        )  # fmt: skip
+        match = re.search(r"--effort\b[^()]*\(([a-z, \n]+)\)", done.stdout)
+        if match:
+            levels = tuple(w for w in re.split(r"[,\s]+", match.group(1)) if w)
+    except (OSError, subprocess.SubprocessError):
+        levels = ()
+    _efforts_cache[settings.claude_bin] = levels or FALLBACK_EFFORTS
+    return _efforts_cache[settings.claude_bin]

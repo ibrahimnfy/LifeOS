@@ -127,7 +127,7 @@ def test_refuses_while_the_bridge_itself_runs_the_session(client, auth, project,
     session_id = write_session(project, [user_line(project, "x")])
     client.app.state.slots.active.add(session_id)
     response = post(client, auth, session_id, {"prompt": "x"})
-    assert response.status_code == 409
+    assert response.status_code == 202 and response.json()["queued"] is True
 
 
 def test_missing_folder(client, auth, project, write_session):

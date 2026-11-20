@@ -118,7 +118,12 @@ async def refresh_folder(settings: Settings, folder: Path, today: date | None = 
     if folder not in roots_to_map(settings):
         raise ClaudeError("folder_not_allowed", 404, "this folder is not in the allowed list")
     result = await claude.run(
-        settings, PROMPT, session_id=str(uuid.uuid4()), resume=False, cwd=folder
+        settings,
+        PROMPT,
+        session_id=str(uuid.uuid4()),
+        resume=False,
+        cwd=folder,
+        model=settings.background_model,
     )
     data = claude.json_from_answer(result.answer)
     memory_dir = settings.ask_dir

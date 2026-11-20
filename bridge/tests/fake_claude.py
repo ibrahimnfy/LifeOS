@@ -26,6 +26,13 @@ if args == ["--version"]:
     print("fake-claude 1.0")
     sys.exit(0)
 
+if args == ["--help"]:
+    print(
+        "  --effort <level>   Effort level for the current session\n"
+        "                     (low, medium, high, xhigh, max)"
+    )
+    sys.exit(0)
+
 if args[:2] == ["agents", "--json"]:
     # Active sessions: taken from ~/.fake-claude-agents.json when present.
     state = Path.home() / ".fake-claude-agents.json"

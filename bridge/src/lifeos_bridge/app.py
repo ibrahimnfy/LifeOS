@@ -20,9 +20,13 @@ from . import (
     capable,
     claude,
     coach,
+    commands,
     contextmap,
+    files,
+    history,
     memory,
     reminders,
+    runcontrol,
     session_meta,
     sessions,
 )
@@ -181,17 +185,127 @@ def create_app(settings: Settings) -> FastAPI:
     async def claude_error_handler(request: Request, error: ClaudeError) -> JSONResponse:
         return error_response(error)
 
+    offers = files.Offers(settings)
+    app.state.offers = offers
+    # Standing instructions for every run that answers the phone.
+    phone_instructions = (
+        "You are answering the owner through their phone app. "
+        + files.INSTRUCTIONS
+        + " When you need the owner to decide something, ask one clear question at a time and "
+        "give the choices as a short lettered list (A, B, C), so that a one-letter reply is enough."
+    )
+
+    def with_files(payload: dict, session_id: str, cwd: Path) -> dict:
+        """Turn file-offer lines of a finished answer into cards."""
+        text, cards, refused = offers.from_answer(str(payload.get("answer") or ""), session_id, cwd)
+        payload["answer"] = text
+        payload["files"] = cards
+        if refused:
+            payload["files_refused"] = refused
+        return payload
+
+    control = runcontrol.RunControl()
+    app.state.control = control
+    drains: set[asyncio.Task] = set()
+    app.state.drains = drains
+
+    def read_choice(data: dict, name: str, allowed: tuple[str, ...]) -> str | None:
+        value = data.get(name)
+        if value is None:
+            return None
+        if not isinstance(value, str) or not (
+            value in allowed or (name == "model" and value.startswith("claude-"))
+        ):
+            raise ClaudeError("bad_request", 400, f"`{name}` must be one of: {', '.join(allowed)}")
+        return value
+
+    def read_model_choice(data: dict) -> dict:
+        """``model`` and ``effort`` of a request, validated; only the ones that were given."""
+        chosen = {"model": read_choice(data, "model", settings.models), "effort": None}
+        if data.get("effort") is not None:  # the CLI is asked only when needed
+            chosen["effort"] = read_choice(data, "effort", claude.effort_levels(settings))
+        return {name: value for name, value in chosen.items() if value is not None}
+
+    def finish(session_id: str) -> None:
+        """A run of the session ended: free it and send what is waiting, if anything."""
+        slots.release(session_id)
+        control.finished(session_id)
+        task = asyncio.create_task(drain(session_id))
+        drains.add(task)
+        task.add_done_callback(drains.discard)
+
+    async def drain(session_id: str) -> None:
+        """Send the session's next queued message, in the background."""
+        if session_id in slots.active:
+            return
+        entry = control.pop_next(session_id)
+        if entry is None:
+            return
+        outcome = {"queue_id": entry["id"], "state": "done"}
+        try:
+            await run_prompt(
+                {"prompt": entry["prompt"], "mode": entry["mode"], "_queued": True},
+                session_id=session_id,
+                resume=True,
+                cwd=Path(entry["cwd"]),
+            )
+        except ClaudeError as error:
+            # Whatever went wrong, the rest of the queue waits for the owner.
+            outcome = {"queue_id": entry["id"], "state": "error", "error": error.code}
+            control.pause(session_id, "error")
+        control.outcomes[session_id] = outcome
+
     async def run_prompt(data: dict, *, session_id: str, resume: bool, cwd: Path):
         """Shared by /ask and session resume: limits, in-use check, run or stream."""
         prompt = read_prompt(data)
-        is_capable = read_mode(data) == "capable"
-        run_args = {"session_id": session_id, "resume": resume, "cwd": cwd}
+        mode = read_mode(data)
+        is_capable = mode == "capable"
+        when = data.get("when", "queue")
+        if when not in ("queue", "now"):
+            raise ClaudeError("bad_request", 400, "`when` must be `queue` or `now`")
+        choice = read_model_choice(data)
+        if session_id in slots.active:
+            # The session is answering: never a second writer. The message waits,
+            # or (send now) the current run is interrupted and this one goes next.
+            entry = control.add(session_id, prompt, mode, cwd, front=when == "now")
+            if when == "now":
+                control.unpause(session_id)
+                await control.stop(session_id)
+            return JSONResponse(
+                {
+                    "queued": True,
+                    "queue_id": entry["id"],
+                    "position": control.queue(session_id).index(entry) + 1
+                    if entry in control.queue(session_id)
+                    else 0,
+                    "interrupted_current_run": when == "now",
+                },
+                status_code=202,
+            )
+        if choice:
+            await asyncio.to_thread(session_meta.update_session, session_id, choice)
+        chosen = await asyncio.to_thread(session_meta.entry_for, session_id)
+        run_args = {
+            "session_id": session_id,
+            "resume": resume,
+            "cwd": cwd,
+            "model": chosen["model"],
+            "effort": chosen["effort"],
+            "on_process": control.tracker(session_id),
+        }
+        run_args["context"] = phone_instructions
         if cwd.resolve() == settings.ask_dir.resolve():
             # Conversations in the memory folder start with the memory loaded.
-            run_args["context"] = await asyncio.to_thread(memory.context_for_prompt, cwd)
+            loaded = await asyncio.to_thread(memory.context_for_prompt, cwd)
+            if loaded:
+                run_args["context"] = phone_instructions + "\n\n" + loaded
         streaming = bool(data.get("stream"))
         watch = None
         slots.acquire(session_id)
+        control.take_stopped(session_id)  # a stop request for an earlier run is not ours
+        if not data.get("_queued"):
+            # A message the owner sends directly ends the hold a cancel put on the queue.
+            control.unpause(session_id, only="cancel")
         started = False
         try:
             # Never write into a conversation that is open somewhere else.
@@ -204,30 +318,47 @@ def create_app(settings: Settings) -> FastAPI:
                 watch = capable.AuditWatch(session_id)
                 run_args |= {"policy": capable.build_policy(settings, cwd), "observer": watch}
             elif not streaming:
-                result = await claude.run(settings, prompt, **run_args)
-                return {
-                    "answer": result.answer,
-                    "session_id": result.session_id or session_id,
-                    "duration_ms": result.duration_ms,
-                    "num_turns": result.num_turns,
-                    "denied_tools": result.denied_tools,
-                }
+                try:
+                    result = await claude.run(settings, prompt, **run_args)
+                except ClaudeError:
+                    if control.take_stopped(session_id):
+                        raise runcontrol.stopped_error() from None
+                    raise
+                if control.take_stopped(session_id):
+                    raise runcontrol.stopped_error()
+                return with_files(
+                    {
+                        "answer": result.answer,
+                        "session_id": result.session_id or session_id,
+                        "duration_ms": result.duration_ms,
+                        "num_turns": result.num_turns,
+                        "denied_tools": result.denied_tools,
+                    },
+                    session_id,
+                    cwd,
+                )
             started = True
         finally:
             if not started:
-                slots.release(session_id)
+                finish(session_id)
 
         async def run_events() -> AsyncIterator[tuple[str, dict]]:
-            """The run as events; releases the slot when it ends or is abandoned."""
+            """The run as events; frees the session when it ends or is abandoned."""
             try:
                 async for event, payload in claude.stream(settings, prompt, **run_args):
-                    if event == "done" and watch is not None:
-                        payload["refused_actions"] = watch.refused_actions()
+                    if event in ("done", "error") and control.take_stopped(session_id):
+                        stopped = runcontrol.stopped_error()
+                        yield "error", {"error": stopped.code, "message": stopped.message}
+                        return
+                    if event == "done":
+                        with_files(payload, session_id, cwd)
+                        if watch is not None:
+                            payload["refused_actions"] = watch.refused_actions()
                     yield event, payload
             except ClaudeError as error:
                 yield "error", {"error": error.code, "message": error.message}
             finally:
-                slots.release(session_id)
+                finish(session_id)
 
         if not streaming:  # capable run for a client that wants one JSON answer
             final: tuple[str, dict] = ("error", {"error": "bad_output", "message": ""})
@@ -235,11 +366,9 @@ def create_app(settings: Settings) -> FastAPI:
                 if event in ("done", "error"):
                     final = (event, payload)
             if final[0] == "error":
-                raise ClaudeError(
-                    final[1]["error"],
-                    504 if final[1]["error"] == "timeout" else 502,
-                    final[1].get("message", ""),
-                )
+                code = final[1]["error"]
+                status = {"timeout": 504, "cancelled": 409}.get(code, 502)
+                raise ClaudeError(code, status, final[1].get("message", ""))
             return final[1]
 
         async def events() -> AsyncIterator[bytes]:
@@ -252,6 +381,70 @@ def create_app(settings: Settings) -> FastAPI:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
+
+    @app.get("/files/{offer_id}")
+    async def download_file(offer_id: str, session_id: str):
+        """Send an offered file. Only for an offer of this session that has not expired."""
+        offer = await asyncio.to_thread(offers.take, offer_id, session_id)
+        return StreamingResponse(
+            files.chunks(offer),
+            media_type=offer.type,
+            headers={
+                "Content-Length": str(offer.size),
+                "Content-Disposition": "attachment",
+                "Cache-Control": "no-store",
+            },
+        )
+
+    @app.get("/models")
+    async def list_models():
+        """Models and effort levels the app may offer, and the defaults."""
+        return {
+            "models": list(settings.models),
+            "efforts": list(await asyncio.to_thread(claude.effort_levels, settings)),
+            "default_model": settings.claude_model or settings.default_model,
+            "default_effort": settings.default_effort,
+        }
+
+    @app.post("/sessions/{session_id}/cancel")
+    async def cancel_run(session_id: str):
+        """Stop the session's current run: interrupt first, terminate only if needed.
+
+        The queue is kept but paused. Changes the run already made are not undone.
+        """
+        stopped = await control.stop(session_id)
+        if stopped:
+            control.pause(session_id, "cancel")
+        return {"cancelled": stopped, "queue_paused": session_id in control.paused,
+                "note": runcontrol.STOP_NOTE if stopped else "nothing was running"}  # fmt: skip
+
+    @app.get("/sessions/{session_id}/queue")
+    async def show_queue(session_id: str):
+        """Whether the session is answering, and the messages waiting for it."""
+        return {
+            "running": session_id in slots.active,
+            "paused": control.paused.get(session_id),
+            "queue": [control.public(e) for e in control.queue(session_id)],
+            "last": control.outcomes.get(session_id),
+        }
+
+    @app.patch("/sessions/{session_id}/queue/{queue_id}")
+    async def edit_queued(session_id: str, queue_id: str, request: Request):
+        """Change the text of a waiting message. Body: ``{"prompt": str}``."""
+        prompt = read_prompt(await read_json_object(request))
+        return control.public(control.edit(session_id, queue_id, prompt))
+
+    @app.delete("/sessions/{session_id}/queue/{queue_id}")
+    async def remove_queued(session_id: str, queue_id: str):
+        control.remove(session_id, queue_id)
+        return {"removed": True}
+
+    @app.post("/sessions/{session_id}/queue/resume")
+    async def resume_queue(session_id: str):
+        """Send the waiting messages (after a cancel, an error or a restart)."""
+        control.unpause(session_id)
+        await drain(session_id)
+        return {"resumed": True, "queue": [control.public(e) for e in control.queue(session_id)]}
 
     @app.post("/ask")
     async def ask(request: Request):
@@ -351,6 +544,7 @@ def create_app(settings: Settings) -> FastAPI:
         "notify_replies": bool}``. Only the bridge's own metadata changes.
         """
         changes = await read_json_object(request)
+        read_model_choice(changes)  # refuses unknown models and effort levels
         info = sessions.find_session(session_id, settings.allowed_roots)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
@@ -516,5 +710,25 @@ def create_app(settings: Settings) -> FastAPI:
         Fields left out keep their value.
         """
         return coach.update_settings(await read_json_object(request))
+
+    def listed_session(session_id: str) -> sessions.SessionInfo:
+        info = sessions.find_session(session_id, settings.allowed_roots)
+        if info is None:
+            raise ClaudeError("session_not_found", 404, "unknown session")
+        return info
+
+    @app.get("/sessions/{session_id}/history")
+    def session_history(session_id: str, limit: int = history.DEFAULT_LIMIT, before: str = ""):
+        """A page of the session's earlier exchanges, oldest first; ``before`` pages back."""
+        info = listed_session(session_id)
+        path = history.transcript_path(info, settings.allowed_roots)
+        if path is None:
+            raise ClaudeError("session_not_found", 404, "unknown session")
+        return history.read_page(path, limit, before or None)
+
+    @app.get("/sessions/{session_id}/commands")
+    def session_commands(session_id: str):
+        """Skills and commands of the session's folder. Listed only: not usable in runs yet."""
+        return commands.listing(listed_session(session_id).folder)
 
     return app

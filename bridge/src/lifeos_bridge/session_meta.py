@@ -6,6 +6,7 @@ session files are only ever read (``sessions.py``); nothing here writes them.
 
 from __future__ import annotations
 
+import re
 import uuid
 from pathlib import Path
 
@@ -18,7 +19,15 @@ FILE_NAME = "sessions-meta.json"
 MAX_NAME = 60
 MAX_TITLE = 120
 MAX_GROUPS = 50
-DEFAULTS = {"title": None, "group": None, "pinned": False, "notify_replies": True}
+DEFAULTS = {
+    "title": None,
+    "group": None,
+    "pinned": False,
+    "notify_replies": True,
+    "model": None,
+    "effort": None,
+}
+CHOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}")
 
 
 def meta_path() -> Path:
@@ -99,7 +108,7 @@ def update_session(session_id: str, changes: dict) -> dict:
     """Apply ``title``, ``group``, ``pinned`` and ``notify_replies``; ``None`` clears."""
     unknown = set(changes) - set(DEFAULTS)
     if unknown or not changes:
-        raise bad("allowed fields: title, group, pinned, notify_replies")
+        raise bad("allowed fields: title, group, pinned, notify_replies, model, effort")
     data = load()
     entry = {**DEFAULTS, **data["sessions"].get(session_id, {})}
     if "title" in changes:
@@ -112,6 +121,12 @@ def update_session(session_id: str, changes: dict) -> dict:
                 raise bad("`group` must be a group id or null")
             _group(data, group)
         entry["group"] = group
+    for choice in ("model", "effort"):
+        if choice in changes:
+            value = changes[choice]
+            if value is not None and (not isinstance(value, str) or not CHOICE.fullmatch(value)):
+                raise bad(f"`{choice}` must be a name or null")
+            entry[choice] = value
     for flag in ("pinned", "notify_replies"):
         if flag in changes:
             if not isinstance(changes[flag], bool):
@@ -144,4 +159,6 @@ def describe(info: SessionInfo, *, in_use: bool, data: dict) -> dict:
     item["auto_group"] = info.folder.name
     item["pinned"] = entry["pinned"]
     item["notify_replies"] = entry["notify_replies"]
+    item["model"] = entry["model"]
+    item["effort"] = entry["effort"]
     return item

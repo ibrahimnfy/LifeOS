@@ -92,7 +92,15 @@ documented here as they are built.
 | POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
 | GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders |
 | POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
-| PATCH | `/sessions/{id}` | yes | Sets the owner's title, group, pin and reply-notification switch |
+| GET | `/sessions/{id}/history` | yes | A session's earlier messages, a few exchanges per page |
+| GET | `/sessions/{id}/commands` | yes | Lists the skills and commands of the session's folder (not usable in runs yet) |
+| PATCH | `/sessions/{id}` | yes | Sets the owner's title, group, pin, reply-notification switch, model and effort |
+| POST | `/sessions/{id}/cancel` | yes | Stops the session's current run |
+| GET | `/sessions/{id}/queue` | yes | Shows whether the session is answering and what is waiting |
+| PATCH / DELETE | `/sessions/{id}/queue/{qid}` | yes | Changes or removes a waiting message |
+| POST | `/sessions/{id}/queue/resume` | yes | Sends the waiting messages after a hold |
+| GET | `/models` | yes | Models and effort levels the app may offer, and the defaults |
+| GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
 | GET / POST | `/reminders` | yes | Lists or creates session reminders |
@@ -282,6 +290,145 @@ Limits of the in-use check: there is a short gap between the check and the
 start of the run, and sessions held by other Claude apps (desktop or editor
 extensions) may not be reported. Close a session on the computer before
 continuing it from the phone.
+
+### `GET /sessions/{id}/history`
+
+Returns a session's earlier messages in small pages, read from Claude Code's
+own session file. Query: `limit` (default 4, between 1 and 20) and `before`
+(a cursor from an earlier answer). Without `before` the page holds the latest
+exchanges.
+
+```json
+{"exchanges": [{"id": "…", "at": "2027-01-15T08:00:00.000Z",
+                "user": "…", "assistant": "…",
+                "tools": [{"name": "Read", "count": 3}],
+                "complete": true, "truncated": false}],
+ "older": "…", "total_exchanges_known": null}
+```
+
+- An exchange is one message of the owner and the text the assistant wrote
+  until the owner's next message. Exchanges are oldest first within a page.
+- `older` is the cursor for the page before this one (`?before=<older>`), or
+  `null` when nothing earlier was found. Treat it as opaque. An unknown
+  cursor is `400 bad_request`; start again without `before`.
+- **Tool calls are not replayed.** `tools` counts them by tool name only: no
+  inputs, no paths, no outputs. Thinking, sub-agent entries and the notes
+  Claude Code injects by itself are left out.
+- `complete` is false while the answer does not end with assistant text yet
+  (still running, or stopped during a tool call).
+- `user` and `assistant` are cut at 60,000 characters each; `truncated` says
+  that one of them was cut.
+- `total_exchanges_known` is always `null`: the file is not counted.
+- Only sessions inside the allowed folders (`404 session_not_found`
+  otherwise). The session file is only read, never changed, and the texts
+  are never logged.
+- One page reads at most the 16 MB of the file before its end point; only
+  when those hold no owner message at all does it look further back, up to
+  128 MB. Older content than that is not reachable.
+- The session file format is internal to Claude Code and may change between
+  versions; lines and files the reader cannot understand are skipped. After a
+  Claude Code update, re-run the check below.
+
+### `GET /sessions/{id}/commands`
+
+Lists the skills and custom commands found in the session's own folder, for
+the app's composer. It reads only the documented project locations,
+`<folder>/.claude/skills/<name>/SKILL.md` and
+`<folder>/.claude/commands/**/*.md`; it runs nothing and uses no model.
+
+```json
+{"enabled": false,
+ "reason": "skills and commands are not switched on for this session",
+ "commands": [{"name": "review", "kind": "command", "description": "…",
+               "argument_hint": "<file>", "warnings": ["shell_lines"]}]}
+```
+
+- **Listed, not yet usable.** Runs still start with skills and commands
+  switched off, so `enabled` is always `false` for now; the per-session
+  switch comes later (see [`chat-design.md`](chat-design.md), section 3).
+- `kind` is `skill` or `command`. A command in a sub-folder is named with
+  `:` between the parts (`git/log.md` is `git:log`). Sorted by name.
+- `description` is the `description:` of the file's frontmatter, otherwise
+  its first line of text; one line, at most 200 characters. Nothing else of
+  a file's content is returned.
+- `warnings` uses fixed words: `shell_lines` (the file contains shell that
+  would run before the model sees it), `requests_tools` (it asks for tools
+  with `allowed-tools`), `has_scripts` (the skill folder holds files other
+  than Markdown).
+- Nothing from the home folder and no plugins. Symbolic links are resolved,
+  and anything that ends up outside `<folder>/.claude` is skipped.
+- Limits: 200 entries, the first 64 KB of each file, names of letters,
+  digits and `_ . : -` up to 64 characters; anything else is skipped.
+- Only sessions inside the allowed folders (`404 session_not_found`
+  otherwise).
+
+### While a session is answering: queue, send now, cancel
+
+One run per session, always. What happens to a message for a session that is
+still answering (`POST /ask` with `session_id`, or
+`POST /sessions/{id}/messages`):
+
+- **Queue (default).** The message is stored and the request returns `202`
+  with `{"queued": true, "queue_id": "…", "position": 1}`. It is sent when
+  the current run has ended, in order. At most 10 messages wait per session
+  (`429 queue_full`).
+- **Send now.** With `"when": "now"` the current run is interrupted and this
+  message is sent next, ahead of the queue.
+- `GET /sessions/{id}/queue` returns `{"running", "paused", "queue": [{"id",
+  "prompt", "mode", "queued_at"}], "last"}`; `last` is the outcome of the
+  most recent queued message (`done`, or `error` with a code). `PATCH
+  …/queue/{qid}` with `{"prompt": "…"}` changes a waiting message, `DELETE`
+  removes it.
+- **Cancel.** `POST /sessions/{id}/cancel` interrupts the current run: the
+  interrupt signal first, then, only if the process does not stop within a
+  few seconds, terminate and kill. The stopped request answers `409
+  cancelled`. **Changes the run already made to files are kept.** The queue
+  is then on hold (`"paused": "cancel"`) until the owner sends a message or
+  calls `POST …/queue/resume`.
+- A queued message that fails holds the rest (`"paused": "error"`). After a
+  bridge restart waiting messages are drafts (`"paused": "restart"`): they
+  are sent only after `…/queue/resume`, never by themselves.
+- Queued messages are prompt text. They are stored in
+  `~/.config/lifeos/queue.json` (mode 600) and never logged.
+- Answers to queued messages are not pushed over this local API; read them
+  with the history endpoint. The relay will deliver them to the phone.
+
+### Model and effort
+
+- `GET /models` returns `{"models", "efforts", "default_model",
+  "default_effort"}`. Effort levels are read from the installed Claude
+  Code's help text. Claude Code has no command that lists models, so
+  `models` is the list in `LIFEOS_MODELS` (default: the family aliases).
+- `"model"` and `"effort"` may be given with `/ask`, with a session message,
+  or with `PATCH /sessions/{id}`; they are remembered for that session and
+  used for all its runs, also when it is continued. `null` in `PATCH`
+  returns to the default. Unknown values are refused with `400` before
+  anything runs.
+- Defaults: `LIFEOS_DEFAULT_MODEL` (`opus`) and `LIFEOS_DEFAULT_EFFORT`
+  (`high`). The bridge's own runs (coach plan, context map) use
+  `LIFEOS_BACKGROUND_MODEL` when set.
+
+### Files: offers and `GET /files/{offer}`
+
+The assistant can offer a file by writing a line `[[file: path]]` in its
+answer (every run is told how). The bridge removes that line from the
+answer and returns a card instead:
+
+```json
+{"answer": "…", "files": [{"offer": "…", "name": "slides.pdf",
+                           "type": "application/pdf", "size": 5009}],
+ "files_refused": [{"name": "…", "reason": "outside the allowed folders"}]}
+```
+
+- **Nothing is read or sent until the offer is requested:**
+  `GET /files/{offer}?session_id=<id>`. An offer is random, bound to its
+  session and valid for 15 minutes; the file is checked again at download.
+- Only regular files inside the allowed folders or the memory folder, after
+  resolving links; no hidden files or folders; at most `LIFEOS_MAX_FILE_MB`
+  (default 50). Cards never contain a path.
+- Offers and downloads are written to the audit log with name and size.
+- Sending through the relay (sealed chunks, deleted on delivery) is not
+  built yet; `files.chunks` and `files.digest` are what it will use.
 
 ### Organising sessions: `PATCH /sessions/{id}` and `/session-groups`
 
@@ -580,6 +727,10 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
   http://127.0.0.1:8787/sessions/<id from the list>/messages
 # in-use check: open the same session in a terminal (`claude --resume <id>`), repeat the
 # request -> 409 {"error":"session_in_use",...}
+# earlier messages, two exchanges per page; repeat with `&before=<older>` to go back:
+curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" "http://127.0.0.1:8787/sessions/<id>/history?limit=2"
+# the folder's skills and commands (listed only): {"enabled":false,...,"commands":[...]}
+curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" http://127.0.0.1:8787/sessions/<id>/commands
 ```
 
 Allowed folders (the refusals are safe to try; they change nothing):
@@ -650,6 +801,25 @@ curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"1","quiet_start":"23:00"}' $B/c
 ls -l ~/.config/lifeos/coach/                    # plan.json, settings.json, state.json; mode 600
 # outside quiet hours, within about 30 seconds of the first plan of the day,
 # a desktop notification "LifeOS: coach" appears, once
+```
+
+Queue, cancel and models (in a second terminal while a longer question
+runs; replace `<id>` with that session's id):
+
+```
+H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787; J='Content-Type: application/json'
+curl -s -H "$H" $B/models
+curl -s -H "$H" -H "$J" -d '{"prompt":"and then?"}' $B/sessions/<id>/messages          # 202, queued
+curl -s -H "$H" $B/sessions/<id>/queue
+curl -s -H "$H" -X POST $B/sessions/<id>/cancel         # the first request ends with "cancelled"
+curl -s -H "$H" -X POST $B/sessions/<id>/queue/resume   # the waiting message is sent
+```
+
+File offer (put any small file into the memory folder first):
+
+```
+scripts/ask --json "Offer me the file <name> from this folder."   # note "files"[0]."offer" and "session_id"
+curl -s -H "$H" -o /tmp/check.out "$B/files/<offer>?session_id=<session id>"
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

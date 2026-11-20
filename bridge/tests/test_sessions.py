@@ -44,6 +44,8 @@ def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir
         "auto_group": ask_dir.name,
         "pinned": False,
         "notify_replies": True,
+        "model": None,
+        "effort": None,
     }
 
 

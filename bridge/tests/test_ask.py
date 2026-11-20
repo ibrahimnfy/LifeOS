@@ -198,8 +198,10 @@ def test_same_session_cannot_run_twice_at_once(settings, auth):
     response = client.post(
         "/ask", json={"prompt": "two", "session_id": first["session_id"]}, headers=auth
     )
-    assert response.status_code == 409
-    assert response.json()["error"] == "session_in_use"
+    # Never a second writer: the message waits in the session's queue instead.
+    assert response.status_code == 202
+    assert response.json()["queued"] is True
+    assert len(app.state.control.queue(first["session_id"])) == 1
 
 
 def test_slot_is_released_after_success_and_failure(settings, auth):
