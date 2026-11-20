@@ -51,6 +51,65 @@ def resource(module_id, name, *entries):
     }
 
 
+def chapter_path(chapter):
+    return f"/webservice/pluginfile.php/12/mod_book/chapter/{chapter}/index.html"
+
+
+def book_module(module_id, name, chapters):
+    """A book as core_course_get_contents lists it: a table of contents, one index.html per chapter."""
+    toc, last = [], None
+    for chapter, title, level in chapters:
+        item = {
+            "title": title,
+            "href": f"{chapter}/index.html",
+            "level": level,
+            "hidden": "0",
+            "subitems": [],
+        }
+        if level and last is not None:
+            last["subitems"].append(item)
+        else:
+            toc.append(item)
+            last = item
+    contents = [
+        {
+            "type": "content",
+            "filename": "structure",
+            "filepath": "/",
+            "filesize": 0,
+            "fileurl": None,
+            "content": json.dumps(toc),
+            "timemodified": TS - DAY,
+        }
+    ]
+    for chapter, title, _level in chapters:
+        contents.append(
+            {
+                "type": "file",
+                "filename": "index.html",
+                "filepath": f"/{chapter}/",
+                "filesize": 0,
+                "fileurl": SITE + chapter_path(chapter),
+                "timemodified": TS - DAY,
+                "content": title,
+            }
+        )
+    return {"id": module_id, "name": name, "modname": "book", "visible": 1, "contents": contents}  # fmt: skip
+
+
+PAGE_HTML = (
+    "<h2>Overview</h2><p>Watch <a href='https://video.example.invalid/watch?v=1'>the intro video</a> "
+    "and read <a href='https://docs.example.invalid/guide?token=leak&amp;x=1'>the guide</a>.</p>"
+    "<ul><li>first point</li><li>second <b>point</b></li></ul>"
+    "<iframe title='Lecture 1' src='https://video.example.invalid/embed/2'></iframe>"
+    "<script>alert(1)</script><p>--- not a rule</p><a href='javascript:x()'>bad</a>"
+)
+CHAPTER_ONE = (
+    "<html><head><title>Example book</title></head><body><p>Chapter text.</p>"
+    "<video src='https://video.example.invalid/clip.mp4'></video></body></html>"
+)
+
+
 def discussion(number, subject, message, created):
     return {"id": 900 + number, "discussion": number, "name": subject, "subject": subject,
             "message": message, "created": created, "modified": created,
@@ -93,7 +152,8 @@ class Site:
                     {"id": 25, "name": "Reading", "modname": "folder", "contents": [
                         file_entry("reading.pdf", 300),
                         {"type": "url", "filename": "Outside reading", "fileurl": "https://read.example.invalid/x"},
-                        {"type": "url", "filename": "Bad link", "fileurl": "javascript:alert(1)"}]}]}],
+                        {"type": "url", "filename": "Bad link", "fileurl": "javascript:alert(1)"}]},
+                    book_module(28, "Example book", [(301, "First chapter", 0), (302, "A sub chapter", 1)])]}],
             B: [{"id": 3, "section": 0, "name": "General", "modules": [
                     resource(31, "Sheet", file_entry("sheet.pdf", 500))]}],
         }  # fmt: skip
@@ -127,7 +187,18 @@ class Site:
             {"courseid": A, "grade": "70.00", "rawgrade": "70"},
             {"courseid": B, "grade": "-"},
         ]
-        self.bodies = {}
+        self.bodies = {
+            chapter_path(301): CHAPTER_ONE.encode(),
+            chapter_path(302): b"<p>Sub chapter text with the <a href='https://read.example.invalid/x'>outside reading</a>.</p>",
+        }  # fmt: skip
+        self.text_pages = [
+            {"id": 501, "coursemodule": 27, "course": A, "name": "A page", "intro": "<p>ignored</p>",
+             "content": PAGE_HTML, "revision": 1, "timemodified": TS - DAY},
+        ]  # fmt: skip
+        self.books = [
+            {"id": 601, "coursemodule": 28, "course": A, "name": "Example book", "intro": "",
+             "revision": 3, "timemodified": TS - DAY},
+        ]  # fmt: skip
 
     def post(self, url, data, content_type):
         fields = dict(urllib.parse.parse_qsl(data.decode()))
@@ -168,6 +239,11 @@ class Site:
         if function == "mod_forum_get_forum_discussions":
             assert (fields["sortorder"], fields["page"], fields["perpage"]) == ("3", "0", "100")
             return {"discussions": self.discussions[int(fields["forumid"])], "warnings": []}
+        if function == "mod_page_get_pages_by_courses":
+            assert fields["courseids[0]"] == str(A)
+            return {"pages": copy.deepcopy(self.text_pages), "warnings": []}
+        if function == "mod_book_get_books_by_courses":
+            return {"books": copy.deepcopy(self.books), "warnings": []}
         if function == "mod_assign_get_submission_status":
             status = "submitted" if fields["assignid"] == "43" else "new"
             return {"lastattempt": {"submission": {"status": status}, "graded": False,
@@ -181,7 +257,7 @@ class Site:
         parts = urllib.parse.urlsplit(address)
         assert ("token", TOKEN) in urllib.parse.parse_qsl(parts.query)
         name = urllib.parse.unquote(parts.path.rsplit("/", 1)[-1])
-        body = self.bodies.get(name, f"content of {name}".encode())
+        body = self.bodies.get(parts.path, self.bodies.get(name, f"content of {name}".encode()))
         response = io.BytesIO(body)
         response.headers = {"Content-Length": str(len(body))}
         return response
@@ -326,12 +402,20 @@ def test_first_sync_writes_folders_files_and_memory_without_news(
         f"{FOLDER_A}/announcements.md", f"{FOLDER_A}/grades.md", f"{FOLDER_A}/links.md",
         f"{FOLDER_A}/materials/notes.pdf", f"{FOLDER_A}/materials/reading.pdf",
         f"{FOLDER_A}/materials/slides.pdf",
+        f"{FOLDER_A}/pages/a-page-27.md", f"{FOLDER_A}/pages/example-book-28.md",
         f"{FOLDER_B}/announcements.md", f"{FOLDER_B}/grades.md", f"{FOLDER_B}/links.md",
         f"{FOLDER_B}/materials/sheet.pdf",
     ]  # fmt: skip
     assert (folder / FOLDER_A / "materials" / "notes.pdf").read_bytes() == b"content of notes.pdf"
     assert result["first"] and result["courses"] == 2 and result["downloaded"] == 4
-    assert result["new"] == {"files": 0, "announcements": 0, "deadlines": 0, "grades": 0}
+    assert result["pages"] == 2 and result["page_errors"] == 0
+    assert result["new"] == {
+        "files": 0,
+        "pages": 0,
+        "announcements": 0,
+        "deadlines": 0,
+        "grades": 0,
+    }
     assert result["announcements"] == 2 and result["grade_items"] == 4 and result["links"] == 2
     assert result["part_errors"] == 0 and result["memory"] == "ok" and result["memory_commit"]
     assert lines() == ["LifeOS: new in your courses|Courses were synced for the first time.|"]
@@ -363,6 +447,68 @@ def test_links_announcements_and_grades_files(site, configured, folder):
     )
     assert "No announcements." in (folder / FOLDER_B / "announcements.md").read_text()
     assert "Overall: none yet" in (folder / FOLDER_B / "grades.md").read_text()
+
+
+def test_pages_and_books_become_markdown_files(site, configured, folder):
+    sync(folder)
+    page = (folder / FOLDER_A / "pages" / "a-page-27.md").read_text()
+    assert page.startswith("# A page\n\n<!-- Written by the LifeOS bridge")
+    assert "Page of the course Example course A." in page
+    assert "## Overview\n\nWatch [the intro video](https://video.example.invalid/watch?v=1)" in page
+    assert "[the guide](https://docs.example.invalid/guide?x=1)" in page
+    assert "- first point\n- second **point**" in page
+    assert "[Lecture 1](https://video.example.invalid/embed/2)" in page
+    assert "\\--- not a rule" in page and "alert" not in page and "javascript" not in page
+    assert "leak" not in page and "ignored" not in page  # no token parameter; no intro
+    book = (folder / FOLDER_A / "pages" / "example-book-28.md").read_text()
+    first, sub = book.index("## First chapter"), book.index("### A sub chapter")
+    assert first < sub and "Chapter text." in book and "<title>" not in book
+    assert book.count("Example book") == 1  # the title of the chapter's HTML head is dropped
+    assert "Sub chapter text with the [outside reading](https://read.example.invalid/x)." in book
+    links = (folder / FOLDER_A / "links.md").read_text()
+    inner = links[links.index("## In pages and books") :]
+    assert inner.splitlines()[2:] == [
+        "- the guide: <https://docs.example.invalid/guide?x=1> (from: A page)",
+        "- Lecture 1: <https://video.example.invalid/embed/2> (from: A page)",
+        "- Embedded media: <https://video.example.invalid/clip.mp4> (from: Example book)",
+    ]  # links already on the course page are not repeated
+    assert links.count("https://video.example.invalid/watch?v=1") == 1
+    assert links.count("https://read.example.invalid/x") == 1
+
+
+def test_changed_pages_are_rewritten_and_count_as_new(site, configured, folder, notified):
+    script, lines = notified
+    sync(folder, script=script)
+    site.asked.clear()
+    assert sync(folder, when=later(7))["new"]["pages"] == 0
+    assert site.asked == []  # an unchanged book is not fetched again
+    site.text_pages[0].update(content="<p>New text</p>", revision=2)
+    site.books[0]["revision"] = 4
+    site.bodies[chapter_path(301)] = b"<p>Rewritten chapter.</p>"
+    result = sync(folder, when=later(14), script=script)
+    assert result["new"]["pages"] == 2 and lines()[-1].endswith("|2 new pages.|")
+    assert "New text" in (folder / FOLDER_A / "pages" / "a-page-27.md").read_text()
+    assert "Rewritten chapter." in (folder / FOLDER_A / "pages" / "example-book-28.md").read_text()
+    assert sorted(site.downloads()) == ["index.html", "index.html"]
+    links = (folder / FOLDER_A / "links.md").read_text()
+    assert "docs.example.invalid" not in links  # the link left the page, and links.md
+    site.text_pages[0]["revision"] = 3  # a new revision with the same text is not news
+    assert sync(folder, when=later(21))["new"]["pages"] == 0
+    site.text_pages.append({"id": 502, "coursemodule": 29, "course": A, "name": "Second page",
+                            "content": "<p>x</p>", "revision": 1, "timemodified": TS})  # fmt: skip
+    assert sync(folder, when=later(28))["new"]["pages"] == 1
+
+
+def test_html_to_markdown_keeps_structure_and_drops_scripts():
+    text, links = moodle.to_markdown(
+        "<h1>T</h1><ol><li>a</li><li>b<ul><li>c</li></ul></li></ol><pre>x  y</pre>"
+        "<p><code>z</code> <i>w</i> <img alt='A chart'> <a href='/relative'>r</a></p>"
+        "<style>p{}</style><a href='https://e.example.invalid/?wstoken=s&amp;q=1'>[x]</a>"
+    )
+    assert text.startswith("## T\n\n1. a\n2. b\n  - c")
+    assert "```\nx  y\n```" in text and "`z` _w_ [image: A chart] r" in text
+    assert links == [{"name": "[x]", "url": "https://e.example.invalid/?q=1"}]
+    assert "[(x)](https://e.example.invalid/?q=1)" in text and "p{}" not in text
 
 
 def test_memory_gets_course_files_index_lines_and_one_commit(site, configured, folder, brain):
@@ -441,13 +587,20 @@ def test_second_sync_fetches_and_reports_only_what_changed(
     assert (
         folder / FOLDER_A / "materials" / "slides.pdf"
     ).read_bytes() == b"second version of the slides"
-    assert result["new"] == {"files": 2, "announcements": 1, "deadlines": 1, "grades": 1}
+    assert result["new"] == {
+        "files": 2,
+        "pages": 0,
+        "announcements": 1,
+        "deadlines": 1,
+        "grades": 1,
+    }
     assert lines()[1:] == [
         "LifeOS: new in your courses|2 new files, 1 announcement, 1 deadline, 1 grade.|"
     ]
     stored = state()
     assert stored["courses"][str(A)]["new"] == {
         "files": 2,
+        "pages": 0,
         "announcements": 1,
         "deadlines": 1,
         "grades": 1,
@@ -718,9 +871,14 @@ def test_failed_downloads_are_retried_and_a_dead_site_is_given_up(
     monkeypatch.setattr(ms, "MAX_FAILURES_IN_A_ROW", 2)
     result = sync(folder)
     assert (result["downloaded"], result["failed"], result["skipped_later"]) == (0, 2, 2)
-    assert len(site.asked) == 2 and TOKEN not in ms.state_path().read_text()
+    files = [a for a in site.asked if "mod_book" not in a]
+    assert len(files) == 2 and TOKEN not in ms.state_path().read_text()
+    assert result["page_errors"] == 1  # the book could not be read: tried again next time
+    assert not (folder / FOLDER_A / "pages" / "example-book-28.md").exists()
     monkeypatch.setattr(moodle, "_open", site.open)
-    assert sync(folder, when=later(7))["downloaded"] == 4
+    again = sync(folder, when=later(7))
+    assert again["downloaded"] == 4 and again["page_errors"] == 0
+    assert (folder / FOLDER_A / "pages" / "example-book-28.md").is_file()
 
 
 # ---- failures -----------------------------------------------------------------------------
@@ -755,13 +913,24 @@ def test_refused_parts_keep_what_was_known(site, configured, folder):
     sync(folder)
     before = state()["courses"][str(A)]
     site.refuse = {"mod_forum_get_forums_by_courses", "gradereport_user_get_grade_items",
-                   "mod_assign_get_assignments", "gradereport_overview_get_course_grades"}  # fmt: skip
+                   "mod_assign_get_assignments", "gradereport_overview_get_course_grades",
+                   "mod_page_get_pages_by_courses", "mod_book_get_books_by_courses"}  # fmt: skip
     site.contents[A][0]["modules"].append(resource(26, "Extra", file_entry("extra.pdf")))
     result = sync(folder, when=later(7))
     after = state()["courses"][str(A)]
-    assert result["part_errors"] == 5 and result["errorcode"] == "nopermission"
-    assert result["new"] == {"files": 1, "announcements": 0, "deadlines": 0, "grades": 0}
-    for part in ("announcements", "grades", "overall", "assignments", "known_grades"):
+    assert result["part_errors"] == 7 and result["errorcode"] == "nopermission"
+    assert result["new"] == {
+        "files": 1,
+        "pages": 0,
+        "announcements": 0,
+        "deadlines": 0,
+        "grades": 0,
+    }
+    assert (
+        result["pages"] == 2
+        and "In pages and books" in (folder / FOLDER_A / "links.md").read_text()
+    )
+    for part in ("announcements", "grades", "overall", "assignments", "known_grades", "texts"):
         assert after[part] == before[part], part
     assert "assign-41" in after["deadlines"] and "example.invalid" not in json.dumps(result)
 
@@ -907,7 +1076,7 @@ def test_summary_and_list(bridge):
         True,
         True,
     )
-    assert first["new"] == {"files": 2, "announcements": 1, "deadlines": 1, "grades": 1}
+    assert first["new"] == {"files": 2, "pages": 0, "announcements": 1, "deadlines": 1, "grades": 1}
     assert first["next_deadline"]["due"] == TS + 4 * DAY
     assert second["next_deadline"]["name"] == "Example quiz closes" and not second["has_new"]
 
@@ -925,7 +1094,16 @@ def test_materials_announcements_assignments_grades(bridge, folder):
     assert files["slides.pdf"]["size"] == 2500 and files["slides.pdf"]["type"] == "application/pdf"
     assert [link["url"] for link in materials["links"]] == [
         "https://video.example.invalid/watch?v=1", "https://read.example.invalid/x",
+        "https://docs.example.invalid/guide?x=1", "https://video.example.invalid/embed/2",
+        "https://video.example.invalid/clip.mp4",
     ]  # fmt: skip
+    assert [link.get("source") for link in materials["links"]] == [
+        None,
+        None,
+        "page",
+        "page",
+        "book",
+    ]
     (folder / FOLDER_A / "materials" / "notes.pdf").unlink()
     again = bridge("/courses/5/materials").json()["sections"][0]["files"][0]
     assert (again["name"], again["downloaded"]) == ("notes.pdf", False)

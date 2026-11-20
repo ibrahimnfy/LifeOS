@@ -750,8 +750,8 @@ is synced; the sign-in watch (see "Moodle sign-in") sends the notification,
 and the sync then asks again only every six hours until a new sign-in.
 
 **What one sync does.** It first reads everything from the site: the
-visible courses, each course page, assignments and the timeline of the next
-180 days, the announcements forum, the grade report, and the hand-in state
+visible courses, each course page, assignments, the pages and books, and
+the timeline of the next 180 days, the announcements forum, the grade report, and the hand-in state
 of recent assignments (at most 40 calls). If the site cannot be reached or
 refuses the token, the sync ends there and **nothing is changed**. A single
 call the site refuses for another reason (for example a course without a
@@ -769,9 +769,23 @@ previous data. Then, course by course:
     already in the folder and was not put there by the sync is never
     overwritten. A local copy the owner deleted or moved is not fetched
     again until the file changes on the site.
-  - `links.md`: the course's video and external links by section, and the
-    files that were not downloaded ("Not downloaded (too large)", "Not
-    downloaded yet").
+  - `pages/`: one Markdown file per **Page** and **Book** activity
+    (`<name>-<activity id>.md`): headings, paragraphs, lists, emphasis and
+    links kept, scripts and the HTML head dropped, images as their
+    alternative text. A book's chapters come in reading order (`##`
+    chapter, `###` sub-chapter). Page text comes from
+    `mod_page_get_pages_by_courses`; a book's chapters are listed on the
+    course page and each chapter's text is fetched from the site (in
+    memory, never kept as HTML). A file is rebuilt only when the site's
+    revision or time of the activity (or of a chapter) changed, so an
+    unchanged book costs no request. A book that could not be read keeps its
+    previous file and counts in `page_errors`; it is tried at the next sync.
+  - `links.md`: the course's video and external links by section; then
+    "In pages and books": every link and embedded video found in those
+    files, with the activity it came from, without the ones already listed
+    (one line per address); then the files that were not downloaded ("Not
+    downloaded (too large)", "Not downloaded yet"). A `token` or `wstoken`
+    parameter is always removed from an address.
   - `announcements.md`: newest first, `## <date> — <subject>` and the text
     without markup; at most 100 announcements of 5,000 characters, without
     authors.
@@ -818,9 +832,10 @@ everything as known and reports nothing as new; it sends one notification,
 appears later. A course the site stops listing (hidden, or
 left) disappears from the lists but keeps its folder and its record, so
 nothing is fetched twice if it comes back. After that, a sync that found new or changed files, new
-announcements, new or moved deadlines, or new or changed grades sends
+or changed pages and books (their text changed, not only their revision),
+new announcements, new or moved deadlines, or new or changed grades sends
 **one** notification "LifeOS: new in your courses" whose text is built from
-counts only, for example "2 new files, 1 announcement, 1 grade.". It goes
+counts only, for example "2 new files, 1 page, 1 announcement, 1 grade.". It goes
 through `scripts/notify.sh`, so the phone will get it as a push once that
 exists. No notification, log line or error contains a course name, a file
 name, a grade or an address.
@@ -835,13 +850,16 @@ a half hours). Times are the site's number plus `…_iso`.
   "stale"}`: what is due in the next 14 days, nearest first.
 - `GET /courses` → `{"courses": [{"id", "name", "shortname",
   "next_deadline": {"name", "due", "due_iso"} | null, "new": {"files",
-  "announcements", "deadlines", "grades"}, "has_new", "folder_exists"}]}`.
+  "pages", "announcements", "deadlines", "grades"}, "has_new",
+  "folder_exists"}]}`.
 - `GET /courses/{id}/materials` → `{"course_id", "name", "sections":
   [{"name", "files": [{"key", "name", "type", "size", "modified",
   "modified_iso", "new", "downloaded", "skipped"}]}], "links": [{"section",
   "name", "url"}]}`. `downloaded`: the computer has its copy. `skipped`:
   `null`, `"too_large"`, `"later"`, `"failed"` or `"unavailable"`. `links`
-  are addresses outside the university site as the course page gives them.
+  are addresses outside the university site as the course page gives them,
+  followed by the links found in pages and books, which also carry
+  `"source": "page" | "book"` (their `section` is the activity's name).
 - `GET /courses/{id}/announcements` → `{"announcements": [{"id",
   "subject", "text", "created", "created_iso", "modified_iso"}]}`.
 - `GET /courses/{id}/assignments` → `{"assignments": [{"id", "name", "due",
@@ -1240,7 +1258,10 @@ Courses (needs `MOODLE_DOWNLOAD_DIR` in the env file, naming an allowed folder; 
 ```
 curl -s -H "$H" $B/courses/sync                  # "configured":true; "last_sync" set within a minute of starting
 curl -s -X POST -H "$H" $B/courses/refresh       # 202 "started":true; again at once: 429 "too_soon"
-ls "$MOODLE_DOWNLOAD_DIR"                        # one folder per course: materials/ links.md announcements.md grades.md
+ls "$MOODLE_DOWNLOAD_DIR"                        # one folder per course: materials/ pages/ links.md announcements.md grades.md
+ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/pages  # one .md per Page or Book; open one and compare with the site
+grep -A5 '## In pages and books' "$MOODLE_DOWNLOAD_DIR"/<course folder>/links.md   # links from pages and books, once each
+curl -s -H "$H" $B/courses/sync | python3 -c 'import json,sys; r=json.load(sys.stdin)["last_result"]; print(r["pages"], r["page_errors"])'
 curl -s -H "$H" $B/courses/summary               # deadlines of the next two weeks, "new_total"
 curl -s -H "$H" $B/courses                       # the courses; note an id
 curl -s -H "$H" $B/courses/<id>/materials        # sections and files with "key", "new", "downloaded"; links

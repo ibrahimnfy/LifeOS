@@ -243,7 +243,8 @@ def materials_view(state: dict, record: dict) -> dict:
         "course_id": record["id"],
         "name": record["name"],
         "sections": sections,
-        "links": record.get("links") or [],
+        # The course page's links, then those found in its pages and books ("source").
+        "links": [*(record.get("links") or []), *moodle_sync.text_links(record)],
         **_envelope(state),
     }
 

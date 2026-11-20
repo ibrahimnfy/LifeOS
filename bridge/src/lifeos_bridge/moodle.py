@@ -18,6 +18,7 @@ import contextlib
 import hashlib
 import html
 import html.parser
+import json
 import os
 import re
 import urllib.error
@@ -25,6 +26,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from . import moodle_login
@@ -190,6 +192,151 @@ def plain_text(value: object, limit: int | None = None) -> str:
     return text[:limit] if limit is not None else text
 
 
+class _Markdown(html.parser.HTMLParser):
+    """Turns the HTML of a page, a book chapter or a description into plain Markdown.
+
+    Keeps headings, paragraphs, lists, emphasis, code and links; images
+    become their alternative text. Every outside address (links, embedded
+    videos and frames) is collected in :attr:`links`. Scripts, styles and
+    the document head are dropped.
+    """
+
+    HIDDEN = frozenset({"script", "style", "head", "title", "noscript", "template"})
+    BLOCKS = frozenset({"p", "div", "section", "article", "blockquote", "table", "tr", "figure",
+                        "figcaption", "header", "footer", "dl", "dt", "dd"})  # fmt: skip
+    EMBEDS = MappingProxyType({"iframe": "src", "embed": "src", "video": "src", "audio": "src",
+                               "source": "src", "object": "data"})  # fmt: skip
+
+    def __init__(self, heading_shift: int) -> None:
+        super().__init__(convert_charrefs=True)
+        self.shift = heading_shift
+        self.out: list[str] = []
+        self.links: list[dict] = []
+        self._hidden = 0
+        self._lists: list[list] = []  # [kind, counter] per open list
+        self._link: dict | None = None
+        self._pre = 0
+
+    def _block(self) -> None:
+        self.out.append("\n\n")
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        values = {name: value or "" for name, value in attrs}
+        if tag in self.HIDDEN:
+            self._hidden += 1
+        if self._hidden:
+            return
+        if tag in self.BLOCKS:
+            self._block()
+        elif tag == "br":
+            self.out.append("\n")
+        elif re.fullmatch(r"h[1-6]", tag):
+            level = min(6, int(tag[1]) + self.shift)
+            self.out.append("\n\n" + "#" * level + " ")
+        elif tag in ("ul", "ol"):
+            if not self._lists:
+                self.out.append("\n")
+            self._lists.append([tag, 0])
+        elif tag == "li":
+            depth = max(0, len(self._lists) - 1)
+            marker = "-"
+            if self._lists and self._lists[-1][0] == "ol":
+                self._lists[-1][1] += 1
+                marker = f"{self._lists[-1][1]}."
+            self.out.append("\n" + "  " * depth + marker + " ")
+        elif tag in ("strong", "b"):
+            self.out.append("**")
+        elif tag in ("em", "i"):
+            self.out.append("_")
+        elif tag == "pre":
+            self._pre += 1
+            self.out.append("\n\n```\n")
+        elif tag == "code" and not self._pre:
+            self.out.append("`")
+        elif tag in ("td", "th"):
+            self.out.append(" | ")
+        elif tag == "img":
+            alt = " ".join(values.get("alt", "").split())
+            if alt:
+                self.out.append(f"[image: {alt.replace(']', ')')}]")
+        elif tag == "a":
+            address = _outside(values.get("href"))
+            self._link = {"url": address, "start": len(self.out)} if address else None
+        elif tag in self.EMBEDS:
+            address = _outside(values.get(self.EMBEDS[tag]))
+            if address:
+                name = " ".join((values.get("title") or "").split()) or "Embedded media"
+                self.links.append({"name": name[:200], "url": address})
+                self.out.append(f"\n\n[{_label(name)}]({address})\n\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.HIDDEN:
+            self._hidden = max(0, self._hidden - 1)
+            return
+        if self._hidden:
+            return
+        if tag in self.BLOCKS or re.fullmatch(r"h[1-6]", tag):
+            self._block()
+        elif tag in ("ul", "ol"):
+            if self._lists:
+                self._lists.pop()
+            if not self._lists:
+                self.out.append("\n\n")
+        elif tag in ("strong", "b"):
+            self.out.append("**")
+        elif tag in ("em", "i"):
+            self.out.append("_")
+        elif tag == "pre":
+            self._pre = max(0, self._pre - 1)
+            self.out.append("\n```\n\n")
+        elif tag == "code" and not self._pre:
+            self.out.append("`")
+        elif tag == "a" and self._link is not None:
+            text = " ".join("".join(self.out[self._link["start"] :]).split())
+            del self.out[self._link["start"] :]
+            name = text or "Link"
+            self.links.append({"name": name[:200], "url": self._link["url"]})
+            self.out.append(f"[{_label(name)}]({self._link['url']})")
+            self._link = None
+
+    def handle_data(self, data: str) -> None:
+        if self._hidden:
+            return
+        if self._pre:
+            self.out.append(data)
+        else:
+            self.out.append(re.sub(r"\s+", " ", data))
+
+    def markdown(self) -> str:
+        text = "".join(self.out).replace("\xa0", " ")
+        text = "".join(
+            ch for ch in text if ch in "\n\t" or (ch.isprintable() and ch not in "\u2028\u2029")
+        )
+        lines = [line.rstrip() for line in text.split("\n")]
+        # Outside text never becomes structure of the file it is written into.
+        lines = [("\\" + line if line.startswith(("---", "<!--")) else line) for line in lines]
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
+def _outside(address: object) -> str | None:
+    """An http(s) address from the site's HTML, never carrying a token."""
+    found = _link(html.unescape(_text(address)).strip())
+    return without_token(found) if found else None
+
+
+def _label(text: str) -> str:
+    return text.replace("[", "(").replace("]", ")")
+
+
+def to_markdown(value: object, heading_shift: int = 1, limit: int = 200_000) -> tuple[str, list]:
+    """HTML of the site as Markdown, and the outside addresses it contains (in order)."""
+    parser = _Markdown(heading_shift)
+    with contextlib.suppress(Exception):  # odd markup must never stop a sync
+        parser.feed(_text(value)[: limit * 2])
+        parser.close()
+    return parser.markdown()[:limit], parser.links
+
+
 def one_line(value: object, limit: int = 200) -> str:
     """A name of the site as one plain line."""
     return " ".join(plain_text(value).split())[:limit].strip()
@@ -233,7 +380,7 @@ def parse_file(module_id: int | None, entry: dict) -> dict:
 
 def parse_module(item: dict) -> dict:
     module_id = _number(item.get("id"))
-    return {
+    module = {
         "id": module_id,
         "name": _text(item.get("name")),
         "type": _text(item.get("modname")),
@@ -244,6 +391,60 @@ def parse_module(item: dict) -> dict:
             if entry.get("type") == "file" and entry.get("fileurl")
         ],
     }
+    if module["type"] == "book":
+        module["chapters"] = parse_chapters(_dicts(item.get("contents")))
+    return module
+
+
+def parse_chapters(contents: list[dict]) -> list[dict]:
+    """The chapters of a book in reading order: ``{"id", "title", "level", "url", "modified"}``.
+
+    The site lists a book as a ``structure`` entry (a JSON table of contents
+    whose items point at ``<chapter id>/index.html``) and one ``index.html``
+    file entry per chapter, whose address serves the chapter's text.
+    """
+    pages = {
+        _text(entry.get("filepath")).strip("/"): entry
+        for entry in contents
+        if entry.get("type") == "file" and entry.get("filename") == "index.html"
+    }
+    structure = next((e for e in contents if e.get("filename") == "structure"), {})
+    try:
+        toc = json.loads(_text(structure.get("content")) or "[]")
+    except ValueError:
+        toc = []
+    found: list[dict] = []
+
+    def walk(items: object, level: int) -> None:
+        for item in _dicts(items):
+            chapter = _text(item.get("href")).split("/", 1)[0]
+            page = pages.get(chapter)
+            if page is not None and page.get("fileurl") and chapter.isdigit():
+                found.append(
+                    {
+                        "id": int(chapter),
+                        "title": one_line(item.get("title")),
+                        "level": level,
+                        "url": _text(page.get("fileurl")),
+                        "modified": _time(page.get("timemodified")),
+                    }
+                )
+            walk(item.get("subitems"), level + 1)
+
+    walk(toc, 0)
+    return found
+
+
+def parse_text_activity(item: dict) -> dict:
+    """A page or a book of ``mod_page/mod_book_get_*_by_courses``; names are outside text."""
+    record = {
+        "cmid": _number(item.get("coursemodule")),
+        "course": _number(item.get("course")),
+        "name": _text(item.get("name")),
+        "content": _text(item.get("content")),
+        "revision": _number(item.get("revision")),
+    }
+    return _timed(record, item, "timemodified")
 
 
 def parse_section(item: dict) -> dict:
@@ -463,6 +664,38 @@ class Client:
         found = [parse_announcement(item) for item in _dicts(answer.get("discussions"))]
         found = [item for item in found if item["id"] is not None]
         return sorted(found, key=lambda item: item["created"] or 0, reverse=True)[:limit]
+
+    def _text_activities(self, function: str, key: str, course_ids: list[int]) -> list[dict]:
+        answer = self._object(function, {"courseids": list(course_ids)})
+        found = [parse_text_activity(item) for item in _dicts(answer.get(key))]
+        return [item for item in found if item["cmid"] is not None]
+
+    def pages(self, course_ids: list[int]) -> list[dict]:
+        """The text pages of the courses, with their HTML (``mod_page_get_pages_by_courses``)."""
+        return self._text_activities("mod_page_get_pages_by_courses", "pages", course_ids)
+
+    def books(self, course_ids: list[int]) -> list[dict]:
+        """The books of the courses with their revision (``mod_book_get_books_by_courses``).
+
+        The chapters come with the course page (:meth:`course`); their text
+        is fetched with :meth:`fetch_text`.
+        """
+        return self._text_activities("mod_book_get_books_by_courses", "books", course_ids)
+
+    def fetch_text(self, fileurl: str, max_bytes: int = 2 * 1024 * 1024) -> str:
+        """A small file of this site (a book chapter) as text, kept in memory only."""
+        address = self._download_address(fileurl)
+        try:
+            with _open(address) as response:
+                body = response.read(max_bytes + 1)
+        except (urllib.error.URLError, OSError, ValueError):
+            # No chaining: the original error may name the address, which holds the token.
+            raise MoodleError("download_failed") from None
+        if len(body) > max_bytes:
+            raise MoodleError("too_large")
+        if _is_refusal(body[:200]):
+            raise MoodleError("download_failed")
+        return body.decode("utf-8", errors="replace")
 
     def submission_status(self, assignment_id: int) -> dict:
         """Whether the owner handed an assignment in, and whether it was graded."""
