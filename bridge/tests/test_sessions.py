@@ -24,7 +24,7 @@ def test_requires_token(client):
 
 
 def test_empty_when_nothing_is_stored(client, auth):
-    assert get_sessions(client, auth) == {"sessions": [], "total": 0}
+    assert get_sessions(client, auth) == {"sessions": [], "total": 0, "groups": []}
 
 
 def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir, write_session):
@@ -39,6 +39,11 @@ def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir
         "folder": str(ask_dir),
         "last_activity": "2027-01-15T08:08:20Z",
         "in_use": False,
+        "detected_title": "second question",
+        "group": None,
+        "auto_group": ask_dir.name,
+        "pinned": False,
+        "notify_replies": True,
     }
 
 

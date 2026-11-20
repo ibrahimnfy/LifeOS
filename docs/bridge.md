@@ -88,6 +88,11 @@ bridge by hand.
 | POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
 | GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders |
 | POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
+| PATCH | `/sessions/{id}` | yes | Sets the owner's title, group, pin and reply-notification switch |
+| GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
+| PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
+| GET / POST | `/reminders` | yes | Lists or creates session reminders |
+| PATCH / DELETE | `/reminders/{id}` | yes | Changes or deletes a reminder |
 | GET / POST / DELETE | `/allowed-paths` | yes | Lists, adds or removes an allowed folder |
 
 ### `POST /ask`
@@ -193,13 +198,25 @@ ask folder or one of the folders in `~/.config/lifeos/allowed_paths` (one
 absolute path per line, `#` for comments), including their sub-folders.
 Sessions of any other folder are never opened or listed.
 
-Query: `limit` (default 50, at most 200). Response, newest first:
+Sessions started in a terminal on the computer appear here like any other,
+as long as their folder is allowed.
+
+Query: `limit` (default 50, at most 200). Response, pinned sessions first,
+then newest first:
 
 ```json
-{"sessions": [{"id": "…", "title": "…", "folder": "/path/to/folder",
-               "last_activity": "2027-01-15T08:08:20Z", "in_use": false}],
- "total": 1}
+{"sessions": [{"id": "…", "title": "…", "detected_title": "…",
+               "folder": "/path/to/folder",
+               "last_activity": "2027-01-15T08:08:20Z", "in_use": false,
+               "group": null, "auto_group": "folder", "pinned": false,
+               "notify_replies": true}],
+ "total": 1, "groups": [{"id": "…", "name": "…"}]}
 ```
+
+- `title` is the owner's own title when one was set (see below), otherwise
+  `detected_title`.
+- `group` is the id of one of the owner's groups, or `null`; a session
+  without a group is shown under `auto_group`, the name of its folder.
 
 - `title` is the session's own title when it has one, otherwise the
   beginning of its first prompt. Titles are conversation content: they are
@@ -232,6 +249,49 @@ Limits of the in-use check: there is a short gap between the check and the
 start of the run, and sessions held by other Claude apps (desktop or editor
 extensions) may not be reported. Close a session on the computer before
 continuing it from the phone.
+
+### Organising sessions: `PATCH /sessions/{id}` and `/session-groups`
+
+The owner's own order on top of the list: groups, titles, pins and a
+per-session switch for reply notifications.
+
+- `POST /session-groups` with `{"name": "…"}` creates a group (`201`, returns
+  `{"id", "name"}`; names are unique, at most 60 characters);
+  `PATCH /session-groups/{id}` renames it; `DELETE` removes it, and its
+  sessions become ungrouped.
+- `PATCH /sessions/{id}` accepts any of `{"title": "…" | null,
+  "group": "<group id>" | null, "pinned": true | false,
+  "notify_replies": true | false}` and returns the session as in the list.
+  `null` returns to the detected title or to no group.
+- Only sessions inside the allowed folders can be changed (`404` otherwise).
+- **Claude Code's session files are never modified.** The metadata is one
+  file, `~/.config/lifeos/sessions-meta.json` (mode 600). Deleting that file
+  loses the groups, titles and pins, nothing else.
+- `notify_replies` is stored now and used once phone push exists: a finished
+  run then sends a push unless the switch is off.
+
+### `/reminders`
+
+"Remind me about this session at <time>."
+
+- `POST /reminders` with `{"session_id": "…", "at":
+  "2027-01-15T09:00:00+03:00", "note": "…", "repeat": "none" | "daily" |
+  "weekly", "timezone": "Europe/Istanbul"}`. `at` must carry a time-zone
+  offset; `note`, `repeat` (default `none`) and `timezone` are optional. With
+  a `timezone`, a repeating reminder keeps its local hour across clock
+  changes. Returns `201` and the reminder with its `id` and `state`.
+- `GET /reminders` lists them, soonest first; filters: `session_id`,
+  `state=scheduled` or `state=fired`. `PATCH /reminders/{id}` changes time,
+  note or repetition (a new time schedules it again); `DELETE` removes it.
+- While it runs, the bridge checks every 30 seconds and fires each due
+  reminder once. Reminders that came due while the bridge was not running
+  fire at its next start; a repeating reminder that missed several
+  occurrences fires once and moves to its next time.
+- Firing calls `scripts/notify.sh` with a fixed text. **The note, the session
+  title and paths are never in the notification**; the note is returned only
+  by this authenticated API. Once phone push exists, the same step wakes the
+  phone, which fetches the fired reminder and opens the session.
+- Stored in `~/.config/lifeos/reminders.json` (mode 600).
 
 ### `/allowed-paths`
 
@@ -326,6 +386,22 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 # {"error":"path_not_allowed","message":"hidden folders (settings, keys, credentials) cannot be allowed"}
 # add a real folder with -d '{"path":"/home/<you>/<folder>"}'  -> a desktop notification appears
 # remove it again with  -X DELETE  and the same body
+```
+
+Session groups, pins and reminders (replace `<id>` with a session id from
+`/sessions`; these change only the bridge's own two files under
+`~/.config/lifeos/`):
+
+```
+H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787
+curl -s -H "$H" -H 'Content-Type: application/json' -d '{"name":"Example group"}' $B/session-groups
+curl -s -H "$H" -H 'Content-Type: application/json' -X PATCH \
+  -d '{"title":"My title","pinned":true}' $B/sessions/<id>
+curl -s -H "$H" $B/sessions            # the session is first, with the new title
+curl -s -H "$H" -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"<id>\",\"at\":\"$(date -d '+1 minute' -Iseconds)\",\"note\":\"test\"}" $B/reminders
+# within about 90 seconds a desktop notification "LifeOS: session reminder" appears
+curl -s -H "$H" "$B/reminders?state=fired"
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

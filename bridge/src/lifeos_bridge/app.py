@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hmac
 import json
 import uuid
@@ -11,7 +13,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import __version__, allowed, capable, claude, sessions
+from . import __version__, allowed, capable, claude, reminders, session_meta, sessions
 from .claude import ClaudeError
 from .config import Settings
 
@@ -98,9 +100,28 @@ def sse(event: str, data: dict) -> bytes:
 
 def create_app(settings: Settings) -> FastAPI:
     # No interactive docs or schema endpoints: less surface, nothing to leak.
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        async def watch_reminders() -> None:
+            while True:
+                with contextlib.suppress(Exception):  # the watcher must survive a bad file
+                    await asyncio.to_thread(
+                        reminders.fire_due, notify_script=settings.notify_script
+                    )
+                await asyncio.sleep(reminders.CHECK_INTERVAL_SECONDS)
+
+        task = asyncio.create_task(watch_reminders())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
     app = FastAPI(
         title="LifeOS bridge",
         version=__version__,
+        lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
@@ -275,12 +296,74 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions")
     async def list_sessions(limit: int = 50):
-        """Claude Code sessions in the allowed folders, newest first."""
+        """Claude Code sessions in the allowed folders: pinned first, then newest first."""
         limit = max(1, min(limit, 200))
         found = sessions.list_sessions(settings.allowed_roots)
-        return {
-            "sessions": [s.as_json(in_use=s.id in slots.active) for s in found[:limit]],
-            "total": len(found),
-        }
+        meta = session_meta.load()
+        items = [session_meta.describe(s, in_use=s.id in slots.active, data=meta) for s in found]
+        items.sort(key=lambda item: not item["pinned"])  # stable: keeps newest first
+        return {"sessions": items[:limit], "total": len(found), "groups": meta["groups"]}
+
+    @app.patch("/sessions/{session_id}")
+    async def update_session(session_id: str, request: Request):
+        """Set the owner's title, group, pin or reply-notification switch for a session.
+
+        Body: any of ``{"title": str|null, "group": id|null, "pinned": bool,
+        "notify_replies": bool}``. Only the bridge's own metadata changes.
+        """
+        changes = await read_json_object(request)
+        info = sessions.find_session(session_id, settings.allowed_roots)
+        if info is None:
+            raise ClaudeError("session_not_found", 404, "unknown session")
+        session_meta.update_session(info.id, changes)
+        return session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
+
+    @app.get("/session-groups")
+    async def list_groups():
+        return {"groups": session_meta.load()["groups"]}
+
+    @app.post("/session-groups", status_code=201)
+    async def create_group(request: Request):
+        """Body: ``{"name": str}``."""
+        return session_meta.create_group((await read_json_object(request)).get("name"))
+
+    @app.patch("/session-groups/{group_id}")
+    async def rename_group(group_id: str, request: Request):
+        """Body: ``{"name": str}``."""
+        return session_meta.rename_group(group_id, (await read_json_object(request)).get("name"))
+
+    @app.delete("/session-groups/{group_id}")
+    async def delete_group(group_id: str):
+        """Sessions of the group become ungrouped; no session is deleted."""
+        session_meta.delete_group(group_id)
+        return {"deleted": True}
+
+    @app.get("/reminders")
+    async def list_reminders(session_id: str | None = None, state: str | None = None):
+        """Reminders, soonest first. ``state``: ``scheduled`` or ``fired``."""
+        return {"reminders": reminders.listing(session_id, state)}
+
+    @app.post("/reminders", status_code=201)
+    async def create_reminder(request: Request):
+        """Body: ``{"session_id", "at", "note"?, "repeat"?: none|daily|weekly, "timezone"?}``."""
+        data = await read_json_object(request)
+        session_id = data.pop("session_id", None)
+        info = (
+            sessions.find_session(session_id, settings.allowed_roots)
+            if isinstance(session_id, str)
+            else None
+        )
+        if info is None:
+            raise ClaudeError("session_not_found", 404, "unknown session")
+        return reminders.create(info.id, data)
+
+    @app.patch("/reminders/{reminder_id}")
+    async def update_reminder(reminder_id: str, request: Request):
+        return reminders.update(reminder_id, await read_json_object(request))
+
+    @app.delete("/reminders/{reminder_id}")
+    async def delete_reminder(reminder_id: str):
+        reminders.delete(reminder_id)
+        return {"deleted": True}
 
     return app
