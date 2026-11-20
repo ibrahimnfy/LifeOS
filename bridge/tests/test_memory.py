@@ -228,6 +228,8 @@ def test_notes_can_be_listed_searched_read_and_edited(client, auth, brain):
     (brain / "notes" / "example-topic.md").write_text(
         "---\ntitle: Example topic\ntype: note\nupdated: 2027-01-10\n---\n\nA summary line.\n"
     )
+    git(brain, "add", "-A")
+    git(brain, "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-q", "-m", "topic")
     notes = client.get("/notes", headers=auth).json()["notes"]
     assert [n["kind"] for n in notes] == ["inbox", "inbox", "topic"]
     assert (
