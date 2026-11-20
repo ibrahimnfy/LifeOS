@@ -71,6 +71,12 @@ class ApiTest {
         assertEquals(5L, summary.deadlines[0].courseId)
         assertEquals(5, summary.newTotal)
         assertEquals("2027-01-15T17:00:00Z", summary.lastSync)
+        // The summary card lists only deadlines still ahead (a saved copy can be older than some).
+        val first = checkNotNull(summary.deadlines[0].due)
+        assertEquals(summary.deadlines, summary.upcoming(0))
+        assertEquals(summary.deadlines.drop(1), summary.upcoming(first + 1))
+        val unordered = CourseSummary(deadlines = listOf(Deadline(name = "late", due = 300), Deadline(name = "past", due = 100), Deadline(name = "soon", due = 200)))
+        assertEquals(listOf("soon", "late"), unordered.upcoming(150).map { it.name })
 
         val courses = api.get(Endpoints.courses).first.courses
         assertEquals(listOf(5L, 7L), courses.map { it.id })

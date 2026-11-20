@@ -278,10 +278,14 @@ the platform the data comes from.*
 - **Purpose:** courses, materials, announcements, assignments and grades
   from the university's learning platform, kept current without asking.
 - **Courses screen, top to bottom:**
-  1. **Summary card:** the upcoming deadlines of all courses (next two
-     weeks, nearest first) and an **"All grades"** button.
-  2. **Course list:** each course with its next deadline and **a marker
-     when it has new content** since the owner last opened it.
+  1. **Top bar:** the title, the **refresh** action and **"All grades"**
+     (an icon button next to refresh).
+  2. **Summary card:** the upcoming deadlines of all courses (next two
+     weeks, nearest first), and nothing else. *(Opening a deadline's
+     assignment detail comes with the assignment detail screen.)*
+  3. **Course list:** each course with its next deadline and **a marker
+     when it has new content** since the owner last opened it; below it the
+     time of the last sync.
 - **All grades:** one screen with the grades of all courses, grouped by
   course.
 - **Course page, four tabs:**

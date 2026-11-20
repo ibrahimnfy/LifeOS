@@ -178,10 +178,12 @@ with plain HTTPS requests.
   Tapping a note opens it in full; a capture can be edited there (topic notes
   are read-only for now). The computer gives an edited capture a new id, so
   the note screen closes after saving and the list shows the new text.
-- **Courses** (under More): summary card with the deadlines of the next two
-  weeks and "All grades", the course list with markers for new content, the
-  refresh action (starts a sync on the computer and waits for it), and a
-  course page with Materials, Announcements, Assignments and Grades. Files
+- **Courses** (under More): the top bar has the title, the refresh action
+  (starts a sync on the computer and waits for it) and **All grades** (the
+  medal icon). Below: the summary card with the upcoming deadlines of the
+  next two weeks and nothing else (a deadline that has passed since the saved
+  copy was made is left out), the course list with markers for new content,
+  the time of the last sync, and a course page with Materials, Announcements, Assignments and Grades. Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
 - **More:** Sessions, Projects and Activity are placeholder screens.
@@ -399,9 +401,11 @@ running on the computer with the relay set up.
 7. **Shortcut and share:** long-press the app icon → "Capture"; in another
    app, share a piece of text → "Capture in LifeOS": the sheet opens with it.
 8. **Courses** (More → Courses; needs the course sync on the computer and a
-   bridge that has the `/courses` endpoints): the summary card, "All grades",
-   the course list; a course's four tabs; the download arrow of a file →
-   "Saved to Downloads", and the file is in the phone's Downloads folder.
-   The refresh arrow in the top bar starts a sync.
+   bridge that has the `/courses` endpoints): the top bar shows "Courses",
+   the refresh arrow and the medal; the medal opens "All grades". The
+   summary card shows only "Upcoming deadlines" (no button, no count of new
+   items); the course list and "Last sync …" follow. A course's four tabs;
+   the download arrow of a file → "Saved to Downloads", and the file is in
+   the phone's Downloads folder. The refresh arrow starts a sync.
 9. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies
    and waiting items are gone.

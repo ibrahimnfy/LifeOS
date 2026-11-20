@@ -95,6 +95,11 @@ object LifeIcons {
         "Courses",
         line = "M12 6.5c-2-1.3-4.5-1.5-7.5-1v12.5c3-.5 5.5-.3 7.5 1 2-1.3 4.5-1.5 7.5-1V5.5c-3-.5-5.5-.3-7.5 1zM12 6.5V19",
     )
+    /** A medal: the grades of all courses. */
+    val Grades = icon(
+        "Grades",
+        line = "M6.5 9a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0-11 0zM8.8 13.5l-1.3 7 4.5-2.5 4.5 2.5-1.3-7M12 6.5v5",
+    )
     val Activity = icon("Activity", line = "M5 19.5v-6M12 19.5v-14M19 19.5v-9")
     val Settings = icon(
         "Settings",

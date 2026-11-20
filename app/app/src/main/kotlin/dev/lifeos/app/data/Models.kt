@@ -137,7 +137,13 @@ data class CourseSummary(
     @SerialName("new_total") val newTotal: Int = 0,
     @SerialName("last_sync") val lastSync: String? = null,
     val stale: Boolean = false,
-)
+) {
+    /**
+     * The deadlines still ahead at [nowSeconds], nearest first. The computer sends upcoming
+     * ones only, but a saved copy can be older than some of them.
+     */
+    fun upcoming(nowSeconds: Long): List<Deadline> = deadlines.filter { (it.due ?: Long.MAX_VALUE) >= nowSeconds }.sortedBy { it.due ?: Long.MAX_VALUE }
+}
 
 @Serializable
 data class NewCounts(val files: Int = 0, val announcements: Int = 0, val deadlines: Int = 0, val grades: Int = 0) {

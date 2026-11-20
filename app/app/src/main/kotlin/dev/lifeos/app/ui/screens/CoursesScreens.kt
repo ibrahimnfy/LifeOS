@@ -165,6 +165,12 @@ fun CoursesScreen(
                     enabled = !syncing && summary !is UiState.NotPaired,
                     onClick = startSync,
                 )
+                TopBarAction(
+                    LifeIcons.Grades,
+                    stringResource(R.string.courses_all_grades),
+                    enabled = summary !is UiState.NotPaired,
+                    onClick = onGrades,
+                )
             },
         )
         RefreshBox(refreshing = summary.isRefreshing || courses.isRefreshing, onRefresh = refreshLists, modifier = Modifier.fillMaxSize()) {
@@ -185,16 +191,15 @@ fun CoursesScreen(
                     )
                 }
                 if (summary !is UiState.NotPaired) noticeOf(sync)?.let { SyncNoticeCard(it) }
+                // The summary card holds the upcoming deadlines and nothing else.
                 StateHost(summary, "", onRetry = refreshLists, onPair = onPair, skeletonRows = 2) { data: CourseSummary ->
+                    val upcoming = data.upcoming(System.currentTimeMillis() / 1000)
                     LifeCard {
-                        SectionHeader(
-                            title = stringResource(R.string.courses_deadlines),
-                            note = if (data.newTotal > 0) pluralStringResource(R.plurals.courses_new, data.newTotal, data.newTotal) else null,
-                        )
-                        if (data.deadlines.isEmpty()) {
+                        SectionHeader(title = stringResource(R.string.courses_deadlines))
+                        if (upcoming.isEmpty()) {
                             EmptyLine(stringResource(R.string.courses_no_deadlines))
                         }
-                        data.deadlines.forEachIndexed { index, deadline ->
+                        upcoming.forEachIndexed { index, deadline ->
                             if (index > 0) RowDivider(startIndent = 0.dp)
                             Column(Modifier.padding(vertical = 8.dp)) {
                                 Text(deadline.name, style = LifeType.rowTitle, color = colors.text)
@@ -205,15 +210,6 @@ fun CoursesScreen(
                                 )
                             }
                         }
-                        Text(
-                            text = relativeIso(data.lastSync)?.let { stringResource(R.string.courses_last_sync, it) }
-                                ?: stringResource(R.string.courses_never_synced),
-                            style = LifeType.small,
-                            color = colors.muted,
-                            modifier = Modifier.padding(top = 6.dp, bottom = 8.dp),
-                        )
-                        SecondaryButton(text = stringResource(R.string.courses_all_grades), onClick = onGrades)
-                        Spacer(Modifier.height(4.dp))
                     }
                 }
                 if (summary !is UiState.NotPaired && summary !is UiState.Error) {
@@ -249,6 +245,15 @@ fun CoursesScreen(
                             }
                         }
                     }
+                }
+                // When the computer last synced: under the list, outside the deadline card.
+                (summary as? UiState.Content<CourseSummary>)?.data?.let { data ->
+                    Text(
+                        text = relativeIso(data.lastSync)?.let { stringResource(R.string.courses_last_sync, it) }
+                            ?: stringResource(R.string.courses_never_synced),
+                        style = LifeType.small,
+                        color = colors.muted,
+                    )
                 }
             }
         }
