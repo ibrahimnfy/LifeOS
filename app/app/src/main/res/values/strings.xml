@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">LifeOS</string>
+
+    <!-- Bottom bar and top bar -->
+    <string name="nav_today">Today</string>
+    <string name="nav_chat">Chat</string>
+    <string name="nav_tasks">Tasks</string>
+    <string name="nav_more">More</string>
+    <string name="nav_main">Main navigation</string>
+    <string name="action_capture">Add a note or task</string>
+    <string name="action_back">Back</string>
+    <string name="connection_not_paired">Connection: not paired</string>
+    <string name="action_open_settings">Open settings</string>
+
+    <!-- Shared -->
+    <string name="sample_note">Sample content. Real data arrives with a later step.</string>
+    <string name="coming_later">Coming with a later step</string>
+    <string name="state_done">Done</string>
+    <string name="state_not_done">Not done</string>
+
+    <!-- Today -->
+    <string name="coach_label">Today\'s focus</string>
+    <string name="coach_tag">Coach</string>
+    <string name="coach_text">Finish the Project Alpha outline before anything else. The rest of the week builds on it.</string>
+    <string name="coach_why">Why</string>
+    <string name="coach_why_text">Due today, and two other tasks wait for it.</string>
+    <string name="section_top_three">Top three</string>
+    <string name="section_top_three_note">chosen by the assistant</string>
+    <string name="section_today">Today</string>
+    <plurals name="section_today_note">
+        <item quantity="one">%1$d task · %2$d done</item>
+        <item quantity="other">%1$d tasks · %2$d done</item>
+    </plurals>
+
+    <!-- Sample tasks (placeholders) -->
+    <string name="sample_task_1">Draft the Project Alpha outline</string>
+    <string name="sample_task_1_why">Due today; two tasks depend on it</string>
+    <string name="sample_task_1_sub">Today · Project Alpha</string>
+    <string name="sample_task_2">Submit Example assignment 1</string>
+    <string name="sample_task_2_why">One day late; about 30 minutes of work</string>
+    <string name="sample_task_2_sub">Yesterday · Example course</string>
+    <string name="sample_task_3">Reply about the seminar topic</string>
+    <string name="sample_task_3_why">Waiting for 6 days</string>
+    <string name="sample_task_3_sub">No date · Example seminar</string>
+    <string name="sample_task_4">Read chapter 3 of the example book</string>
+    <string name="sample_task_4_sub">Today · Example seminar</string>
+    <string name="sample_task_5">Buy printer paper</string>
+    <string name="sample_task_5_sub">Today</string>
+    <string name="sample_task_6">Review the check-in notes</string>
+    <string name="sample_task_6_sub">Thursday · Project Alpha</string>
+    <string name="sample_task_7">Renew the library book</string>
+    <string name="sample_task_7_sub">Friday</string>
+    <string name="task_overdue">Overdue</string>
+
+    <!-- Tasks -->
+    <string name="section_most_important">Most important</string>
+    <string name="section_most_important_note">ordered by the assistant</string>
+    <string name="tasks_show_all">Show all (%1$d)</string>
+    <plurals name="tasks_footnote">
+        <item quantity="one">%2$d of %1$d open task shown</item>
+        <item quantity="other">%2$d of %1$d open tasks shown</item>
+    </plurals>
+    <string name="tasks_all_title">All tasks</string>
+
+    <!-- Chat -->
+    <string name="chat_empty_title">Ask anything</string>
+    <string name="chat_empty_text">The assistant runs on your computer. Sending arrives with a later step.</string>
+    <string name="chat_prompt_1">What should I focus on today?</string>
+    <string name="chat_prompt_2">What is still open for Project Alpha?</string>
+    <string name="chat_prompt_3">Summarise my notes from this week</string>
+    <string name="chat_composer_hint">Message LifeOS</string>
+    <string name="chat_send">Send</string>
+
+    <!-- Capture -->
+    <string name="capture_title">Capture</string>
+    <string name="capture_hint">What is on your mind?</string>
+    <string name="capture_kind_note">Note</string>
+    <string name="capture_kind_task">Task</string>
+    <string name="capture_save">Save</string>
+    <string name="capture_saved">Saved on this phone</string>
+
+    <!-- More -->
+    <string name="more_sessions">Sessions</string>
+    <string name="more_notes">Notes</string>
+    <string name="more_projects">Projects</string>
+    <string name="more_calendar">Calendar</string>
+    <string name="more_courses">Courses</string>
+    <string name="more_activity">Activity</string>
+    <string name="more_settings">Settings</string>
+
+    <!-- Settings -->
+    <string name="settings_language">Language</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_follow_phone">Follow phone</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_connection">Connection</string>
+    <string name="settings_not_paired">Not paired</string>
+    <string name="settings_pair">Pair with computer</string>
+    <string name="settings_pair_hint">Pairing by QR code arrives with a later step.</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">App version</string>
+</resources>

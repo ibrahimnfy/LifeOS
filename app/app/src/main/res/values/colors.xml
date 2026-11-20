@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- D3 background, shown for the first frame before Compose draws. -->
+    <color name="window_background">#F8F8FA</color>
+    <color name="launcher_background">#17171C</color>
+</resources>

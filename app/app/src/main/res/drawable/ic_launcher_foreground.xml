@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Own design: a ring in the D3 gradient with a plus, inside the adaptive-icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M54,34a20,20 0,1 1,0 40a20,20 0,1 1,0 -40z"
+        android:strokeWidth="5">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:endX="74"
+                android:endY="74"
+                android:startX="34"
+                android:startY="34"
+                android:type="linear">
+                <item android:color="#8577FF" android:offset="0" />
+                <item android:color="#EC5FB2" android:offset="0.5" />
+                <item android:color="#FF9458" android:offset="1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M54,46v16M46,54h16"
+        android:strokeColor="#ECEDF2"
+        android:strokeLineCap="round"
+        android:strokeWidth="3.5" />
+</vector>
