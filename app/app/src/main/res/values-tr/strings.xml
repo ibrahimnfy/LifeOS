@@ -429,4 +429,39 @@
 
     <string name="action_undo">Geri al</string>
     <string name="tasks_done_message">Tamamlandı olarak işaretlendi</string>
+
+    <!-- Ayarlar → Modeller (#124) -->
+    <string name="settings_models">Modeller</string>
+    <string name="models_open">Modeller ve plan kullanımı</string>
+    <string name="models_open_note">Bilgisayarın her işi hangi modeli kullanıyor ve ne kadar</string>
+    <string name="models_title">Modeller</string>
+    <string name="models_read_only">Bilgisayardaki ayara göre gösterilir. Yönlendirme şimdilik burada değil, bilgisayarda değiştirilir.</string>
+    <string name="models_empty">Bilgisayar hiçbir model işi bildirmiyor.</string>
+    <string name="models_job_chat">Sohbet oturumları</string>
+    <string name="models_job_coach_plan">Koç: sabah çalışması ve planı yeniden çalıştırma</string>
+    <string name="models_job_coach_chat">Koç: konuşma</string>
+    <string name="models_job_consolidation">Gece birleştirme önerileri</string>
+    <string name="models_job_course_resources">Ders izlencelerinden kaynaklar</string>
+    <string name="models_job_summaries">Özetler</string>
+    <string name="models_job_context_map">İzin verilen klasörlerin bağlam haritası</string>
+    <string name="models_default_model">Varsayılan model</string>
+    <string name="models_effort">çaba %1$s</string>
+    <string name="models_advisor">danışman %1$s</string>
+    <string name="models_source_default">Bu işin varsayılanı</string>
+    <string name="models_source_routing">Bilgisayarın yönlendirme ayarında belirlenmiş</string>
+    <string name="models_source_background">Bilgisayarın arka plan modeli</string>
+    <string name="models_source_session">Varsayılan; her oturum kendi modelini seçebilir</string>
+    <string name="models_today">Bugün</string>
+    <string name="models_week">Bu hafta</string>
+    <string name="models_no_runs">Çalıştırma yok</string>
+    <plurals name="models_runs">
+        <item quantity="one">%d çalıştırma</item>
+        <item quantity="other">%d çalıştırma</item>
+    </plurals>
+    <string name="models_tokens">%1$s token</string>
+    <string name="models_no_model">Hiç model kullanılmayanlar</string>
+    <string name="models_none_saving">Not ve görev kaydetme</string>
+    <string name="models_none_course_sync">Ders eşitleme</string>
+    <string name="models_none_notifications">Bildirimler</string>
+    <string name="models_cost_note">Kullanım, çalıştırmaların bildirdiği gibidir, önbellek dahil. Maliyet Claude Code\'un kendi tahminidir, fatura değildir.</string>
 </resources>

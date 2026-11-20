@@ -10,6 +10,7 @@ object Routes {
     const val ALL_TASKS = "tasks/all"
     const val SETTINGS = "more/settings"
     const val PAIR = "more/settings/pair"
+    const val MODELS = "more/settings/models"
     const val NOTES = "more/notes"
     const val NOTE = "more/note/{note}"
     const val NOTE_ARG = "note"

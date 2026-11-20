@@ -291,7 +291,17 @@ with plain HTTPS requests.
 - **More:** Sessions and Projects are placeholder screens.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
-  (immediately / 1 minute / 5 minutes), app version.
+  (immediately / 1 minute / 5 minutes), **Models** (see below), app
+  version.
+- **Settings → Models** (`GET /models/routing`): each model job of the
+  computer (chat sessions, coach run and conversation, consolidation, course
+  resources, summaries, context map) with its model, effort and advisor and
+  where that comes from (the job's default, the routing setting, the
+  background model; chat sessions can choose per session), and the plan
+  usage of its runs today and this week (runs, tokens with cache, Claude
+  Code's cost estimate); then what uses no model at all. **Read-only:** the
+  bridge has no endpoint to change the routing yet, so it is changed on the
+  computer (`LIFEOS_MODEL_ROUTING`).
 - **First run:** one welcome screen that leads to pairing or is skipped.
 
 Nothing on these screens is sample content any more. Not paired, they show
@@ -611,6 +621,17 @@ running on the computer with the relay set up.
    is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### Models and plan usage
+
+Settings → **Models and plan usage**: one card per job with its model
+(and effort and advisor) and where it comes from; under it "Today" and
+"This week" with the runs, tokens and estimated cost (or "No runs"). Run a
+chat or rerun the coach on the computer, pull down: the numbers of that job
+grow. Set `LIFEOS_MODEL_ROUTING` on the computer (for example
+`summaries=haiku`), restart the bridge, pull down: the job shows the new
+model and "Set in the computer's routing setting". The screen has no way to
+change it from the phone yet.
 
 ### The warmer design (P2, Courses in P3)
 

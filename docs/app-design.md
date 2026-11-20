@@ -365,6 +365,10 @@ the platform the data comes from.*
 - **Appearance:** light (default) / dark / follow phone.
 - **Assistant:** default model and effort for new conversations (default:
   Opus, high); number of exchanges loaded when a conversation opens.
+- **Models (#124, built read-only):** each model job of the computer with
+  its model, effort, advisor and source, and its plan usage today and this
+  week; what uses no model. Changing the routing from the phone waits for a
+  bridge endpoint.
 - **Coach:** nudge frequency (off / low / normal), quiet hours (default
   22:00–08:00), questions on / off.
 - **Notifications:** which kinds the phone shows: answers ready, session

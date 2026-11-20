@@ -48,6 +48,7 @@ import dev.lifeos.app.ui.screens.Authenticate
 import dev.lifeos.app.ui.screens.CalendarScreen
 import dev.lifeos.app.ui.screens.CourseScreen
 import dev.lifeos.app.ui.screens.CoursesScreen
+import dev.lifeos.app.ui.screens.ModelsScreen
 import dev.lifeos.app.ui.screens.NoteScreen
 import dev.lifeos.app.ui.screens.NotesScreen
 import dev.lifeos.app.ui.screens.MoreScreen
@@ -297,7 +298,12 @@ fun LifeOsApp(
                     onThemeChange = onThemeChange,
                     onPair = { navController.navigate(Routes.PAIR) { launchSingleTop = true } },
                     onBack = { navController.popBackStack() },
+                    onModels = { navController.navigate(Routes.MODELS) { launchSingleTop = true } },
                 )
+            }
+            // ---- Settings → Models (#124)
+            composable(Routes.MODELS) {
+                ModelsScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
             }
             composable(Routes.PAIR) {
                 PairScreen(
