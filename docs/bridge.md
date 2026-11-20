@@ -394,6 +394,23 @@ The folders Claude may work in besides the memory folder, stored in
   announced on the computer through `scripts/notify.sh`. The notification
   says that a folder was added or removed, never which one.
 
+## Relay connection test
+
+```
+scripts/relay-check            # add --idle 600 to watch an idle stream for ten minutes
+```
+
+Checks with ordinary HTTPS whether the relay mailbox (the Realtime Database
+of the owner's Firebase project) and the push service can be used from the
+network the computer is on: certificates, access tokens, write and read,
+streaming event by event, an idle stream, the cost of polling, and a dry run
+against the push service. It needs the two files in
+`~/.config/lifeos/firebase/`, writes a few random values under one scratch
+path and deletes them, and prints nothing identifying. The result is also
+saved to `~/.config/lifeos/relay-check.json`. Run it on every network the
+computer is used on; a failed check is a result, not something to work
+around.
+
 ## Terminal client
 
 `scripts/ask` talks to the bridge from a terminal. It needs only Python 3

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Connection test for the relay: can the database mailbox and the push
+# service be used from the network this computer is on? Ordinary HTTPS only.
+# Usage: scripts/relay-check [--idle SECONDS]
+set -euo pipefail
+bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
+cd "$bridge_dir"
+if [ -x .venv/bin/python ]; then
+  exec .venv/bin/python -m lifeos_bridge.relaycheck "$@"
+elif command -v uv >/dev/null 2>&1; then
+  exec uv run python -m lifeos_bridge.relaycheck "$@"
+fi
+echo "error: bridge/.venv is missing and 'uv' is not installed (see docs/bridge.md, Setup)." >&2
+exit 2

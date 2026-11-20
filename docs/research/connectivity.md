@@ -6,7 +6,8 @@ ordinary outbound HTTPS from both sides to a relay.
 - **Researched:** 2026-11-20. Every source in [Sources](#sources) was fetched
   on that date; that is the access date for every number in this document.
 - **Status:** research; **narrowed by the owner on 2026-11-20** (see the
-  next section). The remaining choice is a decision for the owner.
+  next section). The owner chose the Realtime Database mailbox; first test
+  results are in section 8.
 
 ## 0. Final direction (owner, 2026-11-20)
 
@@ -717,6 +718,36 @@ a failed test is a result, and it changes the recommendation.
     IAM role for sending FCM messages; app attestation as protection for the
     connection limit; provider log retention; whether the free-tier VM's
     address charge is offset in practice.
+
+## 8. Test results
+
+`scripts/relay-check` (module `lifeos_bridge.relaycheck`) runs the tests of
+section 7 that concern the chosen option, the Realtime Database mailbox,
+with ordinary HTTPS from the bridge's own Python (standard library, system
+trust store, verification always on).
+
+**Run of 2026-11-20, on the network the computer was on at that time.**
+The certificates were the provider's own, not re-signed by an inspecting
+appliance. **Whether that network was the managed one is not known to the
+test and must be confirmed by the owner;** if it was not, the script has to
+be run again there. Until then the result below counts for an ordinary
+network only.
+
+| Check | Result |
+|---|---|
+| Certificate trusted by the system store (database, push service) | yes; TLS 1.3 |
+| Access tokens for the service account | obtained in 0.4 s |
+| Write and read one value | about 170 ms each |
+| One value of about 1 MB | written in about 0.6 s |
+| Streaming (SSE): 5 writes, 1 s apart | all 5 arrived one by one, typically about 170 ms after the write (one took 1.8 s) |
+| Idle stream, 75 s | stayed open; 2 keep-alive events; a write afterwards was delivered |
+| Polling an empty path on a kept-alive connection | about 75 ms and about 280 response bytes per poll: about 12 MB per day at one poll every 2 s, 24 MB at 1 s (allowance: 360 MB per day) |
+| Sign-in and token-refresh endpoints | reachable |
+| Push service, dry run with a made-up device | reachable and authorised (answered "invalid device", as expected) |
+
+Not covered by this run: behaviour under TLS inspection (questions 1 and 9),
+idle lifetimes beyond 75 s (`--idle` takes a longer period), delivery time of
+a real push to a phone in Doze (needs the app).
 
 ## Sources
 
