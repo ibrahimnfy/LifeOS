@@ -284,7 +284,13 @@ CLI: the subscription login works through it, the bridge's own idle process
 is listed by `claude agents --json` as holding its session (the in-use
 check therefore ignores the bridge's own process ids), and sessions moved
 between the SDK runner and `claude -p --resume` in both directions with the
-conversation intact. See `docs/bridge.md`, "Runner".
+conversation intact. On one live process: the start message lists exactly
+the tools Read, Glob and Grep, no MCP server, no slash command and the
+`dontAsk` mode; the turn limit counts per message; an interrupt ends the
+turn at once and the process stays usable; `claude -p --resume` from a
+terminal works while the bridge's process sits idle, and the bridge notices
+the changed transcript and resumes instead of writing over it. See
+`docs/bridge.md`, "Runner".
 
 ## 8. Build issues
 

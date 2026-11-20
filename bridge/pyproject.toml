@@ -6,7 +6,8 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "claude-agent-sdk>=0.2.186",
+    # Its transport interface is marked internal and may change: stay below 0.3.
+    "claude-agent-sdk>=0.2.186,<0.3",
     "fastapi>=0.115",
     "google-auth>=2.30",
     "pynacl>=1.5",
