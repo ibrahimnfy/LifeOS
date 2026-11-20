@@ -63,9 +63,26 @@ class Policy:
     # Capable runs: one JSON carrying the sandbox requirement and all grants.
     settings_json: str | None = None
     add_dirs: tuple[Path, ...] = ()
+    # Allow rules for tools that would otherwise ask, and so be denied in dontAsk
+    # (the web tools of the course-resources profile).
+    allowed: str = ""
 
 
 READ_ONLY = Policy()
+WEB_TOOLS = frozenset({"WebSearch", "WebFetch"})
+
+
+def profile_policy(tools: str) -> Policy:
+    """A read-only run with extra tools (docs/permission-policy.md 9.10).
+
+    In ``dontAsk`` a web tool would be denied as "needs approval", so the web
+    tools named here also get an allow rule; nothing that writes is accepted.
+    """
+    names = [name for name in tools.split(",") if name]
+    if set(names) - PROFILE_TOOLS:
+        raise ClaudeError("bad_policy", 500, "only reading and web tools may be given to a run")
+    return Policy(tools=",".join(names), allowed=",".join(n for n in names if n in WEB_TOOLS))
+
 
 STREAM_LINE_LIMIT = 32 * 1024 * 1024
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -189,6 +206,8 @@ def run_flags(
         "--disable-slash-commands",
         "--max-turns", str(settings.max_turns),
     ]  # fmt: skip
+    if policy.allowed:
+        command += ["--allowedTools", policy.allowed]
     if policy.capable:
         # Everything a capable run is granted lives in this one JSON, next to
         # the sandbox requirement. Nothing is granted on the command line.
@@ -403,8 +422,6 @@ async def _run_once(
     persist: bool = True,
     tools: str | None = None,
 ) -> RunResult:
-    if tools is not None and set(tools.split(",")) - PROFILE_TOOLS:
-        raise ClaudeError("bad_policy", 500, "only reading and web tools may be given to a run")
     command = build_command(
         settings,
         session_id=session_id,
@@ -416,7 +433,7 @@ async def _run_once(
         effort=effort,
         advisor=advisor,
         persist=persist,
-        policy=Policy(tools=tools) if tools else READ_ONLY,
+        policy=profile_policy(tools) if tools else READ_ONLY,
     )
     process = await _start(settings, command, cwd or settings.ask_dir)
     if on_process is not None:

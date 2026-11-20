@@ -1208,9 +1208,14 @@ nothing, and proposes a list. **The bridge downloads** by its own rules:
 HTTPS, hosts on the allow-list of open-access publishers plus
 `LIFEOS_RESOURCE_HOSTS`, no private addresses, PDF or EPUB only, the size
 limit of course files, at most ten per run. Paid books, web pages and other
-hosts are listed only; piracy sources are dropped. An address already
-recorded is never fetched again. A run that failed counts the syllabus as
-read (no loop); ask again from the app.
+hosts are listed only; piracy sources are dropped. A downloaded address,
+or one listed for a final reason, is never fetched again; items listed
+because of the per-run limit, a failed or too-large download, an
+unreachable host or a host not (yet) on the list are tried again at the
+next run. A run that failed counts the syllabus as read (no loop); ask
+again from the app. `"last_result"` is `ok`, `web_denied` (the web tools
+were refused; nothing stored), `folder_not_allowed`, `folder_missing`, or
+a run error code.
 
 - In the course folder: `resources/` with the downloaded files and
   `resources/sources.md` (per item: title, link, kind, licence, why it is

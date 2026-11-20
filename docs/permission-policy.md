@@ -482,7 +482,7 @@ text written to steer the model.
 | Model | the `course_resources` job: Sonnet with the Opus advisor (`routing.py`) |
 | Tools | `Read`, `Glob`, `WebSearch`, `WebFetch` only: no shell, no editing, no writing |
 | Folder | a fresh temporary folder holding **only a copy of the syllabus**; `--restricted` confines the file tools to it. No memory context, no allowed folder, no course materials |
-| Permissions | `dontAsk`: anything not listed is denied, nobody is asked |
+| Permissions | `dontAsk`: anything that would ask is denied, nobody is asked; the two web tools get an allow rule (`--allowedTools WebSearch,WebFetch`), since in `dontAsk` they would otherwise be denied. A run in which a web tool was still denied stores nothing (`web_denied`) |
 | Session | not saved (`--no-session-persistence`), never in the owner's list |
 | Output | one JSON list of proposals (title, address, kind, licence, why it is legal); nothing else is used |
 | Downloads | **by the bridge**, never by the model (below) |
@@ -501,7 +501,8 @@ The bridge's own rules for downloading a proposal:
   within the size limit of course files; at most ten downloads per run.
 - Everything else (paid books, web pages, hosts not on the list) is
   **listed only** in `resources/sources.md`, with its link and the reason.
-- An address already recorded for the course is never fetched again.
+- An address already downloaded, or listed for a final reason, is never
+  fetched again (the retried reasons are below).
 
 What a steered run could still do, and why it is accepted: it can make
 `WebFetch` requests to any address, carrying text from the syllabus (which
@@ -510,3 +511,15 @@ nothing else. It cannot write anywhere or reach the memory. A wrong "kind" or
 "licence" from the model is limited by the allow-list: only the listed hosts
 are downloaded from. The model's claims about licences are recorded as
 claims; the owner judges anything listed only.
+
+**Verified 2026-11-21** with one real run (Claude Code 2.1.328, exactly these
+flags, a synthetic syllabus in a scratch folder): no tool was denied, 5
+turns, 17 seconds; it proposed the open-access textbook (publisher page) and
+listed the sold one as paid. The run reported Sonnet 5.5 and Haiku 5.5 (the
+model `WebFetch` uses to read pages) in its usage, no Opus: the advisor was
+not consulted, or its use is not reported there.
+
+Retried at the next run: items listed only because of the per-run limit, a
+failed or too-large download, an unreachable host or a host not on the list
+(the owner may have allowed it since). Downloaded items and the other
+reasons are final.

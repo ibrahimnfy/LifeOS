@@ -330,6 +330,15 @@ def sources_text(record: dict, items: list[dict], today: str) -> str:
     return "\n".join(lines)
 
 
+# Reasons a listed item is tried again at the next run; every other one is final.
+RETRY = frozenset({"later", "download_failed", "unreachable", "host_not_allowed", "too_large"})
+
+
+def _proposal(item: dict) -> dict:
+    """The proposed fields of an item (a recorded one carries its last outcome too)."""
+    return {k: item.get(k) for k in ("title", "url", "kind", "licence", "why_legal", "reference")}
+
+
 async def run_course(settings: Settings, course_id: int, clock=None) -> str:
     """Read one course's syllabus and gather its resources. Returns a fixed code."""
     clock = clock or now_utc
@@ -339,6 +348,9 @@ async def run_course(settings: Settings, course_id: int, clock=None) -> str:
     if not isinstance(record, dict) or root is None or not record.get("syllabus"):
         return "no_syllabus"
     syllabus = record["syllabus"]
+    refused = moodle_sync.folder_refusal(settings, root)  # still an allowed folder?
+    if refused is not None:
+        return _finish(course_id, syllabus, None, refused, clock)
     course_dir = root / record["folder"]
     source = course_dir / syllabus["path"]
     if not source.is_file() or not source.resolve().is_relative_to(course_dir.resolve()):
@@ -350,6 +362,9 @@ async def run_course(settings: Settings, course_id: int, clock=None) -> str:
             settings, PROMPT, session_id=str(uuid.uuid4()), resume=False, cwd=scratch,
             persist=False, tools=TOOLS, **routing.run_options(settings, "course_resources"),
         )  # fmt: skip
+        if claude.WEB_TOOLS & set(result.denied_tools):
+            # Without the web, a list would be the model's memory, not a search.
+            return _finish(course_id, syllabus, None, "web_denied", clock)
         proposed = _items(result.answer)
     except ClaudeError as error:
         return _finish(course_id, syllabus, None, error.code, clock)
@@ -360,16 +375,19 @@ async def run_course(settings: Settings, course_id: int, clock=None) -> str:
         return _finish(course_id, syllabus, None, "folder_unusable", clock)
     known = {item["url"]: item for item in _entry(load(), course_id)["items"]}
     budget = {"downloads": MAX_DOWNLOADS, "bytes": moodle_sync.limits_from_env().file_bytes}
-    hosts, items, dropped = _hosts(), list(known.values()), 0
-    for item in proposed:
-        if item["url"] in known:
-            continue  # already downloaded or listed: never redone
-        entry = await asyncio.to_thread(_decide, item, folder, budget, hosts)
+    hosts, dropped = _hosts(), 0
+    # New proposals, and recorded items whose reason may have gone (the limit of the
+    # last run, a failed download, a host the owner allowed since). Final ones stay.
+    retry = [item for item in known.values() if item.get("reason") in RETRY]
+    fresh = [item for item in proposed if item["url"] not in known]
+    for item in [*fresh, *retry]:
+        entry = await asyncio.to_thread(_decide, _proposal(item), folder, budget, hosts)
         if entry is None:
             dropped += 1
+            known.pop(item["url"], None)
             continue
         known[item["url"]] = entry
-        items.append(entry)
+    items = list(known.values())
     today = clock().astimezone().date().isoformat()
     if not moodle_sync.write_inside(root.resolve(), folder / "sources.md",
                                     sources_text(record, items, today)):  # fmt: skip

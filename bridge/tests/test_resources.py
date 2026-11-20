@@ -163,7 +163,11 @@ def test_nothing_is_redone_and_a_changed_syllabus_runs_again(
     assert resources.request(A) == "queued"
     web.asked.clear()
     go(settings_)
-    assert web.asked == [] and len(model) == 2  # every proposed address is already recorded
+    # Only the item whose reason is gone is tried again (its host is allowed now);
+    # downloaded and finally listed ones are not redone.
+    assert web.asked == ["https://docs.vendor.example.invalid/manual.pdf"] and len(model) == 2
+    manual = next(i for i in resources.view(A)["items"] if i["title"] == "Vendor Manual")
+    assert manual["status"] == "downloaded" and len(resources.view(A)["items"]) == 6
     # The syllabus changes on the site: the next sync notes it and a run follows.
     site.contents[A][0]["modules"][-1]["contents"][0].update(
         filesize=2000, timemodified=later(2).timestamp()
@@ -177,6 +181,19 @@ def test_the_owner_can_allow_more_hosts(synced, settings_, model, web, monkeypat
     go(settings_)
     manual = next(i for i in resources.view(A)["items"] if i["title"] == "Vendor Manual")
     assert (manual["status"], manual["file"]) == ("downloaded", "Vendor Manual.pdf")
+
+
+def test_a_run_without_the_web_or_outside_the_allowed_folders_stores_nothing(
+    synced, settings_, settings, web, monkeypatch
+):
+    async def denied(settings, prompt, **kwargs):
+        return RunResult(json.dumps(PROPOSAL), "", 1, 1, ["WebFetch", "WebSearch"])
+
+    monkeypatch.setattr(claude, "run", denied)
+    assert go(settings_) == "web_denied"
+    assert resources.view(A)["items"] == [] and web.asked == []
+    assert resources.request(A) == "too_soon"  # read, no loop
+    assert asyncio.run(resources.run_course(settings, A)) == "folder_not_allowed"
 
 
 def test_rules_for_addresses_and_redirects(web):
@@ -196,9 +213,14 @@ def test_rules_for_addresses_and_redirects(web):
 
 def test_a_run_may_only_read_and_search(settings):
     command = claude.build_command(settings, session_id="s", resume=False, stream=False,
-                                   policy=claude.Policy(tools=resources.TOOLS))  # fmt: skip
+                                   policy=claude.profile_policy(resources.TOOLS))  # fmt: skip
     assert command[command.index("--tools") + 1] == "Read,Glob,WebSearch,WebFetch"
+    # In dontAsk a web tool would ask, and so be denied: it gets an allow rule.
+    assert command[command.index("--allowedTools") + 1] == "WebSearch,WebFetch"
     assert "--restricted" in command and "dontAsk" in command
+    assert "--allowedTools" not in claude.build_command(
+        settings, session_id="s", resume=False, stream=False
+    )
     with pytest.raises(claude.ClaudeError):
         asyncio.run(claude.run(settings, "x", session_id="s", resume=False, tools="Read,Bash"))
     assert routing.route(settings, "course_resources").model == "sonnet"
