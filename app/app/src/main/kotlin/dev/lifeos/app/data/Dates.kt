@@ -12,6 +12,10 @@ object Dates {
         null
     }
 
+    /** Calendar days from [today] to the local day of a moment ([epochSeconds]); 0 is today, negative is past. */
+    fun daysUntil(epochSeconds: Long, today: LocalDate, zone: java.time.ZoneId): Long =
+        java.time.temporal.ChronoUnit.DAYS.between(today, java.time.Instant.ofEpochSecond(epochSeconds).atZone(zone).toLocalDate())
+
     /** Where a task belongs, seen from [today] in the phone's own time zone. */
     fun sectionOf(due: String?, today: LocalDate): TaskSection {
         val day = parse(due) ?: return TaskSection.NO_DATE

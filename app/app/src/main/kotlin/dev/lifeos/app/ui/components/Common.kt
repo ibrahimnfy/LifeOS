@@ -39,11 +39,19 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import dev.lifeos.app.R
+import dev.lifeos.app.data.Look
+import dev.lifeos.app.data.Tone
 import dev.lifeos.app.ui.icons.LifeIcons
 import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
+import dev.lifeos.app.ui.theme.ToneAlpha
 
 /** An icon-only action in the top bar: 48 dp target, named for screen readers. */
 @Composable
@@ -83,6 +91,7 @@ fun TopBar(
     onBack: (() -> Unit)? = null,
     onConnectionClick: (() -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
+    subtitle: String? = null,
 ) {
     val colors = LifeTheme.colors
     Row(
@@ -104,16 +113,31 @@ fun TopBar(
                 Icon(LifeIcons.Back, contentDescription = stringResource(R.string.action_back), tint = colors.text)
             }
         }
-        Text(
-            text = title,
-            style = LifeType.screenTitle,
-            color = colors.text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier
-                .weight(1f)
-                .semantics { heading() },
-        )
+        if (subtitle == null) {
+            Text(
+                text = title,
+                style = LifeType.screenTitle,
+                color = colors.text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics { heading() },
+            )
+        } else {
+            // A smaller title with one line under it (Courses: the time of the last sync).
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = LifeType.sectionTitle,
+                    color = colors.text,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
+                )
+                Text(text = subtitle, style = LifeType.small, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
         if (actions != null) actions()
         if (onConnectionClick != null) {
             val description = stringResource(LocalConnection.current.descriptionRes())
@@ -153,38 +177,89 @@ fun StatusDot(modifier: Modifier = Modifier, state: ConnectionState = LocalConne
  * screen is clearly its own block in both themes.
  */
 @Composable
-fun LifeCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun LifeCard(
+    modifier: Modifier = Modifier,
+    watermark: Watermark? = null,
+    tint: Tone? = null,
+    shape: Shape = RoundedCornerShape(20.dp),
+    decoration: (@Composable BoxScope.() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val colors = LifeTheme.colors
-    val shape = RoundedCornerShape(20.dp)
-    Column(
+    val toned = tint?.let { colors.tone(it) }
+    Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(colors.surface)
-            .border(LifeDimens.hairline, colors.divider, shape)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        content = content,
-    )
+            .background(toned?.card ?: colors.surface)
+            .border(LifeDimens.hairline, toned?.second ?: colors.divider, shape),
+    ) {
+        if (watermark != null) {
+            // P2: one large, faint icon of the section in the corner; the content sits above it.
+            Icon(
+                watermark.icon,
+                contentDescription = null,
+                tint = colors.tone(watermark.tone).ink,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 30.dp, y = (-26).dp)
+                    .size(150.dp)
+                    .alpha(ToneAlpha.WATERMARK),
+            )
+        }
+        // P3: an ornament behind the content (drawn by the caller, aligned in this box).
+        decoration?.invoke(this)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), content = content)
+    }
 }
 
+/** A card heading: an optional icon in the section's ink, the title, and a note on the right. */
 @Composable
-fun SectionHeader(title: String, modifier: Modifier = Modifier, note: String? = null) {
+fun SectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    note: String? = null,
+    icon: ImageVector? = null,
+    tone: Tone? = null,
+    iconTile: Boolean = false,
+) {
     val colors = LifeTheme.colors
     Row(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = 28.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
+        if (icon != null) {
+            val ink = tone?.let { colors.tone(it).ink } ?: colors.text
+            if (iconTile) {
+                // P3 (Courses): the icon in a round tile of the card's second tint.
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .background(tone?.let { colors.tone(it).second } ?: colors.surface2, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(17.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+            } else {
+                Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+        }
         Text(
             text = title,
             style = LifeType.sectionTitle,
             color = colors.text,
-            modifier = Modifier.semantics { heading() },
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .semantics { heading() },
         )
         if (note != null) {
-            Text(text = note, style = LifeType.small, color = colors.muted)
+            Text(text = note, style = LifeType.small, color = colors.muted, modifier = Modifier.padding(start = 8.dp))
         }
     }
 }
@@ -199,6 +274,7 @@ fun MarkRow(
     overdue: Boolean = false,
     trailing: (@Composable RowScope.() -> Unit)? = null,
     markModifier: Modifier? = null,
+    label: (@Composable () -> Unit)? = null,
     mark: @Composable () -> Unit,
 ) {
     val colors = LifeTheme.colors
@@ -224,7 +300,7 @@ fun MarkRow(
                 color = if (done) colors.muted else colors.text,
                 textDecoration = if (done) TextDecoration.LineThrough else null,
             )
-            if (subtitle != null || overdue) {
+            if (subtitle != null || overdue || label != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (overdue) {
                         Box(
@@ -242,6 +318,10 @@ fun MarkRow(
                     }
                     if (subtitle != null) {
                         Text(text = subtitle, style = LifeType.small, color = colors.muted)
+                    }
+                    if (label != null) {
+                        // P2: the course or project as a small label in its colour; it shrinks first.
+                        Box(Modifier.padding(start = if (subtitle != null || overdue) 8.dp else 0.dp).weight(1f, fill = false)) { label() }
                     }
                 }
             }
@@ -264,15 +344,16 @@ fun RowDivider(modifier: Modifier = Modifier, startIndent: Dp = 58.dp) {
 
 /** Round mark with a number (rank) in it. */
 @Composable
-fun RankMark(rank: Int, modifier: Modifier = Modifier) {
+fun RankMark(rank: Int, modifier: Modifier = Modifier, tone: Tone? = null) {
     val colors = LifeTheme.colors
+    val toned = tone?.let { colors.tone(it) }
     Box(
         modifier
             .defaultMinSize(40.dp, 40.dp)
-            .background(colors.surface2, CircleShape),
+            .background(toned?.second ?: colors.surface2, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = "%d".format(rank), style = LifeType.rowTitle, color = colors.text)
+        Text(text = "%d".format(rank), style = LifeType.rowTitle, color = toned?.ink ?: colors.text)
     }
 }
 
@@ -292,13 +373,18 @@ fun IconMark(icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Mo
 
 /** The round check of a task row. Purely visual; the whole row is the toggle. */
 @Composable
-fun CheckMark(done: Boolean, modifier: Modifier = Modifier) {
+fun CheckMark(done: Boolean, modifier: Modifier = Modifier, tone: Tone? = null) {
     val colors = LifeTheme.colors
     Box(
         modifier = if (done) {
             modifier
                 .size(24.dp)
                 .background(colors.text, CircleShape)
+        } else if (tone != null) {
+            // P2: the ring takes the colour of the task's course or project.
+            modifier
+                .size(24.dp)
+                .border(2.dp, colors.tone(tone).ink, CircleShape)
         } else {
             modifier
                 .size(24.dp)
@@ -325,6 +411,8 @@ fun TaskRow(
     modifier: Modifier = Modifier,
     overdue: Boolean = false,
     onOpen: (() -> Unit)? = null,
+    look: Look? = null,
+    lookName: String? = null,
 ) {
     val state = stringResource(if (done) R.string.state_done else R.string.state_not_done)
     if (onOpen != null) {
@@ -343,8 +431,13 @@ fun TaskRow(
                     contentDescription = checkLabel
                     stateDescription = state
                 },
+            label = if (look != null && lookName != null) {
+                { CourseLabel(look, lookName) }
+            } else {
+                null
+            },
         ) {
-            CheckMark(done)
+            CheckMark(done, tone = look?.tone)
         }
         return
     }

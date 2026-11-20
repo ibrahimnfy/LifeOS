@@ -3,7 +3,9 @@
 The Android client of LifeOS: Kotlin, Jetpack Compose, a single activity,
 English and Turkish. The concept is in
 [`docs/app-design.md`](../docs/app-design.md); the look is visual direction
-D3 from [`docs/design/mockups/`](../docs/design/mockups/).
+D3 made warmer, as the owner chose in #133: proposal **P2** everywhere and
+**P3** for the Courses section, from
+[`docs/design/mockups/`](../docs/design/mockups/).
 
 What exists now: the **app skeleton** (navigation, D3 theme, language and
 appearance), and the **connection to the computer**: pairing by QR code, the
@@ -132,7 +134,7 @@ app/                         Gradle root (this folder)
         │   ├── lock/                lock timeout, system confirmation dialog
         │   ├── settings/            theme, language, lock timeout (DataStore)
         │   └── ui/
-        │       ├── theme/           D3 colour tokens, Material 3 mapping, type
+        │       ├── theme/           D3 colour tokens and the seven tones, Material 3 mapping, type
         │       ├── icons/           the app's own line icons
         │       ├── components/      top bar, bottom bar, rows, cards, QR scanner
         │       ├── nav/             routes and the navigation host
@@ -149,10 +151,28 @@ Conventions:
 
 - Every user-visible text is a string resource, in both languages. No text
   is hard-coded in Kotlin.
-- Colours come only from the D3 tokens in `ui/theme/Tokens.kt`; every
-  Material 3 colour role is mapped from them and dynamic colour is off.
-  (`warn`, the amber of "computer not reachable", was added with the
-  connection dot.)
+- Colours come only from the tokens in `ui/theme/Tokens.kt`: the D3 base
+  tokens (every Material 3 colour role is mapped from them and dynamic
+  colour is off; `warn`, the amber of "computer not reachable", was added
+  with the connection dot) and the seven soft **tones** of the warmer
+  design (sky, teal, violet, peach, sand, mint, rose; each a card tint, a
+  second tint and an ink, light and dark, contrast checked in the mockups
+  README), plus the fixed opacities of `ToneAlpha` for watermarks and
+  ornaments.
+- **Colour carries meaning (P2).** A course or project keeps one tone and
+  one line icon everywhere: its tile, the label and check ring of a task,
+  the rank of a pick, a deadline, its page and its files. The mapping is in
+  `data/Looks.kt` and depends only on the course ids: courses in id order
+  take the tone at `id mod 7` and the icon at `id mod 6`, or the next free
+  one when a course with a smaller id has it; projects and unknown course
+  names get a tone from a fixed hash of their name and the folder icon.
+  Section cards (picks, Today, tasks) stay grey with one faint watermark
+  icon and a heading icon in their section's tone (picks violet, Today
+  peach, tasks mint, deadlines rose). The coach card is unchanged.
+- **Courses (P3):** tinted cards with geometric ornaments drawn in code
+  (`ui/components/Tones.kt`: waves, grid, dots, arcs, triangles, circles;
+  each course has the one that goes with its icon), deadline tickets, tiles
+  of different sizes and a tight corner on some cards.
 - Icons are drawn for this project (`ui/icons/LifeIcons.kt`). No icon
   library is used.
 - Touch targets are at least 48 dp, icon-only controls have content
@@ -224,22 +244,36 @@ with plain HTTPS requests.
   Tapping a note opens it in full; a capture can be edited there (topic notes
   are read-only for now). The computer gives an edited capture a new id, so
   the note screen closes after saving and the list shows the new text.
-- **Courses** (under More): the top bar has the title, the refresh action
-  (starts a sync on the computer and waits for it) and **All grades** (the
-  medal icon). Below: the summary card with the upcoming deadlines of the
-  next two weeks and nothing else (a deadline that has passed since the saved
-  copy was made is left out), the course list with markers for new content,
-  the time of the last sync, and a course page with Materials, Announcements, Assignments and Grades. Files
+- **Courses** (under More): the top bar has the title with the time of the
+  last sync under it, **All grades** (a text button) and the refresh action
+  (starts a sync on the computer and waits for it). Below: the deadline
+  card with the upcoming deadlines of the next two weeks and nothing else
+  (the nearest three as tickets with the days left, further ones as rows; a
+  deadline that has passed since the saved copy was made is left out), then
+  "All courses" as tiles (the first one wide, the others two by two, each in
+  its course's colour with its icon, ornament, next deadline and the marker
+  for new content). A course page has a header card in the course's colour
+  with the next deadline, and Materials, Announcements, Assignments and
+  Grades; files and links carry the course's colour. Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
-- **Activity** (under More): screen time. Without usage access, an
-  explanation of what is read and where it goes, and a button to the system
-  setting (this app's own page where the phone has one). With it: today's
-  screen time and unlocks, a 7 or 30 day bar chart (average as a dashed
-  line; tapping a bar chooses the day), the chosen day's apps (a minute or
-  more, the home screen and LifeOS left out) as bars, and the switch "Send
-  screen time once a day" with the state of sending and "Send now". Sleep is
-  not built yet.
+- **Activity** (under More), two tabs:
+  - **Sleep:** last night (length, bed and wake time, "Estimated" when it
+    was guessed) with **Enter last night** or **Correct**; a 7 or 30 night
+    chart (entered nights solid, estimated ones hatched, the average dashed;
+    tapping a night shows it above, where it can be entered or corrected);
+    the **morning question** (on by default at 05:00, the time can be
+    changed, it can be switched off; on Android 13 and newer it needs the
+    notification permission, asked for with a button). Without usage access
+    a short line explains that nights could be estimated.
+  - **Screen time:** without usage access, an explanation of what is read
+    and where it goes, and a button to the system setting (this app's own
+    page where the phone has one). With it: today's screen time and unlocks,
+    a 7 or 30 day bar chart (average as a dashed line; tapping a bar chooses
+    the day), the chosen day's apps (a minute or more, the home screen and
+    LifeOS left out) as bars.
+  - Below both: the switch "Send screen time and sleep once a day" with the
+    state of sending and "Send now".
 - **More:** Sessions and Projects are placeholder screens.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
@@ -311,6 +345,20 @@ Nothing on these screens is sample content any more. Not paired, they show
   happens when the app connects to the computer (at most once an hour) or
   on "Send now", never in the background. A day the computer has confirmed
   is not sent again unless its numbers change.
+- **Sleep** (`activity/`): a night is the owner's entry (bed and wake time,
+  `HH:MM`, for the morning it ended on) or, with usage access, a guess
+  (`SleepEstimate`: the longest stretch from the screen going off to the
+  next unlock that ends between 03:00 and 13:00 and lasts 3 to 14 hours).
+  A guess never replaces an entry; an entry or correction is sent again
+  (`POST /activity/sleep`, with `estimated`). The **morning question**
+  (`SleepPrompt`) is one inexact alarm of the phone's own alarm service at
+  the chosen time; when it rings and last night has no entry (a guess does
+  not count), one silent notification ("Good morning · How did you sleep?",
+  no data in it) opens the Sleep tab. The next morning is planned right
+  after, and again after a restart of the phone or a change of clock or
+  time zone (a receiver that is not exported). No polling, no service that
+  keeps running, nothing from the computer. Entering last night removes the
+  notification.
 
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
@@ -389,6 +437,17 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   the relay way. Use it for screenshots; the owner's courses are not asked
   for or changed in that mode. (The sample answers are also kept as saved
   copies; unpair or clear the app's data afterwards.)
+- `--ez lifeos.test.sample_data true` is for screenshots on an emulator
+  without a computer: on a phone that is **not paired**, the app acts as
+  connected and every screen shows the invented answers of
+  `src/debug/assets/sample-data.json` (Today, Tasks, Notes, Courses with five
+  generic courses and a project; dates are counted from the current day).
+  Writes are simply accepted and go nowhere; nothing is kept as a saved
+  copy. A paired phone ignores it. Close the app to leave the mode.
+
+  ```sh
+  adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --ez lifeos.test.sample_data true
+  ```
 - **Release builds do not contain any of this.** They compile the empty
   twin in `src/release/`; a pairing left behind by a test aid is deleted
   when a build without the aid starts.
@@ -399,7 +458,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 - No push notifications.
 - Chat does not send; the coach conversation, Sessions and Projects are
-  placeholders; Activity has screen time but no sleep yet.
+  placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course" and renewing the sign-in from the phone.
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -479,10 +538,11 @@ running on the computer with the relay set up.
 7. **Shortcut and share:** long-press the app icon → "Capture"; in another
    app, share a piece of text → "Capture in LifeOS": the sheet opens with it.
 8. **Courses** (More → Courses; needs the course sync on the computer and a
-   bridge that has the `/courses` endpoints): the top bar shows "Courses",
-   the refresh arrow and the medal; the medal opens "All grades". The
-   summary card shows only "Upcoming deadlines" (no button, no count of new
-   items); the course list and "Last sync …" follow. A course's four tabs;
+   bridge that has the `/courses` endpoints): the top bar shows "Courses"
+   with "Last sync …" under it, "All grades" and the refresh arrow. The rose
+   deadline card shows only "Upcoming deadlines" as tickets; the course tiles
+   follow. A course's colour and icon are the same on its tile, its page,
+   its files, its deadlines and the labels of its tasks. A course's four tabs;
    the download arrow of a file → "Saved to Downloads", and the file is in
    the phone's Downloads folder. Tap **Open** next to it: a PDF opens in the
    phone's PDF viewer (or the system asks which app to use); back in LifeOS
@@ -501,5 +561,40 @@ running on the computer with the relay set up.
    with the total, the unlocks and the apps. Switch "Send screen time once a
    day" off: nothing more is sent. Revoking usage access in the system
    settings brings back the explanation.
-10. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
+10. **Sleep** (More → Activity → Sleep): "Last night · Not entered yet".
+   Tap **Enter last night**, pick bed and wake times, Save: the card shows
+   the length and the times, the chart a solid bar for this morning. With
+   usage access, nights you did not enter appear hatched and marked
+   "Estimated" (after a night with the phone lying unused). Tap a bar: that
+   night shows above with "Enter" or "Correct". Under "Morning question",
+   allow notifications (Android 13+), set the time two minutes ahead and do
+   not enter the night (or correct the time of a test night on another
+   day): at that time a silent notification "Good morning · How did you
+   sleep?" appears without sound; tapping it opens the Sleep tab. Entered
+   nights reach the computer like screen time: a `sleep` line in the
+   memory's `activity/` file of the month. Restart the phone: the question
+   is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
+11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### The warmer design (P2, Courses in P3)
+
+With real data (or, on an emulator, with the `sample_data` test aid):
+
+1. **Today:** the coach card looks as before. "Assistant's picks" and
+   "Today" are grey cards with a faint star or sun in the top corner and a
+   small coloured icon before the heading. Each pick's number and each
+   task's check ring have the colour of the task's course or project, and
+   the task shows a small label with that course's icon and name.
+2. **Tasks:** "Most important" with a faint check mark watermark; the same
+   labels and coloured rings.
+3. **Courses:** a rose deadline card with dots and up to three tickets
+   (coloured stripe on top, the days left in large); the course tiles in
+   their colours, the first one wide, each with its own ornament. Open a
+   course: its header card has the same colour, icon and ornament as its
+   tile; its files and links carry that colour. "All grades" shows each
+   course with its icon tile.
+4. A course has the same colour and icon everywhere: compare its tile, its
+   page, a deadline ticket and the label of one of its tasks.
+5. Settings → Appearance → **Dark**: every tint switches to its dark step;
+   all text stays readable (text, muted text and course names on the tints).

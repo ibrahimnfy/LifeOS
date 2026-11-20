@@ -336,8 +336,11 @@ the platform the data comes from.*
   on the phone, so they always work offline. The phone measures in the
   background once a day, but sends only while the app is unlocked and
   connected (the device secret is not available otherwise); each finished
-  day is sent once. Built so far: the Screen time tab (without tabs while
-  Sleep is missing).
+  day is sent once. Built: both tabs (Sleep first), manual entry and
+  correction, the estimate from screen-off to first unlock (hatched and
+  labelled), the charts, and the morning question (one inexact alarm,
+  replanned after it rings, after a restart and after a clock or time-zone
+  change; a silent notification only while last night has no entry).
 
 ### 3.11 Settings
 
@@ -402,6 +405,19 @@ for the record; no longer drawn in the mockups) and asked for a new one, **D**, 
 direction and is refined from its mockups in
 [`docs/design/mockups/`](design/mockups/) (open `index.html` in a browser;
 light and dark, English and Turkish).
+
+**Built (#134), the owner's mix from #133:** D3 made warmer with proposal
+**P2** for the whole app (each course and project keeps one tone and one
+line icon everywhere: tiles, task labels and check rings, pick ranks,
+deadlines, the course page, files; section cards stay grey with one faint
+watermark icon and a heading icon in the section's tone), except the
+**Courses** section, which follows **P3** (tinted tiles of different sizes,
+ticket-style deadlines, geometric ornaments) with P2's course colours and
+icons. The coach card is unchanged. Tokens: the D3 base tokens plus seven
+tones (card tint, second tint, ink; light and dark) in `ui/theme/Tokens.kt`;
+a course's look is derived from its id (`data/Looks.kt`, see
+[`app/README.md`](../app/README.md), "Conventions"). Not drawn yet: the
+assignment detail screen of the mockups.
 
 ### D. Soft tones with colour where it matters *(working direction)*
 

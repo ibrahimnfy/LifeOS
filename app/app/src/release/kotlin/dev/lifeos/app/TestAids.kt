@@ -16,6 +16,10 @@ object TestAids {
 
     fun readSwitches(intent: Intent?) = Unit
 
+    const val wantsSampleData = false
+
+    fun startSampleData() = Unit
+
     fun vault(kind: String): SecretVault? = null
 
     fun transport(context: Context, real: Transport): Transport = real

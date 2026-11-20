@@ -189,6 +189,38 @@ class UsageMathTest {
     }
 
     @Test
+    fun `the sleep chart runs up to this morning and averages entered and estimated nights`() {
+        val nights = listOf(
+            Night("2027-01-13", "23:00", "07:00", estimated = false),
+            Night("2027-01-15", "00:30", "06:30", estimated = true),
+        )
+        val window = SleepView.window(nights, day, 3)
+        assertEquals(listOf("2027-01-13", "2027-01-14", "2027-01-15"), window.map { it.first.toString() })
+        assertEquals(listOf(480, null, 360), window.map { it.second?.minutes })
+        assertEquals(420, SleepView.average(window))
+        assertNull(SleepView.average(SleepView.window(emptyList(), day, 7)))
+        assertEquals("00:30", SleepView.lastNight(nights, day)?.bed)
+    }
+
+    @Test
+    fun `the morning question is asked only while last night has not been entered`() {
+        assertEquals(true, SleepView.needsEntry(emptyList(), day))
+        // An estimate is not an entry: the owner is still asked.
+        assertEquals(true, SleepView.needsEntry(listOf(Night(day.toString(), "23:00", "07:00", estimated = true)), day))
+        assertEquals(false, SleepView.needsEntry(listOf(Night(day.toString(), "23:00", "07:00", estimated = false)), day))
+        // An entry for another night does not count.
+        assertEquals(true, SleepView.needsEntry(listOf(Night(day.minusDays(1).toString(), "23:00", "07:00", estimated = false)), day))
+    }
+
+    @Test
+    fun `an entry needs two different times in the bridge's format`() {
+        assertEquals(true, SleepView.validEntry("23:40", "07:05"))
+        assertEquals(false, SleepView.validEntry("23:40", "23:40"))
+        assertEquals(false, SleepView.validEntry("24:00", "07:00"))
+        assertEquals(false, SleepView.validEntry("7:00", "08:00"))
+    }
+
+    @Test
     fun `a day without any event is no data, not zero use`() {
         assertEquals(false, UsageView.hasData(measure(emptyList())))
         assertEquals(true, UsageView.hasData(measure(listOf(unlock("2027-01-15T08:00:00")))))

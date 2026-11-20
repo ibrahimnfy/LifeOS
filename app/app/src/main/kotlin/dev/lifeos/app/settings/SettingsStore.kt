@@ -60,7 +60,27 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[USAGE_SYNC] = if (on) "1" else "0" }
     }
 
+    /** The silent morning question when last night's sleep was not entered (on by default). */
+    val sleepPrompt: Flow<Boolean> = dataStore.data
+        .map { it[SLEEP_PROMPT] != "0" }
+        .distinctUntilChanged()
+
+    suspend fun setSleepPrompt(on: Boolean) {
+        dataStore.edit { it[SLEEP_PROMPT] = if (on) "1" else "0" }
+    }
+
+    /** Its time of day, `HH:MM` (default 05:00). */
+    val sleepPromptTime: Flow<String> = dataStore.data
+        .map { it[SLEEP_PROMPT_TIME] ?: "05:00" }
+        .distinctUntilChanged()
+
+    suspend fun setSleepPromptTime(time: String) {
+        dataStore.edit { it[SLEEP_PROMPT_TIME] = time }
+    }
+
     private companion object {
+        val SLEEP_PROMPT = stringPreferencesKey("sleep_prompt")
+        val SLEEP_PROMPT_TIME = stringPreferencesKey("sleep_prompt_time")
         val USAGE_SYNC = stringPreferencesKey("usage_sync")
         val COACH_RECENT = stringPreferencesKey("coach_recent")
         val THEME = stringPreferencesKey("theme")

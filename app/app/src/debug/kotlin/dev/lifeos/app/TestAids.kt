@@ -38,15 +38,35 @@ import java.security.MessageDigest
  * `--ez lifeos.test.sample_courses true` makes the Courses screens (and only them) show the
  * synthetic sample courses in `src/debug/assets/sample-courses.json` instead of asking the
  * computer, until the app is closed. Nothing of the owner's courses is touched in that mode.
+ *
+ * `--ez lifeos.test.sample_data true` goes further, for screenshots on an emulator without a
+ * computer: on a phone that is NOT paired, the app behaves as if it were connected and every
+ * screen shows the invented answers of `src/debug/assets/sample-data.json` (nothing is sent
+ * anywhere, nothing is kept as a saved copy). A paired phone ignores it.
  */
 object TestAids {
     const val VAULT = "test"
     private const val EXTRA_PAIRING_TEXT = "lifeos.test.pairing_text"
     private const val EXTRA_REAL_LOCK = "lifeos.test.real_lock"
     private const val EXTRA_SAMPLE_COURSES = "lifeos.test.sample_courses"
+    private const val EXTRA_SAMPLE_DATA = "lifeos.test.sample_data"
 
     @Volatile
     private var sampleCourses = false
+
+    @Volatile
+    private var sampleWanted = false
+
+    /** Every answer comes from the sample data: switched on by the core, and only on an unpaired phone. */
+    @Volatile
+    private var sampleData = false
+
+    /** The test asked for the sample data (the core decides whether it may be used). */
+    val wantsSampleData: Boolean get() = sampleWanted
+
+    fun startSampleData() {
+        sampleData = true
+    }
 
     /** The pairing text handed over by the test, if any. Read once. */
     fun pairingText(intent: Intent?): String? {
@@ -61,6 +81,7 @@ object TestAids {
     /** Switches that last until the app is closed. */
     fun readSwitches(intent: Intent?) {
         if (intent?.hasExtra(EXTRA_SAMPLE_COURSES) == true) sampleCourses = intent.getBooleanExtra(EXTRA_SAMPLE_COURSES, false)
+        if (intent?.hasExtra(EXTRA_SAMPLE_DATA) == true) sampleWanted = intent.getBooleanExtra(EXTRA_SAMPLE_DATA, false)
     }
 
     /** A Keystore key without user confirmation, for test pairings only. */
@@ -76,9 +97,36 @@ object TestAids {
         }
         private val file = "LifeOS sample file.\n".toByteArray() // 20 bytes, as the sample offer says
 
+        private val data: JsonObject by lazy {
+            Json.parseToJsonElement(context.assets.open("sample-data.json").use { it.readBytes().decodeToString() }).jsonObject
+        }
+
         private fun mine(path: String) = sampleCourses && (path.startsWith("/courses") || path.startsWith("/files/"))
 
+        /** The sample data: GETs from the file (dates made relative to today), every write simply accepted. */
+        private fun sample(method: String, path: String): RelayResponse {
+            if (method != "GET") return RelayResponse(200, buildJsonObject { put("saved", JsonPrimitive(true)) })
+            val key = "GET " + path.replace(Regex("^/courses/\\d+/"), "/courses/ID/").replace(Regex("^/notes/[^/]+$"), "/notes/ID")
+            val body = data[key] ?: return RelayResponse(404, Json.parseToJsonElement("""{"error":"not_found"}"""))
+            return RelayResponse(200, relative(body))
+        }
+
+        private fun relative(element: JsonElement): JsonElement = when (element) {
+            is JsonObject -> buildJsonObject {
+                for ((name, value) in element) {
+                    when (name) {
+                        "due_in_days" -> put("due", JsonPrimitive(System.currentTimeMillis() / 1000 + value.jsonPrimitive.int * 86_400L))
+                        "due_date_in_days" -> put("due", JsonPrimitive(java.time.LocalDate.now().plusDays(value.jsonPrimitive.int.toLong()).toString()))
+                        else -> put(name, relative(value))
+                    }
+                }
+            }
+            is kotlinx.serialization.json.JsonArray -> kotlinx.serialization.json.buildJsonArray { element.forEach { add(relative(it)) } }
+            else -> element
+        }
+
         override suspend fun request(method: String, path: String, query: Map<String, String>, body: JsonElement?, timeoutMillis: Long): RelayResponse {
+            if (sampleData) return sample(method, path)
             if (!mine(path)) return real.request(method, path, query, body, timeoutMillis)
             val key = "$method " + path.replace(Regex("/files/[^/]+/(address|offer)$"), "/files/KEY/$1")
             if (key == "POST /courses/refresh") return RelayResponse(202, answers.getValue("GET /courses/sync").jsonObject.getValue("body"))

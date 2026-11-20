@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The notification icon of the morning question: a crescent moon, drawn for this project.
+     Android uses only its shape (alpha); the fill colour is not shown. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M14.5 3.2a8.8 8.8 0 1 0 6.3 13.4 7 7 0 0 1-6.3-13.4z" />
+</vector>

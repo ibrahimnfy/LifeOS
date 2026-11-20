@@ -82,24 +82,58 @@ object LifeIcons {
         line = "M12 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5V12" +
             "M17.6 3.6l2.8 2.8-8 8-3.4.6.6-3.4z",
     )
-    val Projects = icon(
-        "Projects",
-        line = "M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z",
-    )
-    val Calendar = icon(
-        "Calendar",
-        line = "M6 5.5h12a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 18V7A1.5 1.5 0 0 1 6 5.5z" +
-            "M4.5 10h15M8.5 3.5v4M15.5 3.5v4",
-    )
+    val Projects = icon("Projects", line = FOLDER)
+    val Calendar = icon("Calendar", line = CALENDAR)
     val Courses = icon(
         "Courses",
         line = "M12 6.5c-2-1.3-4.5-1.5-7.5-1v12.5c3-.5 5.5-.3 7.5 1 2-1.3 4.5-1.5 7.5-1V5.5c-3-.5-5.5-.3-7.5 1zM12 6.5V19",
     )
-    /** A medal: the grades of all courses. */
-    val Grades = icon(
-        "Grades",
-        line = "M6.5 9a5.5 5.5 0 1 0 11 0a5.5 5.5 0 1 0-11 0zM8.8 13.5l-1.3 7 4.5-2.5 4.5 2.5-1.3-7M12 6.5v5",
+    private const val SPARK = "M12 4l2.1 5.9L20 12l-5.9 2.1L12 20l-2.1-5.9L4 12l5.9-2.1z"
+    private const val FILE = "M7 3.5h6.5L18 8v11a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 19V5A1.5 1.5 0 0 1 7 3.5zM13.5 3.5V8H18"
+    private const val FOLDER = "M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4l2 2.5h8A1.5 1.5 0 0 1 20.5 9.5v8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"
+    private const val CALENDAR =
+        "M6 5.5h12a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 18V7A1.5 1.5 0 0 1 6 5.5z" +
+            "M4.5 10h15M8.5 3.5v4M15.5 3.5v4"
+
+    /** Section icons: in front of a card's heading. */
+    val Spark = icon("Spark", line = SPARK)
+    val File = icon("File", line = FILE)
+
+    /**
+     * Watermarks: the same shapes with a thin line, drawn large and faint in a card's corner
+     * (purely decorative).
+     */
+    val SparkMark = icon("SparkMark", 0.8f, line = SPARK)
+    val TodayMark = icon("TodayMark", 0.8f, line = TODAY)
+    val TasksMark = icon("TasksMark", 0.8f, line = TASKS)
+
+    // ---- the courses' own icons (one per course, see data/Looks.kt)
+
+    val Wave = icon("Wave", line = "M2.5 12c1.6-5.5 3.2-5.5 4.75 0s3.15 5.5 4.75 0 3.2-5.5 4.75 0 3.15 5.5 4.75 0")
+    val Chip = icon(
+        "Chip",
+        line = "M8.5 7h7A1.5 1.5 0 0 1 17 8.5v7a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 7 15.5v-7A1.5 1.5 0 0 1 8.5 7z" +
+            " M10 7V4M14 7V4M10 20v-3M14 20v-3M7 10H4M7 14H4M20 10h-3M20 14h-3",
     )
+    val Matrix = icon(
+        "Matrix",
+        line = "M7.5 4.5h-3v15h3M16.5 4.5h3v15h-3",
+        solid = "M8.4 9a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0-2.2 0zM13.4 9a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0-2.2 0z" +
+            " M8.4 15a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0-2.2 0zM13.4 15a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0-2.2 0z",
+    )
+    val Pen = icon("Pen", line = "M12 3.5l5.5 8.5L12 20.5 6.5 12zM12 20.5V13.5M10.5 12a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0z")
+    val Dice = icon(
+        "Dice",
+        line = "M8 4.5h8A3.5 3.5 0 0 1 19.5 8v8a3.5 3.5 0 0 1-3.5 3.5H8A3.5 3.5 0 0 1 4.5 16V8A3.5 3.5 0 0 1 8 4.5z",
+        solid = "M7.8 9a1.2 1.2 0 1 0 2.4 0a1.2 1.2 0 1 0-2.4 0zM13.8 15a1.2 1.2 0 1 0 2.4 0a1.2 1.2 0 1 0-2.4 0z" +
+            " M10.8 12a1.2 1.2 0 1 0 2.4 0a1.2 1.2 0 1 0-2.4 0z",
+    )
+    val Flask = icon(
+        "Flask",
+        line = "M9.5 3.5h5M10.5 3.5V9l-5.3 9a1.6 1.6 0 0 0 1.4 2.5h10.8a1.6 1.6 0 0 0 1.4-2.5L13.5 9V3.5M7.6 14.5h8.8",
+    )
+    val Folder = icon("Folder", line = FOLDER)
+
     val Activity = icon("Activity", line = "M5 19.5v-6M12 19.5v-14M19 19.5v-9")
     val Settings = icon(
         "Settings",

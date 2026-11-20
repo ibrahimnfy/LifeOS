@@ -195,6 +195,35 @@ object SleepEstimate {
         java.time.Instant.ofEpochMilli(millis).atZone(zone).toLocalTime().let { "%02d:%02d".format(it.hour, it.minute) }
 }
 
+/** What the Sleep tab shows and when the morning question is due, without Android classes. */
+object SleepView {
+    private val CLOCK = Regex("([01]\\d|2[0-3]):[0-5]\\d")
+
+    /** The last [count] mornings up to [today], oldest first; a night without entry or estimate is null. */
+    fun window(nights: List<Night>, today: LocalDate, count: Int): List<Pair<LocalDate, Night?>> {
+        val byDate = nights.associateBy { it.date }
+        return (count - 1 downTo 0).map { back -> today.minusDays(back.toLong()).let { it to byDate[it.toString()] } }
+    }
+
+    /** The average length of the nights in the window (entered and estimated), or null. */
+    fun average(window: List<Pair<LocalDate, Night?>>): Int? {
+        val known = window.mapNotNull { it.second }
+        return if (known.isEmpty()) null else known.sumOf { it.minutes } / known.size
+    }
+
+    /** The night that ended this morning ([today]), entered or estimated. */
+    fun lastNight(nights: List<Night>, today: LocalDate): Night? = nights.firstOrNull { it.date == today.toString() }
+
+    /** The morning question is asked only while last night has not been entered (an estimate does not count). */
+    fun needsEntry(nights: List<Night>, today: LocalDate): Boolean = nights.none { it.date == today.toString() && !it.estimated }
+
+    /** A time as the bridge takes it: `HH:MM`, 24 hours. */
+    fun validClock(text: String): Boolean = CLOCK.matches(text)
+
+    /** An entry the owner can save: two valid, different times. */
+    fun validEntry(bed: String, wake: String): Boolean = validClock(bed) && validClock(wake) && bed != wake
+}
+
 /** When the morning question is asked next: today at [time] if that is still ahead, else tomorrow. */
 object SleepPromptTime {
     fun next(now: ZonedDateTime, time: LocalTime): ZonedDateTime {

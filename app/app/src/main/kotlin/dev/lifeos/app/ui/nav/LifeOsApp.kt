@@ -36,6 +36,7 @@ import dev.lifeos.app.settings.ThemeSetting
 import dev.lifeos.app.ui.components.BottomBar
 import dev.lifeos.app.ui.components.CaptureKind
 import dev.lifeos.app.ui.components.CaptureSheet
+import dev.lifeos.app.ui.components.LocalLooks
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
@@ -69,6 +70,8 @@ fun LifeOsApp(
     onPairingOpened: () -> Unit,
     captureRequest: String?,
     onCaptureHandled: () -> Unit,
+    openSleep: Boolean = false,
+    onSleepOpened: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -106,6 +109,13 @@ fun LifeOsApp(
             onPairingOpened()
         }
     }
+    // The morning question was tapped: Activity opens on its Sleep tab.
+    LaunchedEffect(openSleep) {
+        if (openSleep) {
+            navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
+            onSleepOpened()
+        }
+    }
 
     val undoLabel = stringResource(R.string.action_undo)
     val showUndo: (String, () -> Unit) -> Unit = { message, onUndo ->
@@ -118,7 +128,12 @@ fun LifeOsApp(
         }
     }
     val locked by core.locked.collectAsStateWithLifecycle()
-    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo) {
+    val pairing by core.pairing.collectAsStateWithLifecycle()
+    val looks by core.looks.collectAsStateWithLifecycle()
+    // The courses' colours come from the saved course list: read it once unlocked.
+    val connected = core.connection.collectAsStateWithLifecycle().value == dev.lifeos.app.ConnectionState.CONNECTED
+    LaunchedEffect(pairing != null, locked, connected) { if (pairing != null && !locked) core.loadLooks() }
+    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks) {
     Scaffold(
         containerColor = LifeTheme.colors.bg,
         contentColor = LifeTheme.colors.text,

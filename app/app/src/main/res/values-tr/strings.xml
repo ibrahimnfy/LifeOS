@@ -266,6 +266,22 @@
     <string name="courses_last_sync">Son eşitleme: %1$s</string>
     <string name="courses_never_synced">Henüz eşitlenmedi</string>
     <string name="courses_all_grades">Tüm notlar</string>
+    <string name="courses_all">Tüm dersler</string>
+    <plurals name="courses_count">
+        <item quantity="one">%d ders</item>
+        <item quantity="other">%d ders</item>
+    </plurals>
+    <string name="courses_due_today">Bugün</string>
+    <plurals name="courses_days_unit">
+        <item quantity="one">gün</item>
+        <item quantity="other">gün</item>
+    </plurals>
+    <plurals name="courses_in_days">
+        <item quantity="one">%d gün kaldı</item>
+        <item quantity="other">%d gün kaldı</item>
+    </plurals>
+    <string name="course_next">Sıradaki: %1$s</string>
+    <string name="course_due_line">Son gün %1$s · %2$s</string>
     <string name="courses_empty">Henüz ders yok. Bilgisayardaki ilk eşitlemeden sonra görünürler.</string>
     <string name="courses_next_deadline">Sıradaki: %1$s, %2$s</string>
     <string name="courses_no_next_deadline">Yaklaşan son tarih yok</string>
@@ -348,8 +364,43 @@
     </plurals>
     <string name="activity_no_data">Henüz ölçüm yok.</string>
     <string name="activity_apps_none">Hiçbir uygulama bir dakika ya da daha uzun kullanılmadı.</string>
-    <string name="activity_sync_switch">Ekran süresini günde bir kez gönder</string>
-    <string name="activity_sync_text">Biten her gün bilgisayarına bir kez gönderilir: toplam süre, kilit açma sayısı ve en çok kullanılan 20 uygulama dakikalarıyla. Uygulama bir sonraki açılıp bağlandığında gider; telefon bunu arka planda gönderemez.</string>
+    <string name="activity_sync_switch">Ekran süresini ve uykuyu günde bir kez gönder</string>
+    <string name="activity_sync_text">Biten her gün bilgisayarına bir kez gönderilir: toplam süre, kilit açma sayısı ve en çok kullanılan 20 uygulama dakikalarıyla, ayrıca her gece saatleriyle. Uygulama bir sonraki açılıp bağlandığında gider; telefon bunu arka planda gönderemez.</string>
+    <string name="activity_tab_sleep">Uyku</string>
+    <string name="activity_tab_screen_time">Ekran süresi</string>
+
+    <!-- Etkinlik: uyku -->
+    <string name="sleep_access_text">Kullanım erişimiyle, girmediğin geceler telefonun kullanılmadığı süreden tahmin edilir.</string>
+    <string name="sleep_per_night">Gecelik uyku</string>
+    <string name="sleep_no_data">Henüz gece yok. Dün geceyi gir ya da tahmin için kullanım erişimine izin ver.</string>
+    <plurals name="sleep_chart_description">
+        <item quantity="one">Son gecenin uykusunu gösteren çubuk grafik. Yukarıda görmek için ona dokun.</item>
+        <item quantity="other">Son %d gecenin uyku saatlerini gösteren çubuk grafik: girilen geceler dolu, tahmin edilenler taralı, ortalama kesikli çizgiyle. Yukarıda görmek için bir geceye dokun.</item>
+    </plurals>
+    <string name="sleep_last_night">Dün gece</string>
+    <string name="sleep_night_of">Gece · %1$s</string>
+    <string name="sleep_not_entered">Henüz girilmedi.</string>
+    <string name="sleep_times">%1$s – %2$s</string>
+    <string name="sleep_estimated">Tahmini</string>
+    <string name="sleep_legend_entered">Girildi</string>
+    <string name="sleep_enter_last_night">Dün geceyi gir</string>
+    <string name="sleep_enter">Bu geceyi gir</string>
+    <string name="sleep_correct">Düzelt</string>
+    <string name="sleep_prompt_switch">Sabah sorusu</string>
+    <string name="sleep_prompt_explain">Dün gece girilmemişse, saat %1$s olduğunda sessiz bir bildirim bunu sorar. Bu telefonda planlanır; bunun için hiçbir şey gönderilmez.</string>
+    <string name="sleep_prompt_time">Saat: %1$s</string>
+    <string name="sleep_prompt_allow">Bildirimlere izin ver</string>
+    <string name="sleep_editor_title">Gece · %1$s</string>
+    <string name="sleep_bed">Yatış: %1$s</string>
+    <string name="sleep_wake">Kalkış: %1$s</string>
+    <string name="sleep_channel">Sabah sorusu</string>
+    <string name="sleep_channel_text">Dün gece girilmemişse uykunu sorar.</string>
+    <string name="sleep_prompt_title">Günaydın</string>
+    <string name="sleep_prompt_text">Nasıl uyudun? Dün geceyi girmek için dokun.</string>
+    <plurals name="sleep_sync_waiting">
+        <item quantity="one">%d gece bekliyor</item>
+        <item quantity="other">%d gece bekliyor</item>
+    </plurals>
     <string name="activity_sync_last">Son gönderim %1$s</string>
     <string name="activity_sync_never">Henüz bir şey gönderilmedi</string>
     <plurals name="activity_sync_waiting">

@@ -21,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
+import dev.lifeos.app.activity.SleepPrompt
 import dev.lifeos.app.lock.Authenticator
 import dev.lifeos.app.pairing.PairingText
 import dev.lifeos.app.ui.components.LocalConnection
@@ -41,6 +42,9 @@ class MainActivity : AppCompatActivity() {
 
     /** Text for the capture sheet, asked for by the home-screen shortcut or another app's share. */
     private var captureRequest by mutableStateOf<String?>(null)
+
+    /** The morning question was tapped: open the Sleep tab. */
+    private var openSleep by mutableStateOf(false)
 
     /** Once the welcome screen was answered it does not come back in this run. */
     private var welcomeDone by mutableStateOf(false)
@@ -107,6 +111,8 @@ class MainActivity : AppCompatActivity() {
                                     authenticate = ::authenticate,
                                     openPairing = openPairing,
                                     onPairingOpened = { openPairing = false },
+                                    openSleep = openSleep,
+                                    onSleepOpened = { openSleep = false },
                                     captureRequest = captureRequest,
                                     onCaptureHandled = { captureRequest = null },
                                 )
@@ -140,6 +146,7 @@ class MainActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         lifecycleScope.launch { core.onShown() }
+        core.scheduleSleepPrompt()
     }
 
     override fun onStop() {
@@ -174,6 +181,10 @@ class MainActivity : AppCompatActivity() {
     private fun readCapture(intent: Intent?) {
         when (intent?.action) {
             ACTION_CAPTURE -> captureRequest = ""
+            SleepPrompt.ACTION_OPEN_SLEEP -> {
+                openSleep = true
+                welcomeDone = true
+            }
             Intent.ACTION_SEND -> if (intent.type == "text/plain") {
                 val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getStringExtra(Intent.EXTRA_TEXT))
                     .filter { it.isNotBlank() }.distinct().joinToString("\n")
@@ -188,6 +199,10 @@ class MainActivity : AppCompatActivity() {
     /** Debug builds only (see `src/debug/.../TestAids.kt`); in release builds this does nothing. */
     private fun useTestAids(intent: Intent?) {
         TestAids.readSwitches(intent)
+        if (TestAids.wantsSampleData) {
+            welcomeDone = true
+            core.useSampleData()
+        }
         val realLock = TestAids.realLock(intent)
         val offer = TestAids.pairingText(intent)?.let(PairingText::parse) ?: return
         val label = getString(R.string.pair_label_default)

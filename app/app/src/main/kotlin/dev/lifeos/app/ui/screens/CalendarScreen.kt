@@ -360,13 +360,13 @@ private fun EventEditor(original: Event?, onDismiss: () -> Unit, onSave: (EventD
 /** A time of day as `HH:MM`. Dismissing the end pickers clears the optional value. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ClockPicker(initial: String, onDismiss: () -> Unit, onPicked: (String) -> Unit) {
+fun ClockPicker(initial: String, onDismiss: () -> Unit, dismissLabel: Int = R.string.action_clear, onPicked: (String) -> Unit) {
     val parts = initial.split(":").mapNotNull { it.toIntOrNull() }
     val state = rememberTimePickerState(initialHour = parts.getOrElse(0) { 9 }.coerceIn(0, 23), initialMinute = parts.getOrElse(1) { 0 }.coerceIn(0, 59), is24Hour = true)
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = { onPicked("%02d:%02d".format(state.hour, state.minute)) }) { Text(stringResource(R.string.action_ok)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_clear)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(dismissLabel)) } },
         text = { TimePicker(state = state) },
     )
 }
