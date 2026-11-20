@@ -102,3 +102,11 @@ a new entry is added that says what changed and why.
 - **Interactive questions:** plain `claude -p` has no documented way to answer the question tool from a host, so questions are plain text for now. Native option cards need the Agent SDK, which is raised as a decision because it would change the logged choice to keep `claude -p`.
 - **MCP servers, project hooks and project settings in capable runs are raised as a decision:** they run outside the OS sandbox, so the guardrails cannot be enforced for them.
 - **Chat features, implementation choices (agent):** a message for a busy session answers `202` and waits instead of being refused; a hold on the queue after a cancel ends with the owner's next message, a hold after an error or a restart only with an explicit resume; file offers use a marker line `[[file: path]]` that only the bridge turns into a card; hidden files are never offered; the history cursor is a position in the transcript; the bridge's own runs use the default model unless a background model is set.
+
+### Owner answers recorded 2026-11-20 (fifth round)
+- **Relay test on the managed network (#81): passed.** Every check was ok with a ten-minute idle stream. The Realtime Database mailbox is the relay; the backend is built on it.
+- **Moodle sign-in (#82): done** with the helper; the token works (verified with the helper's check, which shows no identifying data).
+- **Visual direction (#30): variant D3 approved.** Light theme is the default; the light/dark switch stays in settings. The coach card and the colours stay as mocked up. The review issue is closed; the app may be built.
+- **Android toolchain (#31): done**, verified read-only (SDK location in the private config, one phone connected and authorised).
+- **Unused service-account keys were revoked by the owner;** one key remains.
+- **Moodle token renewal (owner's requirement):** it must never again need developer tools or copy-paste. Target: one tap in the app, which handles the sign-in redirect, receives the token and passes it to the bridge through the encrypted channel. The owner is warned a few days before the token expires. Until the app can do it, the computer flow is made as simple as possible with a user-level address handler (no administrator rights). The institution password is never stored and the sign-in page itself is never automated.

@@ -745,7 +745,15 @@ network only.
 | Sign-in and token-refresh endpoints | reachable |
 | Push service, dry run with a made-up device | reachable and authorised (answered "invalid device", as expected) |
 
-Not covered by this run: behaviour under TLS inspection (questions 1 and 9),
+**Run on the managed network (owner, 2026-11-20, `--idle 600`): every check
+passed.** Streaming delivered all five writes one by one within about 0.2 s;
+the idle stream stayed open for the full ten minutes with a keep-alive
+every 30 s and delivered a write afterwards; polling took under 0.1 s per
+request; the push service answered the dry run. The certificates were the
+provider's own on that network too, so the bridge's requests were not
+re-signed there.
+
+Not covered by these runs: behaviour under TLS inspection (questions 1 and 9),
 idle lifetimes beyond 75 s (`--idle` takes a longer period), delivery time of
 a real push to a phone in Doze (needs the app).
 

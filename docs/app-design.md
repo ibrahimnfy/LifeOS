@@ -1,10 +1,10 @@
 # App concept
 
-Status: **in review.** Navigation, chat behaviour, the screen list and the
-content of Today, Tasks and Sessions are agreed with the owner. The visual
-direction is being refined from the mockups of the variants D1 to D3 in
-[`docs/design/mockups/`](design/mockups/). No app code is
-written before the review issue is closed. Examples below are generic
+Status: **approved by the owner (2026-11-20); the app may be built.**
+Navigation, chat behaviour, the screen list and the content of Today, Tasks
+and Sessions are agreed, and the visual direction is variant **D3** of the
+mockups in [`docs/design/mockups/`](design/mockups/), light theme by
+default. Examples below are generic
 placeholders.
 
 The Android app is the owner's remote control and window into LifeOS. It is
@@ -286,7 +286,7 @@ decided in the issue that builds them.
   this phone", "Test connection" with a clear result.
 - **App lock:** biometric or device credential; lock timeout.
 - **Language:** follow phone / English / Türkçe.
-- **Appearance:** follow phone / light / dark.
+- **Appearance:** light (default) / dark / follow phone.
 - **Assistant:** default model and effort for new conversations (default:
   Opus, high); number of exchanges loaded when a conversation opens.
 - **Coach:** nudge frequency (off / low / normal), quiet hours (default
@@ -361,7 +361,12 @@ variants, **D1, D2, D3**, to be compared side by side (light and dark).
   red for notification badges and counts; a warm multi-colour gradient (own
   tones in the pink / orange / purple range) as a ring or highlight on
   featured elements: the coach card, pinned sessions, the active state.
-- **Variants:** D1 cool (blue-black dark mode, blue-led accent, thin ring);
+- **Chosen: D3**, the balanced variant (neutral soft greys in light mode,
+  blue-tinted charcoal in dark mode, a gradient from violet through pink to
+  orange, medium ring). **Light is the default theme**; the light/dark
+  switch stays in settings. The coach card and the colours stay as mocked
+  up. Tokens: the mockups' README.
+- **Variants that were compared:** D1 cool (blue-black dark mode, blue-led accent, thin ring);
   D2 warm (warm off-white, charcoal, gradient-led accent, thick ring); D3 in
   between. Exact tones and contrast ratios are listed in the mockups'
   README; body text meets the usual contrast recommendation in all six.
@@ -433,4 +438,4 @@ layout, subtle motion (short fades and slides, nothing bouncy).
 | Sessions: groups, rename, pin, reminders, reply notifications | set by the owner |
 | Coach: questions in chat, nudges with limits | set by the owner; design in `coach-design.md` |
 | Chat: lazy history, queue / send now / cancel, "/" commands, model per session, file cards, questions | set by the owner; design in `chat-design.md` |
-| Visual direction | A, B, C not chosen; D's structure accepted; variants **D1, D2, D3** mocked up, **open**: the owner chooses and refines |
+| Visual direction | **D3 approved**; light theme by default, switch in settings |
