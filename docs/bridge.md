@@ -106,8 +106,10 @@ documented here as they are built.
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
 | GET / POST | `/reminders` | yes | Lists or creates session reminders |
 | PATCH / DELETE | `/reminders/{id}` | yes | Changes or deletes a reminder |
-| POST | `/notes` | yes | Quick capture into the memory's inbox |
+| GET / POST | `/notes` | yes | Lists notes, or captures one into the memory's inbox |
+| GET / PATCH | `/notes/{id}` | yes | Reads a note in full, or changes a captured note |
 | GET / POST | `/tasks` | yes | Lists open tasks or adds one |
+| PATCH | `/tasks/{id}` | yes | Changes a task's title or due date |
 | POST | `/tasks/{id}/complete` | yes | Ticks a task |
 | GET / POST | `/events` | yes | Lists or creates calendar events |
 | PATCH | `/events/{id}` | yes | Changes an event |
@@ -513,6 +515,15 @@ git, or **has a git remote**: the memory must stay on the computer.
 
 - `POST /notes` with `{"text": "…"}` appends a dated line to `inbox.md`
   (`201`). Up to 4,000 characters; further lines are kept, indented.
+- `GET /notes?query=&limit=` lists the captures of the inbox, newest first
+  (`kind: "inbox"`), and the topic files under `notes/` (`kind: "topic"`,
+  with their title), each with `id`, `at` and a `preview`; `query` searches
+  title and text. `GET /notes/{id}` returns one with its full `text`.
+  `PATCH /notes/{id}` with `{"text": "…"}` changes a captured note (its id
+  is derived from its text, so the answer carries the new id); topic notes
+  are read-only here.
+- `PATCH /tasks/{id}` with any of `{"title": "…", "due": "YYYY-MM-DD" |
+  null}` changes an open task.
 - `GET /tasks` returns the open tasks in file order: `{"tasks": [{"id":
   "t-20270115-01", "title": "…", "done": false, "due": "2027-01-20" | null,
   "project": …, "course": …, "added": "…"}]}`.

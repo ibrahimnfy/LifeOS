@@ -8,6 +8,7 @@ the computer.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import subprocess
@@ -139,6 +140,114 @@ def add_note(memory: Path, text: object, now: datetime | None = None) -> dict:
     return {"saved": True, "at": now.isoformat(timespec="minutes")}
 
 
+INBOX_ENTRY = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (.*)$")
+NOTE_ID = re.compile(r"^[in]-[A-Za-z0-9][A-Za-z0-9-]{0,80}$")
+
+
+def _inbox_entries(text: str) -> list[dict]:
+    """Captures in the inbox: ``{"id", "at", "text", "start", "end"}`` (line numbers)."""
+    lines = text.splitlines()
+    entries: list[dict] = []
+    for index, line in enumerate(lines):
+        found = INBOX_ENTRY.match(line)
+        if found:
+            entries.append({"at": found.group(1), "lines": [found.group(2)], "start": index})
+        elif entries and line.startswith("  ") and entries[-1].get("end") is None:
+            entries[-1]["lines"].append(line[2:])
+        elif entries and entries[-1].get("end") is None:
+            entries[-1]["end"] = index
+    for entry in entries:
+        entry.setdefault("end", len(lines))
+        entry["end"] = entry["start"] + len(entry["lines"])
+        entry["text"] = "\n".join(entry.pop("lines"))
+        digest = hashlib.sha256(f"{entry['at']}\n{entry['text']}".encode()).hexdigest()[:12]
+        entry["id"] = f"i-{digest}"
+    return entries
+
+
+def _topic_note(path: Path) -> dict:
+    text = read_text(path)
+    body = text.split("\n---", 1)[1] if text.startswith("---") and "\n---" in text[3:] else text
+    title = re.search(r"^title:\s*(.+)$", text, re.MULTILINE) if text.startswith("---") else None
+    updated = (
+        re.search(r"^updated:\s*(\S+)$", text, re.MULTILINE) if text.startswith("---") else None
+    )
+    return {
+        "id": f"n-{path.stem}",
+        "kind": "topic",
+        "title": (title.group(1).strip() if title else path.stem)[:MAX_TITLE],
+        "at": updated.group(1) if updated else None,
+        "text": body.strip(),
+    }
+
+
+def _note_files(memory: Path) -> list[Path]:
+    folder = memory / "notes"
+    if not folder.is_dir():
+        return []
+    return sorted(
+        p for p in folder.glob("*.md")
+        if p.name != "README.md" and p.is_file() and p.resolve().is_relative_to(folder.resolve())
+    )  # fmt: skip
+
+
+def list_notes(memory: Path, query: str = "", limit: int = 100) -> list[dict]:
+    """Inbox captures (newest first) and topic notes, with a short preview each."""
+    needle = query.casefold().strip()
+    found = []
+    for entry in reversed(_inbox_entries(read_text(memory / "inbox.md"))):
+        found.append({"id": entry["id"], "kind": "inbox", "title": None, "at": entry["at"],
+                      "text": entry["text"]})  # fmt: skip
+    found += [_topic_note(path) for path in _note_files(memory)]
+    if needle:
+        found = [n for n in found if needle in f"{n['title'] or ''}\n{n['text']}".casefold()]
+    return [
+        {**{k: v for k, v in note.items() if k != "text"}, "preview": note["text"][:280]}
+        for note in found[: max(1, min(limit, 500))]
+    ]
+
+
+def get_note(memory: Path, note_id: str) -> dict:
+    if not NOTE_ID.fullmatch(note_id):
+        raise ClaudeError("note_not_found", 404, "unknown note")
+    if note_id.startswith("n-"):
+        for path in _note_files(memory):
+            if path.stem == note_id[2:]:
+                return _topic_note(path)
+    else:
+        for entry in _inbox_entries(read_text(memory / "inbox.md")):
+            if entry["id"] == note_id:
+                return {"id": entry["id"], "kind": "inbox", "title": None, "at": entry["at"],
+                        "text": entry["text"]}  # fmt: skip
+    raise ClaudeError("note_not_found", 404, "unknown note")
+
+
+def update_note(memory: Path, note_id: str, text: object) -> dict:
+    """Change the text of an inbox capture. Its id changes with its text."""
+    if not isinstance(text, str) or not text.strip():
+        raise bad("`text` must be non-empty text")
+    if len(text) > MAX_TEXT:
+        raise bad(f"`text` is longer than {MAX_TEXT} characters")
+    if note_id.startswith("n-"):
+        raise bad("topic notes are edited on the computer for now")
+    with LOCK:
+        check_repo(memory)
+        path = memory / "inbox.md"
+        current = read_text(path)
+        entry = next((e for e in _inbox_entries(current) if e["id"] == note_id), None)
+        if entry is None:
+            raise ClaudeError("note_not_found", 404, "unknown note")
+        fresh = [line.rstrip() for line in text.strip().splitlines() if line.strip()]
+        block = [f"- {entry['at']} {fresh[0]}", *(f"  {line}" for line in fresh[1:])]
+        lines = current.splitlines()
+        lines[entry["start"] : entry["end"]] = block
+        write_text(path, "\n".join(lines) + "\n")
+        commit(memory, "Edit a captured note", ["inbox.md"])
+        updated = next(e for e in _inbox_entries(read_text(path)) if e["start"] == entry["start"])
+    return {"id": updated["id"], "kind": "inbox", "title": None, "at": updated["at"],
+            "text": updated["text"]}  # fmt: skip
+
+
 # --------------------------------------------------------------------------- tasks
 
 
@@ -223,6 +332,37 @@ def add_task(memory: Path, data: dict, now: datetime | None = None) -> Task:
         write_text(path, current + task.line() + "\n")
         commit(memory, "Add a task from the phone", ["tasks.md"])
     return task
+
+
+def update_task(memory: Path, task_id: str, data: dict) -> Task:
+    """Change a task's title or due date (``"due": null`` removes the date)."""
+    if not data or set(data) - {"title", "due"}:
+        raise bad("allowed fields: title, due")
+    with LOCK:
+        check_repo(memory)
+        path = memory / "tasks.md"
+        lines = read_text(path).splitlines()
+        for index, line in enumerate(lines):
+            task = parse_task(line)
+            if task is None or task.id != task_id:
+                continue
+            if "title" in data:
+                title = clean_line(data["title"], "title", MAX_TITLE)
+                task.title = title.replace("(", "[").replace(")", "]")
+            if "due" in data:
+                if data["due"] is None:
+                    task.fields.pop("due", None)
+                else:
+                    due = read_date(data["due"], "due").isoformat()
+                    task.fields = {
+                        "due": due,
+                        **{k: v for k, v in task.fields.items() if k != "due"},
+                    }
+            lines[index] = task.line()
+            write_text(path, "\n".join(lines) + "\n")
+            commit(memory, "Edit a task", ["tasks.md"])
+            return task
+    raise ClaudeError("task_not_found", 404, "no open task has this id")
 
 
 def complete_task(memory: Path, task_id: str, now: datetime | None = None) -> Task:

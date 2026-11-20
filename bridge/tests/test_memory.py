@@ -219,3 +219,63 @@ def test_no_context_without_a_memory_and_none_in_other_folders(
 def test_context_is_bounded(brain):
     (brain / "INDEX.md").write_text("x" * 200_000)
     assert len(memory.context_for_prompt(brain)) <= memory.CONTEXT_LIMIT + 100
+
+
+def test_notes_can_be_listed_searched_read_and_edited(client, auth, brain):
+    client.post("/notes", headers=auth, json={"text": "first idea\nwith detail"})
+    client.post("/notes", headers=auth, json={"text": "second thought"})
+    (brain / "notes").mkdir()
+    (brain / "notes" / "example-topic.md").write_text(
+        "---\ntitle: Example topic\ntype: note\nupdated: 2027-01-10\n---\n\nA summary line.\n"
+    )
+    notes = client.get("/notes", headers=auth).json()["notes"]
+    assert [n["kind"] for n in notes] == ["inbox", "inbox", "topic"]
+    assert (
+        notes[0]["preview"] == "second thought" and notes[1]["preview"] == "first idea\nwith detail"
+    )
+    assert notes[2] == {"id": "n-example-topic", "kind": "topic", "title": "Example topic",
+                        "at": "2027-01-10", "preview": "A summary line."}  # fmt: skip
+    found = client.get("/notes", headers=auth, params={"query": "DETAIL"}).json()["notes"]
+    assert [n["id"] for n in found] == [notes[1]["id"]]
+
+    full = client.get(f"/notes/{notes[1]['id']}", headers=auth).json()
+    assert full["text"] == "first idea\nwith detail"
+    edited = client.patch(
+        f"/notes/{notes[1]['id']}", headers=auth, json={"text": "first idea, improved"}
+    )
+    assert edited.status_code == 200 and edited.json()["text"] == "first idea, improved"
+    assert edited.json()["id"] != notes[1]["id"] and edited.json()["at"] == full["at"]
+    text = (brain / "inbox.md").read_text()
+    assert "first idea, improved" in text and "with detail" not in text and "second thought" in text
+    assert commits(brain)[0] == "Edit a captured note" and git(brain, "status", "--short") == ""
+
+    assert client.get(f"/notes/{notes[1]['id']}", headers=auth).status_code == 404  # old id is gone
+    assert client.get("/notes/n-example-topic", headers=auth).json()["text"] == "A summary line."
+    assert (
+        client.patch("/notes/n-example-topic", headers=auth, json={"text": "x"}).status_code == 400
+    )
+    for bad_id in ["i-unknown", "n-missing", "x", "n-../CLAUDE"]:
+        assert client.get(f"/notes/{bad_id}", headers=auth).status_code == 404
+    assert (
+        client.patch(f"/notes/{notes[0]['id']}", headers=auth, json={"text": ""}).status_code == 400
+    )
+
+
+def test_a_task_can_be_retitled_and_redated(client, auth, brain):
+    task = client.post("/tasks", headers=auth, json={"title": "Old", "due": "2027-01-20"}).json()
+    other = client.post("/tasks", headers=auth, json={"title": "Other"}).json()
+    changed = client.patch(
+        f"/tasks/{task['id']}", headers=auth, json={"title": "New (now)", "due": "2027-02-01"}
+    )
+    assert changed.json()["title"] == "New [now]" and changed.json()["due"] == "2027-02-01"
+    assert changed.json()["id"] == task["id"] and changed.json()["added"] == task["added"]
+    undated = client.patch(f"/tasks/{task['id']}", headers=auth, json={"due": None}).json()
+    assert undated["due"] is None
+    listed = client.get("/tasks", headers=auth).json()["tasks"]
+    assert [t["title"] for t in listed] == ["New [now]", "Other"] and listed[1]["id"] == other["id"]
+    assert commits(brain)[0] == "Edit a task"
+    for body in [{}, {"colour": 1}, {"due": "soon"}, {"title": ""}]:
+        assert client.patch(f"/tasks/{task['id']}", headers=auth, json=body).status_code == 400
+    assert (
+        client.patch("/tasks/t-20000101-01", headers=auth, json={"title": "x"}).status_code == 404
+    )

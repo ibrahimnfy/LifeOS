@@ -715,6 +715,27 @@ def create_app(settings: Settings) -> FastAPI:
         data = await read_json_object(request)
         return await asyncio.to_thread(memory.add_note, brain, data.get("text"))
 
+    @app.get("/notes")
+    async def list_notes(query: str = "", limit: int = 100):
+        """Captured notes (newest first) and topic notes, each with a preview."""
+        return {"notes": await asyncio.to_thread(memory.list_notes, brain, query, limit)}
+
+    @app.get("/notes/{note_id}")
+    async def get_note(note_id: str):
+        return await asyncio.to_thread(memory.get_note, brain, note_id)
+
+    @app.patch("/notes/{note_id}")
+    async def update_note(note_id: str, request: Request):
+        """Change the text of a captured note. Body: ``{"text": str}``."""
+        data = await read_json_object(request)
+        return await asyncio.to_thread(memory.update_note, brain, note_id, data.get("text"))
+
+    @app.patch("/tasks/{task_id}")
+    async def update_task(task_id: str, request: Request):
+        """Change a task. Body: any of ``{"title": str, "due": "YYYY-MM-DD" | null}``."""
+        data = await read_json_object(request)
+        return (await asyncio.to_thread(memory.update_task, brain, task_id, data)).as_json()
+
     @app.get("/tasks")
     async def list_tasks():
         """Open tasks, in the order of the file."""
