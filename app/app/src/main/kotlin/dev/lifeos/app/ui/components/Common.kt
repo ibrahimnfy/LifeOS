@@ -198,6 +198,7 @@ fun MarkRow(
     done: Boolean = false,
     overdue: Boolean = false,
     trailing: (@Composable RowScope.() -> Unit)? = null,
+    markModifier: Modifier? = null,
     mark: @Composable () -> Unit,
 ) {
     val colors = LifeTheme.colors
@@ -208,8 +209,14 @@ fun MarkRow(
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(44.dp), contentAlignment = Alignment.Center) { mark() }
-        Spacer(Modifier.width(14.dp))
+        if (markModifier != null) {
+            // A mark with its own action: a full touch target, the text still starts at 58 dp.
+            Box(markModifier.size(LifeDimens.minTouch), contentAlignment = Alignment.Center) { mark() }
+            Spacer(Modifier.width(10.dp))
+        } else {
+            Box(Modifier.width(44.dp), contentAlignment = Alignment.Center) { mark() }
+            Spacer(Modifier.width(14.dp))
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
@@ -305,7 +312,10 @@ fun CheckMark(done: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
-/** A task row with a round check; tapping anywhere on the row ticks it. */
+/**
+ * A task row with a round check. Without [onOpen], tapping anywhere on the row ticks it; with
+ * it, the check alone ticks and the rest of the row opens the task.
+ */
 @Composable
 fun TaskRow(
     title: String,
@@ -314,8 +324,30 @@ fun TaskRow(
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     overdue: Boolean = false,
+    onOpen: (() -> Unit)? = null,
 ) {
     val state = stringResource(if (done) R.string.state_done else R.string.state_not_done)
+    if (onOpen != null) {
+        val openLabel = stringResource(R.string.task_open)
+        val checkLabel = stringResource(R.string.task_check, title)
+        MarkRow(
+            title = title,
+            subtitle = subtitle,
+            done = done,
+            overdue = overdue,
+            modifier = modifier.clickable(onClickLabel = openLabel, role = Role.Button, onClick = onOpen),
+            markModifier = Modifier
+                .clip(CircleShape)
+                .toggleable(value = done, role = Role.Checkbox, onValueChange = onToggle)
+                .semantics {
+                    contentDescription = checkLabel
+                    stateDescription = state
+                },
+        ) {
+            CheckMark(done)
+        }
+        return
+    }
     MarkRow(
         title = title,
         subtitle = subtitle,
@@ -326,6 +358,38 @@ fun TaskRow(
             .semantics { stateDescription = state },
     ) {
         CheckMark(done)
+    }
+}
+
+/** A small outlined pill with an optional icon, for an action inside a card or row (48 dp target). */
+@Composable
+fun PillButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    enabled: Boolean = true,
+    onClickLabel: String? = null,
+) {
+    val colors = LifeTheme.colors
+    val tint = if (enabled) colors.text else colors.muted
+    Box(
+        modifier = modifier
+            .heightIn(min = LifeDimens.minTouch)
+            .clip(RoundedCornerShape(50))
+            .clickable(enabled = enabled, onClickLabel = onClickLabel, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier = Modifier
+                .border(1.5.dp, colors.divider, RoundedCornerShape(50))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (icon != null) Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
+            Text(text, style = LifeType.label, color = tint)
+        }
     }
 }
 

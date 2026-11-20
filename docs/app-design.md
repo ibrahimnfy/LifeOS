@@ -93,8 +93,10 @@ every section in its own clearly visible card.*
 
   Nothing else. Events, deadline lists, sleep and screen-time tiles live on
   their own screens.
-- **Actions:** tick a task; tap a task to open it; pull to refresh (may ask
-  the computer for a fresh batch).
+- **Actions:** tick a task; tap a task to open it; pull to refresh (reads the
+  plan and the agenda again, never starts a model run); **Rerun** on the
+  coach card asks the computer for a fresh batch (a model run; refused within
+  ten minutes of the last one).
 - **States:** loading skeleton · saved copy with "prepared 2 h ago" when the
   computer is unreachable · empty ("Nothing for today") · no plan yet (tasks
   shown in date order, coach card hidden) · error with retry.
@@ -218,8 +220,9 @@ every section in its own clearly visible card.*
   (n)"**, which opens the complete list in the same order, with filters
   (overdue, today, upcoming, no date, done). Each row: checkbox, title, due
   date, source (e.g. a course name when it came from a deadline).
-- **Actions:** tick, add (through Capture), edit title and date, move a task
-  up or down (the coach learns from it).
+- **Actions:** tick (the round check), add (through Capture), edit title and
+  date (tap the rest of the row; `PATCH /tasks/{id}` through the outbox),
+  move a task up or down (the coach learns from it; not built yet).
 - **States:** loading · saved copy · empty ("All clear") · no plan yet (date
   order) · error with retry; ticks made offline are queued like captures.
 - **Endpoints:** list tasks, complete task, add task *(planned, Phase 3)*;
@@ -236,7 +239,11 @@ every section in its own clearly visible card.*
 - **States:** loading · saved copy · empty ("Nothing captured yet") · no
   search results · error with retry; edits made offline are queued like
   captures and marked "waiting to sync".
-- **Endpoints:** list, search, read and update notes *(planned, Phase 3)*.
+- **Endpoints:** list, search, read and update notes (`GET /notes?query=`,
+  `GET /notes/{id}`, `PATCH /notes/{id}`; only inbox captures can be edited,
+  and a capture's id changes with its text). Built: list with search, open,
+  edit a capture, waiting captures on top. Not built yet: filter chips by
+  place, moving a note.
 
 ### 3.7 Projects
 
@@ -271,10 +278,14 @@ the platform the data comes from.*
 - **Purpose:** courses, materials, announcements, assignments and grades
   from the university's learning platform, kept current without asking.
 - **Courses screen, top to bottom:**
-  1. **Summary card:** the upcoming deadlines of all courses (next two
-     weeks, nearest first) and an **"All grades"** button.
-  2. **Course list:** each course with its next deadline and **a marker
-     when it has new content** since the owner last opened it.
+  1. **Top bar:** the title, the **refresh** action and **"All grades"**
+     (an icon button next to refresh).
+  2. **Summary card:** the upcoming deadlines of all courses (next two
+     weeks, nearest first), and nothing else. *(Opening a deadline's
+     assignment detail comes with the assignment detail screen.)*
+  3. **Course list:** each course with its next deadline and **a marker
+     when it has new content** since the owner last opened it; below it the
+     time of the last sync.
 - **All grades:** one screen with the grades of all courses, grouped by
   course.
 - **Course page, four tabs:**
@@ -288,7 +299,9 @@ the platform the data comes from.*
   phone's Downloads folder; the app keeps no copy. The file comes directly
   from the university site over HTTPS, with a one-time address the computer
   sends through the encrypted channel (no relay quota is used); if that
-  fails, the computer's copy is sent through the relay.
+  fails, the computer's copy is sent through the relay. After a download the
+  file shows **Open**, which opens it from Downloads in the phone's app for
+  its type (view intent; a clear message when no app can open it).
 - **Staying current:** the computer syncs every 6 hours and on the manual
   **refresh** action here; new files, announcements, deadlines or grades
   arrive as a notification and appear in the lists by themselves.
@@ -318,8 +331,13 @@ the platform the data comes from.*
   always-running service, no network.
 - **States:** permission missing (explains why usage access is needed, with a
   button to the system setting) · not enough data yet · normal.
-- **Endpoints:** daily upload of usage and sleep *(planned, Phase 6)*. Charts
-  are drawn from data stored on the phone, so they always work offline.
+- **Endpoints:** daily upload of usage (`POST /activity/usage`, built) and
+  sleep (`POST /activity/sleep`, with #36). Charts are drawn from data stored
+  on the phone, so they always work offline. The phone measures in the
+  background once a day, but sends only while the app is unlocked and
+  connected (the device secret is not available otherwise); each finished
+  day is sent once. Built so far: the Screen time tab (without tabs while
+  Sleep is missing).
 
 ### 3.11 Settings
 

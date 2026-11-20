@@ -18,10 +18,14 @@ data class OutboxItem(
     val id: String,
     val kind: Kind,
     val createdAtMillis: Long,
-    /** The note text or the task title; for a tick, the task's title (for display only). */
+    /**
+     * The note text or the task title; for a tick, the task's title (for display only). For an
+     * edit, the new text or title (and [due] the new date, null for none).
+     */
     val text: String = "",
     val due: String? = null,
     val taskId: String? = null,
+    val noteId: String? = null,
     val eventId: String? = null,
     val event: EventDraft? = null,
     val state: State = State.WAITING,
@@ -32,7 +36,7 @@ data class OutboxItem(
     val errorCode: String? = null,
 ) {
     @Serializable
-    enum class Kind { NOTE, TASK, COMPLETE, EVENT_CREATE, EVENT_UPDATE }
+    enum class Kind { NOTE, TASK, COMPLETE, EVENT_CREATE, EVENT_UPDATE, TASK_EDIT, NOTE_EDIT }
 
     @Serializable
     enum class State {
@@ -46,8 +50,11 @@ data class OutboxItem(
         FAILED,
     }
 
-    /** Sending it twice does no harm, so an uncertain attempt is simply repeated. */
-    val repeatable: Boolean get() = kind == Kind.COMPLETE || kind == Kind.EVENT_UPDATE
+    /**
+     * Sending it twice does no harm, so an uncertain attempt is simply repeated. (A note edit
+     * is not: the note's id changes with its text, so a repeat cannot find it.)
+     */
+    val repeatable: Boolean get() = kind == Kind.COMPLETE || kind == Kind.EVENT_UPDATE || kind == Kind.TASK_EDIT
 }
 
 /** The outbox on storage: one JSON file, replaced atomically on every change. */
@@ -138,6 +145,19 @@ class Outbox(
         return update { items -> items.map { if (it.id == id) it.copy(state = OutboxItem.State.WAITING, errorCode = null) else it } }
     }
 
+    /**
+     * Change the text of an item that has not left the phone yet (a second edit of the same
+     * note must replace the first: the first one changes the id the second would aim at).
+     * False if the item is on its way, needs a look, or is gone.
+     */
+    fun revise(id: String, text: String, due: String? = null): Boolean {
+        val item = state.value.firstOrNull { it.id == id } ?: return false
+        if (item.sending || item.state != OutboxItem.State.WAITING) return false
+        return update { items ->
+            items.map { if (it.id == id && !it.sending && it.state == OutboxItem.State.WAITING) it.copy(text = text, due = due) else it }
+        }
+    }
+
     fun settled(item: OutboxItem): Boolean = nowMillis() - (item.attemptAtMillis ?: 0) > SETTLE_MILLIS
 
     /** Send what is waiting, in order. Returns how many items were completed. */
@@ -158,7 +178,7 @@ class Outbox(
                 update { items -> items.map { if (it.id == item.id) next(it) else it } }
                 throw error
             }
-            if (outcome == null || (item.kind == OutboxItem.Kind.COMPLETE && outcome.status == 404)) {
+            if (outcome == null || alreadyDone(item, outcome)) {
                 update { items -> items.filterNot { it.id == item.id } }
                 done++
                 continue
@@ -168,6 +188,17 @@ class Outbox(
             if (!goOn) break
         }
         done
+    }
+
+    /**
+     * "Not found" can mean an earlier attempt arrived: a ticked task is no longer open, and an
+     * edited note has a new id. For a note edit this holds only after an attempt that left the
+     * phone without an answer ([OutboxItem.attempts] counts only those).
+     */
+    private fun alreadyDone(item: OutboxItem, error: ApiException): Boolean = error.status == 404 && when (item.kind) {
+        OutboxItem.Kind.COMPLETE -> true
+        OutboxItem.Kind.NOTE_EDIT -> item.attempts > 0
+        else -> false
     }
 
     private fun afterFailure(item: OutboxItem, error: ApiException): Pair<(OutboxItem) -> OutboxItem, Boolean> = when {

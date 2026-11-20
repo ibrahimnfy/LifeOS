@@ -78,6 +78,28 @@ object DownloadRules {
     }
 }
 
+/** How a saved file is handed to the phone's app for it. */
+object OpenRules {
+    private const val GENERIC = "application/octet-stream"
+
+    /** With no known type, every app that opens files may offer itself. */
+    const val ANY = "*/*"
+
+    /**
+     * The file's type for the view intent: the one the site announced, else the one Android
+     * stored, else the one its extension stands for ([byExtension]); a generic "binary" type
+     * counts only when nothing better is known.
+     */
+    fun type(announced: String?, stored: String?, name: String, byExtension: (String) -> String?): String {
+        val extension = name.substringAfterLast('.', "").lowercase().takeIf { it.isNotEmpty() && it.length <= 8 }
+        val candidates = sequenceOf(announced, stored, extension?.let(byExtension))
+            .mapNotNull { it?.trim()?.lowercase() }
+            .filter { it.isNotEmpty() && '/' in it }
+            .toList()
+        return candidates.firstOrNull { it != GENERIC } ?: candidates.firstOrNull() ?: ANY
+    }
+}
+
 /**
  * Puts the chunks of a relayed file together: strictly in sequence, straight into the sink,
  * and at the end the size and the SHA-256 must be the announced ones.

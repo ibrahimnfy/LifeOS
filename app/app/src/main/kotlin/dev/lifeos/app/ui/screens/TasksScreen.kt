@@ -35,9 +35,10 @@ import dev.lifeos.app.ui.icons.LifeIcons
 import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
+import kotlinx.coroutines.launch
 
 private const val MOST_IMPORTANT = 5
-private val TASK_KINDS = setOf(OutboxItem.Kind.TASK, OutboxItem.Kind.COMPLETE)
+private val TASK_KINDS = setOf(OutboxItem.Kind.TASK, OutboxItem.Kind.COMPLETE, OutboxItem.Kind.TASK_EDIT)
 
 @Composable
 fun TaskSection.title(): String = stringResource(
@@ -49,24 +50,56 @@ fun TaskSection.title(): String = stringResource(
     },
 )
 
-/** A task of the computer's list: tapping the row ticks it; it leaves the list at once and can be undone for a moment. */
+/**
+ * A task of the computer's list (with its waiting edit applied, see [TaskLists.open]): the
+ * check ticks it (it leaves the list at once and can be undone for a moment); the rest of the
+ * row opens it to change its title and date.
+ */
 @Composable
 fun OpenTaskRow(core: LifeOsCore, task: Task) {
     val undo = LocalUndo.current
+    val snackbar = LocalSnackbar.current
+    val scope = rememberCoroutineScope()
+    val outbox by core.outbox.items.collectAsStateWithLifecycle()
     val message = stringResource(R.string.tasks_done_message)
+    val savedText = stringResource(R.string.capture_saved)
+    val waitingText = stringResource(R.string.capture_waiting)
+    var editing by rememberSaveable(task.id) { mutableStateOf(false) }
     val overdue = Dates.sectionOf(task.due, today()) == TaskSection.OVERDUE
-    val parts = listOfNotNull(dueLabel(task.due).takeIf { !overdue || task.due != null }, task.course ?: task.project)
+    val pending = TaskLists.pendingEdit(task.id, outbox) != null
+    val parts = listOfNotNull(
+        dueLabel(task.due).takeIf { !overdue || task.due != null },
+        task.course ?: task.project,
+        stringResource(R.string.outbox_waiting).takeIf { pending },
+    )
+    val tick = {
+        // The computer cannot reopen a task, so the tick is sent only after the undo time.
+        core.tick(task)
+        undo(message) { core.undoTick(task) }
+    }
     TaskRow(
         title = task.title,
         subtitle = parts.joinToString(" · ").ifEmpty { null },
         done = false,
         overdue = overdue,
-        onToggle = {
-            // The computer cannot reopen a task, so the tick is sent only after the undo time.
-            core.tick(task)
-            undo(message) { core.undoTick(task) }
-        },
+        onToggle = { tick() },
+        onOpen = { editing = true },
     )
+    if (editing) {
+        TaskEditSheet(
+            title = task.title,
+            due = task.due,
+            onDismiss = { editing = false },
+            onSave = { title, due ->
+                editing = false
+                scope.launch { snackbar(if (core.editTask(task, title, due)) savedText else waitingText) }
+            },
+            onOpenDone = {
+                editing = false
+                tick()
+            },
+        )
+    }
 }
 
 /** A task captured on this phone that has not reached the computer yet: no tick, no id. */

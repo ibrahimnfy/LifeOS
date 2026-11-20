@@ -11,8 +11,11 @@ object Routes {
     const val SETTINGS = "more/settings"
     const val PAIR = "more/settings/pair"
     const val NOTES = "more/notes"
+    const val NOTE = "more/note/{note}"
+    const val NOTE_ARG = "note"
     const val CALENDAR = "more/calendar"
     const val COURSES = "more/courses"
+    const val ACTIVITY = "more/activity"
     const val GRADES = "more/courses/grades"
     const val COURSE = "more/course/{course}"
     const val COURSE_ARG = "course"
@@ -21,11 +24,15 @@ object Routes {
 
     fun course(id: Long): String = "more/course/$id"
 
+    /** Note ids are letters, digits and dashes (the bridge checks this); encoded all the same. */
+    fun note(id: String): String = "more/note/${java.net.URLEncoder.encode(id, "UTF-8")}"
+
     /** Sections that are built have their own screen; the others share the placeholder. */
     fun section(section: MoreSection): String = when (section) {
         MoreSection.NOTES -> NOTES
         MoreSection.CALENDAR -> CALENDAR
         MoreSection.COURSES -> COURSES
+        MoreSection.ACTIVITY -> ACTIVITY
         else -> "more/section/${section.id}"
     }
 }

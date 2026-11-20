@@ -213,10 +213,37 @@
     <string name="coach_kind_question">Bir soru</string>
     <string name="coach_prepared_recently">Bir saatten kısa süre önce hazırlandı</string>
     <string name="coach_stale">%1$s · bugüne ait değil</string>
+    <string name="coach_rerun">Yeniden çalıştır</string>
+    <string name="coach_prepare">Plan hazırla</string>
+    <string name="coach_no_plan">Koç henüz bir plan hazırlamadı.</string>
+    <string name="coach_rerun_running">Yeni plan hazırlanıyor… bu birkaç dakika sürer.</string>
+    <string name="coach_rerun_too_soon">On dakikadan kısa süre önce bir plan hazırlandı. Daha sonra yeniden dene.</string>
+    <string name="coach_rerun_unreachable">Bilgisayara ulaşılamadı.</string>
+    <string name="coach_rerun_no_answer">Henüz yanıt yok. Yeni plan yine de gelebilir; daha sonra aşağı çek.</string>
+    <string name="coach_rerun_failed">Koç yeni bir plan hazırlayamadı. Önceki plan geçerli.</string>
 
     <!-- Notes -->
-    <string name="notes_explanation">Kaydettiğin notlar bilgisayarında durur; onlara buradan göz atmak sonraki bir adımda gelecek. Burada kaydedilip henüz gönderilmemiş notlar aşağıda listelenir.</string>
-    <string name="notes_none_waiting">Bu telefonda bekleyen not yok.</string>
+    <string name="notes_empty">Henüz bir şey kaydedilmedi.</string>
+    <string name="notes_search_hint">Notlarda ara</string>
+    <string name="notes_search_clear">Aramayı temizle</string>
+    <string name="notes_search_saved">Bilgisayara şu an sorulamıyor, bu yüzden kayıtlı kopyada arandı (her notun başı).</string>
+    <string name="notes_search_empty">Bu aramayla eşleşen not yok.</string>
+    <string name="notes_topic">Konu</string>
+    <string name="note_title">Not</string>
+    <string name="note_gone">Bu not artık bilgisayarda yok. Orada değiştirilmiş ya da taşınmış olabilir.</string>
+    <string name="note_topic_read_only">Konu notları şimdilik bilgisayarda düzenlenir.</string>
+    <string name="note_edit_needs_full">Bu notun telefonda yalnızca başı kayıtlı. Bilgisayar yanıt verdiğinde düzenleyebilirsin.</string>
+    <string name="note_edit">Düzenle</string>
+    <string name="note_edit_title">Notu düzenle</string>
+    <string name="note_edit_busy">Bu notun önceki bir değişikliği yolda. Bilgisayar onayladıktan sonra yeniden düzenleyebilirsin.</string>
+
+    <!-- Görev düzenleme -->
+    <string name="task_open">Görevi aç</string>
+    <string name="task_check">Tamamlandı olarak işaretle: %1$s</string>
+    <string name="task_edit_title">Görevi düzenle</string>
+    <string name="task_edit_field">Başlık</string>
+    <string name="task_edit_done">Tamamlandı olarak işaretle</string>
+    <string name="task_edit_hint">Değişiklikler önce telefona kaydedilir ve bilgisayar yanıt verir vermez ona gönderilir.</string>
 
     <!-- Calendar -->
     <string name="calendar_add">Etkinlik ekle</string>
@@ -277,6 +304,10 @@
     <string name="download_progress">İndiriliyor… %%%1$d</string>
     <string name="download_running">İndiriliyor…</string>
     <string name="download_saved">İndirilenler\'e kaydedildi</string>
+    <string name="download_open">Aç</string>
+    <string name="download_open_label">Aç: %1$s</string>
+    <string name="download_open_no_app">Bu telefonda bu tür dosyayı açabilecek bir uygulama yok.</string>
+    <string name="download_open_gone">Bu dosya artık İndirilenler\'de değil. Yeniden indirebilirsin.</string>
     <string name="download_failed_no_copy">Bu dosya indirilemedi: doğrudan yol başarısız oldu ve bilgisayarda gönderilebilecek bir kopya yok (eksik ya da o yol için fazla büyük).</string>
     <string name="download_failed_sign_in">Bu dosya indirilemedi: üniversite sitesindeki oturumun süresi dolmuş. Şimdilik oturumu bilgisayarda yenile.</string>
     <string name="download_failed_damaged">Dosya eksik ulaştı ve silindi. Lütfen yeniden dene.</string>
@@ -294,6 +325,39 @@
         <item quantity="one">%1$d saat önce hazırlandı</item>
         <item quantity="other">%1$d saat önce hazırlandı</item>
     </plurals>
+    <!-- Etkinlik: ekran süresi -->
+    <string name="usage_hm">%1$d sa %2$02d dk</string>
+    <string name="usage_m">%1$d dk</string>
+    <string name="activity_access_title">Kullanım erişimi gerekli</string>
+    <string name="activity_access_text">Ekran süreni göstermek için LifeOS, Android\'in kullanım kayıtlarından her uygulamanın ne kadar süre önde olduğunu ve telefonun kaç kez kilidinin açıldığını okur. Uygulamaların içinde hiçbir şey görmez. Rakamlar bu telefonda kalır ve günde bir kez şifreli bağlantı üzerinden yalnızca kendi bilgisayarına gider.</string>
+    <string name="activity_access_hint">Listede LifeOS\'u seç, kullanım erişimini aç, sonra buraya geri dön.</string>
+    <string name="activity_access_button">Kullanım erişimi ayarlarını aç</string>
+    <string name="activity_access_missing">Bu telefonda kullanım erişimi için bir ayar ekranı yok.</string>
+    <string name="activity_today">Bugün</string>
+    <plurals name="activity_unlocks">
+        <item quantity="one">%d kilit açma</item>
+        <item quantity="other">%d kilit açma</item>
+    </plurals>
+    <string name="activity_range_week">7 gün</string>
+    <string name="activity_range_month">30 gün</string>
+    <string name="activity_per_day">Günlük ekran süresi</string>
+    <string name="activity_average">Ortalama %1$s</string>
+    <plurals name="activity_chart_description">
+        <item quantity="one">Son günün ekran süresini gösteren çubuk grafik. Uygulamalarını aşağıda görmek için ona dokun.</item>
+        <item quantity="other">Son %d günün günlük ekran süresini gösteren çubuk grafik; ortalama kesikli çizgiyle gösterilir. Uygulamalarını aşağıda görmek için bir güne dokun.</item>
+    </plurals>
+    <string name="activity_no_data">Henüz ölçüm yok.</string>
+    <string name="activity_apps_none">Hiçbir uygulama bir dakika ya da daha uzun kullanılmadı.</string>
+    <string name="activity_sync_switch">Ekran süresini günde bir kez gönder</string>
+    <string name="activity_sync_text">Biten her gün bilgisayarına bir kez gönderilir: toplam süre, kilit açma sayısı ve en çok kullanılan 20 uygulama dakikalarıyla. Uygulama bir sonraki açılıp bağlandığında gider; telefon bunu arka planda gönderemez.</string>
+    <string name="activity_sync_last">Son gönderim %1$s</string>
+    <string name="activity_sync_never">Henüz bir şey gönderilmedi</string>
+    <plurals name="activity_sync_waiting">
+        <item quantity="one">%d gün bekliyor</item>
+        <item quantity="other">%d gün bekliyor</item>
+    </plurals>
+    <string name="activity_sync_now">Şimdi gönder</string>
+
     <string name="action_undo">Geri al</string>
     <string name="tasks_done_message">Tamamlandı olarak işaretlendi</string>
 </resources>
