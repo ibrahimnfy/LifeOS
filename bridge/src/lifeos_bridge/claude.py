@@ -45,6 +45,8 @@ ENV_ALLOW_LIST = (
 )
 
 CAPABLE_TOOLS = "Read,Glob,Grep,Edit,Write,Bash"
+# The terminal's structured question tool; only runs with an answering host get it.
+QUESTION_TOOL = "AskUserQuestion"
 # Not passed to capable runs: they point commands at the desktop session bus.
 SESSION_BUS_VARS = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 
@@ -147,16 +149,29 @@ def run_flags(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    host: bool = False,
 ) -> list[str]:
-    """Every restriction and choice of a run. Shared by the ``claude -p`` and the SDK runner."""
-    command = [
+    """Every restriction and choice of a run. Shared by the ``claude -p`` and the SDK runner.
+
+    ``host``: the bridge answers permission prompts itself (the SDK runner's
+    callback in ``sdk_runner``). The run then starts in the default mode,
+    where a prompt goes to that callback instead of being denied, and gets
+    the question tool. The callback denies everything except the owner's
+    answers, so nothing else is allowed that ``dontAsk`` would deny.
+    """
+    if host:
+        prompts = ["--permission-mode", "default", "--permission-prompt-tool", "stdio"]
+        tools = policy.tools + "," + QUESTION_TOOL
+    else:
         # Nobody is at the computer: never wait for an approval, deny instead.
-        "--permission-mode", "dontAsk",
-        "--permission-prompts", "none",
+        prompts = ["--permission-mode", "dontAsk", "--permission-prompts", "none"]
+        tools = policy.tools
+    command = [
+        *prompts,
         # File tools confined to the working directories; user and project
         # settings files ignored; only the tools named below exist.
         "--restricted",
-        "--tools", policy.tools,
+        "--tools", tools,
         "--strict-mcp-config",
         "--disable-slash-commands",
         "--max-turns", str(settings.max_turns),

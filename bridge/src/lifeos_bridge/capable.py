@@ -94,12 +94,17 @@ def _rule_path(folder: Path) -> str:
     return "/" + str(folder)
 
 
-def gate_command() -> str:
-    return shlex.join([sys.executable, "-m", "lifeos_bridge.gate", "--audit-dir", str(audit_dir())])
+def gate_command(*, ask_host: bool = False) -> str:
+    command = [sys.executable, "-m", "lifeos_bridge.gate", "--audit-dir", str(audit_dir())]
+    return shlex.join([*command, "--ask-host"] if ask_host else command)
 
 
-def build_policy(settings: Settings, run_dir: Path) -> Policy:
-    """The policy of one capable run in ``run_dir``; refuses folders that may never be used."""
+def build_policy(settings: Settings, run_dir: Path, *, ask_host: bool = False) -> Policy:
+    """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
+
+    ``ask_host``: the run's approval actions go to the bridge's permission
+    callback (SDK runner) instead of being refused by the gate.
+    """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
     roots = settings.allowed_roots
@@ -136,7 +141,10 @@ def build_policy(settings: Settings, run_dir: Path) -> Policy:
         },
         "hooks": {
             "PreToolUse": [
-                {"matcher": "*", "hooks": [{"type": "command", "command": gate_command()}]}
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": gate_command(ask_host=ask_host)}],
+                }
             ]
         },
     }

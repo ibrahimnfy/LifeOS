@@ -436,9 +436,17 @@ for both; only how the assistant process lives differs.
   (`bridge/src/lifeos_bridge/sdk_runner.py`).
   - Same restrictions as `cli` read-only runs: the command line is built by
     the same function (tools `Read,Glob,Grep`, `--restricted`, no MCP, no
-    slash commands, `dontAsk`, memory context, model and effort per
-    session), and the child gets the same allow-listed environment plus
-    the SDK's three protocol markers. No API key variable reaches it.
+    slash commands, memory context, model and effort per session), and the
+    child gets the same allow-listed environment plus the SDK's three
+    protocol markers. No API key variable reaches it.
+  - One difference (#105): the bridge is the permission host. The run
+    starts in the `default` permission mode with
+    `--permission-prompt-tool stdio` instead of `dontAsk`, and it has the
+    question tool `AskUserQuestion`. Every call that would ask for
+    permission reaches the bridge's callback, which denies it, exactly as
+    `dontAsk` would. The only exceptions are the owner's answers to
+    questions and, in capable runs (#106), the confirmations described
+    under "Questions and approvals".
   - Sign-in is the subscription login of the installed Claude Code (#115).
     The bridge starts the installed `claude` named by `LIFEOS_CLAUDE_BIN`
     through its own transport. It never uses the copy bundled in the SDK
@@ -469,6 +477,57 @@ restart the bridge, ask twice in the same conversation. The second answer
 should come faster, and `ps` should show one `claude` process for the
 conversation. After the idle time it is gone, and a third message still
 continues the conversation.
+
+### Questions and approvals (SDK runner)
+
+A run can stop and wait for the owner, in two cases:
+
+- **Question.** The assistant uses the question tool: 1-4 questions with
+  2-4 options each, single or multiple choice.
+- **Approval** (capable runs only, once #106 enables them on this runner).
+  A command the gate marks as needing confirmation: obvious deletion, force
+  or history-rewriting git operations, push, package install, sending a
+  message, network action. The gate answers `ask` instead of refusing.
+  The bridge shows exactly what will run and where, and lets it run only
+  after an explicit yes. Commands that are never allowed (`sudo`, system
+  settings) are still refused by the gate and are never asked about.
+
+How it reaches the owner:
+
+- While a client streams the answer (`"stream": true`, also through the
+  relay), the stream carries an event
+  `interaction {"id", "session_id", "kind": "question"|"approval", ...,
+  "created_at", "expires_at"}`. A question carries `questions: [{"question",
+  "header", "multi_select", "options": [{"label", "description"}]}]`; an
+  approval carries `tool`, `command`, `folder`, `category` and `reason`.
+  Paired phones also get a sealed push hint (`question` or `approval`).
+- `GET /sessions/{id}/interactions` → `{"pending": [...]}` (same objects).
+- `POST /sessions/{id}/interactions/{iid}` answers:
+  - question: `{"answers": {"<question>": "<label or own text>"}}` (a list
+    of labels for multiple choice), optionally `"response": "<free text>"`,
+    or `{"decline": true}`;
+  - approval: `{"approve": true}` or `{"approve": false}`.
+  It returns `{"answered": true, "id": ...}`, or `404 not_pending` once
+  the question was answered, expired or cancelled.
+- No answer within `LIFEOS_INTERACTION_TIMEOUT` seconds (default 600)
+  counts as **no**. The run's own time limit is paused while it waits.
+  Cancel, send now, the end of the run and the bridge stopping also count
+  as no. Nothing is ever approved by default.
+- **Without an answering client** (a request that does not stream, or a
+  queued message) the behaviour is today's: a question is refused at once
+  with the instruction to ask in plain text, and an approval action is
+  refused with the usual explanation.
+- **Audit log:** an approval request, then its outcome (`approved`, or
+  `refused` with `owner`, `timeout`, `cancelled` or `no_client`), next to
+  the gate's own entry (`asked`). If the log cannot be written, the action
+  is refused. Questions and answers are prompt text and are kept in memory
+  only, never logged.
+
+Manual check (`sdk`, one short run on the plan): send `"stream": true`
+with a prompt such as "Use the question tool to ask me Red or Blue, then
+say what I chose". An `interaction` event appears. Answer it with the POST
+above, and the reply names the choice. Without `"stream": true` the same
+prompt is answered with a plain-text question.
 
 ### Model and effort
 

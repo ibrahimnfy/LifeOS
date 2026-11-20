@@ -327,3 +327,36 @@ owner's tap, for an offer the bridge created and checked. Offers and
 downloads are in the audit log (name and size). Files travel sealed, in
 chunks that are deleted from the relay as soon as they are acknowledged.
 Size limit 50 MB by default.
+
+### 9.6 Questions and approvals in the middle of a run (SDK runner, #105)
+
+Built on the SDK runner; the `claude -p` path is unchanged.
+
+- **The bridge is the permission host.** SDK runs start in the `default`
+  permission mode with the bridge's callback as the prompt host, instead of
+  `dontAsk`. The callback denies every call that would prompt (as
+  `dontAsk` does), except:
+  - the assistant's structured questions, which wait for the owner's
+    answer;
+  - in capable runs, the approval actions of guardrails 7 to 9, which wait
+    for the owner's confirmation.
+- **The deletion warning (section 5.1) pauses the run.** On this runner the
+  gate program answers such a command with `ask` instead of refusing it.
+  Claude Code then asks the bridge. The bridge checks the command again
+  with the same patterns (only approval actions can be asked about, never
+  the "never allowed" ones), writes the request to the audit log, shows the
+  owner the exact command and folder, and lets it run unchanged only after
+  an explicit yes. A "no", the time limit, a cancel or the end of the run
+  refuse it, and the assistant is told why. The outcome is in the audit
+  log; if the log cannot be written, the action is refused.
+- **Without an answering client** (no app streaming the answer) the
+  behaviour is the one described above: refused with an explanation.
+- **Verified with the real CLI** (2.1.328, a hand-built probe in a scratch
+  folder, sandbox on with automatic approval of sandboxed commands):
+  - the gate's `ask` reached the bridge's callback for `rm`, so the
+    automatic approval did not run it first;
+  - a "no" from the callback kept the file, and it was listed as denied;
+  - a "yes" let it run.
+- **Not yet enabled.** Capable runs on the SDK runner stay off until the
+  probe suite passes on that path (#106). The probes must cover this
+  routing too: `rm` waits for an answer and runs only after a yes.

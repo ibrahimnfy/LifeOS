@@ -15,7 +15,15 @@ What is different from ``claude -p``:
 - Cancel and "send now" use the SDK's own interrupt; the process is
   terminated only when the turn does not end within the grace period.
 
-What is the same: the command line and the environment. The SDK's own
+Questions and approvals (#105): the process starts in the default
+permission mode with the bridge as the permission host, so the assistant's
+structured questions, and in capable runs the actions that need the owner's
+confirmation, come to ``LiveSession._can_use_tool``. That callback denies
+everything else, exactly as ``dontAsk`` would. A question waits for the
+owner (``interactions``) only while a client streams the answer; otherwise
+it is refused at once with the explanation of a ``claude -p`` run.
+
+What is the same: the restriction flags and the environment. The SDK's own
 process launcher is not used. It passes the bridge's whole environment on
 to the child (it can only add variables, so an API key would leak through)
 and falls back to the copy of Claude Code bundled in the package. The
@@ -36,6 +44,7 @@ import shutil
 import time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -48,10 +57,12 @@ from claude_agent_sdk import (
     Transport,
 )
 from claude_agent_sdk._errors import MessageParseError
+from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import claude
+from . import claude, gate, interactions, push
 from .claude import ClaudeError, RunResult
 from .config import Settings
+from .interactions import ANSWERED, APPROVAL, QUESTION, TIMEOUT, Interactions
 
 GRACE = 5.0  # seconds for an interrupt to end the turn, and for a process to exit
 STDERR_KEEP = 64 * 1024  # tail of stderr kept to explain a failed start (never logged)
@@ -88,6 +99,28 @@ def resolve_cli(settings: Settings) -> str:
     return str(path)
 
 
+# What the assistant reads when the bridge says no. Calls that would prompt
+# are denied, as in a ``dontAsk`` run.
+DENIED_NOTE = "Denied: runs from the phone never ask for permissions beyond what they already have."
+NO_CLIENT_QUESTION = (
+    "The owner cannot answer structured questions right now. Ask in your reply instead: one "
+    "clear question with the choices as a short lettered list (A, B, C)."
+)
+QUESTION_TIMEOUT = (
+    "The owner did not answer in time. Continue without the answer if you can, or ask in your "
+    "reply as plain text."
+)
+QUESTION_DECLINED = "The owner chose not to answer these questions. Continue without them."
+APPROVAL_REFUSED = (
+    "The owner did not confirm this, so it did not run. Do not try to reach the same result "
+    "another way. Tell the owner exactly what you wanted to run and why."
+)
+APPROVAL_TIMEOUT = (
+    "The owner did not confirm this in time, so it did not run. Do not try another way; tell "
+    "the owner exactly what you wanted to run and why."
+)
+
+
 def child_env() -> dict[str, str]:
     """The allow-listed environment of every run, plus the SDK's protocol markers."""
     return {**claude.child_env(), **SDK_ENV}
@@ -103,7 +136,7 @@ def build_command(
     model: str | None = None,
     effort: str | None = None,
 ) -> list[str]:
-    """The command of a live session: the read-only flags of ``claude -p``, in SDK form."""
+    """The command of a live session: the read-only flags, with the bridge as permission host."""
     return [
         resolve_cli(settings),
         *claude.STREAM_OUTPUT_FLAGS,
@@ -115,6 +148,7 @@ def build_command(
             context=context,
             model=model,
             effort=effort,
+            host=True,
         ),
         *INPUT_FLAGS,
     ]
@@ -245,11 +279,19 @@ def result_payload(message: ResultMessage) -> dict:
 
 
 class Turn:
-    """One message and its answer: the messages go to ``queue``; ``over`` is set at the end."""
+    """One message and its answer: the messages go to ``queue``; ``over`` is set at the end.
 
-    def __init__(self) -> None:
+    ``answering``: a client streams this turn and can answer questions. While
+    the owner is asked (``waiting``), the run's time limit is paused; the
+    time spent is added to ``waited``.
+    """
+
+    def __init__(self, answering: bool = False) -> None:
         self.queue: asyncio.Queue = asyncio.Queue()
         self.over = asyncio.Event()
+        self.answering = answering
+        self.waiting = 0
+        self.waited = 0.0
 
     async def wait(self, timeout: float) -> bool:
         with contextlib.suppress(TimeoutError):
@@ -273,9 +315,14 @@ class LiveSession:
         *,
         resume: bool,
         name: str | None = None,
+        asking: Interactions | None = None,
+        capable: bool = False,
     ) -> None:
         self.session_id = session_id
         self.launch = launch
+        self.asking = asking or Interactions(settings.interaction_timeout)
+        # Capable runs (not on this runner before #106): approvals may be asked for.
+        self.capable = capable
         command = build_command(
             settings,
             session_id=session_id,
@@ -288,7 +335,9 @@ class LiveSession:
         self.transport = InstalledCLITransport(command, launch.cwd, child_env())
         # The options are not applied to a custom transport (the command above
         # is); they only state the binary and folder for anyone reading them.
-        options = ClaudeAgentOptions(cli_path=command[0], cwd=launch.cwd)
+        options = ClaudeAgentOptions(
+            cli_path=command[0], cwd=launch.cwd, can_use_tool=self._can_use_tool
+        )
         self.client = ClaudeSDKClient(options, transport=self.transport)
         self.ready = False
         self.dead = False
@@ -386,16 +435,17 @@ class LiveSession:
 
     async def close(self) -> None:
         """Close the process (the transcript keeps the conversation). Never cancels the owner."""
+        self.asking.cancel(self.session_id)
         self._close_requested.set()
         if self._task is not None:
             await asyncio.wait({self._task})
 
     # -- turns ------------------------------------------------------------------
-    async def send(self, prompt: str) -> Turn:
+    async def send(self, prompt: str, *, answering: bool = False) -> Turn:
         """Start a turn; its messages, and a ClaudeError if the process ends, go to its queue."""
         if not self.idle:
             raise ClaudeError("session_in_use", 409, "this session is already answering a prompt")
-        turn = self._turn = Turn()
+        turn = self._turn = Turn(answering)
         self.last_used = time.monotonic()
         try:
             await self.client.query(prompt)
@@ -419,10 +469,113 @@ class LiveSession:
         turn = turn or self._turn
         if turn is None or turn.over.is_set() or turn is not self._turn or self.dead:
             return
+        self.asking.cancel(self.session_id)  # a pending question or approval is a "no"
         with contextlib.suppress(Exception):
             await asyncio.wait_for(self.client.interrupt(), grace)
         if not await turn.wait(grace) and turn is self._turn:
             await self.close()
+
+    # -- the permission host ----------------------------------------------------
+    async def _can_use_tool(self, tool_name: str, tool_input: dict, context: Any):
+        """Every call that would prompt comes here. Default: deny, as ``dontAsk`` does."""
+        try:
+            if tool_name == claude.QUESTION_TOOL:
+                return await self._question(tool_input)
+            if self.capable and tool_name == "Bash":
+                return await self._approval(tool_input)
+        except Exception:  # anything unexpected is a "no"
+            return PermissionResultDeny(message=DENIED_NOTE)
+        return PermissionResultDeny(message=DENIED_NOTE)
+
+    async def _ask(self, kind: str, data: dict) -> tuple[str, dict | None]:
+        """Show the owner a question or approval and wait; ``("no_client", None)`` if nobody can."""
+        turn = self._turn
+        if turn is None or not turn.answering or turn.over.is_set():
+            return "no_client", None
+        interaction = self.asking.open(self.session_id, kind, data)
+        started = time.monotonic()
+        turn.waiting += 1
+        turn.queue.put_nowait(("interaction", interaction.public()))
+        _wake_phones(kind, self.session_id)
+        try:
+            return await self.asking.wait(interaction)
+        finally:
+            turn.waiting -= 1
+            turn.waited += time.monotonic() - started
+            turn.queue.put_nowait(("interaction_closed", {"id": interaction.id}))
+
+    async def _question(self, tool_input: dict):
+        data = interactions.question_data(tool_input)
+        if data is None:
+            return PermissionResultDeny(message=DENIED_NOTE)
+        outcome, answer = await self._ask(QUESTION, data)
+        if outcome == "no_client":
+            return PermissionResultDeny(message=NO_CLIENT_QUESTION)
+        if outcome != ANSWERED or answer is None:
+            return PermissionResultDeny(message=QUESTION_TIMEOUT)
+        if answer.get("decline"):
+            return PermissionResultDeny(message=QUESTION_DECLINED)
+        updated = {"questions": tool_input["questions"], "answers": answer["answers"]}
+        if "response" in answer:
+            updated["response"] = answer["response"]
+        return PermissionResultAllow(updated_input=updated)
+
+    async def _approval(self, tool_input: dict):
+        """An action the gate sent here (``ask``): runs only after the owner's explicit yes."""
+        command = str(tool_input.get("command") or "")
+        found = gate.classify(command)
+        if found is None or found[2] != gate.APPROVAL_NOTE:
+            return PermissionResultDeny(message=DENIED_NOTE)  # only approval actions are asked
+        category, reason, _note = found
+        record = {
+            "session_id": self.session_id,
+            "cwd": str(self.launch.cwd),
+            "tool": "Bash",
+            "detail": {"command": command},
+            "category": category,
+        }
+        if not _audit(record, "approval_requested"):
+            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+        outcome, answer = await self._ask(
+            APPROVAL,
+            {"tool": "Bash", "command": command, "folder": str(self.launch.cwd),
+             "category": category, "reason": reason},
+        )  # fmt: skip
+        approved = outcome == ANSWERED and bool(answer and answer.get("approve"))
+        why = "owner" if outcome == ANSWERED else outcome
+        if not _audit(record, "approved" if approved else "refused", why):
+            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+        if approved:
+            return PermissionResultAllow(updated_input=tool_input)  # exactly what was shown
+        if outcome == "no_client":
+            return PermissionResultDeny(message=gate.APPROVAL_NOTE)  # today's refusal
+        note = APPROVAL_TIMEOUT if outcome == TIMEOUT else APPROVAL_REFUSED
+        return PermissionResultDeny(message=note)
+
+
+_hints: set[asyncio.Task] = set()
+
+
+def _wake_phones(kind: str, session_id: str) -> None:
+    """A sealed push hint that a question or approval waits (never blocks the run)."""
+    task = asyncio.create_task(asyncio.to_thread(push.send_hint, kind, session_id))
+    _hints.add(task)
+    task.add_done_callback(_hints.discard)
+
+
+def _audit(record: dict, decision: str, why: str = "") -> bool:
+    """Write an approval step to the audit log; False (the call is then refused) if impossible."""
+    from .capable import audit_dir  # capable imports claude only; no cycle at call time
+
+    entry = {"ts": datetime.now(UTC).isoformat(timespec="milliseconds"), **record}
+    entry["decision"] = decision
+    if why:
+        entry["why"] = why
+    try:
+        gate.write_audit(audit_dir(), entry)
+    except OSError:
+        return False
+    return True
 
 
 def _as_claude_error(exc: BaseException, message: str) -> ClaudeError:
@@ -434,8 +587,9 @@ def _as_claude_error(exc: BaseException, message: str) -> ClaudeError:
 class SdkPool:
     """The live sessions. At most ``settings.sdk_max_live``; idle ones close after a while."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, asking: Interactions | None = None) -> None:
         self.settings = settings
+        self.asking = asking or Interactions(settings.interaction_timeout)
         self.live: dict[str, LiveSession] = {}
         self._lock = asyncio.Lock()
         self._background: set[asyncio.Task] = set()
@@ -475,7 +629,9 @@ class SdkPool:
                         "busy", 429, "too many conversations are active; try again shortly"
                     )
                 await self.drop(min(idle, key=lambda s: (not s.dead, s.last_used)).session_id)
-            live = LiveSession(self.settings, session_id, launch, resume=resume, name=name)
+            live = LiveSession(
+                self.settings, session_id, launch, resume=resume, name=name, asking=self.asking
+            )
             self.live[session_id] = live
         try:
             await live.start()
@@ -523,29 +679,40 @@ async def _events(
     model: str | None,
     effort: str | None,
     on_process: Callable[[LiveSession], None] | None,
+    answering: bool = False,
 ) -> AsyncIterator[tuple[str, Any]]:
-    """``("delta", {...})`` events, then ``("done", RunResult)``; failures raise ClaudeError."""
+    """``delta`` and ``interaction`` events, then ``("done", RunResult)``; failures raise.
+
+    The time limit does not run while the owner is being asked.
+    """
     launch = Launch(cwd=cwd or settings.ask_dir, model=model, effort=effort, context=context)
     live = await pool.session_for(session_id, launch, resume=resume, name=name)
     if on_process is not None:
         on_process(live)
-    turn = await live.send(prompt)
+    turn = await live.send(prompt, answering=answering)
     final: ResultMessage | None = None
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + settings.ask_timeout
     try:
-        async with asyncio.timeout(settings.ask_timeout):
-            while final is None:
-                item = await turn.queue.get()
-                if isinstance(item, ClaudeError):
-                    raise item
-                if isinstance(item, ResultMessage):
-                    final = item
-                elif isinstance(item, StreamEvent):
-                    inner = item.event or {}
-                    delta = inner.get("delta") or {}
-                    if inner.get("type") == "content_block_delta" and (
-                        delta.get("type") == "text_delta"
-                    ):
-                        yield "delta", {"text": str(delta.get("text") or "")}
+        while final is None:
+            left = None if turn.waiting else deadline + turn.waited - loop.time()
+            if left is not None and left <= 0:
+                raise TimeoutError
+            item = await asyncio.wait_for(turn.queue.get(), left)
+            if isinstance(item, ClaudeError):
+                raise item
+            if isinstance(item, tuple):  # ("interaction" | "interaction_closed", data)
+                if item[0] == "interaction":
+                    yield item
+            elif isinstance(item, ResultMessage):
+                final = item
+            elif isinstance(item, StreamEvent):
+                inner = item.event or {}
+                delta = inner.get("delta") or {}
+                if inner.get("type") == "content_block_delta" and (
+                    delta.get("type") == "text_delta"
+                ):
+                    yield "delta", {"text": str(delta.get("text") or "")}
     except TimeoutError:
         await live.stop(grace, turn)
         raise ClaudeError("timeout", 504, "the run took too long and was stopped") from None
@@ -575,16 +742,21 @@ async def stream(
     effort: str | None = None,
     on_process: Callable[[LiveSession], None] | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
-    """Same events as ``claude.stream``: ``delta``s, then one ``done`` or ``error``."""
+    """Same events as ``claude.stream``: ``delta``s, then one ``done`` or ``error``.
+
+    Plus ``interaction`` (a question or approval waiting for the owner, see
+    ``interactions``): the client streaming the answer can answer it.
+    """
     events = _events(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
+        answering=True,
     )  # fmt: skip
     try:
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
         async with contextlib.aclosing(events):
             async for event, payload in events:
-                if event == "delta":
+                if event in ("delta", "interaction"):
                     yield event, payload
                     continue
                 result: RunResult = payload

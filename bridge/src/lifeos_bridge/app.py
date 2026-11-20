@@ -228,6 +228,11 @@ def create_app(settings: Settings) -> FastAPI:
         + " When you need the owner to decide something, ask one clear question at a time and "
         "give the choices as a short lettered list (A, B, C), so that a one-letter reply is enough."
     )
+    if settings.runner == "sdk":
+        phone_instructions += (
+            " If the question tool is available you may use it instead for a choice between a few "
+            "options; when it is refused, ask in your reply as described."
+        )
 
     def with_files(payload: dict, session_id: str, cwd: Path) -> dict:
         """Turn file-offer lines of a finished answer into cards."""
@@ -486,6 +491,19 @@ def create_app(settings: Settings) -> FastAPI:
             control.pause(session_id, "cancel")
         return {"cancelled": stopped, "queue_paused": session_id in control.paused,
                 "note": runcontrol.STOP_NOTE if stopped else "nothing was running"}  # fmt: skip
+
+    @app.get("/sessions/{session_id}/interactions")
+    async def list_interactions(session_id: str):
+        """Questions and approvals of the session that wait for the owner (SDK runner)."""
+        return {"pending": sdk_pool.asking.pending(session_id) if sdk_pool is not None else []}
+
+    @app.post("/sessions/{session_id}/interactions/{interaction_id}")
+    async def answer_interaction(session_id: str, interaction_id: str, request: Request):
+        """Answer a waiting question or approval; see ``interactions.parse_answer``."""
+        if sdk_pool is None:
+            raise ClaudeError("not_pending", 404, "this question is no longer waiting")
+        data = await read_json_object(request)
+        return sdk_pool.asking.answer(session_id, interaction_id, data)
 
     @app.get("/sessions/{session_id}/queue")
     async def show_queue(session_id: str):

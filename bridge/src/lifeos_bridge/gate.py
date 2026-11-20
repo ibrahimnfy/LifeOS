@@ -6,8 +6,11 @@ capable run (``python -m lifeos_bridge.gate --audit-dir DIR``). It
 1. writes the call to the local audit log *before* the tool runs, and blocks
    the call if the log cannot be written;
 2. refuses actions that are always denied, and actions that need the owner's
-   approval (approvals from the phone do not exist yet), with an explanation
-   the model passes on.
+   approval, with an explanation the model passes on. With ``--ask-host``
+   (SDK runner only: the bridge itself answers permission prompts) an
+   approval action is not refused here but answered with ``ask``: Claude Code
+   then asks the bridge, which asks the owner and allows the call only after
+   an explicit yes (``sdk_runner``).
 
 Exit status 0 lets the call continue; 2 blocks it and the text on standard
 error is shown to the model. Anything unexpected blocks (fail closed).
@@ -237,7 +240,24 @@ def write_audit(audit_dir: Path, entry: dict) -> None:
         os.close(descriptor)
 
 
-def decide(payload: dict, audit_dir: Path) -> tuple[int, str]:
+ASK_REASON = "This needs the owner's confirmation on the phone before it runs."
+
+
+def ask_output(reason: str) -> str:
+    """Hook answer that sends the call to the permission host (never approves it)."""
+    return json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "ask",
+                "permissionDecisionReason": f"{ASK_REASON} ({reason})",
+            }
+        }
+    )
+
+
+def decide(payload: dict, audit_dir: Path, *, ask_host: bool = False) -> tuple[int, str]:
+    """``(status, text)``: BLOCK puts ``text`` on stderr; ALLOW with text prints the JSON."""
     tool = payload.get("tool_name")
     if not isinstance(tool, str) or not tool:
         return BLOCK, "Blocked: the tool call could not be identified."
@@ -251,6 +271,9 @@ def decide(payload: dict, audit_dir: Path) -> tuple[int, str]:
         "detail": detail,
         "decision": "refused" if refusal else "allowed",
     }
+    ask = bool(refusal) and ask_host and refusal[2] == APPROVAL_NOTE
+    if ask:
+        entry["decision"] = "asked"
     if refusal:
         entry["category"] = refusal[0]
     try:
@@ -260,6 +283,8 @@ def decide(payload: dict, audit_dir: Path) -> tuple[int, str]:
             "Blocked: the audit log could not be written, so nothing may run. "
             "Stop and tell the owner that the audit log is unavailable."
         )
+    if ask:
+        return ALLOW, ask_output(refusal[1])
     if refusal:
         return BLOCK, f"Refused: {refusal[1]}. {refusal[2]}"
     return ALLOW, ""
@@ -268,6 +293,7 @@ def decide(payload: dict, audit_dir: Path) -> tuple[int, str]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lifeos-gate")
     parser.add_argument("--audit-dir", required=True, type=Path)
+    parser.add_argument("--ask-host", action="store_true")
     args = parser.parse_args(argv)
     try:
         payload = json.loads(sys.stdin.read())
@@ -276,9 +302,9 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError:
         print("Blocked: the gate received an unreadable request.", file=sys.stderr)
         return BLOCK
-    status, message = decide(payload, args.audit_dir)
+    status, message = decide(payload, args.audit_dir, ask_host=args.ask_host)
     if message:
-        print(message, file=sys.stderr)
+        print(message, file=sys.stderr if status == BLOCK else sys.stdout)
     return status
 
 

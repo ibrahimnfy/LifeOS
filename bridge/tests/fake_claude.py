@@ -81,9 +81,22 @@ def sdk_mode():
         result(subtype="error_during_execution", is_error=True, num_turns=0)
         sys.exit(1)
 
+    # FAKE_TOOL <tool> <json input>: the "CLI" asks the host (can_use_tool) and
+    # answers with the host's decision as JSON. FAKE_TOOL Bash with "rm" first
+    # runs the gate's ask path, as the gate hook would.
+    asks = {}
     working = False
     for raw in sys.stdin:
         message = json.loads(raw)
+        if message.get("type") == "control_response":
+            response = message["response"]
+            if response.get("request_id") in asks:
+                del asks[response["request_id"]]
+                decision = response.get("response") or {"error": response.get("error")}
+                log({"host_decision": decision})
+                result(json.dumps(decision))
+                working = False
+            continue
         if message.get("type") == "control_request":
             request = message["request"]
             emit(
@@ -98,7 +111,8 @@ def sdk_mode():
             )
             if request["subtype"] == "interrupt":
                 log({"interrupt": True})
-                if working == "sleep":
+                if working in ("sleep", "ask"):
+                    asks.clear()
                     result(subtype="error_during_execution", is_error=True, result=None)
                     working = False
             continue
@@ -121,6 +135,22 @@ def sdk_mode():
         if prompt.startswith("FAKE_EXIT"):
             print("something broke", file=sys.stderr, flush=True)
             sys.exit(1)
+        if prompt.startswith("FAKE_TOOL "):
+            _, tool, tool_input = prompt.split(" ", 2)
+            request_id = f"perm_{len(asks)}_{os.getpid()}"
+            asks[request_id] = tool
+            working = "ask"
+            emit(
+                {
+                    "type": "control_request",
+                    "request_id": request_id,
+                    "request": {
+                        "subtype": "can_use_tool", "tool_name": tool,
+                        "input": json.loads(tool_input), "tool_use_id": "t1",
+                    },
+                }
+            )  # fmt: skip
+            continue
         emit({"type": "system", "subtype": "init", "session_id": session_id})
         for piece in ("echo: ", prompt):
             emit(

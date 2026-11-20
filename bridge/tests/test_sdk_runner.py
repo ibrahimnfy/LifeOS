@@ -114,18 +114,30 @@ def test_missing_cli_is_a_clean_error(sdk_settings):
     assert caught.value.code == "claude_not_found"
 
 
-def test_flags_are_the_read_only_flags_of_claude_p(sdk_settings, fake_claude):
+def test_flags_are_those_of_claude_p_with_the_bridge_as_permission_host(sdk_settings, fake_claude):
     choice = {"context": "MEMORY", "model": "sonnet", "effort": "low"}
     sdk = sdk_runner.build_command(sdk_settings, session_id="s", resume=True, **choice)
     cli = claude.build_command(sdk_settings, session_id="s", resume=True, stream=True, **choice)
     assert sdk[0] == str(fake_claude)
-    assert sdk[1:-2] == cli[2:]  # same flags, same order; only the input format differs
     assert sdk[-2:] == ["--input-format", "stream-json"]
     assert "-p" not in sdk
+    # The one difference (#105): the bridge is the permission host. Default mode,
+    # where a prompt reaches the bridge's callback (which denies all but the
+    # owner's answers), instead of dontAsk; and the question tool.
+    host = ["--permission-mode", "default", "--permission-prompt-tool", "stdio"]
+    assert sdk[1:5] == cli[2:6]  # output format
+    assert sdk[5:9] == host and cli[6:10] == ["--permission-mode", "dontAsk",
+                                              "--permission-prompts", "none"]  # fmt: skip
+    cli_rest, sdk_rest = cli[10:], sdk[9:-2]
+    tools_at = cli_rest.index("--tools") + 1
+    assert sdk_rest[tools_at] == cli_rest[tools_at] + ",AskUserQuestion"
+    assert sdk_rest[:tools_at] + sdk_rest[tools_at + 1 :] == (
+        cli_rest[:tools_at] + cli_rest[tools_at + 1 :]
+    )
     for flag in ("--restricted", "--strict-mcp-config", "--disable-slash-commands"):
         assert flag in sdk
-    assert sdk[sdk.index("--tools") + 1] == "Read,Glob,Grep"
-    assert sdk[sdk.index("--permission-mode") + 1] == "dontAsk"
+    assert sdk[sdk.index("--tools") + 1] == "Read,Glob,Grep,AskUserQuestion"
+    assert "--permission-prompts" not in sdk
     assert sdk[sdk.index("--append-system-prompt") + 1] == "MEMORY"
     for absent in ("--settings", "--mcp-config", "--system-prompt", "--add-dir", "--allowedTools"):
         assert absent not in sdk
