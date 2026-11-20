@@ -37,3 +37,8 @@ app/**/build/
 .vscode/
 .DS_Store
 *.swp
+
+# Firebase settings and keys (live in ~/.config/lifeos/firebase/, never here)
+google-services.json
+*firebase-adminsdk*.json
+service-account*.json
