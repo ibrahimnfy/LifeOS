@@ -24,6 +24,10 @@ import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.CoachMessage
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.CoachRerun
+import dev.lifeos.app.data.Chat
+import dev.lifeos.app.data.ChatFile
+import dev.lifeos.app.data.ChatPointer
+import dev.lifeos.app.data.ChatStore
 import dev.lifeos.app.data.CoachRotation
 import dev.lifeos.app.data.Confirmed
 import dev.lifeos.app.data.ConfirmedStore
@@ -189,6 +193,38 @@ class LifeOsCore(private val app: Application) {
         override fun stream(method: String, path: String, query: Map<String, String>): Flow<AnswerEvent> =
             session?.client?.stream(method, path, query, idleTimeoutMillis = 60_000)
                 ?: flow { throw RelayException(RelayException.Reason.NOT_SENT) }
+
+        // Chat: the answer of a model run, as events. The first message comes within seconds
+        // (the computer names the session or refuses); after that a run may stay quiet for minutes.
+        override fun events(method: String, path: String, body: JsonElement?, idleTimeoutMillis: Long): Flow<AnswerEvent> = flow {
+            if (record == null) throw ApiException(ApiException.Kind.NOT_PAIRED)
+            val client = session?.client ?: throw ApiException(ApiException.Kind.NOT_SENT)
+            var answered = false
+            try {
+                client.stream(method, path, emptyMap(), body, idleTimeoutMillis, firstTimeoutMillis = FIRST_ANSWER_MILLIS).collect { event ->
+                    if (!answered) reached(client, true)
+                    answered = true
+                    emit(event)
+                }
+            } catch (error: RelayException) {
+                // A run that falls silent says nothing about the computer; no answer at all does.
+                if (!answered && error.reason != RelayException.Reason.DENIED) reached(client, false)
+                throw ApiException(
+                    when (error.reason) {
+                        RelayException.Reason.NOT_SENT -> ApiException.Kind.NOT_SENT
+                        RelayException.Reason.DENIED -> ApiException.Kind.REFUSED
+                        else -> ApiException.Kind.UNCERTAIN
+                    },
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: ApiException) {
+                throw error
+            } catch (_: Exception) {
+                // Storage for the counters failed: nothing was sent.
+                throw ApiException(if (answered) ApiException.Kind.UNCERTAIN else ApiException.Kind.NOT_SENT)
+            }
+        }
     }
 
     /**
@@ -553,6 +589,29 @@ class LifeOsCore(private val app: Application) {
 
     val downloads = Downloads(app, api, scope)
 
+    // ---- chat
+
+    /** The pointer to the conversation in progress: not written in the sample mode, not read while locked. */
+    private val chatStore = object : ChatStore {
+        private val file = ChatFile(File(app.filesDir, "chat/current.json"))
+
+        override fun load(): ChatPointer? = if (sample || record == null || lockedState.value) null else file.load()
+
+        override fun save(pointer: ChatPointer?) {
+            if (!sample) file.save(pointer)
+        }
+    }
+
+    /** The conversation of the Chat tab; it outlives the screens (see [Chat]). */
+    val chat = Chat(
+        api,
+        chatStore,
+        scope,
+        System::currentTimeMillis,
+        reachable = { connectionState.value == ConnectionState.CONNECTED || (session != null && check() is TestResult.Ok) },
+        uptimeMillis = SystemClock::elapsedRealtime,
+    )
+
     private val lock = Any()
     private var record: PairingRecord? = null
     private var session: Session? = null
@@ -615,6 +674,7 @@ class LifeOsCore(private val app: Application) {
             stopSession()
             lockedState.value = true
             connectionState.value = ConnectionState.CONNECTING
+            chat.onLocked()
         }
     }
 
@@ -648,6 +708,7 @@ class LifeOsCore(private val app: Application) {
             secret.fill(0)
         }
         lockedState.value = false
+        chat.restore()
         reloadState.value++
         UnlockResult.UNLOCKED
     }
@@ -862,6 +923,7 @@ class LifeOsCore(private val app: Application) {
         outbox.wipe()
         confirmed.wipe()
         downloads.clear()
+        chat.forget()
         rerunState.value = CoachRerun.State.Idle
         looksState.value = Looks.EMPTY
         lookStore.wipe()
@@ -887,6 +949,9 @@ class LifeOsCore(private val app: Application) {
         const val SUBMIT_WAIT_MILLIS = 8_000L
         const val RECHECK_MILLIS = 60_000L
         const val ACTIVITY_SYNC_GAP_MILLIS = 60 * 60_000L
+
+        /** Chat: how long the computer may take to take a message (it answers at once, the model later). */
+        const val FIRST_ANSWER_MILLIS = 45_000L
     }
 }
 

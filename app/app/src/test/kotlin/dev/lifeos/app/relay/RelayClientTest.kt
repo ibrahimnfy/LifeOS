@@ -131,6 +131,33 @@ class RelayClientTest {
     }
 
     @Test
+    fun `a stream must start soon`() = runTest {
+        // Nobody answers: the wait ends after the time allowed for the first message.
+        val s = setup(serve = false)
+        val started = testScheduler.currentTime
+        assertEquals(
+            RelayException.Reason.TIMEOUT,
+            failure { s.client.stream("POST", "/ask", idleTimeoutMillis = 600_000, firstTimeoutMillis = 45_000).toList() },
+        )
+        assertEquals(45_000, testScheduler.currentTime - started)
+    }
+
+    @Test
+    fun `a stream may stay quiet for long once it has started`() = runTest {
+        // The computer took the message and then says nothing: the longer limit applies.
+        val s = setup()
+        s.bridge.answer = { listOf(Kind.CHUNK to json("""{"event":"session","data":{"session_id":"s1"}}""")) }
+        val started = testScheduler.currentTime
+        val events = mutableListOf<AnswerEvent>()
+        assertEquals(
+            RelayException.Reason.TIMEOUT,
+            failure { s.client.stream("POST", "/ask", idleTimeoutMillis = 600_000, firstTimeoutMillis = 45_000).collect { events += it } },
+        )
+        assertEquals(1, events.size)
+        assertTrue(testScheduler.currentTime - started >= 600_000)
+    }
+
+    @Test
     fun `file pieces are exposed with their position`() = runTest {
         val s = setup()
         s.bridge.answer = {
