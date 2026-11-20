@@ -1,16 +1,56 @@
-"""Command-line entry point: ``lifeos-bridge``."""
+"""Command-line entry point: ``lifeos-bridge``.
+
+Without arguments it starts the server. ``lifeos-bridge devices`` lists the
+paired phones; ``lifeos-bridge devices revoke <id>`` unpairs one.
+"""
 
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 
 import uvicorn
 
+from . import devices
 from .app import create_app
 from .config import ConfigError, load_settings
 
 
-def main() -> int:
+def _when(seconds: int | None) -> str:
+    return datetime.fromtimestamp(seconds).strftime("%Y-%m-%d %H:%M") if seconds else "never"
+
+
+def devices_command(args: list[str]) -> int:
+    if args[:1] == ["revoke"] and len(args) == 2:
+        try:
+            device = devices.revoke(args[1])
+        except devices.PairingError as error:
+            print(f"lifeos-bridge: {error}", file=sys.stderr)
+            return 1
+        print(f"revoked: {device.id.hex()[:8]}  {device.name}")
+        return 0
+    if args:
+        print("usage: lifeos-bridge devices [revoke <id>]", file=sys.stderr)
+        return 2
+    found = devices.list_devices()
+    if not found:
+        print("no paired devices")
+    for device in found:
+        state = "revoked" if device.revoked else "paired"
+        print(
+            f"{device.id.hex()[:8]}  {state:8}  {device.name:20}  "
+            f"paired {_when(device.paired_at)}  last seen {_when(device.last_seen)}"
+        )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["devices"]:
+        return devices_command(argv[1:])
+    if argv:
+        print("usage: lifeos-bridge [devices [revoke <id>]]", file=sys.stderr)
+        return 2
     try:
         settings = load_settings()
     except ConfigError as exc:

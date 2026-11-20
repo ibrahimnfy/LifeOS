@@ -1,6 +1,9 @@
 # Security design and threat model: phone ↔ bridge through a relay
 
-Status: **design.** Nothing here is built yet. The relay is the only
+Status: **design; the relay-independent part is built** (`e2e.py`,
+`devices.py`: sealing, receiver checks, device store, pairing logic, with
+the tests of section 10). The relay backend, the pairing command and the
+phone side are not built yet. The relay is the only
 transport (the earlier VPN plan was dropped, see `decisions.md`). The relay
 runs on Google Cloud; which form it takes (see
 [`research/connectivity.md`](research/connectivity.md)) does not change this
@@ -49,7 +52,7 @@ binding for Android). Constructions used, all documented by libsodium:
 | Purpose | Construction |
 |---|---|
 | Random keys, ids, nonces | `randombytes` |
-| Deriving the working keys from the pairing secret | `crypto_kdf` (BLAKE2b-based key derivation) |
+| Deriving the working keys from the pairing secret | `crypto_kdf` (BLAKE2b-based key derivation). The Python binding used by the bridge does not expose `crypto_kdf`, so the bridge calls the keyed BLAKE2b function with salt and personalisation (`crypto_generichash_blake2b_salt_personal`) with exactly the inputs `crypto_kdf_derive_from_key` is defined by; the phone calls `crypto_kdf` itself. An interoperability test between the two is part of the app work |
 | Encrypting and authenticating every message | `crypto_aead_xchacha20poly1305_ietf` (authenticated encryption with associated data) |
 | Short comparison code at pairing | `crypto_generichash` (BLAKE2b) |
 
@@ -77,12 +80,20 @@ requires the user's biometric or device credential (section 6).
 Each message is one AEAD ciphertext:
 
 ```
-nonce (24 random bytes) | ciphertext+tag
-associated data (authenticated, not secret):
-    protocol version | device id | direction | counter (64-bit) | message kind
-plaintext (secret):
-    timestamp | request id | payload (prompt, answer chunk, control, …)
+header, 30 bytes (authenticated as associated data, not secret):
+    "LOS" | protocol version (1) | device id (16) | direction (1)
+          | counter (8, big endian) | message kind (1)
+nonce (24 random bytes)
+ciphertext + tag
+plaintext (secret), JSON:
+    {"ts": unix seconds, "rid": request id, "p": payload}
 ```
+
+Directions: 1 phone → bridge, 2 bridge → phone, 3 push hint; the direction
+number is also the sub-key number, so each direction has its own key.
+Message kinds: hello, request, cancel, acknowledgement (phone → bridge);
+answer chunk, end, error (bridge → phone); push hint. A message is at most
+1.4 MB; longer content is sent in chunks.
 
 The relay sees the associated data it needs for routing (device id,
 direction, counter) but cannot change it: any change makes decryption fail.
@@ -97,8 +108,8 @@ direction, counter) but cannot change it: any change makes decryption fail.
    direction. Counters are stored durably before the message is acted on, so
    a repeat is rejected even after a restart.
 4. **Timestamp is recent** (within a few minutes of the receiver's clock) for
-   messages that start work. This limits how long a withheld message stays
-   usable.
+   messages that start work (hello, request; five minutes either way). This
+   limits how long a withheld message stays usable.
 5. Size and rate limits per device.
 
 Dropped messages are counted in a local log (count and reason only).
@@ -122,11 +133,14 @@ Dropped messages are counted in a local log (count and reason only).
    protocol version, device id, device secret, and the relay address and
    relay access data the phone needs. The code is valid for two minutes and
    for one use.
-2. The phone app scans it. Nothing has crossed any network so far.
+2. The phone app scans it. Nothing has crossed any network so far. The QR
+   text is `lifeos-pair:1:` followed by the encoded data.
 3. The app sends a first "hello" message, encrypted as in section 3. Both
    screens show a **six-digit comparison code** derived from the secret and
    the hello message; the owner confirms on the computer that they match.
-   Only then is the device stored as paired.
+   Only then is the device stored as paired. If a second, different hello
+   arrives for the same pairing, two devices hold the code: the pairing is
+   destroyed.
 4. If no hello arrives in two minutes, or the owner does not confirm, the
    secret is destroyed.
 
