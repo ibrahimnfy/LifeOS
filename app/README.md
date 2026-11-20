@@ -66,6 +66,50 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n dev.lifeos.app/.MainActivity
 ```
 
+## Release build (daily use)
+
+Daily use runs the release build: the test aids of debug builds (see below)
+are not in it, and it is not debuggable. It is signed with the owner's
+release key, which lives only in the private settings folder:
+
+```
+~/.config/lifeos/release/
+├── release.keystore         the key (PKCS12)
+└── keystore.properties      storeFile, storePassword, keyAlias, keyPassword
+```
+
+Both files are mode 600 in a mode 700 folder and never enter the
+repository. There is no backup by the owner's choice: if the key is lost, the
+app is uninstalled, the new build installed and the phone paired again (all
+data stays on the computer). Without `keystore.properties` a release build is
+produced unsigned and cannot be installed.
+
+The version code is the number of commits, so every newer build installs
+over an older one.
+
+```sh
+./gradlew --no-daemon assembleRelease
+adb install -r app/build/outputs/apk/release/app-release.apk
+```
+
+**Switching from a debug build to the release build once:** the two are
+signed with different keys, so Android refuses to install one over the
+other. Uninstall the debug build first (`adb uninstall dev.lifeos.app`), then
+install the release build and pair again (on the computer
+`lifeos-bridge pair "<name>"`, then revoke the old pairing with
+`lifeos-bridge devices revoke <id>`, the id shown by `lifeos-bridge devices`). After that, updates install over each other and
+keep the pairing.
+
+Check that a build has no test aids: the strings of the debug twin
+(`lifeos.test.*`) must not occur in the APK's code, and the manifest must not
+be debuggable:
+
+```sh
+unzip -p app/build/outputs/apk/release/app-release.apk 'classes*.dex' | grep -c -a 'lifeos.test.'   # 0
+$ANDROID_HOME/build-tools/36.1.0/aapt2 dump xmltree --file AndroidManifest.xml \
+  app/build/outputs/apk/release/app-release.apk | grep -c debuggable                          # 0
+```
+
 ## Project layout
 
 ```

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -31,6 +33,22 @@ fun firebaseValues(): Map<String, String> {
     }
 }
 
+/**
+ * Release signing: the key and its password live only in the owner's private settings folder
+ * (`~/.config/lifeos/release/keystore.properties` next to the key file); nothing is in the
+ * repository. Without that file a release build is produced unsigned.
+ */
+fun releaseSigning(): Properties? {
+    val file = File(System.getProperty("user.home"), ".config/lifeos/release/keystore.properties")
+    if (!file.isFile) return null
+    return Properties().apply { file.inputStream().use { load(it) } }
+        .takeIf { p -> listOf("storeFile", "storePassword", "keyAlias", "keyPassword").all { !p.getProperty(it).isNullOrEmpty() } }
+}
+
+/** Grows with every commit, so a newer build always installs over an older one. */
+fun commitCount(): Int = providers.exec { commandLine("git", "rev-list", "--count", "HEAD") }
+    .standardOutput.asText.get().trim().toIntOrNull() ?: 1
+
 android {
     namespace = "dev.lifeos.app"
     compileSdk = 36
@@ -40,8 +58,8 @@ android {
         applicationId = "dev.lifeos.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = commitCount()
+        versionName = "0.1.$versionCode"
 
         val firebase = firebaseValues()
         for (name in listOf("FIREBASE_PROJECT_ID", "FIREBASE_SENDER_ID", "FIREBASE_APP_ID", "FIREBASE_API_KEY")) {
@@ -54,9 +72,22 @@ android {
         }
     }
 
+    val signing = releaseSigning()
+    if (signing != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = File(System.getProperty("user.home"), ".config/lifeos/release/" + signing.getProperty("storeFile"))
+                storePassword = signing.getProperty("storePassword")
+                keyAlias = signing.getProperty("keyAlias")
+                keyPassword = signing.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (signing != null) signingConfig = signingConfigs.getByName("release")
         }
     }
 
