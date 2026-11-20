@@ -6,7 +6,8 @@ from a phone, using the owner's own computer as the brain.
 
 ```
 Android app (Kotlin, Jetpack Compose, EN/TR)
-        │  private network (Tailscale)
+        │  relay on Google Cloud; outbound HTTPS from both sides,
+        │  end-to-end encrypted (docs/security.md); push through FCM
         ▼
 Bridge server (Python) on the owner's Ubuntu machine
         │  runs Claude Code headless (`claude -p`, `--resume`)
@@ -14,7 +15,8 @@ Bridge server (Python) on the owner's Ubuntu machine
 Memory folder (local only)  +  the owner's other project folders
 ```
 
-Nothing is exposed to the public internet, and no personal data lives in
+The computer opens no port to the internet, the relay only ever sees
+ciphertext, and no personal data lives in
 this repository: memory and settings stay on the owner's machine.
 
 ## What it will do

@@ -24,12 +24,6 @@ DEFAULT_ASK_TIMEOUT = 300
 DEFAULT_MAX_CONCURRENT = 2
 DEFAULT_MAX_TURNS = 25
 
-# Tailscale hands out addresses from these ranges.
-_TAILSCALE_NETWORKS = (
-    ipaddress.ip_network("100.64.0.0/10"),
-    ipaddress.ip_network("fd7a:115c:a1e0::/48"),
-)
-
 
 class ConfigError(Exception):
     """The configuration is missing, unsafe or invalid."""
@@ -113,7 +107,7 @@ def read_env_file(path: Path) -> dict[str, str]:
 
 
 def validate_host(host: str) -> str:
-    """Allow only localhost or a Tailscale address; never a wildcard."""
+    """Allow only the loopback interface: the phone arrives through the relay."""
     if host == "localhost":
         return host
     try:
@@ -122,11 +116,11 @@ def validate_host(host: str) -> str:
         raise ConfigError(
             f"LIFEOS_BRIDGE_HOST must be an IP address or 'localhost', got {host!r}"
         ) from exc
-    if address.is_loopback or any(address in network for network in _TAILSCALE_NETWORKS):
+    if address.is_loopback:
         return host
     raise ConfigError(
-        f"LIFEOS_BRIDGE_HOST={host} is refused: the bridge binds only to localhost "
-        "or to this machine's Tailscale address, never to a public or wildcard address"
+        f"LIFEOS_BRIDGE_HOST={host} is refused: the bridge binds only to the loopback "
+        "interface (127.0.0.1, ::1 or localhost); the phone reaches it through the relay"
     )
 
 

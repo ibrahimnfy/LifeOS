@@ -13,7 +13,8 @@ owner knows about their projects, courses and daily life, and act on it.
 
 ```
 Android app (Kotlin, Jetpack Compose, EN/TR)
-        │  private network (Tailscale)
+        │  relay on Google Cloud; outbound HTTPS from both sides,
+        │  end-to-end encrypted (docs/security.md); push through FCM
         ▼
 Bridge server (Python) on the owner's Ubuntu machine
         │  runs Claude Code headless (`claude -p`, `--resume`)
@@ -195,7 +196,9 @@ computer only, through `scripts/notify.sh` (build it in Phase 0):
 - Send one notification per new human issue, and one at the end of a session.
 - Keep the script's interface stable: once the Android app exists, push
   notifications to the phone will be added behind the same script
-  (tracked in Phase 6). Do not add any third-party notification service.
+  (tracked in Phase 6). Phone push uses Firebase Cloud Messaging (owner's
+  decision); a push never carries readable content. Do not add any other
+  third-party notification service.
 
 ---
 
@@ -207,7 +210,8 @@ computer only, through `scripts/notify.sh` (build it in Phase 0):
   `values/` and `values-tr/`; no hard-coded UI text).
 - Docs in `docs/`. Research in `docs/research/`. Decisions in
   `docs/decisions.md` (append-only; changes are new entries).
-- Bridge security defaults: bind to localhost / the Tailscale interface only,
+- Bridge security defaults: bind to the loopback interface only (the phone
+  arrives through the relay, see `docs/security.md`),
   require a bearer token from `~/.config/lifeos/env`, log no prompt contents
   by default.
 - Prefer small, boring, well-tested steps over clever ones. Every feature has
@@ -235,7 +239,9 @@ If the labels in section 3 do not exist yet, the project is not bootstrapped:
 6. Rewrite `README.md` to match the current vision (section 1) and link to
    `docs/decisions.md`.
 
-After Phase 0, the issues are the source of truth; section 9 is history.
+After Phase 0, the issues are the source of truth; section 9 is history
+(it still names the VPN transport that was later dropped; see
+`docs/decisions.md`).
 
 ---
 

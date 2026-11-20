@@ -84,16 +84,23 @@ def test_env_file_readable_by_others_is_refused(isolated_config):
         load_settings()
 
 
-@pytest.mark.parametrize(
-    "host", ["127.0.0.1", "::1", "localhost", "100.100.1.2", "fd7a:115c:a1e0::1"]
-)
+@pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "127.0.0.2"])
 def test_allowed_hosts(host):
     assert validate_host(host) == host
 
 
 @pytest.mark.parametrize(
     "host",
-    ["0.0.0.0", "::", "192.168.1.10", "8.8.8.8", "example.org", ""],  # noqa: S104
+    [
+        "0.0.0.0",  # noqa: S104
+        "::",
+        "192.168.1.10",
+        "8.8.8.8",
+        "100.100.1.2",
+        "fd7a:115c:a1e0::1",
+        "example.org",
+        "",
+    ],
 )
 def test_refused_hosts(host):
     with pytest.raises(ConfigError):

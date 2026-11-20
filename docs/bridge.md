@@ -1,14 +1,17 @@
 # Bridge server
 
-The bridge is a small HTTP server on the owner's computer. The phone app
-talks to it over the private network; it runs Claude Code headless and
-returns the answers.
+The bridge is a small HTTP server on the owner's computer. It runs Claude
+Code headless and returns the answers. It listens on the loopback interface
+only, for local tools such as `scripts/ask`. The phone app never connects to
+it directly: both sides make outbound HTTPS connections to a relay and
+exchange end-to-end encrypted messages (design: [`security.md`](security.md);
+not built yet).
 
 ## Security defaults
 
-- Listens on `127.0.0.1` by default. Only localhost or the machine's
-  Tailscale address are accepted as bind addresses; wildcard (`0.0.0.0`,
-  `::`) and public addresses are refused at start-up.
+- Listens on `127.0.0.1` by default. Only loopback addresses are accepted as
+  bind addresses; every other address, including wildcard (`0.0.0.0`, `::`),
+  private-network and public addresses, is refused at start-up.
 - Every route except `GET /health` requires `Authorization: Bearer <token>`.
   Unknown paths are rejected with `401` too (default deny).
 - The token lives in `~/.config/lifeos/env`. The bridge refuses to start
