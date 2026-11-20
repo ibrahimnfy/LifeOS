@@ -35,10 +35,13 @@ import dev.lifeos.app.data.Agenda
 import dev.lifeos.app.data.CoachMessage
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.CoachRerun
+import dev.lifeos.app.data.Dates
 import dev.lifeos.app.data.Endpoints
+import dev.lifeos.app.data.LocalItems
 import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.Task
 import dev.lifeos.app.data.TaskLists
+import dev.lifeos.app.data.TaskSection
 import dev.lifeos.app.data.TodayReload
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
@@ -63,6 +66,7 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
     val planState by planModel.state.collectAsStateWithLifecycle()
     val agendaState by agendaModel.state.collectAsStateWithLifecycle()
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
+    val confirmed by core.confirmed.items.collectAsStateWithLifecycle()
     val ticked by core.justTicked.collectAsStateWithLifecycle()
     val rerun by core.coachRerun.collectAsStateWithLifecycle()
 
@@ -117,7 +121,10 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                     UiState.Loading -> SkeletonCard(VISIBLE_TODAY_ROWS)
                     is UiState.Error -> ErrorNotice(state.problem, state.status, onRetry = agendaModel::refresh)
                     is UiState.Content -> {
-                        val tasks = TaskLists.open(state.data.tasksOverdue + state.data.tasksToday, outbox, ticked)
+                        // This phone's new tasks for today (or late) are here at once, before the agenda has them.
+                        val todays = LocalItems.tasks(outbox, confirmed, state.savedAtMillis)
+                            .filter { Dates.sectionOf(it.due, today()).let { s -> s == TaskSection.TODAY || s == TaskSection.OVERDUE } }
+                        val tasks = TaskLists.open(LocalItems.withTasks(state.data.tasksOverdue + state.data.tasksToday, todays), outbox, ticked)
                         LifeCard(watermark = Watermark(LifeIcons.TodayMark, SectionTones.TODAY)) {
                             SectionHeader(
                                 icon = LifeIcons.Today,

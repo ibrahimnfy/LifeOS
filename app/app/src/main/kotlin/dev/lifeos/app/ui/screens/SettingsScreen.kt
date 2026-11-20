@@ -20,6 +20,9 @@ import dev.lifeos.app.ui.components.SecondaryButton
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Icon
+import dev.lifeos.app.ui.icons.LifeIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,6 +75,7 @@ fun SettingsScreen(
     onThemeChange: (ThemeSetting) -> Unit,
     onPair: () -> Unit,
     onBack: () -> Unit,
+    onModels: () -> Unit = {},
 ) {
     val colors = LifeTheme.colors
     val scope = rememberCoroutineScope()
@@ -132,6 +136,24 @@ fun SettingsScreen(
                 color = colors.muted,
                 modifier = Modifier.padding(top = 0.dp),
             )
+
+            // ---- models and plan usage (#124)
+            SettingsGroup(stringResource(R.string.settings_models)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = LifeDimens.minTouch)
+                        .clickable(role = Role.Button, onClick = onModels)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.models_open), style = LifeType.rowTitle, color = colors.text)
+                        Text(stringResource(R.string.models_open_note), style = LifeType.small, color = colors.muted)
+                    }
+                    Icon(LifeIcons.Chevron, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
+                }
+            }
 
             SettingsGroup(stringResource(R.string.settings_about)) {
                 Row(

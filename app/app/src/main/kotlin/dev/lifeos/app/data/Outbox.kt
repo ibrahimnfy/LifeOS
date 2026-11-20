@@ -13,6 +13,9 @@ import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
+/** The form of a `client_id` the bridge accepts. */
+private val CLIENT_ID = Regex("^[A-Za-z0-9][A-Za-z0-9_-]{15,63}$")
+
 @Serializable
 data class OutboxItem(
     val id: String,
@@ -51,10 +54,20 @@ data class OutboxItem(
     }
 
     /**
-     * Sending it twice does no harm, so an uncertain attempt is simply repeated. (A note edit
-     * is not: the note's id changes with its text, so a repeat cannot find it.)
+     * The phone's own id of a new note or task, sent as `client_id`: the item's id, when it has
+     * the form the bridge accepts (16 to 64 letters, digits, `-`, `_`; every item made by this
+     * app has 16 hex digits).
      */
-    val repeatable: Boolean get() = kind == Kind.COMPLETE || kind == Kind.EVENT_UPDATE || kind == Kind.TASK_EDIT
+    val clientId: String? get() = id.takeIf { (kind == Kind.NOTE || kind == Kind.TASK) && CLIENT_ID.matches(it) }
+
+    /**
+     * Sending it twice does no harm, so an uncertain attempt is simply repeated: ticks, task
+     * edits, event changes, and new notes and tasks with a [clientId] (the computer answers a
+     * repeat with the item it already stored). A note edit is not: the note's id changes with
+     * its text, so a repeat cannot find it.
+     */
+    val repeatable: Boolean
+        get() = kind == Kind.COMPLETE || kind == Kind.EVENT_UPDATE || kind == Kind.TASK_EDIT || clientId != null
 }
 
 /** The outbox on storage: one JSON file, replaced atomically on every change. */
@@ -89,9 +102,10 @@ class OutboxStore(private val file: File) {
  *
  * - "attempt started" is stored before an item is sent, so a crash in between is noticed;
  * - when nothing left the phone, the item simply keeps waiting;
- * - when it left but no answer came, a tick or an event change is repeated later (repeating
- *   them is harmless; a tick answered with "task not found" is done), while a new note, task
- *   or event becomes "check" and is sent again only if the owner says so;
+ * - when it left but no answer came, a tick, a task edit, an event change and a new note or
+ *   task with its `client_id` are repeated later (repeating them is harmless: a tick answered
+ *   with "task not found" is done, a repeated create is answered with the stored item), while
+ *   a new event and a note edit become "check" and are sent again only if the owner says so;
  * - a refusal by the computer makes the item "failed" and visible.
  */
 class Outbox(

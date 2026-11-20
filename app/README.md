@@ -161,11 +161,16 @@ Conventions:
   ornaments.
 - **Colour carries meaning (P2).** A course or project keeps one tone and
   one line icon everywhere: its tile, the label and check ring of a task,
-  the rank of a pick, a deadline, its page and its files. The mapping is in
-  `data/Looks.kt` and depends only on the course ids: courses in id order
-  take the tone at `id mod 7` and the icon at `id mod 6`, or the next free
-  one when a course with a smaller id has it; projects and unknown course
-  names get a tone from a fixed hash of their name and the folder icon.
+  the rank of a pick, a deadline, its page and its files. The rule is the
+  owner's (`data/Looks.kt`): a course keeps the colour and icon it was first
+  given for as long as it exists; a new course (several at once: in id
+  order) takes the first free colour and icon in palette order (the least
+  used once all seven are taken); a course that is gone frees its colour;
+  no other course is ever re-coloured. The assignment is stored on the phone
+  (`looks/looks.json`, only extended, deleted on unpair) and updated from
+  each course list (an empty list changes nothing). Projects and unknown
+  course names get a tone from a fixed hash of their name and the folder
+  icon.
   Section cards (picks, Today, tasks) stay grey with one faint watermark
   icon and a heading icon in their section's tone (picks violet, Today
   peach, tasks mint, deadlines rose). The coach card is unchanged.
@@ -254,7 +259,16 @@ with plain HTTPS requests.
   its course's colour with its icon, ornament, next deadline and the marker
   for new content). A course page has a header card in the course's colour
   with the next deadline, and Materials, Announcements, Assignments and
-  Grades; files and links carry the course's colour. Files
+  Grades; files and links carry the course's colour. Every deadline ticket
+  or row and every assignment of the Assignments tab opens the
+  **assignment detail**: a ticket in the course's colour with the due date,
+  the days left on its stub, when it opened and the status (a dot and the
+  words); the instructions (the site's Markdown: headings, lists, bold,
+  italic, web links that open in the browser); the attached files, which
+  download and open like other materials; the submission (status, when it
+  closes, when it is graded) and whether it is in the task list. (The
+  summary names a deadline by its name and time only, so the app finds the
+  assignment in the course's list by them.) Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
 - **Activity** (under More), two tabs:
@@ -277,7 +291,17 @@ with plain HTTPS requests.
 - **More:** Sessions and Projects are placeholder screens.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
-  (immediately / 1 minute / 5 minutes), app version.
+  (immediately / 1 minute / 5 minutes), **Models** (see below), app
+  version.
+- **Settings → Models** (`GET /models/routing`): each model job of the
+  computer (chat sessions, coach run and conversation, consolidation, course
+  resources, summaries, context map) with its model, effort and advisor and
+  where that comes from (the job's default, the routing setting, the
+  background model; chat sessions can choose per session), and the plan
+  usage of its runs today and this week (runs, tokens with cache, Claude
+  Code's cost estimate); then what uses no model at all. **Read-only:** the
+  bridge has no endpoint to change the routing yet, so it is changed on the
+  computer (`LIFEOS_MODEL_ROUTING`).
 - **First run:** one welcome screen that leads to pairing or is skipped.
 
 Nothing on these screens is sample content any more. Not paired, they show
@@ -297,17 +321,29 @@ Nothing on these screens is sample content any more. Not paired, they show
   edits, new and changed events are stored on the phone first and sent in
   order as soon as the computer answers. "Attempt started" is stored before
   an item is sent. If nothing left the phone, the item keeps waiting. If it
-  left but no answer came, a tick, a task edit or an event change is
-  repeated later (harmless; a tick answered with "task not found" counts as
-  done), while a new note, task or event and a note edit are marked
-  **"Please check"** and are sent again only when the owner says so, and
-  not before the first attempt can no longer arrive (six minutes). A note
+  left but no answer came, a tick, a task edit, an event change and a new
+  note or task are repeated later (harmless: a tick answered with "task not
+  found" counts as done, and a new note or task carries the phone's own id
+  as `client_id`, so the computer answers a repeat with the item it already
+  stored and never saves it twice), while a new event and a note edit are
+  marked **"Please check"** and are sent again only when the owner says so,
+  and not before the first attempt can no longer arrive (six minutes). A note
   edit sent again that is answered with "note not found" counts as done (the
   first attempt arrived and gave the note its new id). A second edit of a
   note replaces the first one while that is still waiting; once the first is
   on its way, the note cannot be edited until it is confirmed. A refusal by
   the computer is shown as "Not accepted". Unsent items are deleted on
   unpair.
+- **Offline-first notes and tasks** (`data/Local.kt`): a new note or task
+  is on every screen at once. While it waits it is shown where it belongs
+  (Tasks in its date section or under "Just added", Today when it is due
+  today or late, Show all, Notes on top) with "Waiting to sync"; when the
+  computer confirms it, its answer (the stored task, the note's id and time)
+  takes the item's place before it leaves the outbox, so nothing flickers
+  or appears twice; once a list from the computer that was asked for after
+  the confirmation arrives, the list itself carries it (kept in
+  `outbox/confirmed.json`, deleted on unpair). No model run is involved in
+  saving.
 - **Downloads** (`data/Downloads.kt`, `data/Download.kt`): first the direct
   way: the computer sends the file's address through the sealed channel and
   the phone fetches it over HTTPS straight into the Downloads collection
@@ -523,8 +559,13 @@ running on the computer with the relay set up.
 5. **Offline:** switch the phone to flight mode. After a moment the dot
    turns amber and the screens show "Saved copy · updated … ago". Capture a
    note: "Waiting to sync"; More → Notes lists it on top under "Waiting to
-   sync". Switch flight mode off: within seconds the note is in `inbox.md`,
-   once, and on the Notes screen it moves into the computer's list.
+   sync". Capture a task due today: it is on Tasks (in "Today", or under
+   "Just added" when the coach has a plan) and on Today at once, marked
+   "Waiting to sync", without pulling down. Switch flight mode off: within
+   seconds the note is in `inbox.md` and the task in `tasks.md`, each once;
+   on the screens they lose the mark and can be ticked and edited, with no
+   flicker and no duplicate. (If the connection drops in the middle of a
+   send, the item is simply sent again later; the computer recognises it.)
 6. **Notes and task edits:** capture a note; More → Notes shows it at the
    top of the list (newest first) together with the older captures and the
    topic notes. Type a word of it into the search field: only matching notes
@@ -548,6 +589,10 @@ running on the computer with the relay set up.
    phone's PDF viewer (or the system asks which app to use); back in LifeOS
    nothing changed. Delete the file in the Files app and tap **Open** again:
    "This file is no longer in Downloads", and the download arrow is back.
+   Tap a deadline ticket: the assignment opens with its due ticket in the
+   course's colour (days left on the stub), the instructions, its files
+   (download one) and the submission status. A course's Assignments tab:
+   tapping an assignment opens the same screen.
    The refresh arrow starts a sync.
 9. **Screen time** (More → Activity): "Usage access is needed" with an
    explanation. Tap **Open usage access settings**: the system page for
@@ -576,6 +621,17 @@ running on the computer with the relay set up.
    is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### Models and plan usage
+
+Settings → **Models and plan usage**: one card per job with its model
+(and effort and advisor) and where it comes from; under it "Today" and
+"This week" with the runs, tokens and estimated cost (or "No runs"). Run a
+chat or rerun the coach on the computer, pull down: the numbers of that job
+grow. Set `LIFEOS_MODEL_ROUTING` on the computer (for example
+`summaries=haiku`), restart the bridge, pull down: the job shows the new
+model and "Set in the computer's routing setting". The screen has no way to
+change it from the phone yet.
 
 ### The warmer design (P2, Courses in P3)
 

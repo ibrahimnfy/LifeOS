@@ -1,5 +1,11 @@
 package dev.lifeos.app.data
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.util.Locale
 
 /** The seven soft tones of the warmer design (docs/design/mockups/README.md), in palette order. */
@@ -15,14 +21,72 @@ enum class Pattern { WAVES, GRID, DOTS, ARCS, TRIANGLES, CIRCLES }
 data class Look(val tone: Tone, val glyph: Glyph, val pattern: Pattern)
 
 /**
- * The looks of the courses, worked out from their ids only, so every screen shows a course the
- * same way and nothing is stored or picked by hand.
- *
- * Rule: courses are taken in the order of their ids. Each one wants the tone at
- * `id mod 7` and the icon (with its ornament) at `id mod 6`; if another course with a smaller
- * id has it already, it takes the next free one (while there are free ones). So a course keeps
- * its look as long as the set of courses stays the same, and two courses share a colour only
- * when there are more than seven.
+ * Which colour and icon a course was given (indexes into the palette and the icons). Kept on
+ * the phone ([LookStore]) so a course keeps its look for as long as it exists.
+ */
+@Serializable
+data class Slot(val tone: Int, val glyph: Int)
+
+/**
+ * The owner's rule (docs/decisions.md, 2026-11-21): a course keeps the colour and icon it was
+ * first given for as long as it exists; a new course takes the next free colour; existing
+ * courses are never re-coloured.
+ */
+object LookAssignments {
+    /**
+     * The assignment after a new course list: courses still there keep their slot; a course
+     * that is gone frees its slot; new courses (in id order) take the first free tone and the
+     * first free icon in palette order (the least used one once all are taken). An empty list
+     * changes nothing: it may only mean that courses are not set up right now.
+     */
+    fun update(previous: Map<Long, Slot>, courses: List<Course>, tones: Int = Tone.entries.size, glyphs: Int = Looks.COURSE_GLYPH_COUNT): Map<Long, Slot> {
+        if (courses.isEmpty()) return previous
+        val ids = courses.map { it.id }.toSet()
+        val result = LinkedHashMap(previous.filterKeys { it in ids })
+        for (id in ids.sorted().filter { it !in result }) {
+            result[id] = Slot(firstFree(result.values.map { it.tone }, tones), firstFree(result.values.map { it.glyph }, glyphs))
+        }
+        return result
+    }
+
+    private fun firstFree(taken: List<Int>, size: Int): Int {
+        val counts = IntArray(size)
+        taken.filter { it in 0 until size }.forEach { counts[it]++ }
+        val least = counts.min()
+        return counts.indexOfFirst { it == least }
+    }
+}
+
+/** The assignment on storage: one small JSON file, replaced atomically; deleted on unpair. */
+class LookStore(private val file: File) {
+    private val serializer = MapSerializer(String.serializer(), Slot.serializer())
+
+    fun load(): Map<Long, Slot> = try {
+        BridgeJson.decodeFromString(serializer, file.readText()).mapNotNull { (key, slot) -> key.toLongOrNull()?.let { it to slot } }.toMap()
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    fun save(slots: Map<Long, Slot>) {
+        try {
+            file.parentFile?.mkdirs()
+            val temporary = File(file.parentFile, file.name + ".new")
+            temporary.writeText(BridgeJson.encodeToString(serializer, slots.mapKeys { it.key.toString() }))
+            Files.move(temporary.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: Exception) {
+            // Not written: the next course list tries again; the looks in memory stay as they are.
+        }
+    }
+
+    fun wipe() {
+        file.delete()
+    }
+}
+
+/**
+ * The looks of the courses, from the stored assignment ([LookAssignments]), so every screen
+ * shows a course the same way. A course not assigned yet shows a look from its id until the
+ * next course list assigns it.
  *
  * A project, or a task's course name that matches no known course, gets a look from a stable
  * hash of its name; projects always carry the folder icon.
@@ -65,22 +129,15 @@ class Looks private constructor(private val byCourse: Map<Long, Look>, private v
 
         val EMPTY = of(emptyList())
 
-        fun of(courses: List<Course>): Looks {
-            val tonesTaken = mutableSetOf<Int>()
-            val glyphsTaken = mutableSetOf<Int>()
-            val looks = LinkedHashMap<Long, Look>()
-            for (course in courses.distinctBy { it.id }.sortedBy { it.id }) {
-                val tone = free(Math.floorMod(course.id, TONES.size.toLong()).toInt(), TONES.size, tonesTaken)
-                val glyph = free(Math.floorMod(course.id, COURSE_GLYPHS.size.toLong()).toInt(), COURSE_GLYPHS.size, glyphsTaken)
-                looks[course.id] = Look(TONES[tone], COURSE_GLYPHS[glyph], PATTERNS[glyph])
+        const val COURSE_GLYPH_COUNT = 6
+
+        /** The looks for [courses] from their stored [slots] (by default: as if assigned afresh). */
+        fun of(courses: List<Course>, slots: Map<Long, Slot> = LookAssignments.update(emptyMap(), courses)): Looks {
+            val looks = slots.mapValues { (_, slot) ->
+                val glyph = Math.floorMod(slot.glyph, COURSE_GLYPHS.size)
+                Look(TONES[Math.floorMod(slot.tone, TONES.size)], COURSE_GLYPHS[glyph], PATTERNS[glyph])
             }
             return Looks(looks, courses)
-        }
-
-        private fun free(wanted: Int, size: Int, taken: MutableSet<Int>): Int {
-            val pick = if (taken.size >= size) wanted else (0 until size).map { (wanted + it) % size }.first { it !in taken }
-            taken += pick
-            return pick
         }
 
         private fun wanted(id: Long): Look {

@@ -204,11 +204,15 @@ every section in its own clearly visible card.*
   keyboard already open, a switch between **Note** and **Task**; for a task an
   optional due date.
 - **Behaviour:** saving closes the sheet and shows a short confirmation.
-  Without a connection the item is stored on the phone, shown as "waiting to
-  sync", and sent when the bridge is reachable again.
+  The item is saved on the phone and shown on every screen at once (Tasks,
+  Today, Notes), marked "waiting to sync" until the bridge confirms it, then
+  replaced by the stored item without flicker or duplicates (#121). It is
+  sent in the background through the outbox, also later when the computer
+  was off, with a phone-generated `client_id`, so an unclear send is simply
+  repeated. No model run is involved in saving.
 - **Also reachable from:** a home-screen shortcut and the share menu of other
   apps (share text or a link into LifeOS).
-- **Endpoints:** add note, add task *(planned, Phase 3)*.
+- **Endpoints:** `POST /notes`, `POST /tasks` (with `client_id`).
 
 ### 3.5 Tasks
 
@@ -292,8 +296,17 @@ the platform the data comes from.*
   - **Materials:** sections and files (name, type, size, date; new ones
     marked), and the course's video and external links.
   - **Announcements:** newest first.
-  - **Assignments:** due date and status.
+  - **Assignments:** due date and status; each opens the assignment detail.
   - **Grades:** the grade items of the course.
+- **Assignment detail (#129, P3 in the course's colour):** a ticket with
+  the due date and time, when it opened and the status, and a stub with the
+  days left; the instructions (Markdown); the attached files (download and
+  open like materials); the submission (status, closing time, grading
+  time) and its task. Every upcoming deadline of the Courses screen opens
+  it. Endpoints: `GET /courses/{id}/assignments`,
+  `GET /courses/{id}/assignments/{aid}`. Not built: "Open the submission
+  page" of the mockups and the submission format and grade rows (the
+  bridge does not offer them yet).
 - **Downloads:** materials are **listed, not stored or embedded**. Tapping
   download fetches the file without any model run and saves it to the
   phone's Downloads folder; the app keeps no copy. The file comes directly
@@ -352,6 +365,10 @@ the platform the data comes from.*
 - **Appearance:** light (default) / dark / follow phone.
 - **Assistant:** default model and effort for new conversations (default:
   Opus, high); number of exchanges loaded when a conversation opens.
+- **Models (#124, built read-only):** each model job of the computer with
+  its model, effort, advisor and source, and its plan usage today and this
+  week; what uses no model. Changing the routing from the phone waits for a
+  bridge endpoint.
 - **Coach:** nudge frequency (off / low / normal), quiet hours (default
   22:00–08:00), questions on / off.
 - **Notifications:** which kinds the phone shows: answers ready, session
@@ -415,8 +432,11 @@ watermark icon and a heading icon in the section's tone), except the
 ticket-style deadlines, geometric ornaments) with P2's course colours and
 icons. The coach card is unchanged. Tokens: the D3 base tokens plus seven
 tones (card tint, second tint, ink; light and dark) in `ui/theme/Tokens.kt`;
-a course's look is derived from its id (`data/Looks.kt`, see
-[`app/README.md`](../app/README.md), "Conventions"). Not drawn yet: the
+a course keeps the colour and icon it was first given for as long as it
+exists, a new course takes the next free colour, and no course is ever
+re-coloured (#142; the assignment is stored on the phone and only
+extended, see `data/Looks.kt` and [`app/README.md`](../app/README.md),
+"Conventions"). Not drawn yet: the
 assignment detail screen of the mockups.
 
 ### D. Soft tones with colour where it matters *(working direction)*

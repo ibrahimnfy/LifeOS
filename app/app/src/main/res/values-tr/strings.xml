@@ -206,6 +206,7 @@
     <string name="tasks_no_date">Tarihsiz</string>
     <string name="tasks_empty">Her şey tamam. Açık görev yok.</string>
     <string name="tasks_filter_empty">Bu filtreye uyan görev yok.</string>
+    <string name="tasks_just_added">Yeni eklenenler</string>
 
     <!-- Today additions -->
     <string name="today_empty">Bugün için bir şey yok.</string>
@@ -312,6 +313,22 @@
     <string name="assignment_draft">Taslak, teslim edilmedi</string>
     <string name="assignment_reopened">Yeniden açıldı</string>
     <string name="assignment_not_submitted">Teslim edilmedi</string>
+    <!-- Ödev ayrıntısı (#129) -->
+    <string name="assignment_title">Ödev</string>
+    <string name="assignment_not_found">Bu ödev bulunamadı. Sitede kaldırılmış olabilir ya da dersler o zamandan beri eşitlenmedi.</string>
+    <string name="assignment_open_course">Dersi aç</string>
+    <string name="assignment_refresh">Ödevi yeniden yükle</string>
+    <string name="assignment_due_label">Son teslim</string>
+    <string name="assignment_past">Son teslim tarihi geçti</string>
+    <string name="assignment_opened">Açılış %1$s</string>
+    <string name="assignment_instructions">Yönergeler</string>
+    <string name="assignment_files">Dosyalar</string>
+    <string name="assignment_submission">Teslim</string>
+    <string name="assignment_status">Durum</string>
+    <string name="assignment_cutoff">Kapanış</string>
+    <string name="assignment_grading_due">Notlandırma</string>
+    <string name="assignment_in_tasks">Görevlerinde</string>
+    <string name="assignment_in_tasks_text">Teslim edilince kendiliğinden tamamlanır</string>
     <string name="grades_overall">Genel</string>
     <string name="grades_item">Not kalemi</string>
     <string name="grades_range">Aralık: %1$s</string>
@@ -412,4 +429,39 @@
 
     <string name="action_undo">Geri al</string>
     <string name="tasks_done_message">Tamamlandı olarak işaretlendi</string>
+
+    <!-- Ayarlar → Modeller (#124) -->
+    <string name="settings_models">Modeller</string>
+    <string name="models_open">Modeller ve plan kullanımı</string>
+    <string name="models_open_note">Bilgisayarın her işi hangi modeli kullanıyor ve ne kadar</string>
+    <string name="models_title">Modeller</string>
+    <string name="models_read_only">Bilgisayardaki ayara göre gösterilir. Yönlendirme şimdilik burada değil, bilgisayarda değiştirilir.</string>
+    <string name="models_empty">Bilgisayar hiçbir model işi bildirmiyor.</string>
+    <string name="models_job_chat">Sohbet oturumları</string>
+    <string name="models_job_coach_plan">Koç: sabah çalışması ve planı yeniden çalıştırma</string>
+    <string name="models_job_coach_chat">Koç: konuşma</string>
+    <string name="models_job_consolidation">Gece birleştirme önerileri</string>
+    <string name="models_job_course_resources">Ders izlencelerinden kaynaklar</string>
+    <string name="models_job_summaries">Özetler</string>
+    <string name="models_job_context_map">İzin verilen klasörlerin bağlam haritası</string>
+    <string name="models_default_model">Varsayılan model</string>
+    <string name="models_effort">çaba %1$s</string>
+    <string name="models_advisor">danışman %1$s</string>
+    <string name="models_source_default">Bu işin varsayılanı</string>
+    <string name="models_source_routing">Bilgisayarın yönlendirme ayarında belirlenmiş</string>
+    <string name="models_source_background">Bilgisayarın arka plan modeli</string>
+    <string name="models_source_session">Varsayılan; her oturum kendi modelini seçebilir</string>
+    <string name="models_today">Bugün</string>
+    <string name="models_week">Bu hafta</string>
+    <string name="models_no_runs">Çalıştırma yok</string>
+    <plurals name="models_runs">
+        <item quantity="one">%d çalıştırma</item>
+        <item quantity="other">%d çalıştırma</item>
+    </plurals>
+    <string name="models_tokens">%1$s token</string>
+    <string name="models_no_model">Hiç model kullanılmayanlar</string>
+    <string name="models_none_saving">Not ve görev kaydetme</string>
+    <string name="models_none_course_sync">Ders eşitleme</string>
+    <string name="models_none_notifications">Bildirimler</string>
+    <string name="models_cost_note">Kullanım, çalıştırmaların bildirdiği gibidir, önbellek dahil. Maliyet Claude Code\'un kendi tahminidir, fatura değildir.</string>
 </resources>

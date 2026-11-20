@@ -112,6 +112,7 @@ fun CoursesScreen(
     onPair: () -> Unit,
     onOpenCourse: (Long) -> Unit,
     onGrades: () -> Unit,
+    onOpenDeadline: (Deadline) -> Unit = { deadline -> deadline.courseId?.let(onOpenCourse) },
 ) {
     val colors = LifeTheme.colors
     val locale = appLocale()
@@ -210,7 +211,7 @@ fun CoursesScreen(
                 if (summary !is UiState.NotPaired) noticeOf(sync)?.let { SyncNoticeCard(it) }
                 // The summary card holds the upcoming deadlines and nothing else.
                 StateHost(summary, "", onRetry = refreshLists, onPair = onPair, skeletonRows = 2) { data: CourseSummary ->
-                    DeadlineCard(data.upcoming(System.currentTimeMillis() / 1000), onOpenCourse)
+                    DeadlineCard(data.upcoming(System.currentTimeMillis() / 1000), onOpenDeadline)
                 }
                 if (summary !is UiState.NotPaired && summary !is UiState.Error) {
                     // One "saved copy" line for the screen is enough: the summary above carries it.
@@ -249,7 +250,7 @@ private fun DaysLeft(due: Long?, big: Boolean = true) {
  * course); further ones follow as rows. Tapping one opens its course.
  */
 @Composable
-private fun DeadlineCard(deadlines: List<Deadline>, onOpenCourse: (Long) -> Unit) {
+private fun DeadlineCard(deadlines: List<Deadline>, onOpenDeadline: (Deadline) -> Unit) {
     val colors = LifeTheme.colors
     val looks = LocalLooks.current
     val locale = appLocale()
@@ -274,7 +275,7 @@ private fun DeadlineCard(deadlines: List<Deadline>, onOpenCourse: (Long) -> Unit
                         .clip(RoundedCornerShape(14.dp))
                         .background(colors.bg)
                         .drawBehind { drawRect(ink, size = Size(size.width, 4.dp.toPx())) }
-                        .clickable(enabled = deadline.courseId != null, role = Role.Button) { deadline.courseId?.let(onOpenCourse) }
+                        .clickable(enabled = deadline.courseId != null, role = Role.Button) { onOpenDeadline(deadline) }
                         .padding(start = 10.dp, end = 10.dp, top = 12.dp, bottom = 9.dp),
                 ) {
                     DaysLeft(deadline.due)
@@ -298,7 +299,7 @@ private fun DeadlineCard(deadlines: List<Deadline>, onOpenCourse: (Long) -> Unit
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 56.dp)
-                    .clickable(enabled = deadline.courseId != null, role = Role.Button) { deadline.courseId?.let(onOpenCourse) }
+                    .clickable(enabled = deadline.courseId != null, role = Role.Button) { onOpenDeadline(deadline) }
                     .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -406,7 +407,14 @@ private enum class CourseTab(val title: Int) {
 
 /** One course: Materials, Announcements, Assignments, Grades. Opening it clears its "new" markers. */
 @Composable
-fun CourseScreen(core: LifeOsCore, courseId: Long, onBack: () -> Unit, onConnectionClick: () -> Unit, onPair: () -> Unit) {
+fun CourseScreen(
+    core: LifeOsCore,
+    courseId: Long,
+    onBack: () -> Unit,
+    onConnectionClick: () -> Unit,
+    onPair: () -> Unit,
+    onOpenAssignment: (Long) -> Unit = {},
+) {
     val coursesModel = rememberLoad(core, Endpoints.courses) { list: CourseList -> list.courses.isEmpty() }
     val courses by coursesModel.state.collectAsStateWithLifecycle()
     val pairing by core.pairing.collectAsStateWithLifecycle()
@@ -438,7 +446,7 @@ fun CourseScreen(core: LifeOsCore, courseId: Long, onBack: () -> Unit, onConnect
         when (tab) {
             CourseTab.MATERIALS -> MaterialsTab(core, courseId, onPair)
             CourseTab.ANNOUNCEMENTS -> AnnouncementsTab(core, courseId, onPair)
-            CourseTab.ASSIGNMENTS -> AssignmentsTab(core, courseId, onPair)
+            CourseTab.ASSIGNMENTS -> AssignmentsTab(core, courseId, onPair, onOpenAssignment)
             CourseTab.GRADES -> GradesTab(core, courseId, onPair)
         }
     }
@@ -554,7 +562,7 @@ private fun MaterialsTab(core: LifeOsCore, courseId: Long, onPair: () -> Unit) {
 
 /** One file: name, kind, size and date, and the download control with its progress and result. */
 @Composable
-private fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
+internal fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
     val colors = LifeTheme.colors
     val context = LocalContext.current
     val locale = appLocale()
@@ -676,7 +684,7 @@ private fun AnnouncementsTab(core: LifeOsCore, courseId: Long, onPair: () -> Uni
 }
 
 @Composable
-private fun Assignment.statusText(): String? = when {
+internal fun Assignment.statusText(): String? = when {
     status == null -> null
     status.graded -> stringResource(R.string.assignment_graded)
     status.submission == "submitted" -> stringResource(R.string.assignment_submitted)
@@ -686,7 +694,7 @@ private fun Assignment.statusText(): String? = when {
 }
 
 @Composable
-private fun AssignmentsTab(core: LifeOsCore, courseId: Long, onPair: () -> Unit) {
+private fun AssignmentsTab(core: LifeOsCore, courseId: Long, onPair: () -> Unit, onOpenAssignment: (Long) -> Unit) {
     val colors = LifeTheme.colors
     val locale = appLocale()
     val model = rememberLoad(core, Endpoints.assignments(courseId)) { a: Assignments -> a.assignments.isEmpty() }
@@ -697,16 +705,27 @@ private fun AssignmentsTab(core: LifeOsCore, courseId: Long, onPair: () -> Unit)
                 // Nearest deadline first; those without a date last.
                 data.assignments.sortedWith(compareBy({ it.due == null }, { -(it.due ?: 0) })).forEachIndexed { index, item ->
                     if (index > 0) RowDivider(startIndent = 0.dp)
-                    Column(Modifier.padding(vertical = 8.dp)) {
-                        Text(item.name, style = LifeType.rowTitle, color = colors.text)
-                        Text(
-                            listOfNotNull(
-                                item.due?.let { stringResource(R.string.assignment_due, momentLabel(it, locale)) } ?: stringResource(R.string.assignment_no_due),
-                                item.statusText(),
-                            ).joinToString(" · "),
-                            style = LifeType.small,
-                            color = colors.muted,
-                        )
+                    // Tapping an assignment opens its detail.
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp)
+                            .clickable(role = Role.Button) { onOpenAssignment(item.id) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(item.name, style = LifeType.rowTitle, color = colors.text)
+                            Text(
+                                listOfNotNull(
+                                    item.due?.let { stringResource(R.string.assignment_due, momentLabel(it, locale)) } ?: stringResource(R.string.assignment_no_due),
+                                    item.statusText(),
+                                ).joinToString(" · "),
+                                style = LifeType.small,
+                                color = colors.muted,
+                            )
+                        }
+                        Icon(LifeIcons.Chevron, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
                     }
                 }
             }

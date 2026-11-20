@@ -48,9 +48,9 @@ def test_updated_sdk_also_on_disk_before_a_restart(settings, monkeypatch):
     sdk_settings = dataclasses.replace(settings, runner="sdk")
     signed("sdk")
     assert available(sdk_settings, "sdk")
-    monkeypatch.setattr(capable, "installed_sdk_version", lambda: "9.9.9")
-    assert not available(sdk_settings, "sdk")  # the package changed under the running bridge
-    monkeypatch.undo()
+    with monkeypatch.context() as patch:  # never monkeypatch.undo(): it would end the isolation
+        patch.setattr(capable, "installed_sdk_version", lambda: "9.9.9")
+        assert not available(sdk_settings, "sdk")  # the package changed under the running bridge
     signed("sdk", sdk_version="0.0.1")
     assert not available(sdk_settings, "sdk")
 

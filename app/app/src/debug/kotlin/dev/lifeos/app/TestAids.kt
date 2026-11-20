@@ -106,7 +106,7 @@ object TestAids {
         /** The sample data: GETs from the file (dates made relative to today), every write simply accepted. */
         private fun sample(method: String, path: String): RelayResponse {
             if (method != "GET") return RelayResponse(200, buildJsonObject { put("saved", JsonPrimitive(true)) })
-            val key = "GET " + path.replace(Regex("^/courses/\\d+/"), "/courses/ID/").replace(Regex("^/notes/[^/]+$"), "/notes/ID")
+            val key = "GET " + path.replace(Regex("^/courses/\\d+/"), "/courses/ID/").replace(Regex("/assignments/\\d+$"), "/assignments/ID").replace(Regex("^/notes/[^/]+$"), "/notes/ID")
             val body = data[key] ?: return RelayResponse(404, Json.parseToJsonElement("""{"error":"not_found"}"""))
             return RelayResponse(200, relative(body))
         }
@@ -116,6 +116,7 @@ object TestAids {
                 for ((name, value) in element) {
                     when (name) {
                         "due_in_days" -> put("due", JsonPrimitive(System.currentTimeMillis() / 1000 + value.jsonPrimitive.int * 86_400L))
+                        "opens_in_days" -> put("opens", JsonPrimitive(System.currentTimeMillis() / 1000 + value.jsonPrimitive.int * 86_400L))
                         "due_date_in_days" -> put("due", JsonPrimitive(java.time.LocalDate.now().plusDays(value.jsonPrimitive.int.toLong()).toString()))
                         else -> put(name, relative(value))
                     }
