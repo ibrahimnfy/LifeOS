@@ -514,7 +514,19 @@ commit there**, made as `lifeos-bridge`. The bridge refuses to write
 git, or **has a git remote**: the memory must stay on the computer.
 
 - `POST /notes` with `{"text": "…"}` appends a dated line to `inbox.md`
-  (`201`). Up to 4,000 characters; further lines are kept, indented.
+  (`201`). Up to 4,000 characters; further lines are kept, indented. The
+  answer is `{"saved": true, "repeat": false, "id": "i-…", "at": "…",
+  "client_id": … | null}`.
+- **Phone ids (offline saving).** `POST /notes` and `POST /tasks` take an
+  optional `client_id`: a random id the phone chose (16 to 64 letters,
+  digits, `-`, `_`; a UUID fits). A second create with the same `client_id`
+  and the same content answers `200` with the stored item and `"repeat":
+  true` and writes nothing, also after a restart, after the note was edited
+  (the answer carries its current id) or the task was completed (the answer
+  shows it done). The same `client_id` with different content answers `409
+  client_id_conflict`. The mapping lives in the memory's `phone-ids.md` (ids
+  and a fingerprint of the first request, no text), committed with the item.
+  Requests without `client_id` behave as before. None of this starts a run.
 - `GET /notes?query=&limit=` lists the captures of the inbox, newest first
   (`kind: "inbox"`), and the topic files under `notes/` (`kind: "topic"`,
   with their title), each with `id`, `at` and a `preview`; `query` searches
@@ -528,8 +540,9 @@ git, or **has a git remote**: the memory must stay on the computer.
   "t-20270115-01", "title": "…", "done": false, "due": "2027-01-20" | null,
   "project": …, "course": …, "added": "…"}]}`.
 - `POST /tasks` with `{"title": "…", "due": "YYYY-MM-DD", "project":
-  "file-name", "course": "file-name"}` (only `title` is required) adds a line
-  to `tasks.md` and returns the task with its new id (`201`).
+  "file-name", "course": "file-name", "client_id": "…"}` (only `title` is
+  required) adds a line to `tasks.md` and returns the task with its new id,
+  `client_id` and `"repeat": false` (`201`).
 - `POST /tasks/{id}/complete` moves the line to `tasks-done.md` with the
   date; `404 task_not_found` for an unknown or already finished task.
 - `GET /events?start=YYYY-MM-DD&end=YYYY-MM-DD` lists the events touching
@@ -1147,6 +1160,12 @@ Memory (each write is a commit in the memory folder; check with
 H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787; J='Content-Type: application/json'
 curl -s -H "$H" -H "$J" -d '{"text":"test note"}' $B/notes
 curl -s -H "$H" -H "$J" -d '{"title":"Test task","due":"2027-01-20"}' $B/tasks     # note the id
+# offline saving: send the same create twice; the second answers 200 "repeat":true, one line only
+P=$(python3 -c 'import uuid; print(uuid.uuid4())')
+curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"phone note\",\"client_id\":\"$P\"}" $B/notes
+curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"phone note\",\"client_id\":\"$P\"}" $B/notes
+curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"other text\",\"client_id\":\"$P\"}" $B/notes   # 409
+grep -c 'phone note' ~/brain/inbox.md            # 1
 curl -s -H "$H" $B/tasks
 curl -s -H "$H" -X POST $B/tasks/<id>/complete
 curl -s -H "$H" -H "$J" -d '{"title":"Test event","date":"2027-01-20","start":"14:00"}' $B/events

@@ -711,9 +711,16 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/notes", status_code=201)
     async def add_note(request: Request):
-        """Quick capture into the inbox. Body: ``{"text": str}``."""
+        """Quick capture into the inbox. Body: ``{"text": str, "client_id"?: str}``.
+
+        A repeat with a known ``client_id`` answers 200 with the stored note and
+        writes nothing; the same ``client_id`` with other text answers 409.
+        """
         data = await read_json_object(request)
-        return await asyncio.to_thread(memory.add_note, brain, data.get("text"))
+        saved = await asyncio.to_thread(
+            memory.add_note, brain, data.get("text"), None, data.get("client_id")
+        )
+        return JSONResponse(saved, status_code=200 if saved["repeat"] else 201)
 
     @app.get("/notes")
     async def list_notes(query: str = "", limit: int = 100):
@@ -743,9 +750,14 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/tasks", status_code=201)
     async def add_task(request: Request):
-        """Body: ``{"title": str, "due"?: "YYYY-MM-DD", "project"?: str, "course"?: str}``."""
+        """Body: ``{"title", "due"?: "YYYY-MM-DD", "project"?, "course"?, "client_id"?}``.
+
+        A repeat with a known ``client_id`` answers 200 with the stored task and
+        writes nothing; the same ``client_id`` with other fields answers 409.
+        """
         data = await read_json_object(request)
-        return (await asyncio.to_thread(memory.add_task, brain, data)).as_json()
+        saved = await asyncio.to_thread(memory.save_task, brain, data)
+        return JSONResponse(saved, status_code=200 if saved["repeat"] else 201)
 
     @app.post("/tasks/{task_id}/complete")
     async def complete_task(task_id: str):

@@ -43,6 +43,7 @@ section 2 and ideas 4, 10, 11, 15 and 18.
 ├── inbox.md             quick captures from the phone, not yet sorted
 ├── tasks.md             all open tasks
 ├── tasks-done.md        completed tasks (append-only archive)
+├── phone-ids.md         written by the bridge: which phone id became which note or task
 ├── daily/
 │   └── 2026-11-20.md    one log per day
 ├── map/                 context map: one file per allowed folder on disk

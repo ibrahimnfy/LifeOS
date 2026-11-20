@@ -4,8 +4,10 @@ import subprocess
 from datetime import date, datetime
 
 import pytest
+from fastapi.testclient import TestClient
 
 from lifeos_bridge import memory
+from lifeos_bridge.app import create_app
 
 NOW = datetime(2027, 1, 15, 9, 5).astimezone()
 
@@ -281,3 +283,102 @@ def test_a_task_can_be_retitled_and_redated(client, auth, brain):
     assert (
         client.patch("/tasks/t-20000101-01", headers=auth, json={"title": "x"}).status_code == 404
     )
+
+
+# ---- phone ids: idempotent create ------------------------------------------------
+
+PHONE_NOTE = "0f6c2a9e-4b1d-4c55-9a3e-7d1b2c3d4e5f"
+PHONE_TASK = "a1b2c3d4e5f6a7b8c9d0e1f2"
+
+
+@pytest.fixture
+def no_runs(monkeypatch):
+    """Saving notes and tasks must never start a model run."""
+    from lifeos_bridge import claude
+
+    async def refuse(*args, **kwargs):
+        raise AssertionError("a model run was started")
+
+    monkeypatch.setattr(claude, "_start", refuse)
+
+
+def test_a_repeated_note_is_saved_once(client, auth, brain, calls, no_runs):
+    body = {"text": "offline idea\nmore", "client_id": PHONE_NOTE}
+    first = client.post("/notes", headers=auth, json=body)
+    assert first.status_code == 201
+    saved = first.json()
+    assert saved["id"].startswith("i-") and saved["client_id"] == PHONE_NOTE
+    assert not saved["repeat"]
+    assert client.get(f"/notes/{saved['id']}", headers=auth).json()["text"] == "offline idea\nmore"
+    again = client.post("/notes", headers=auth, json=body)
+    assert again.status_code == 200
+    assert again.json() == {**saved, "repeat": True}
+    assert (brain / "inbox.md").read_text().count("offline idea") == 1
+    assert commits(brain)[:2] == ["Capture a note from the phone", "init"]
+    assert git(brain, "status", "--short") == "" and calls() == []
+    ids = (brain / memory.IDS_FILE).read_text()
+    assert PHONE_NOTE in ids and "offline idea" not in ids  # ids and a fingerprint only
+
+
+def test_a_repeated_task_is_saved_once_also_after_completion(client, auth, brain, no_runs):
+    body = {"title": "Offline task", "due": "2027-01-20", "client_id": PHONE_TASK}
+    first = client.post("/tasks", headers=auth, json=body)
+    assert first.status_code == 201
+    task = first.json()
+    assert task["client_id"] == PHONE_TASK and not task["repeat"] and task["due"] == "2027-01-20"
+    again = client.post("/tasks", headers=auth, json=body)
+    assert again.status_code == 200 and again.json() == {**task, "repeat": True}
+    client.post(f"/tasks/{task['id']}/complete", headers=auth)
+    late = client.post("/tasks", headers=auth, json=body).json()
+    assert late["id"] == task["id"] and late["done"] and late["repeat"]
+    assert client.get("/tasks", headers=auth).json()["tasks"] == []
+    assert (brain / "tasks.md").read_text().count("Offline task") == 0
+    assert (brain / "tasks-done.md").read_text().count("Offline task") == 1
+
+
+def test_same_phone_id_with_other_content_is_a_conflict(client, auth, brain, no_runs):
+    client.post("/notes", headers=auth, json={"text": "one", "client_id": PHONE_NOTE})
+    other = client.post("/notes", headers=auth, json={"text": "two", "client_id": PHONE_NOTE})
+    assert other.status_code == 409 and other.json()["error"] == "client_id_conflict"
+    as_task = client.post("/tasks", headers=auth, json={"title": "one", "client_id": PHONE_NOTE})
+    assert as_task.status_code == 409
+    client.post("/tasks", headers=auth, json={"title": "Task", "client_id": PHONE_TASK})
+    moved = {"title": "Task", "due": "2027-02-01", "client_id": PHONE_TASK}
+    assert client.post("/tasks", headers=auth, json=moved).status_code == 409
+    assert "two" not in (brain / "inbox.md").read_text()
+    assert len(client.get("/tasks", headers=auth).json()["tasks"]) == 1
+
+
+def test_phone_ids_survive_a_restart(settings, auth, brain, no_runs):
+    first = TestClient(create_app(settings))
+    saved = first.post("/notes", headers=auth, json={"text": "kept", "client_id": PHONE_NOTE})
+    second = TestClient(create_app(settings))
+    again = second.post("/notes", headers=auth, json={"text": "kept", "client_id": PHONE_NOTE})
+    assert again.status_code == 200 and again.json()["id"] == saved.json()["id"]
+
+
+def test_an_edited_note_is_still_found_by_its_phone_id(client, auth, brain):
+    saved = client.post("/notes", headers=auth, json={"text": "draft", "client_id": PHONE_NOTE})
+    edited = client.patch(f"/notes/{saved.json()['id']}", headers=auth, json={"text": "final"})
+    assert edited.json()["id"] != saved.json()["id"]
+    # The outbox sends the original create once more: still one note, under its new id.
+    again = client.post("/notes", headers=auth, json={"text": "draft", "client_id": PHONE_NOTE})
+    assert again.status_code == 200 and again.json()["id"] == edited.json()["id"]
+    assert "draft" not in (brain / "inbox.md").read_text()
+    assert git(brain, "status", "--short") == ""
+
+
+BAD_PHONE_IDS = ["short", "x" * 65, "has space in it", "../../etc/passwd-x", 5, "-dash-first-xxxxx"]
+
+
+def test_old_clients_and_bad_phone_ids(client, auth, brain):
+    plain = client.post("/notes", headers=auth, json={"text": "no id"})
+    assert plain.status_code == 201 and plain.json()["client_id"] is None
+    assert client.post("/notes", headers=auth, json={"text": "no id"}).status_code == 201
+    assert (brain / "inbox.md").read_text().count("no id") == 2
+    assert client.post("/tasks", headers=auth, json={"title": "no id"}).status_code == 201
+    assert not (brain / memory.IDS_FILE).exists()
+    for bad_id in BAD_PHONE_IDS:
+        note = client.post("/notes", headers=auth, json={"text": "x", "client_id": bad_id})
+        task = client.post("/tasks", headers=auth, json={"title": "x", "client_id": bad_id})
+        assert (note.status_code, task.status_code) == (400, 400), bad_id
