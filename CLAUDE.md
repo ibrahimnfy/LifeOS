@@ -218,6 +218,9 @@ computer only, through `scripts/notify.sh` (build it in Phase 0):
   arrives through the relay, see `docs/security.md`),
   require a bearer token from `~/.config/lifeos/env`, log no prompt contents
   by default.
+- Keep tool output short: pipe long output through head/tail/grep, read large
+  files in parts, never print whole logs or test runs when a summary line is
+  enough.
 - Prefer small, boring, well-tested steps over clever ones. Every feature has
   a documented manual check the owner can run.
 - When several good designs exist and the choice is purely technical and
