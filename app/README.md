@@ -161,11 +161,16 @@ Conventions:
   ornaments.
 - **Colour carries meaning (P2).** A course or project keeps one tone and
   one line icon everywhere: its tile, the label and check ring of a task,
-  the rank of a pick, a deadline, its page and its files. The mapping is in
-  `data/Looks.kt` and depends only on the course ids: courses in id order
-  take the tone at `id mod 7` and the icon at `id mod 6`, or the next free
-  one when a course with a smaller id has it; projects and unknown course
-  names get a tone from a fixed hash of their name and the folder icon.
+  the rank of a pick, a deadline, its page and its files. The rule is the
+  owner's (`data/Looks.kt`): a course keeps the colour and icon it was first
+  given for as long as it exists; a new course (several at once: in id
+  order) takes the first free colour and icon in palette order (the least
+  used once all seven are taken); a course that is gone frees its colour;
+  no other course is ever re-coloured. The assignment is stored on the phone
+  (`looks/looks.json`, only extended, deleted on unpair) and updated from
+  each course list (an empty list changes nothing). Projects and unknown
+  course names get a tone from a fixed hash of their name and the folder
+  icon.
   Section cards (picks, Today, tasks) stay grey with one faint watermark
   icon and a heading icon in their section's tone (picks violet, Today
   peach, tasks mint, deadlines rose). The coach card is unchanged.

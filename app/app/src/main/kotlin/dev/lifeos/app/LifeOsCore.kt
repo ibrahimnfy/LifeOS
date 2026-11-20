@@ -21,6 +21,8 @@ import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.CoachRerun
 import dev.lifeos.app.data.CoachRotation
 import dev.lifeos.app.data.CourseList
+import dev.lifeos.app.data.LookAssignments
+import dev.lifeos.app.data.LookStore
 import dev.lifeos.app.data.Looks
 import dev.lifeos.app.data.Downloads
 import dev.lifeos.app.data.Endpoint
@@ -129,6 +131,7 @@ class LifeOsCore(private val app: Application) {
     val pairProgress: StateFlow<PairState> = pairState
 
     private val looksState = MutableStateFlow(Looks.EMPTY)
+    private val lookStore = LookStore(File(app.filesDir, "looks/looks.json"))
 
     /** The colour and icon of every known course (from the last course list), the same on every screen. */
     val looks: StateFlow<Looks> = looksState
@@ -268,7 +271,12 @@ class LifeOsCore(private val app: Application) {
     private fun noteCourses(endpoint: Endpoint<*>, data: Any?) {
         if (endpoint.key != Endpoints.courses.key) return
         val courses = (data as? CourseList)?.courses ?: return
-        val next = Looks.of(courses)
+        // A course keeps the colour it was first given: the assignment is stored and only extended.
+        val slots = synchronized(lookStore) {
+            val stored = lookStore.load()
+            LookAssignments.update(stored, courses).also { if (it != stored && !sample) lookStore.save(it) }
+        }
+        val next = Looks.of(courses, slots)
         if (looksState.value != next) looksState.value = next
     }
 
@@ -770,6 +778,7 @@ class LifeOsCore(private val app: Application) {
         downloads.clear()
         rerunState.value = CoachRerun.State.Idle
         looksState.value = Looks.EMPTY
+        lookStore.wipe()
         tickTimers.values.forEach { it.cancel() }
         tickTimers.clear()
         tickedState.value = emptySet()

@@ -415,8 +415,11 @@ watermark icon and a heading icon in the section's tone), except the
 ticket-style deadlines, geometric ornaments) with P2's course colours and
 icons. The coach card is unchanged. Tokens: the D3 base tokens plus seven
 tones (card tint, second tint, ink; light and dark) in `ui/theme/Tokens.kt`;
-a course's look is derived from its id (`data/Looks.kt`, see
-[`app/README.md`](../app/README.md), "Conventions"). Not drawn yet: the
+a course keeps the colour and icon it was first given for as long as it
+exists, a new course takes the next free colour, and no course is ever
+re-coloured (#142; the assignment is stored on the phone and only
+extended, see `data/Looks.kt` and [`app/README.md`](../app/README.md),
+"Conventions"). Not drawn yet: the
 assignment detail screen of the mockups.
 
 ### D. Soft tones with colour where it matters *(working direction)*

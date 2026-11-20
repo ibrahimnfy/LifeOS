@@ -10,33 +10,67 @@ import java.time.ZoneId
 class LooksTest {
     private fun course(id: Long, name: String = "Course $id", short: String = "C$id") = Course(id, name, short)
 
+    @get:org.junit.Rule
+    val folder = org.junit.rules.TemporaryFolder()
+
     @Test
-    fun `a course's look depends on its id, not on the order of the list`() {
-        val a = Looks.of(listOf(course(11), course(12), course(13)))
-        val b = Looks.of(listOf(course(13), course(11), course(12)))
-        for (id in listOf(11L, 12L, 13L)) assertEquals(a.course(id), b.course(id))
-        // 11 mod 7 = 4 (sand), 11 mod 6 = 5 (flask); 12 mod 7 = 5 (mint), 12 mod 6 = 0 (wave).
-        assertEquals(Look(Tone.SAND, Glyph.FLASK, Pattern.CIRCLES), a.course(11))
-        assertEquals(Look(Tone.MINT, Glyph.WAVE, Pattern.WAVES), a.course(12))
+    fun `new courses take the next free colour and icon in palette order, by id`() {
+        val slots = LookAssignments.update(emptyMap(), listOf(course(13), course(11), course(12)))
+        assertEquals(mapOf(11L to Slot(0, 0), 12L to Slot(1, 1), 13L to Slot(2, 2)), slots)
+        val looks = Looks.of(listOf(course(11), course(12), course(13)), slots)
+        assertEquals(Look(Tone.SKY, Glyph.WAVE, Pattern.WAVES), looks.course(11))
+        assertEquals(Look(Tone.TEAL, Glyph.CHIP, Pattern.GRID), looks.course(12))
     }
 
     @Test
-    fun `courses whose ids want the same colour get different ones while there are free ones`() {
-        // 3 and 10 both want tone 3; 3 and 9 both want icon 3.
-        val looks = Looks.of(listOf(course(3), course(10), course(9)))
-        val tones = listOf(3L, 9L, 10L).map { looks.course(it).tone }
-        assertEquals(3, tones.toSet().size)
-        assertEquals(Tone.PEACH, looks.course(3).tone)
-        assertNotEquals(looks.course(3).glyph, looks.course(9).glyph)
-        // The one with the smaller id keeps the colour it wants.
-        assertEquals(Tone.PEACH, Looks.of(listOf(course(10), course(3))).course(3).tone)
+    fun `adding a course never changes another course's colour`() {
+        val first = LookAssignments.update(emptyMap(), listOf(course(20), course(30)))
+        // A course with a smaller id arrives later: the others keep theirs, it takes the next free one.
+        val next = LookAssignments.update(first, listOf(course(10), course(20), course(30)))
+        assertEquals(first[20], next[20])
+        assertEquals(first[30], next[30])
+        assertEquals(Slot(2, 2), next[10])
+    }
+
+    @Test
+    fun `a removed course frees its colour, a re-added course takes a free one again`() {
+        val three = LookAssignments.update(emptyMap(), listOf(course(1), course(2), course(3)))
+        val without = LookAssignments.update(three, listOf(course(1), course(3)))
+        assertNull(without[2])
+        assertEquals(three[1], without[1])
+        assertEquals(three[3], without[3])
+        // A new course takes the freed colour; the course that came back takes the next free one.
+        val withNew = LookAssignments.update(without, listOf(course(1), course(3), course(4)))
+        assertEquals(three[2], withNew[4])
+        val readded = LookAssignments.update(withNew, listOf(course(1), course(2), course(3), course(4)))
+        assertEquals(Slot(3, 3), readded[2])
+        assertEquals(withNew[4], readded[4])
+    }
+
+    @Test
+    fun `an empty course list changes nothing`() {
+        val slots = LookAssignments.update(emptyMap(), listOf(course(1)))
+        assertEquals(slots, LookAssignments.update(slots, emptyList()))
     }
 
     @Test
     fun `eight courses share a colour only once all seven are taken`() {
-        val looks = Looks.of((1L..8L).map { course(it) })
+        val slots = LookAssignments.update(emptyMap(), (1L..8L).map { course(it) })
+        val looks = Looks.of((1L..8L).map { course(it) }, slots)
         assertEquals(7, (1L..7L).map { looks.course(it).tone }.toSet().size)
         assertEquals(looks.course(1).tone, looks.course(8).tone)
+        assertNotEquals(looks.course(1).glyph, looks.course(6).glyph)
+    }
+
+    @Test
+    fun `the assignment survives a restart and is gone after wiping`() {
+        val store = LookStore(java.io.File(folder.root, "looks/looks.json"))
+        assertEquals(emptyMap<Long, Slot>(), store.load())
+        val slots = LookAssignments.update(emptyMap(), listOf(course(5), course(7)))
+        store.save(slots)
+        assertEquals(slots, LookStore(java.io.File(folder.root, "looks/looks.json")).load())
+        store.wipe()
+        assertEquals(emptyMap<Long, Slot>(), store.load())
     }
 
     @Test
