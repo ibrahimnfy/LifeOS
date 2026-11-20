@@ -301,6 +301,63 @@ policy; whether students hold `webservice/rest:use`; the default of
 docs.moodle.org pages were read through a summarising fetch tool, so only
 the quoted phrases are relied on.
 
+## 9. Renewing the token without developer tools (owner's requirement)
+
+The first sign-in on the computer worked, but copying the redirect by hand
+is not acceptable for renewals. Target and interim solution:
+
+**Target: one tap in the phone app.**
+
+1. The app opens `launch.php?service=moodle_mobile_app&passport=<random>
+   &urlscheme=moodlemobile&oauthsso=<issuer>` in a browser tab. The owner
+   signs in on the institution's page (often already signed in there).
+2. The site redirects to `moodlemobile://token=…`. The app declares that it
+   can open addresses of that scheme, so the system hands the redirect to
+   it. The app checks the value against its one-time passport, sends the
+   token to the bridge through the end-to-end channel, and keeps no copy.
+3. The bridge stores it exactly as the computer flow does.
+
+**Is that possible on this site?** From the public configuration (section
+2): the mobile service is on, the launch address is advertised, and the
+sign-in the owner uses is one of the buttons that support the browser flow;
+the owner's sign-in on the computer went through this very flow, so the
+server side works. What the public configuration does **not** show is the
+forced address scheme (`forcedurlscheme`); its default is `moodlemobile`,
+and the computer sign-in received exactly that scheme, so the app has to
+register for `moodlemobile`, not for a scheme of its own.
+
+Consequences, stated plainly:
+
+- If the official Moodle app is installed on the same phone, the system
+  asks which app should open the redirect; the owner chooses LifeOS (once,
+  or "always"). Without the official app there is no question.
+- Registering for another app's address scheme is technically ordinary, but
+  it means LifeOS presents itself to the phone as able to receive Moodle
+  sign-ins. It receives only the owner's own token, after the owner signed
+  in themselves. Whether that is acceptable is part of the owner's earlier
+  decision to use a personal client.
+- The password is typed only on the institution's page, inside the browser
+  tab; the app cannot see it, and the sign-in page is never automated.
+
+If the redirect cannot be received on the phone (for example the site
+starts forcing a different scheme), the options are: renew on the computer
+with the handler below; ask the administrators for a longer-lived token; or
+fall back to the calendar export for deadlines only (section 5d).
+
+**Until the app exists: the computer flow without copy-paste.**
+`scripts/moodle-login` opens the link in the browser itself and registers,
+only while it runs, a user-level handler for `moodlemobile://` addresses
+(no administrator rights). The browser asks whether to open the address
+with "LifeOS Moodle sign-in"; the handler passes it to the waiting script,
+which verifies it and stores the token. The handler is removed when the
+script ends. Pasting remains as a fallback.
+
+**Expiry warning.** The site does not tell a client when a token expires,
+and an existing token is reused, so its real age can be higher than the
+bridge knows. The bridge therefore (a) checks the token once a day and
+notifies at once when the site rejects it, and (b) warns from 77 days after
+the token was stored (the default lifetime is 12 weeks), as an estimate.
+
 ## Sources
 
 `M` = `https://github.com/moodle/moodle/blob/main/public`,
