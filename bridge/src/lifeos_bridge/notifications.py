@@ -53,7 +53,11 @@ def send(
     script = script or default_script()
     if script is None or not script.is_file():
         return
+    # The phones were woken above (or need no push): the script must not wake them a
+    # second time through /push/notify.
+    environment = {**os.environ, "LIFEOS_NOTIFY_PUSH": "off"} if event else None
     with contextlib.suppress(OSError, subprocess.SubprocessError):
         subprocess.run(  # noqa: S603
-            [str(script), title, message, link], capture_output=True, timeout=10, check=False
-        )
+            [str(script), title, message, link],
+            capture_output=True, timeout=10, check=False, env=environment,
+        )  # fmt: skip

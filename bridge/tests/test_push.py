@@ -147,6 +147,19 @@ def test_notifications_with_an_event_wake_the_phone(phone, fcm):
     assert hint.payload == {"e": "reminder", "c": "reminders", "o": "reminder", "r": "abc"}
 
 
+def test_an_event_is_one_push_the_script_does_not_push_again(tmp_path, monkeypatch):
+    log = tmp_path / "script.log"
+    script = tmp_path / "notify.sh"
+    script.write_text(f'#!/bin/sh\nprintf "%s\\n" "${{LIFEOS_NOTIFY_PUSH:-on}}" >> "{log}"\n')
+    script.chmod(0o755)
+    hints = []
+    monkeypatch.setattr(push, "send_hint", lambda *a, **k: hints.append(a))
+    monkeypatch.delenv("LIFEOS_NOTIFY_PUSH")
+    notifications.send("LifeOS: new in your courses", "1 new file.", "", script, event="courses")
+    notifications.send("LifeOS: allowed folders changed", "text", "", script)  # no event
+    assert len(hints) == 1 and log.read_text().splitlines() == ["off", "on"]
+
+
 def test_notice_endpoint_seals_title_and_link(client, auth, phone, fcm):
     device_id, secret = phone
     sent, _ = fcm
