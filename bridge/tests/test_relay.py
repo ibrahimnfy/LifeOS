@@ -360,3 +360,17 @@ def test_answers_reach_the_mailbox_in_counter_order(paired):
         )
     ]
     assert counters == sorted(counters) and len(counters) == 40
+
+
+def test_the_phone_registers_its_push_address_through_the_sealed_channel(paired):
+    _, phone, box, _ = paired
+    phone.receive()
+    address = "fcm-registration-token-" + "y" * 40
+    phone.request("POST", "/push/token", {"token": address})
+    (answer,) = phone.receive()
+    assert answer.payload == {"status": 200, "body": {"registered": True}}
+    assert devices.load(phone.id).push_token == address
+    assert address not in json.dumps(box.recorded)
+    phone.request("POST", "/push/token", {"token": "short"}, rid="r2")
+    (refused,) = phone.receive()
+    assert refused.header.kind == e2e.ERROR

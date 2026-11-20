@@ -906,6 +906,31 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
   console (Realtime Database → Rules). The bridge itself uses the service
   account, which is not subject to the rules.
 
+## Push notifications to the phone
+
+Push goes through Firebase Cloud Messaging, with the same service-account
+file as the relay. **A push has no readable content:** it is a small hint
+sealed with the phone's own push key (what kind of event, which item); the
+app wakes up, opens the hint, fetches the content through the relay and
+builds the visible notification itself. Data messages with high priority
+are used, so it works while the app is closed.
+
+- The phone sends its push address through the sealed channel
+  (`POST /push/token` with `{"token": "…"}`; this path exists only on the
+  relay). It is stored with the device record and removed on revocation or
+  when the push service reports it as gone.
+- Events that wake the phone: an answer is ready (a run of a session ended;
+  off per session with `notify_replies`), a session reminder is due, the
+  coach's daily note, new course content, the course sign-in needs renewal,
+  and a notice from `scripts/notify.sh`.
+- `POST /push/notify` with `{"title": "…", "link": "…"}` is what
+  `scripts/notify.sh` calls when the bridge is running; title and link
+  travel inside the sealed hint only. `LIFEOS_NOTIFY_PUSH=off` makes the
+  script skip it.
+- A push that cannot be sent is not retried; the phone sees everything when
+  it next connects. Nothing about pushes is logged.
+- The app's side (receiving, showing the notification) is not built yet.
+
 ## Moodle sign-in
 
 ```

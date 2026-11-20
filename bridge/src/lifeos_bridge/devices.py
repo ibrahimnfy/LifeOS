@@ -59,6 +59,7 @@ class Device:
     sent_push: int = 0
     revoked_at: int | None = None
     relay_uid: str | None = None  # the phone's account id at the relay (not a secret)
+    push_token: str | None = None  # the phone's push address; cleared on revocation
 
     @property
     def revoked(self) -> bool:
@@ -76,12 +77,14 @@ class Device:
             "sent_push": self.sent_push,
             "revoked_at": self.revoked_at,
             "relay_uid": self.relay_uid,
+            "push_token": self.push_token,
         }
 
     def public(self) -> dict:
         """What listings show: never the secret."""
         record = self.as_record()
         del record["secret"]
+        record["push"] = bool(record.pop("push_token"))
         record["revoked"] = self.revoked
         return record
 
@@ -99,6 +102,7 @@ def _from_record(record: dict) -> Device:
         sent_push=int(record.get("sent_push") or 0),
         revoked_at=record.get("revoked_at"),
         relay_uid=record.get("relay_uid") or None,
+        push_token=record.get("push_token") or None,
     )
 
 
@@ -138,6 +142,7 @@ def revoke(
     device = matches[0]
     if not device.revoked:
         device.secret = None
+        device.push_token = None
         device.revoked_at = int(now if now is not None else time.time())
         save(device)
         notifications.send(

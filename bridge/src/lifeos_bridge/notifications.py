@@ -28,8 +28,25 @@ def default_script() -> Path | None:
     return repo / "scripts" / "notify.sh" if repo else None
 
 
-def send(title: str, message: str, link: str = "", script: Path | None = None) -> None:
-    """Texts passed here must not contain prompts, notes, titles of sessions or paths."""
+def send(
+    title: str,
+    message: str,
+    link: str = "",
+    script: Path | None = None,
+    *,
+    event: str | None = None,
+    ref: str = "",
+) -> None:
+    """Texts passed here must not contain prompts, notes, titles of sessions or paths.
+
+    With ``event`` the paired phones are woken too, by a sealed hint without
+    readable content (``push.send_hint``); ``ref`` names the item it concerns.
+    """
+    if event:
+        from . import push  # local import: push needs the device store
+
+        with contextlib.suppress(Exception):
+            push.send_hint(event, ref)
     script = script or default_script()
     if script is None or not script.is_file():
         return

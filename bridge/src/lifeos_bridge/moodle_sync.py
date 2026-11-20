@@ -945,9 +945,9 @@ def sync(
     state.update(last_sync=_iso(now), last_result=result)
     _save(state)
     if run.first:
-        notifications.send(TITLE, FIRST_TEXT, "", notify_script)
+        notifications.send(TITLE, FIRST_TEXT, "", notify_script, event="courses")
     elif any(run.new.values()):
-        notifications.send(TITLE, notification_text(run.new), "", notify_script)
+        notifications.send(TITLE, notification_text(run.new), "", notify_script, event="courses")
     return result
 
 

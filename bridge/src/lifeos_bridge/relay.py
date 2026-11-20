@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import devices, e2e, files, google, mailbox
+from . import devices, e2e, files, google, mailbox, push
 from .claude import ClaudeError
 from .config import Settings
 
@@ -142,6 +142,19 @@ class Relay:
     def _answer(self, message: e2e.Message) -> None:
         device_id, rid = message.header.device_id, message.request_id
         request = message.payload
+        if isinstance(request, dict) and request.get("path") == "/push/token":
+            body = request.get("body") if isinstance(request.get("body"), dict) else {}
+            done = request.get("m") == "POST" and push.register(device_id, body.get("token"))
+            with contextlib.suppress(Exception):
+                self.send(
+                    device_id,
+                    e2e.END if done else e2e.ERROR,
+                    rid,
+                    {"status": 200, "body": {"registered": True}}
+                    if done
+                    else {"status": 400, "error": "bad_request"},
+                )
+            return
         if isinstance(request, dict) and str(request.get("path") or "").startswith("/files/"):
             with contextlib.suppress(Exception):
                 self.send_file(device_id, rid, request)

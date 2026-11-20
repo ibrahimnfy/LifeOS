@@ -574,7 +574,9 @@ def send_daily_notification(settings: Settings, clock: Clock | None = None) -> b
         # Stored before sending, so a crash cannot make it go out twice.
         _write(PLAN_FILE, plan | {"notification_pending": False, "notification_sent_at": _iso(now)})
         _write(STATE_FILE, state | {"notified_day": today})
-    notifications.send("LifeOS: coach", "Your daily note is ready.", "", settings.notify_script)
+    notifications.send(
+        "LifeOS: coach", "Your daily note is ready.", "", settings.notify_script, event="coach"
+    )
     return True
 
 

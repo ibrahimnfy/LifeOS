@@ -200,11 +200,13 @@ def fire_due(clock: Clock = now_utc, notify_script: Path | None = None) -> list[
         fired.append(dict(reminder))
     if fired:
         _save(items)
-        for _ in fired:
+        for reminder in fired:
             notifications.send(
                 "LifeOS: session reminder",
                 "A reminder for one of your sessions is due.",
                 "",
                 notify_script,
+                event="reminder",
+                ref=str(reminder.get("id") or ""),
             )
     return fired

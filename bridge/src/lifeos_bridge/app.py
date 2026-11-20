@@ -28,6 +28,7 @@ from . import (
     moodle_api,
     moodle_sync,
     moodle_watch,
+    push,
     relay,
     reminders,
     runcontrol,
@@ -257,6 +258,11 @@ def create_app(settings: Settings) -> FastAPI:
         """A run of the session ended: free it and send what is waiting, if anything."""
         slots.release(session_id)
         control.finished(session_id)
+        if session_meta.entry_for(session_id)["notify_replies"]:
+            # The owner need not keep the app open: a sealed hint says an answer is there.
+            wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "answer", session_id))
+            drains.add(wake)
+            wake.add_done_callback(drains.discard)
         task = asyncio.create_task(drain(session_id))
         drains.add(task)
         task.add_done_callback(drains.discard)
@@ -422,6 +428,18 @@ def create_app(settings: Settings) -> FastAPI:
                 "Cache-Control": "no-store",
             },
         )
+
+    @app.post("/push/notify")
+    async def push_notice(request: Request):
+        """Wake the paired phones with a notice (used by scripts/notify.sh).
+
+        Body: ``{"title": str?, "link": str?}``; both travel only inside the sealed hint.
+        """
+        data = await read_json_object(request)
+        title = str(data.get("title") or "")[:200]
+        link = str(data.get("link") or "")[:300]
+        reached = await asyncio.to_thread(push.send_hint, "notice", "", t=title, l=link)
+        return {"phones_reached": reached}
 
     @app.get("/models")
     async def list_models():

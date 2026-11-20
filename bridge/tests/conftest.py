@@ -27,6 +27,7 @@ def isolated_config(tmp_path, monkeypatch):
     monkeypatch.setenv("LIFEOS_CONFIG_DIR", str(config))
     # Tests must never notify the owner: no real notification script, ever.
     monkeypatch.setenv("LIFEOS_NOTIFY_SCRIPT", "off")
+    monkeypatch.setenv("LIFEOS_NOTIFY_PUSH", "off")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return config
 

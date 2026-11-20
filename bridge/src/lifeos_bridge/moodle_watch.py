@@ -89,7 +89,7 @@ def _warn(state: dict, now: datetime, every: timedelta, text: str, script: Path 
         return
     state["last_warning"] = _iso(now)
     store.write_json(state_path(), state)
-    notifications.send(TITLE, text, "", script)
+    notifications.send(TITLE, text, "", script, event="signin")
 
 
 def check(clock: Clock = now_utc, notify_script: Path | None = None) -> str:
