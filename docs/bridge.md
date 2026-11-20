@@ -90,6 +90,7 @@ documented here as they are built.
 | GET | `/health` | no | Liveness check; returns `{"status":"ok"}` and nothing else |
 | GET | `/whoami` | yes | Lets a client verify its token; returns the bridge version |
 | POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
+| GET | `/folders` | yes | Folders a new conversation may run in |
 | GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders |
 | POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
 | GET | `/sessions/{id}/history` | yes | A session's earlier messages, a few exchanges per page |
@@ -236,6 +237,16 @@ What a capable run looks like:
 Folders that can never be allowed, whatever `allowed_paths` says: the home
 folder itself, anything outside it, hidden folders, the LifeOS program
 folder and the private settings folder. Symbolic links are resolved first.
+
+### Choosing the folder of a new conversation
+
+`GET /folders` lists where a new conversation may run: the memory folder
+(the default) and the allowed folders, each with `path`, `label`, `kind`
+and `default`. `POST /ask` accepts `"folder": "<path from that list>"` for a
+new conversation; anything else is refused (`403 folder_not_allowed`).
+Later messages need only the `session_id`: a session always continues in the
+folder it was started in. Only conversations in the memory folder start with
+the memory loaded.
 
 ### `GET /sessions`
 

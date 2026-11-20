@@ -77,7 +77,13 @@ if prompt.startswith("FAKE_GARBAGE"):
 
 project.mkdir(parents=True, exist_ok=True)
 with transcript.open("a") as handle:
-    handle.write(json.dumps({"type": "user", "sessionId": session_id}) + "\n")
+    line = {
+        "type": "user",
+        "sessionId": session_id,
+        "cwd": os.getcwd(),
+        "message": {"role": "user", "content": prompt[:200]},
+    }
+    handle.write(json.dumps(line) + "\n")
 
 result = {
     "type": "result",

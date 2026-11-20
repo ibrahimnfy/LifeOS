@@ -460,12 +460,44 @@ def create_app(settings: Settings) -> FastAPI:
         await drain(session_id)
         return {"resumed": True, "queue": [control.public(e) for e in control.queue(session_id)]}
 
+    def chosen_folder(data: dict) -> Path:
+        """The folder of a new conversation: the memory folder, or an allowed folder by name."""
+        folder = data.get("folder")
+        if folder is None:
+            return settings.ask_dir
+        if not isinstance(folder, str) or not folder.strip() or len(folder) > 4096:
+            raise ClaudeError("bad_request", 400, "`folder` must be one of the folders of /folders")
+        wanted = Path(folder).expanduser()
+        for root in settings.allowed_roots:
+            if wanted == root or (wanted.is_absolute() and wanted.resolve() == root):
+                return root
+        raise ClaudeError("folder_not_allowed", 403, "this folder is not an allowed folder")
+
+    @app.get("/folders")
+    async def list_folders():
+        """Where a new conversation may run: the memory folder and the allowed folders."""
+        memory_dir = settings.ask_dir.resolve()
+        return {
+            "folders": [
+                {
+                    "path": str(root),
+                    "label": root.name,
+                    "kind": "memory" if root == memory_dir else "allowed",
+                    "default": root == memory_dir,
+                }
+                for root in settings.allowed_roots
+                if root.is_dir()
+            ]
+        }
+
     @app.post("/ask")
     async def ask(request: Request):
-        """Run a prompt through headless Claude in the configured folder.
+        """Run a prompt through headless Claude.
 
-        Body: ``{"prompt": str, "session_id": str?, "stream": bool?}``.
-        ``session_id`` continues an earlier ``/ask`` conversation.
+        Body: ``{"prompt": str, "session_id": str?, "folder": str?, "stream": bool?}``.
+        A new conversation runs in the memory folder, or in the allowed folder
+        named by ``folder``. ``session_id`` continues an earlier conversation in
+        the folder it was started in.
         """
         data = await read_json_object(request)
         read_prompt(data)
@@ -473,15 +505,21 @@ def create_app(settings: Settings) -> FastAPI:
         resume = data.get("session_id") is not None
         if resume:
             session_id = data["session_id"]
-            if not isinstance(session_id, str) or not claude.session_exists(
-                settings.ask_dir, session_id
-            ):
+            if not isinstance(session_id, str):
                 raise ClaudeError("session_not_found", 404, "unknown session")
+            if claude.session_exists(settings.ask_dir, session_id):
+                cwd = settings.ask_dir
+            else:
+                info = sessions.find_session(session_id, settings.allowed_roots)
+                if info is None or not info.folder.is_dir():
+                    raise ClaudeError("session_not_found", 404, "unknown session")
+                cwd = info.folder
         else:
+            cwd = chosen_folder(data)
             # No --name: a fixed name would hide the first prompt, which is the
             # more useful title in the session list.
             session_id = str(uuid.uuid4())
-        return await run_prompt(data, session_id=session_id, resume=resume, cwd=settings.ask_dir)
+        return await run_prompt(data, session_id=session_id, resume=resume, cwd=cwd)
 
     @app.post("/sessions/{session_id}/messages")
     async def resume_session(session_id: str, request: Request):
