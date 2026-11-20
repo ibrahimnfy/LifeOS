@@ -26,6 +26,7 @@ from . import (
     history,
     memory,
     moodle_api,
+    moodle_sync,
     moodle_watch,
     relay,
     reminders,
@@ -133,6 +134,8 @@ def create_app(settings: Settings) -> FastAPI:
                     await asyncio.to_thread(
                         moodle_watch.check, notify_script=settings.notify_script
                     )
+                with contextlib.suppress(Exception):  # the course sync, every six hours
+                    await course_sync_tick()
                 await asyncio.sleep(reminders.CHECK_INTERVAL_SECONDS)
 
         coach_runs: set[asyncio.Task] = set()
@@ -145,6 +148,15 @@ def create_app(settings: Settings) -> FastAPI:
                 run.add_done_callback(coach_runs.discard)
             await asyncio.to_thread(coach.send_daily_notification, settings)
 
+        course_syncs: set[asyncio.Task] = set()
+
+        async def course_sync_tick() -> None:
+            """Courses from the university Moodle (as its own task: downloads take a while)."""
+            if not course_syncs and await asyncio.to_thread(moodle_sync.due):
+                run = asyncio.create_task(asyncio.to_thread(moodle_sync.run, settings))
+                course_syncs.add(run)
+                run.add_done_callback(course_syncs.discard)
+
         task = asyncio.create_task(watch_reminders())
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
@@ -156,7 +168,8 @@ def create_app(settings: Settings) -> FastAPI:
         finally:
             if phone_relay is not None:
                 phone_relay.close()
-            for pending in (task, *coach_runs):
+            moodle_sync.cancel()  # a running course sync starts no further download
+            for pending in (task, *coach_runs, *course_syncs):
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await pending

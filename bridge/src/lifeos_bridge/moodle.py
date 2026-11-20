@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import html
+import html.parser
 import os
 import re
 import urllib.error
@@ -31,6 +33,9 @@ from .config import ENV_FILE_NAME, ConfigError, config_dir, read_env_file
 MAX_EVENTS_PER_CALL = 50  # the site refuses more
 MAX_EVENT_PAGES = 20
 DOWNLOAD_TIMEOUT = 60
+MAX_ANNOUNCEMENTS = 100
+MAX_LINK_CHARS = 2000
+SORT_CREATED_DESC = 3  # mod_forum's discussion list: newest discussion first
 CHUNK_BYTES = 64 * 1024
 PLUGINFILE = "/pluginfile.php/"
 WS_PLUGINFILE = "/webservice/pluginfile.php/"
@@ -142,6 +147,66 @@ def file_key(module_id: int | None, entry: dict) -> str:
     return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
 
+class _TextOnly(html.parser.HTMLParser):
+    """Collects the text of a piece of HTML; scripts and styles are dropped."""
+
+    BREAKS = frozenset({"p", "br", "div", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6"})
+    HIDDEN = frozenset({"script", "style"})
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._hidden = 0
+
+    def handle_starttag(self, tag: str, attrs: list) -> None:
+        if tag in self.HIDDEN:
+            self._hidden += 1
+        elif tag in self.BREAKS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.HIDDEN:
+            self._hidden = max(0, self._hidden - 1)
+        elif tag in self.BREAKS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._hidden:
+            self.parts.append(data)
+
+
+def plain_text(value: object, limit: int | None = None) -> str:
+    """Text the site sent as HTML, as plain text: no tags, no control characters."""
+    parser = _TextOnly()
+    with contextlib.suppress(Exception):  # odd markup must never stop a sync
+        parser.feed(_text(value))
+        parser.close()
+    text = "".join(parser.parts).replace("\xa0", " ")
+    text = "".join(
+        ch for ch in text if ch == "\n" or (ch.isprintable() and ch not in "\u2028\u2029")
+    )
+    lines = [" ".join(line.split()) for line in text.split("\n")]
+    text = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return text[:limit] if limit is not None else text
+
+
+def one_line(value: object, limit: int = 200) -> str:
+    """A name of the site as one plain line."""
+    return " ".join(plain_text(value).split())[:limit].strip()
+
+
+def without_token(address: str) -> str:
+    """A file address with any ``token`` parameter removed, so it can be stored."""
+    parts = urllib.parse.urlsplit(address)
+    query = [
+        pair for pair in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        if pair[0] not in ("token", "wstoken")
+    ]  # fmt: skip
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), "")
+    )
+
+
 # ---- parsing --------------------------------------------------------------------
 
 
@@ -189,6 +254,72 @@ def parse_section(item: dict) -> dict:
         "visible": bool(item.get("visible", 1)),
         "modules": [parse_module(module) for module in _dicts(item.get("modules"))],
     }
+
+
+def _link(address: object) -> str | None:
+    """An outside address worth listing: http(s), one line, of a sane length."""
+    text = _text(address).strip()
+    if not text or len(text) > MAX_LINK_CHARS or any(ch.isspace() for ch in text):
+        return None
+    try:
+        parts = urllib.parse.urlsplit(text)
+    except ValueError:
+        return None
+    return text if parts.scheme in ("http", "https") and parts.netloc else None
+
+
+def parse_links(sections: list[dict]) -> list[dict]:
+    """Video and external links of a course: ``url`` activities and link entries of others.
+
+    Takes the site's raw sections. The address is the ``fileurl`` of a
+    content entry (for a ``url`` activity that is the outside address itself).
+    """
+    found: list[dict] = []
+    for section in sections:
+        for module in _dicts(section.get("modules")):
+            is_url = module.get("modname") == "url"
+            for entry in _dicts(module.get("contents")):
+                address = _link(entry.get("fileurl"))
+                if address is None or not (is_url or entry.get("type") == "url"):
+                    continue
+                name = one_line(module.get("name") if is_url else entry.get("filename"))
+                found.append(
+                    {
+                        "section": one_line(section.get("name")),
+                        "name": name or one_line(module.get("name")),
+                        "url": address,
+                    }
+                )
+    return found
+
+
+def parse_grade_item(item: dict) -> dict:
+    """One row of the owner's grade report. Names and feedback are outside text."""
+    raw = item.get("graderaw")
+    formatted = one_line(item.get("gradeformatted"), 100)
+    record = {
+        "id": _number(item.get("id")),
+        "name": one_line(item.get("itemname")),
+        "type": _text(item.get("itemtype")) or None,
+        "module": _text(item.get("itemmodule")) or None,
+        "grade": formatted or None,
+        "graded": isinstance(raw, (int, float)) and not isinstance(raw, bool),
+        "range": one_line(item.get("rangeformatted"), 100) or None,
+        "percentage": one_line(item.get("percentageformatted"), 100) or None,
+        "feedback": plain_text(item.get("feedback"), 2000) or None,
+    }
+    record["has_feedback"] = record["feedback"] is not None
+    return _timed(record, item, "gradedategraded")
+
+
+def parse_announcement(item: dict) -> dict:
+    """One discussion of a course's announcements forum, without its author."""
+    record = {
+        "id": _number(item.get("discussion")) or _number(item.get("id")),
+        "subject": one_line(item.get("subject") or item.get("name")),
+        "message": plain_text(item.get("message")),
+    }
+    return _timed(record, item, "created", "modified")
 
 
 def parse_assignment(item: dict, course_id: int | None) -> dict:
@@ -284,10 +415,68 @@ class Client:
 
     def contents(self, course_id: int) -> list[dict]:
         """Sections of a course with their modules, and the files of file-like modules."""
+        return self.course(course_id)["sections"]
+
+    def course(self, course_id: int) -> dict:
+        """One call for a course page: ``sections`` as :meth:`contents`, and its ``links``."""
         answer = self.call("core_course_get_contents", {"courseid": course_id})
         if not isinstance(answer, list):
             raise MoodleError("bad_answer")
-        return [parse_section(item) for item in _dicts(answer)]
+        raw = _dicts(answer)
+        return {"sections": [parse_section(item) for item in raw], "links": parse_links(raw)}
+
+    def grade_items(self, course_id: int, user_id: int | None = None) -> list[dict]:
+        """The owner's grade report of one course (``gradereport_user_get_grade_items``)."""
+        user = user_id if user_id is not None else self._user()
+        answer = self._object(
+            "gradereport_user_get_grade_items", {"courseid": course_id, "userid": user}
+        )
+        tables = [t for t in _dicts(answer.get("usergrades")) if _number(t.get("userid")) == user]
+        return [parse_grade_item(item) for t in tables[:1] for item in _dicts(t.get("gradeitems"))]
+
+    def course_grades(self) -> dict[int, str]:
+        """Course id → the overall grade as the site formats it, for courses that have one."""
+        answer = self._object("gradereport_overview_get_course_grades", {"userid": self._user()})
+        found: dict[int, str] = {}
+        for item in _dicts(answer.get("grades")):
+            course_id, grade = _number(item.get("courseid")), one_line(item.get("grade"), 100)
+            if course_id is not None and grade and grade != "-":  # "-": no grade yet
+                found[course_id] = grade
+        return found
+
+    def news_forums(self, course_ids: list[int]) -> dict[int, int]:
+        """Course id → the id of its announcements forum (the forum of type ``news``)."""
+        answer = self.call("mod_forum_get_forums_by_courses", {"courseids": list(course_ids)})
+        if not isinstance(answer, list):
+            raise MoodleError("bad_answer")
+        found: dict[int, int] = {}
+        for item in _dicts(answer):
+            course_id, forum_id = _number(item.get("course")), _number(item.get("id"))
+            if item.get("type") == "news" and course_id is not None and forum_id is not None:
+                found.setdefault(course_id, forum_id)
+        return found
+
+    def announcements(self, forum_id: int, limit: int = MAX_ANNOUNCEMENTS) -> list[dict]:
+        """The newest discussions of a forum, newest first; text as plain text."""
+        params = {"forumid": forum_id, "sortorder": SORT_CREATED_DESC, "page": 0, "perpage": limit}
+        answer = self._object("mod_forum_get_forum_discussions", params)
+        found = [parse_announcement(item) for item in _dicts(answer.get("discussions"))]
+        found = [item for item in found if item["id"] is not None]
+        return sorted(found, key=lambda item: item["created"] or 0, reverse=True)[:limit]
+
+    def submission_status(self, assignment_id: int) -> dict:
+        """Whether the owner handed an assignment in, and whether it was graded."""
+        answer = self._object("mod_assign_get_submission_status", {"assignid": assignment_id})
+        attempt = answer.get("lastattempt") if isinstance(answer.get("lastattempt"), dict) else {}
+        submission = attempt.get("submission")
+        if not isinstance(submission, dict):
+            submission = attempt.get("teamsubmission")
+        status = submission.get("status") if isinstance(submission, dict) else None
+        return {
+            "submission": _safe_code(status),
+            "grading": _safe_code(attempt.get("gradingstatus")),
+            "graded": bool(attempt.get("graded")),
+        }
 
     def assignments(self, course_ids: list[int] | None = None) -> list[dict]:
         """Assignments of the given courses, or of every course when none is given."""
@@ -340,6 +529,13 @@ class Client:
             ("https", parts.netloc, path, urllib.parse.urlencode(query), "")
         )
 
+    def address_for(self, fileurl: str) -> str:
+        """The address a file can be fetched from directly. **It contains the token.**
+
+        Never log or store the result; it is as sensitive as the token itself.
+        """
+        return self._download_address(fileurl)
+
     def download(self, fileurl: str, target_path: Path, max_bytes: int) -> int:
         """Fetch one file into ``target_path`` (written whole or not at all). Returns its size."""
         address = self._download_address(fileurl)
@@ -383,7 +579,8 @@ def _fetch(address: str, temporary: Path, max_bytes: int) -> int:
             raise MoodleError("too_large")
         refusal_possible = "json" in (response.headers.get("Content-Type") or "").lower()
         written = 0
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW  # never through a link
+        descriptor = os.open(temporary, flags, 0o600)
         with os.fdopen(descriptor, "wb") as handle:
             while chunk := response.read(CHUNK_BYTES):
                 if refusal_possible and not written and _is_refusal(chunk):

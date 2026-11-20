@@ -1,10 +1,17 @@
-"""Bridge endpoints for the university Moodle: ``/moodle/...``.
+"""Bridge endpoints for the university Moodle: ``/moodle/...`` and ``/courses/...``.
 
-Read-only views over :mod:`moodle`. Answers are kept in memory for ten
-minutes per call, to be gentle with the site; ``?refresh=true`` asks the
-site again. File addresses never leave the bridge: a file is named by an
-opaque ``key`` that :meth:`MoodleApi.find_file` resolves again. Nothing is
-downloaded here.
+``/moodle``: read-only views over :mod:`moodle`. Answers are kept in memory
+for ten minutes per call, to be gentle with the site; ``?refresh=true`` asks
+the site again. File addresses never leave the bridge there: a file is named
+by an opaque ``key`` that :meth:`MoodleApi.find_file` resolves again.
+
+``/courses``: what the app's Courses section shows, read from the state that
+:mod:`moodle_sync` keeps, so the answers are fast and still there while the
+site cannot be reached. Only ``POST /courses/refresh`` contacts the site (in
+the background). No endpoint here starts a model run.
+
+One answer is as sensitive as the Moodle token: the download address of
+``POST /courses/{id}/files/{key}/address``. It is never logged or stored.
 """
 
 from __future__ import annotations
@@ -12,11 +19,13 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
-from . import moodle, moodle_watch
+from . import moodle, moodle_sync, moodle_watch
 from .claude import ClaudeError
 
 CACHE_SECONDS = 600
@@ -28,6 +37,8 @@ ERRORS = {
     "unreachable": ("moodle_unreachable", 502),
 }
 SIGN_IN_MESSAGE = "Run scripts/moodle-login"
+SUMMARY_DAYS = 14
+ADDRESS_SECONDS = 600  # how long the phone may keep a download address before discarding it
 
 
 def as_claude_error(error: moodle.MoodleError) -> ClaudeError:
@@ -119,8 +130,278 @@ def without_addresses(sections: list[dict]) -> list[dict]:
     ]
 
 
+# ---- /courses: views of the synced state ----------------------------------------------
+
+
+def _envelope(state: dict) -> dict:
+    """When the data was read from the site, and whether it may be out of date."""
+    return {
+        "last_sync": state.get("last_sync"),
+        "stale": moodle_sync.is_stale(state, moodle_sync.now_utc()),
+    }
+
+
+def _record(state: dict, course_id: int) -> dict:
+    record = state["courses"].get(str(course_id))
+    if not isinstance(record, dict) or not record.get("listed", True):
+        raise ClaudeError("course_not_found", 404, "no synced course has this id")
+    return record
+
+
+def _records(state: dict) -> list[dict]:
+    return sorted(moodle_sync.listed(state), key=lambda record: str(record.get("name", "")))
+
+
+def _upcoming(record: dict, now_ts: int, until_ts: int | None = None) -> list[dict]:
+    """Deadlines of a course that are still ahead, nearest first."""
+    found = [
+        {"name": item["name"], "due": item["at"], "due_iso": moodle.iso(item["at"])}
+        for item in (record.get("deadlines") or {}).values()
+        if item["at"] >= now_ts and (until_ts is None or item["at"] <= until_ts)
+    ]
+    return sorted(found, key=lambda item: item["due"])
+
+
+def _new(record: dict) -> dict:
+    counts = record.get("new") if isinstance(record.get("new"), dict) else {}
+    return {kind: int(counts.get(kind) or 0) for kind in moodle_sync.KINDS}
+
+
+def _folder(record: dict) -> Path | None:
+    root = moodle_sync.download_dir()
+    return root / record["folder"] if root is not None else None
+
+
+def _local_copy(record: dict, item: dict) -> Path | None:
+    """The computer's copy of a file, when it was downloaded and is still there."""
+    folder = _folder(record)
+    if folder is None or not item.get("local"):
+        return None
+    path = folder / "materials" / item["local"]
+    return path if path.is_file() and not path.is_symlink() else None
+
+
+def summary_view(state: dict, now_ts: int) -> dict:
+    until = now_ts + SUMMARY_DAYS * 86400
+    deadlines = [
+        {"course_id": record["id"], "course": record["name"], **item}
+        for record in _records(state)
+        for item in _upcoming(record, now_ts, until)
+    ]
+    return {
+        "configured": moodle_sync.configured(),
+        "deadlines": sorted(deadlines, key=lambda item: item["due"]),
+        "new_total": sum(sum(_new(record).values()) for record in _records(state)),
+        **_envelope(state),
+    }
+
+
+def list_view(state: dict, now_ts: int) -> dict:
+    courses = []
+    for record in _records(state):
+        folder, new = _folder(record), _new(record)
+        courses.append(
+            {
+                "id": record["id"],
+                "name": record["name"],
+                "shortname": record.get("shortname"),
+                "next_deadline": next(iter(_upcoming(record, now_ts)), None),
+                "new": new,
+                "has_new": any(new.values()),
+                "folder_exists": folder is not None and folder.is_dir(),
+            }
+        )
+    return {"courses": courses, **_envelope(state)}
+
+
+def _file_view(record: dict, key: str, item: dict) -> dict:
+    return {
+        "key": key,
+        "name": item["name"],
+        "type": item.get("type"),
+        "size": item.get("size"),
+        "modified": item.get("modified"),
+        "modified_iso": moodle.iso(item.get("modified")),
+        "new": bool(item.get("new")),
+        "downloaded": _local_copy(record, item) is not None,
+        "skipped": item.get("skipped"),
+    }
+
+
+def materials_view(state: dict, record: dict) -> dict:
+    files = record.get("files") or {}
+    sections = [
+        {
+            "name": section["name"],
+            "files": [
+                _file_view(record, key, files[key]) for key in section["files"] if key in files
+            ],
+        }
+        for section in record.get("sections") or []
+    ]
+    return {
+        "course_id": record["id"],
+        "name": record["name"],
+        "sections": sections,
+        "links": record.get("links") or [],
+        **_envelope(state),
+    }
+
+
+def announcements_view(state: dict, record: dict) -> dict:
+    items = [
+        {
+            "id": item["id"],
+            "subject": item["subject"],
+            "text": item["text"],
+            "created": item["created"],
+            "created_iso": moodle.iso(item["created"]),
+            "modified_iso": moodle.iso(item["modified"]),
+        }
+        for item in record.get("announcements") or []
+    ]
+    return {"course_id": record["id"], "announcements": items, **_envelope(state)}
+
+
+def assignments_view(state: dict, record: dict) -> dict:
+    items = [
+        {
+            "id": item["id"],
+            "name": item["name"],
+            "due": item["due"],
+            "due_iso": moodle.iso(item["due"]),
+            "cutoff_iso": moodle.iso(item["cutoff"]),
+            "status": item.get("status"),
+        }
+        for item in record.get("assignments") or []
+    ]
+    items.sort(key=lambda item: (item["due"] is None, item["due"] or 0))
+    return {"course_id": record["id"], "assignments": items, **_envelope(state)}
+
+
+def _grades(record: dict) -> dict:
+    items = [
+        {**item, "graded_at_iso": moodle.iso(item.get("graded_at"))}
+        for item in record.get("grades") or []
+    ]
+    return {"overall": record.get("overall"), "items": items}
+
+
+def _synced_file(state: dict, course_id: int, key: str) -> tuple[dict, dict]:
+    record = _record(state, course_id)
+    item = (record.get("files") or {}).get(key)
+    if not isinstance(item, dict) or item.get("gone"):
+        raise ClaudeError("file_not_found", 404, "the course has no file with this key")
+    return record, item
+
+
+def download_address(state: dict, course_id: int, key: str) -> dict:
+    """Where the phone can fetch a file directly from the site. **Contains the token.**"""
+    item = _synced_file(state, course_id, key)[1]
+    try:
+        address = moodle.from_env().address_for(item.get("url") or "")
+    except moodle.MoodleError as error:
+        if error.code == "bad_file_url":
+            raise ClaudeError("file_unavailable", 409, error.message) from None
+        raise as_claude_error(error) from None
+    return {
+        "url": address,
+        "name": item["name"],
+        "size": item.get("size"),
+        "type": item.get("type"),
+        "expires_in": ADDRESS_SECONDS,
+    }
+
+
+def courses_router() -> APIRouter:
+    """The ``/courses`` routes. They sit behind the bridge's bearer-token check."""
+    routes = APIRouter(prefix="/courses")
+
+    def now_ts() -> int:
+        return int(time.time())
+
+    @routes.get("/summary")
+    def courses_summary() -> dict:
+        """Deadlines of all courses in the next two weeks, and how much is new."""
+        return summary_view(moodle_sync.load_state(), now_ts())
+
+    @routes.get("")
+    def courses_list() -> dict:
+        return list_view(moodle_sync.load_state(), now_ts())
+
+    @routes.get("/grades")
+    def all_grades() -> dict:
+        """The grades of every course, for one screen."""
+        state = moodle_sync.load_state()
+        courses = [
+            {"id": record["id"], "name": record["name"], **_grades(record)}
+            for record in _records(state)
+        ]
+        return {"courses": courses, **_envelope(state)}
+
+    @routes.get("/sync")
+    def sync_state() -> dict:
+        return moodle_sync.status()
+
+    @routes.post("/refresh")
+    def refresh(request: Request) -> JSONResponse:
+        """Start a sync now, unless one is running or was tried in the last two minutes."""
+        outcome = moodle_sync.start(request.app.state.settings)
+        if outcome == "not_configured":
+            raise as_claude_error(moodle.MoodleError("not_configured"))
+        body = {"started": outcome == "started", "reason": outcome, **moodle_sync.status()}
+        return JSONResponse(body, status_code=202 if outcome == "started" else 429)
+
+    @routes.get("/{course_id}/materials")
+    def materials(course_id: int) -> dict:
+        state = moodle_sync.load_state()
+        return materials_view(state, _record(state, course_id))
+
+    @routes.get("/{course_id}/announcements")
+    def announcements(course_id: int) -> dict:
+        state = moodle_sync.load_state()
+        return announcements_view(state, _record(state, course_id))
+
+    @routes.get("/{course_id}/assignments")
+    def assignments(course_id: int) -> dict:
+        state = moodle_sync.load_state()
+        return assignments_view(state, _record(state, course_id))
+
+    @routes.get("/{course_id}/grades")
+    def grades(course_id: int) -> dict:
+        state = moodle_sync.load_state()
+        record = _record(state, course_id)
+        return {"course_id": record["id"], **_grades(record), **_envelope(state)}
+
+    @routes.post("/{course_id}/seen")
+    def seen(course_id: int) -> dict:
+        """The owner opened the course: nothing in it counts as new any more."""
+        if not moodle_sync.seen(course_id):
+            raise ClaudeError("course_not_found", 404, "no synced course has this id")
+        return {"seen": True}
+
+    @routes.post("/{course_id}/files/{key}/address")
+    def file_address(course_id: int, key: str) -> JSONResponse:
+        """A download address on the university site. It holds the token: never log it."""
+        body = download_address(moodle_sync.load_state(), course_id, key)
+        return JSONResponse(body, headers={"Cache-Control": "no-store"})
+
+    @routes.post("/{course_id}/files/{key}/offer")
+    def file_offer(course_id: int, key: str, request: Request) -> dict:
+        """Offer the computer's copy instead, to be fetched with ``GET /files/{offer}``."""
+        record, item = _synced_file(moodle_sync.load_state(), course_id, key)
+        path = _local_copy(record, item)
+        if path is None:
+            raise ClaudeError("no_local_copy", 404, "the computer has no copy of this file")
+        session_id = f"course-{course_id}"
+        offer = request.app.state.offers.for_path(path, session_id)
+        return {**offer.card(), "session_id": session_id}
+
+    return routes
+
+
 def router(api: MoodleApi | None = None) -> APIRouter:
-    """The ``/moodle`` routes. They sit behind the bridge's bearer-token check."""
+    """The ``/moodle`` and ``/courses`` routes, behind the bridge's bearer-token check."""
     api = api or MoodleApi()
     routes = APIRouter(prefix="/moodle")
 
@@ -150,4 +431,7 @@ def router(api: MoodleApi | None = None) -> APIRouter:
         """What is due in the next ``days`` days (1 to 365)."""
         return api.deadlines(max(1, min(days, MAX_DAYS)), refresh)
 
-    return routes
+    both = APIRouter()
+    both.include_router(routes)
+    both.include_router(courses_router())
+    return both

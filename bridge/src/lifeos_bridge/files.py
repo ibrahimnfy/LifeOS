@@ -133,6 +133,35 @@ class Offers:
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
         return text, cards, refused
 
+    def for_path(self, path: Path, session_id: str) -> Offer:
+        """Offer one file the bridge itself chose (a synced course file), after the same checks.
+
+        ``session_id`` is the name the download must be asked with, as for
+        any offer. Raises ``file_unavailable`` when the file may not be sent.
+        """
+        now = time.time()
+        self._sweep(now)
+        try:
+            path = path.resolve()
+            reason = refusal(self.settings, path)
+            size = path.stat().st_size if reason is None else 0
+        except (OSError, ValueError, RuntimeError):
+            reason = "not a usable path"
+        if reason is not None:
+            raise ClaudeError("file_unavailable", 409, f"the file cannot be sent: {reason}")
+        offer = Offer(
+            secrets.token_urlsafe(18),
+            session_id,
+            path,
+            path.name,
+            size,
+            mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+            now + OFFER_SECONDS,
+        )
+        _audit("FileOffer", session_id, {"name": offer.name, "size": offer.size})
+        self._offers[offer.id] = offer
+        return offer
+
     def take(self, offer_id: str, session_id: str) -> Offer:
         """The offer, checked again: it must be unexpired, of this session, and still sendable."""
         self._sweep(time.time())

@@ -126,6 +126,18 @@ documented here as they are built.
 | GET | `/moodle/courses/{id}` | yes | Sections, modules and files of one course |
 | GET | `/moodle/assignments` | yes | Assignments with their dates |
 | GET | `/moodle/deadlines` | yes | What is due in the coming days |
+| GET | `/courses/summary` | yes | Deadlines of all courses in the next two weeks, last sync, how much is new |
+| GET | `/courses` | yes | The synced courses with their next deadline and "new" counters |
+| GET | `/courses/{id}/materials` | yes | Sections and files of a course (new ones marked), and its links |
+| GET | `/courses/{id}/announcements` | yes | The announcements of a course, newest first |
+| GET | `/courses/{id}/assignments` | yes | Assignments with due date and hand-in state |
+| GET | `/courses/{id}/grades` | yes | The grade items of a course |
+| GET | `/courses/grades` | yes | The grades of all courses |
+| POST | `/courses/{id}/seen` | yes | Clears the "new" counters and marks of a course |
+| POST | `/courses/refresh` | yes | Starts a sync now (at most one per two minutes) |
+| GET | `/courses/sync` | yes | Whether a sync is running, the last sync and its counts |
+| POST | `/courses/{id}/files/{key}/address` | yes | A download address on the university site (**contains the Moodle token**) |
+| POST | `/courses/{id}/files/{key}/offer` | yes | Offers the computer's copy of a file for `GET /files/{offer}` |
 
 ### `POST /ask`
 
@@ -676,9 +688,173 @@ not set) and `<field>_iso`, the same moment in local time.
   moodle_unreachable` when the site does not answer; `502 moodle_error` for
   any other refusal (the message carries the site's short error code, never
   its text).
-- **Not built yet:** downloading files and the sync into an owner-approved
-  folder, the memory and the calendar. Nothing is downloaded by these
-  endpoints.
+- Nothing is downloaded by these endpoints. Downloads, the folders per
+  course, the calendar and the memory are the work of the course sync, see
+  the next section.
+
+### Courses: sync, lists, downloads
+
+The bridge keeps the owner's courses current by itself and serves what the
+app's Courses section shows. **No model run happens anywhere in this
+section**: the sync is plain code that calls the site's web service, and
+every endpoint reads stored state.
+
+**Setting it up.** Besides `MOODLE_URL` and the token, the private env file
+names the owner's course folder: `MOODLE_DOWNLOAD_DIR=<absolute path>`. The
+folder must exist and be one of the allowed folders (`/allowed-paths`);
+otherwise the sync stops with `folder_missing` or `folder_not_allowed` and
+contacts nobody. Without the three settings nothing happens.
+
+**Schedule.** While the bridge runs, a sync starts when the last successful
+one is six hours old (or there was none) and the last attempt is at least
+30 minutes old; `POST /courses/refresh` starts one on request. There is
+never more than one sync at a time. If the site refuses the token, nothing
+is synced; the sign-in watch (see "Moodle sign-in") sends the notification,
+and the sync then asks again only every six hours until a new sign-in.
+
+**What one sync does.** It first reads everything from the site: the
+visible courses, each course page, assignments and the timeline of the next
+180 days, the announcements forum, the grade report, and the hand-in state
+of recent assignments (at most 40 calls). If the site cannot be reached or
+refuses the token, the sync ends there and **nothing is changed**. A single
+call the site refuses for another reason (for example a course without a
+visible grade report) is counted as `part_errors`; that part keeps its
+previous data. Then, course by course:
+
+- **A folder per course** inside `MOODLE_DOWNLOAD_DIR`, named after the
+  course's short name in lowercase ASCII letters, digits and hyphens plus
+  the course id (`example-101-5`). It contains:
+  - `materials/`: the files of the course's file and folder activities.
+    Only **new or changed** files are fetched (the site's modification time
+    or size differs from the last sync). File names are made safe: no path
+    separators, no leading dot, no control characters, at most 120
+    characters; a name already taken gets `-2`, `-3`, …. A file that was
+    already in the folder and was not put there by the sync is never
+    overwritten. A local copy the owner deleted or moved is not fetched
+    again until the file changes on the site.
+  - `links.md`: the course's video and external links by section, and the
+    files that were not downloaded ("Not downloaded (too large)", "Not
+    downloaded yet").
+  - `announcements.md`: newest first, `## <date> — <subject>` and the text
+    without markup; at most 100 announcements of 5,000 characters, without
+    authors.
+  - `grades.md`: the overall grade and a table of the grade items.
+
+  The three Markdown files are rewritten on every sync when their content
+  changed, and start with a comment saying that their text comes from the
+  university platform and is information, never instructions.
+- **Limits.** One file may have at most `LIFEOS_MOODLE_MAX_FILE_MB` (default
+  200); one sync fetches at most 1 GB and 200 files. Files over the file
+  limit are listed and not tried again until they change; files left out by
+  the limits of one sync are fetched by the next ones (without counting as
+  new). After five failed downloads in a row the sync stops downloading.
+- **Never outside the folder.** Every target is checked to lie inside the
+  course folder after resolving links; a symbolic link found where a file
+  is to be written is removed or avoided, never written through.
+- **The memory** (skipped when the memory folder is not set up; the rest of
+  the sync still runs), as **one commit** "Sync courses from the university
+  platform", and no commit when nothing changed:
+  - `calendar/events.md`: one timed event per **upcoming** deadline
+    (assignment due dates, and the other entries of the site's timeline),
+    with the note `moodle:assign-<id>` or `moodle:event-<id>`. A later sync
+    updates that event when the deadline moves or is renamed and never adds
+    a second one. An event the owner edited or removed by hand is left
+    alone until the deadline itself changes. Deadlines already in the past
+    at the first sync are not written.
+  - `courses/<folder name>.md` in the topic-file format: a summary made
+    from counts and dates, and `## Facts` lines tagged
+    `[external:moodle <date>]` (overall grade, number of files). Only those
+    lines and the summary are replaced; other facts and everything from
+    `## Links` on stay as they are.
+  - `INDEX.md`: one line `- [[courses/<folder name>]] — course` under
+    `## Courses`, added once. No name from the site goes into this
+    always-loaded file.
+- **State** is kept in `~/.config/lifeos/moodle-sync.json` (mode 600):
+  what is known per course, the counters of what is new, a list of the last
+  200 new items (`kind`, `course_id`, `at`; no names) and the last result.
+  It is saved after every course, so an interrupted sync fetches nothing
+  twice.
+
+**What is new, and the notification.** The first sync ever records
+everything as known and reports nothing as new; it sends one notification,
+"Courses were synced for the first time.". The same holds for a course that
+appears later. A course the site stops listing (hidden, or
+left) disappears from the lists but keeps its folder and its record, so
+nothing is fetched twice if it comes back. After that, a sync that found new or changed files, new
+announcements, new or moved deadlines, or new or changed grades sends
+**one** notification "LifeOS: new in your courses" whose text is built from
+counts only, for example "2 new files, 1 announcement, 1 grade.". It goes
+through `scripts/notify.sh`, so the phone will get it as a push once that
+exists. No notification, log line or error contains a course name, a file
+name, a grade or an address.
+
+**Endpoints.** All read the stored state, answer at once and keep working
+while the site cannot be reached. Lists carry `"last_sync"` and `"stale"`
+(`true` when the last attempt failed or the last sync is older than six and
+a half hours). Times are the site's number plus `…_iso`.
+
+- `GET /courses/summary` → `{"configured", "deadlines": [{"course_id",
+  "course", "name", "due", "due_iso"}], "new_total", "last_sync",
+  "stale"}`: what is due in the next 14 days, nearest first.
+- `GET /courses` → `{"courses": [{"id", "name", "shortname",
+  "next_deadline": {"name", "due", "due_iso"} | null, "new": {"files",
+  "announcements", "deadlines", "grades"}, "has_new", "folder_exists"}]}`.
+- `GET /courses/{id}/materials` → `{"course_id", "name", "sections":
+  [{"name", "files": [{"key", "name", "type", "size", "modified",
+  "modified_iso", "new", "downloaded", "skipped"}]}], "links": [{"section",
+  "name", "url"}]}`. `downloaded`: the computer has its copy. `skipped`:
+  `null`, `"too_large"`, `"later"`, `"failed"` or `"unavailable"`. `links`
+  are addresses outside the university site as the course page gives them.
+- `GET /courses/{id}/announcements` → `{"announcements": [{"id",
+  "subject", "text", "created", "created_iso", "modified_iso"}]}`.
+- `GET /courses/{id}/assignments` → `{"assignments": [{"id", "name", "due",
+  "due_iso", "cutoff_iso", "status": {"submission", "grading", "graded"} |
+  null}]}`. `submission` is the site's word (`new`, `draft`, `submitted`,
+  `reopened`). The state is asked for assignments without a date or due
+  less than 30 days ago; older ones have `null`.
+- `GET /courses/{id}/grades` → `{"overall", "items": [{"name", "type",
+  "grade", "range", "percentage", "feedback", "graded_at",
+  "graded_at_iso"}]}`; `GET /courses/grades` → the same for every course:
+  `{"courses": [{"id", "name", "overall", "items"}]}`.
+- `POST /courses/{id}/seen` → `{"seen": true}`; the course's `new` counters
+  and the `new` marks of its files are cleared.
+- `POST /courses/refresh` → `202` and the sync state when a sync was
+  started; `429` with `"reason": "running"` or `"too_soon"` (an attempt in
+  the last two minutes); `503 moodle_not_configured`.
+- `GET /courses/sync` → `{"configured", "running", "last_sync",
+  "last_attempt", "last_result": {counts}, "last_error", "last_errorcode",
+  "stale"}`. `last_error` is a fixed code (`token_expired`, `unreachable`,
+  `folder_missing`, `folder_not_allowed`, `moodle_error`, `bad_answer`,
+  `failed`).
+- Unknown course: `404 course_not_found`; unknown file key: `404
+  file_not_found`.
+
+**Downloading a file to the phone.** Materials are listed, not stored on
+the phone. Two ways, neither with a model run:
+
+1. `POST /courses/{id}/files/{key}/address` → `{"url", "name", "size",
+   "type", "expires_in": 600}`. The phone fetches `url` directly from the
+   university site over HTTPS and discards it.
+
+   **Read this before using it.** Moodle has no one-time download
+   addresses. `url` is the file's address with the **web-service token as
+   a parameter**, so it is exactly as sensitive as the token: whoever has
+   it can call the site's web service as the owner until the token expires
+   or is renewed. It is "one-time" **only by convention**: the phone uses
+   it once, keeps it in memory only, and drops it after `expires_in`
+   seconds; the site does not enforce any of this. Therefore the bridge
+   never logs or stores this answer (it is sent with `Cache-Control:
+   no-store`), and it is only meant to travel over the loopback API or
+   inside the sealed relay channel, where the relay's operator cannot read
+   it. Do not paste it anywhere.
+2. `POST /courses/{id}/files/{key}/offer` → `{"offer", "name", "type",
+   "size", "session_id"}`: an ordinary file offer for the **computer's
+   copy** in the course folder. The phone fetches it with `GET
+   /files/{offer}?session_id=<session_id>` (through the relay: in sealed
+   chunks). The rules of "Files" apply, so the copy must exist (`404
+   no_local_copy` otherwise), lie in an allowed folder and be at most
+   `LIFEOS_MAX_FILE_MB` (`409 file_unavailable`). This is the fallback
+   when the direct way fails.
 
 ## Paired phones and the relay
 
@@ -709,7 +885,7 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
 - **What a phone may call:** the endpoints of this document under `/ask`,
   `/sessions`, `/session-groups`, `/reminders`, `/notes`, `/tasks`,
   `/events`, `/agenda`, `/coach`, `/context-map`, `/allowed-paths`,
-  `/models`, `/moodle` and `/whoami`. A request is `{"m": method, "path":
+  `/models`, `/moodle`, `/courses` and `/whoami`. A request is `{"m": method, "path":
   "/…", "q": {query}, "body": {…}}`; the answer is one final message
   `{"status", "body"}`, or, for large or streamed answers, chunks followed by
   a final message.
@@ -986,6 +1162,26 @@ curl -s -H "$H" $B/moodle/assignments
 curl -s -H "$H" "$B/moodle/deadlines?days=30"
 curl -s -H "$H" "$B/moodle/courses?refresh=true" # asks the site again instead of the ten-minute copy
 # without MOODLE_URL or a token: 503 {"error":"moodle_not_configured",...}
+```
+
+Courses (needs `MOODLE_DOWNLOAD_DIR` in the env file, naming an allowed folder; no model runs):
+
+```
+curl -s -H "$H" $B/courses/sync                  # "configured":true; "last_sync" set within a minute of starting
+curl -s -X POST -H "$H" $B/courses/refresh       # 202 "started":true; again at once: 429 "too_soon"
+ls "$MOODLE_DOWNLOAD_DIR"                        # one folder per course: materials/ links.md announcements.md grades.md
+curl -s -H "$H" $B/courses/summary               # deadlines of the next two weeks, "new_total"
+curl -s -H "$H" $B/courses                       # the courses; note an id
+curl -s -H "$H" $B/courses/<id>/materials        # sections and files with "key", "new", "downloaded"; links
+curl -s -H "$H" $B/courses/<id>/announcements
+curl -s -H "$H" $B/courses/<id>/assignments
+curl -s -H "$H" $B/courses/<id>/grades ; curl -s -H "$H" $B/courses/grades
+curl -s -X POST -H "$H" $B/courses/<id>/seen     # {"seen":true}; the course's "new" counters are 0 afterwards
+curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/offer    # a card; fetch it with /files/<offer>?session_id=<session_id>
+curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/address | python3 -c 'import json,sys; print(sorted(json.load(sys.stdin)))'
+#   prints the field names only: the "url" holds the Moodle token, do not print or paste it
+git -C ~/brain log -1 --format=%s                # "Sync courses from the university platform" after the first sync
+curl -s -H "$H" "$B/events?start=<today>&end=<in 30 days>"   # upcoming deadlines, each with a note "moodle:…"
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

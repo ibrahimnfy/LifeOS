@@ -534,3 +534,168 @@ def test_other_failures_are_a_502_without_the_sites_text(bridge, site):
     site.down = True
     answer = bridge("/moodle/assignments")
     assert answer.status_code == 502 and answer.json()["error"] == "moodle_unreachable"
+
+
+# ---- grades, announcements, links (for the course sync) ----------------------------
+
+
+def test_plain_text_drops_markup_scripts_and_control_characters():
+    html = "<p>One &amp; <b>two</b></p><script>alert(1)</script><style>p{}</style><ul><li>a</li><li>b\x00\x1b</li></ul>"
+    assert moodle.plain_text(html) == "One & two\n\na\n\nb"
+    assert moodle.plain_text("x" * 50, 10) == "x" * 10 and moodle.plain_text(None) == ""
+    assert moodle.plain_text("<p>broken <b>markup") == "broken markup"
+    assert moodle.one_line(" a\n<br>b\t c ") == "a b c"
+
+
+def test_a_stored_address_never_keeps_a_token():
+    assert moodle.without_token(f"{FILE_URL}&token=abc&wstoken=def") == FILE_URL
+    assert moodle.without_token(FILE_URL) == FILE_URL
+
+
+def test_course_returns_sections_and_links_in_one_call(site, client_):
+    contents = [{"id": 1, "section": 0, "name": "Week <b>1</b>", "modules": [
+        {"id": 31, "name": "Example video", "modname": "url", "contents": [
+            {"type": "url", "filename": "ignored name", "fileurl": "https://video.example.invalid/v?id=1&x=2"}]},
+        {"id": 32, "name": "Page", "modname": "resource", "contents": [
+            {"type": "file", "filename": "a.pdf", "fileurl": FILE_URL},
+            {"type": "url", "filename": "Outside page", "fileurl": "http://page.example.invalid/"},
+            {"type": "url", "filename": "bad", "fileurl": "javascript:alert(1)"},
+            {"type": "url", "filename": "bad", "fileurl": "https://a.example.invalid/x y"},
+            {"type": "url", "filename": "bad", "fileurl": "https://a.example.invalid/" + "x" * 3000}]},
+        {"id": 33, "name": "No address", "modname": "url", "contents": [{"type": "url"}]}]}]  # fmt: skip
+    site.answers = {"core_course_get_contents": contents}
+    course = client_.course(5)
+    assert len(site.named("core_course_get_contents")) == 1
+    assert course["links"] == [
+        {
+            "section": "Week 1",
+            "name": "Example video",
+            "url": "https://video.example.invalid/v?id=1&x=2",
+        },
+        {"section": "Week 1", "name": "Outside page", "url": "http://page.example.invalid/"},
+    ]
+    assert [f["filename"] for f in course["sections"][0]["modules"][1]["files"]] == ["a.pdf"]
+    assert client_.contents(5) == course["sections"]
+
+
+def test_grade_items(site, client_):
+    site.answers = {"gradereport_user_get_grade_items": {"usergrades": [
+        {"userid": 7, "userfullname": "Other", "gradeitems": [{"id": 1, "itemname": "not mine"}]},
+        {"userid": 42, "userfullname": "Some One", "gradeitems": [
+            {"id": 81, "itemname": "<span>Example quiz</span>", "itemtype": "mod", "itemmodule": "quiz",
+             "graderaw": 7.5, "gradeformatted": "7.50", "rangeformatted": "0&ndash;10",
+             "percentageformatted": "75.00 %", "feedback": "<p>Good <b>work</b></p>",
+             "gradedategraded": 1795000000},
+            {"id": 82, "itemname": "Example task", "itemtype": "mod", "gradeformatted": "-",
+             "feedback": ""},
+            {"id": 83, "itemtype": "course", "graderaw": 75, "gradeformatted": "75.00"},
+            "not an item"]}], "warnings": []}}  # fmt: skip
+    quiz, task, total = client_.grade_items(5)
+    sent = site.named("gradereport_user_get_grade_items")[0]
+    assert (sent["courseid"], sent["userid"]) == ("5", "42")
+    assert quiz == {
+        "id": 81, "name": "Example quiz", "type": "mod", "module": "quiz", "grade": "7.50",
+        "graded": True, "range": "0\u201310", "percentage": "75.00 %", "feedback": "Good work",
+        "has_feedback": True, "gradedategraded": 1795000000,
+        "gradedategraded_iso": moodle.iso(1795000000),
+    }  # fmt: skip
+    assert (task["grade"], task["graded"], task["has_feedback"], task["gradedategraded"]) == (
+        "-",
+        False,
+        False,
+        None,
+    )
+    assert (total["name"], total["type"], total["graded"]) == ("", "course", True)
+    client_.grade_items(5, 99)
+    assert site.named("gradereport_user_get_grade_items")[-1]["userid"] == "99"
+
+
+def test_course_grades(site, client_):
+    site.answers = {"gradereport_overview_get_course_grades": {"grades": [
+        {"courseid": 5, "grade": "81.00", "rawgrade": "81"}, {"courseid": 7, "grade": "-"},
+        {"courseid": 8, "grade": ""}, {"grade": "1"}], "warnings": []}}  # fmt: skip
+    assert client_.course_grades() == {5: "81.00"}
+    assert site.named("gradereport_overview_get_course_grades")[0]["userid"] == "42"
+
+
+def test_announcements_come_from_the_news_forum_without_authors(site, client_):
+    site.answers = {
+        "mod_forum_get_forums_by_courses": [
+            {"id": 61, "course": 5, "type": "general", "name": "Questions"},
+            {"id": 62, "course": 5, "type": "news", "name": "Announcements"},
+            {"id": 63, "course": 7, "type": "news"}, {"id": 64, "course": 7, "type": "news"}, "x"],
+        "mod_forum_get_forum_discussions": {"discussions": [
+            {"id": 901, "discussion": 11, "name": "Older", "subject": "Older <i>one</i>",
+             "message": "<p>First</p><p>Second</p>", "created": 1795000000, "modified": 1795000100,
+             "userfullname": "Some Teacher", "userpictureurl": f"{SITE}/pic", "usermodifiedfullname": "Some Teacher"},
+            {"id": 902, "discussion": 12, "name": "Newer", "subject": "Newer", "message": "Text",
+             "created": 1796000000, "modified": 1796000000},
+            {"name": "no id"}], "warnings": []},
+    }  # fmt: skip
+    assert client_.news_forums([5, 7]) == {5: 62, 7: 63}
+    sent = site.named("mod_forum_get_forums_by_courses")[0]
+    assert (sent["courseids[0]"], sent["courseids[1]"]) == ("5", "7")
+    newer, older = client_.announcements(62)
+    sent = site.named("mod_forum_get_forum_discussions")[0]
+    assert (sent["forumid"], sent["sortorder"], sent["page"], sent["perpage"]) == (
+        "62",
+        "3",
+        "0",
+        "100",
+    )
+    assert older == {
+        "id": 11, "subject": "Older one", "message": "First\n\nSecond",
+        "created": 1795000000, "created_iso": moodle.iso(1795000000),
+        "modified": 1795000100, "modified_iso": moodle.iso(1795000100),
+    }  # fmt: skip
+    assert newer["id"] == 12 and len(client_.announcements(62, limit=1)) == 1
+    assert "Teacher" not in str([newer, older]) and "example.invalid" not in str([newer, older])
+
+
+def test_submission_status(site, client_):
+    site.answers = {"mod_assign_get_submission_status": {"lastattempt": {
+        "submission": {"status": "submitted", "userid": 42}, "graded": True, "gradingstatus": "graded"}}}  # fmt: skip
+    assert client_.submission_status(31) == {
+        "submission": "submitted",
+        "grading": "graded",
+        "graded": True,
+    }
+    assert site.named("mod_assign_get_submission_status")[0]["assignid"] == "31"
+    site.answers = {"mod_assign_get_submission_status": {"warnings": []}}
+    assert client_.submission_status(31) == {"submission": None, "grading": None, "graded": False}
+
+
+def test_new_calls_map_errors_like_the_others(site, client_):
+    site.error = "nopermissions"
+    for call in (lambda: client_.grade_items(5, 42), lambda: client_.news_forums([5]),
+                 lambda: client_.announcements(1), lambda: client_.submission_status(1)):  # fmt: skip
+        with pytest.raises(moodle.MoodleError) as caught:
+            call()
+        assert caught.value.code == "moodle_error" and "example.invalid" not in str(caught.value)
+
+
+def test_address_for_is_the_token_address_of_a_site_file(client_):
+    address = client_.address_for(
+        FILE_URL.replace("/webservice/pluginfile.php/", "/pluginfile.php/")
+    )
+    parts = urllib.parse.urlsplit(address)
+    assert (parts.scheme, parts.netloc) == ("https", "moodle.example.invalid")
+    assert parts.path.startswith("/webservice/pluginfile.php/")
+    assert urllib.parse.parse_qsl(parts.query) == [("forcedownload", "1"), ("token", TOKEN)]
+    for bad in (
+        "https://elsewhere.example.invalid/pluginfile.php/1/x",
+        f"{SITE}/login/index.php",
+        "",
+    ):
+        with pytest.raises(moodle.MoodleError) as caught:
+            client_.address_for(bad)
+        assert caught.value.code == "bad_file_url" and TOKEN not in str(caught.value)
+
+
+def test_download_never_writes_through_a_link(client_, opened, tmp_path):
+    outside = tmp_path / "outside.txt"
+    outside.write_text("untouched")
+    (opened["folder"] / "notes.pdf.part").symlink_to(outside)
+    with pytest.raises(moodle.MoodleError) as caught:
+        client_.download(FILE_URL, opened["folder"] / "notes.pdf", 5000)
+    assert caught.value.code == "download_failed" and outside.read_text() == "untouched"

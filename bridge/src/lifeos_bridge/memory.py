@@ -380,13 +380,17 @@ def _apply_event_fields(event: Event, data: dict) -> None:
         raise bad("`end` must be after `start`")
 
 
-def _write_events(memory: Path, events: list[Event], message: str) -> None:
+def _write_events(memory: Path, events: list[Event], message: str, commit_now: bool) -> None:
     body = "".join(e.line() + "\n" for e in sorted(events, key=Event.sort_key))
     write_text(memory / EVENTS_FILE, EVENTS_HEADER + body)
-    commit(memory, message, [EVENTS_FILE])
+    if commit_now:
+        commit(memory, message, [EVENTS_FILE])
 
 
-def create_event(memory: Path, data: dict, now: datetime | None = None) -> Event:
+def create_event(
+    memory: Path, data: dict, now: datetime | None = None, *, commit_now: bool = True
+) -> Event:
+    """Add an event. With ``commit_now=False`` the caller commits ``EVENTS_FILE`` itself."""
     now = now or now_local()
     if "title" not in data or "date" not in data:
         raise bad("`title` and `date` are required")
@@ -395,11 +399,11 @@ def create_event(memory: Path, data: dict, now: datetime | None = None) -> Event
         text = read_text(memory / EVENTS_FILE)
         event = Event(_next_id("e", EVENT_ID, [text], now.date()), "", now.date())
         _apply_event_fields(event, data)
-        _write_events(memory, [*all_events(memory), event], "Add a calendar event")
+        _write_events(memory, [*all_events(memory), event], "Add a calendar event", commit_now)
     return event
 
 
-def update_event(memory: Path, event_id: str, data: dict) -> Event:
+def update_event(memory: Path, event_id: str, data: dict, *, commit_now: bool = True) -> Event:
     if not data:
         raise bad("nothing to change")
     with LOCK:
@@ -409,7 +413,7 @@ def update_event(memory: Path, event_id: str, data: dict) -> Event:
         if event is None:
             raise ClaudeError("event_not_found", 404, "no event has this id")
         _apply_event_fields(event, data)
-        _write_events(memory, events, "Change a calendar event")
+        _write_events(memory, events, "Change a calendar event", commit_now)
     return event
 
 
