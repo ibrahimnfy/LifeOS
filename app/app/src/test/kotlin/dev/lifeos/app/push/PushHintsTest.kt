@@ -84,24 +84,56 @@ class PushHintsTest {
     }
 
     @Test
-    fun `every event has a fixed kind of notification and a place to open`() {
+    fun `every event has its channel and a place to open, also for older hints without c and o`() {
         val expected = mapOf(
-            "answer" to (NotificationKind.ANSWER to Destination.Chat("s1")),
-            "reminder" to (NotificationKind.REMINDER to Destination.Sessions),
-            "coach" to (NotificationKind.COACH to Destination.Coach),
-            "courses" to (NotificationKind.COURSES to Destination.Courses),
-            "signin" to (NotificationKind.COURSES to Destination.Courses),
-            "notice" to (NotificationKind.NOTICE to Destination.Today),
-            "approval" to (NotificationKind.WAITING to Destination.Chat("s1")),
-            "question" to (NotificationKind.WAITING to Destination.Chat("s1")),
+            "answer" to (PushChannel.CHAT to Destination.Chat("s1")),
+            "question" to (PushChannel.CHAT to Destination.Chat("s1")),
+            "approval" to (PushChannel.CHAT to Destination.Chat("s1")),
+            "courses" to (PushChannel.COURSES to Destination.Courses),
+            "signin" to (PushChannel.COURSES to Destination.CourseSignIn),
+            "coach" to (PushChannel.COACH to Destination.Coach),
+            "reminder" to (PushChannel.REMINDERS to Destination.Reminder("s1")),
+            "notice" to (PushChannel.REMINDERS to Destination.Notice),
         )
         assertEquals(PushHints.EVENTS, expected.keys)
         for ((event, pair) in expected) {
             val hint = Hint(event, "s1")
-            assertEquals(event, pair.first, PushHints.kindOf(hint))
+            assertEquals(event, pair.first, PushHints.channelOf(hint))
             assertEquals(event, pair.second, PushHints.destinationOf(hint))
         }
         assertEquals(Destination.Sessions, PushHints.destinationOf(Hint("answer")))
+        assertEquals(Destination.Today, PushHints.destinationOf(Hint("reminder")))
+    }
+
+    @Test
+    fun `the bridge's channel, screen, item and counts are read from a hint`() {
+        val courses = open(sealed("""{"e":"courses","c":"courses","o":"course","r":"12","n":{"files":2,"grades":1,"bad":"x","zero":0,"huge":99999}}"""))!!
+        assertEquals(PushChannel.COURSES, PushHints.channelOf(courses))
+        assertEquals(Destination.Course(12), PushHints.destinationOf(courses))
+        assertEquals(mapOf("files" to 2, "grades" to 1, "huge" to 9999), courses.counts)
+        // Several courses changed: the Courses screen.
+        assertEquals(Destination.Courses, PushHints.destinationOf(Hint("courses", channel = "courses", opens = "courses")))
+        assertEquals(Destination.CourseSignIn, PushHints.destinationOf(Hint("signin", opens = "moodle_signin")))
+        assertEquals(Destination.Chat("abc"), PushHints.destinationOf(Hint("answer", "abc", channel = "chat", opens = "session")))
+        // An unknown channel falls back to the event's; an unknown screen to Today.
+        assertEquals(PushChannel.COACH, PushHints.channelOf(Hint("coach", channel = "elsewhere")))
+        assertEquals(Destination.Today, PushHints.destinationOf(Hint("coach", opens = "elsewhere")))
+    }
+
+    @Test
+    fun `replies of one session, and all course changes, share one notification`() {
+        assertEquals(PushHints.notificationKey(Hint("answer", "s1")), PushHints.notificationKey(Hint("question", "s1")))
+        assertEquals(false, PushHints.notificationKey(Hint("answer", "s1")) == PushHints.notificationKey(Hint("answer", "s2")))
+        assertEquals(PushHints.notificationKey(Hint("courses", "1")), PushHints.notificationKey(Hint("courses", "2")))
+        assertEquals(PushHints.notificationKey(Hint("courses")), PushHints.notificationKey(Hint("signin")))
+        assertEquals(false, PushHints.notificationKey(Hint("reminder", "r1")) == PushHints.notificationKey(Hint("reminder", "r2")))
+    }
+
+    @Test
+    fun `a notice's link is kept only when it is a web address`() {
+        assertEquals("https://example.invalid/x", PushHints.noticeLink(Hint("notice", link = "https://example.invalid/x")))
+        assertNull(PushHints.noticeLink(Hint("notice", link = "intent://x")))
+        assertNull(PushHints.noticeLink(Hint("answer", link = "https://example.invalid/x")))
     }
 
     @Test
@@ -115,7 +147,11 @@ class PushHintsTest {
 
     @Test
     fun `destinations survive the way through a notification`() {
-        for (destination in listOf(Destination.Chat("session-1"), Destination.Coach, Destination.Courses, Destination.Sessions, Destination.Today, Destination.Sleep)) {
+        val all = listOf(
+            Destination.Chat("session-1"), Destination.Course(12), Destination.Reminder("r-1"), Destination.Coach, Destination.Courses,
+            Destination.CourseSignIn, Destination.Sessions, Destination.Today, Destination.Notice, Destination.Sleep,
+        )
+        for (destination in all) {
             assertEquals(destination, Destination.decode(destination.encode()))
         }
         assertNull(Destination.decode(null))

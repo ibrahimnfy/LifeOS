@@ -400,6 +400,20 @@ and builds the notification itself ([`security.md`](security.md), section
 | Question waiting for the owner, session report | the item | — |
 | Morning sleep prompt (local, silent) | sleep entry | once per morning |
 
+**Built (#38, owner's choice #136 = A):** Firebase data messages with one
+sealed hint, opened on the phone with the push key alone (kept under a
+second Keystore key that needs no confirmation, so it works while the app
+is locked or closed; it opens hints only). Four Android channels, so a kind
+can be muted in the system settings: **chat** (reply ready, question,
+approval; one notification per session), **courses** (one notification per
+sync, whatever changed), **coach**, **reminders** (reminders and notices).
+The notification text is fixed per event kind, lock screen included; the
+counts and items in the hint decide only what a tap opens, and a notice's
+own title is shown inside the unlocked app. Taps open: a session → the Chat
+tab for now (the session screens come with #33), one course → its page,
+several → Courses, sign-in → Courses, coach → the coach screen, reminder
+and notice → Today.
+
 ## 4. Shared behaviour
 
 | Situation | What the owner sees |

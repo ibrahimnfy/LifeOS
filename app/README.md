@@ -435,7 +435,36 @@ phone side mirrors the bridge's `e2e.py`, `devices.py`, `mailbox.py` and
   message; requests other than GET are retried only when the first try
   certainly did not leave the phone.
 
-Not built yet: push, and Chat through the connection.
+**Push** (`push/`, #38; docs/security.md 5.1):
+
+- **Firebase without its Gradle plugin:** the four values of the owner's
+  Firebase app are compiled in from `~/.config/lifeos/firebase/` (see
+  `app/build.gradle.kts`); the app starts Firebase itself (`PushSetup`).
+  A build without them, or a phone without Google Play services, simply has
+  no push (Settings → Notifications says so).
+- **Data messages only** (`PushService`, also while the app is closed): one
+  field `h`, a hint sealed with the push key. It is opened with that key
+  alone; the checks are those of every message (this device, direction
+  "push", kind "push hint", authentication, a known event, a counter
+  greater than every earlier one, stored first). A bare wake-up only makes
+  a running app ask the computer again.
+- **The push key** (sub-key 3) is kept under a second Keystore key **without
+  user confirmation** (owner's choice #136 = A, `Vaults.push`,
+  `PushKeyStore`), so a hint opens while the app is locked; it opens hints
+  only. The device secret stays under the confirmation-bound key. Deleted on
+  unpair (with its Keystore key and the push counter).
+- **The push address** is handed to the computer through the sealed channel
+  (`POST /push/token`, answered by the bridge's relay code) when the app
+  connects and whenever Firebase gives a new one; an unchanged address is
+  not sent again.
+- **Notifications:** four channels (chat, courses, coach, reminders) that
+  the owner can mute in the system settings; the text is fixed per event
+  kind and content-free, lock screen included (`PushNotifier`). Replies of
+  one session share one notification, all course changes of a sync share
+  one. Counts and items stay inside the app: they decide what a tap opens;
+  a notice's title is shown as a message in the unlocked app.
+
+Not built yet: Chat through the connection.
 
 ### Test vectors
 
@@ -473,6 +502,8 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   the relay way. Use it for screenshots; the owner's courses are not asked
   for or changed in that mode. (The sample answers are also kept as saved
   copies; unpair or clear the app's data afterwards.)
+- `--es lifeos.test.push <event>` shows the notification a push of that kind
+  would show (fixed text, channel, what a tap opens), without Firebase.
 - `--ez lifeos.test.sample_data true` is for screenshots on an emulator
   without a computer: on a phone that is **not paired**, the app acts as
   connected and every screen shows the invented answers of
@@ -492,7 +523,6 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- No push notifications.
 - Chat does not send; the coach conversation, Sessions and Projects are
   placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
@@ -621,6 +651,34 @@ running on the computer with the relay set up.
    is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### Push notifications (app closed, phone idle)
+
+Needs a build made with the owner's Firebase settings and a paired phone.
+
+1. Open the app once, unlocked and connected (the dot green): it hands its
+   push address to the computer. Settings → Notifications says "Your
+   computer can reach this phone…"; on Android 13+ allow notifications.
+2. Close the app completely (swipe it away) and lock the phone; wait a few
+   minutes so it is idle.
+3. On the computer, start a chat run from the terminal or with
+   `scripts/notify.sh "Test" "Test" ""`: within seconds a notification
+   appears with a fixed text only ("A reply is ready", "A notice from your
+   computer"), the same on the lock screen; no title, name or number.
+4. After a course sync that found something: one notification "Your courses
+   have news", however many things changed. Tap it: after unlocking, the
+   course (one changed) or Courses opens.
+5. Tap a reply notification: the Chat tab opens (the session screens come
+   with #33). A notice shows its title as a message after unlocking.
+6. Settings → Notifications → **Notification settings**: the four channels
+   Chat, Courses, Coach and Reminders; switch Courses off and run a sync:
+   nothing appears, the others still do.
+7. Unpair: no more notifications reach this phone.
+
+On an emulator without the computer, a debug build shows the notification
+of a kind directly (nothing is received):
+`adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --es lifeos.test.push courses`
+(also `answer`, `coach`, `reminder`, `notice`, …).
 
 ### Models and plan usage
 

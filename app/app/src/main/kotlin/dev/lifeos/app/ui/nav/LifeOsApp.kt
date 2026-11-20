@@ -36,6 +36,8 @@ import dev.lifeos.app.settings.ThemeSetting
 import dev.lifeos.app.ui.components.BottomBar
 import dev.lifeos.app.ui.components.CaptureKind
 import dev.lifeos.app.ui.components.CaptureSheet
+import dev.lifeos.app.push.Destination
+import dev.lifeos.app.push.PushOpen
 import dev.lifeos.app.ui.components.LocalLooks
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
@@ -74,6 +76,8 @@ fun LifeOsApp(
     onCaptureHandled: () -> Unit,
     openSleep: Boolean = false,
     onSleepOpened: () -> Unit = {},
+    openPush: PushOpen? = null,
+    onPushOpened: () -> Unit = {},
 ) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -135,6 +139,33 @@ fun LifeOsApp(
     // The courses' colours come from the saved course list: read it once unlocked.
     val connected = core.connection.collectAsStateWithLifecycle().value == dev.lifeos.app.ConnectionState.CONNECTED
     LaunchedEffect(pairing != null, locked, connected) { if (pairing != null && !locked) core.loadLooks() }
+    // ---- a tapped push notification (#38): its screen, once the app is unlocked
+    LaunchedEffect(openPush, locked) {
+        val push = openPush ?: return@LaunchedEffect
+        if (locked) return@LaunchedEffect
+        when (val destination = push.destination) {
+            // Chat and the sessions screens come with #33; until then the Chat tab opens.
+            is Destination.Chat, Destination.Sessions -> navController.openTab(Tab.CHAT)
+            is Destination.Course -> {
+                navController.openTab(Tab.MORE)
+                navController.navigate(Routes.COURSES) { launchSingleTop = true }
+                navController.navigate(Routes.course(destination.courseId)) { launchSingleTop = true }
+            }
+            Destination.Courses, Destination.CourseSignIn -> {
+                navController.openTab(Tab.MORE)
+                navController.navigate(Routes.COURSES) { launchSingleTop = true }
+            }
+            Destination.Coach -> {
+                navController.openTab(Tab.TODAY)
+                navController.navigate(Routes.COACH) { launchSingleTop = true }
+            }
+            Destination.Sleep -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
+            is Destination.Reminder, Destination.Today, Destination.Notice -> navController.openTab(Tab.TODAY)
+        }
+        // A notice's own title is shown only here, in the unlocked app.
+        push.noticeTitle?.let { showMessage(it) }
+        onPushOpened()
+    }
     CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks) {
     Scaffold(
         containerColor = LifeTheme.colors.bg,

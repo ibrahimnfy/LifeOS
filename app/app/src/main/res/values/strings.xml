@@ -466,4 +466,27 @@
     <string name="models_none_course_sync">Course sync</string>
     <string name="models_none_notifications">Notifications</string>
     <string name="models_cost_note">Usage as the runs report it, cache included. The cost is Claude Code\'s own estimate, not a bill.</string>
+
+    <!-- Push notifications (#38): fixed texts, never content -->
+    <string name="push_channel_chat">Chat</string>
+    <string name="push_channel_chat_text">A reply is ready, or a session waits for your answer or approval.</string>
+    <string name="push_channel_courses">Courses</string>
+    <string name="push_channel_courses_text">New grades, assignments, files, announcements or changed dates; one notification per sync.</string>
+    <string name="push_channel_coach">Coach</string>
+    <string name="push_channel_coach_text">The coach has prepared something for you.</string>
+    <string name="push_channel_reminders">Reminders</string>
+    <string name="push_channel_reminders_text">Reminders and notices from your computer.</string>
+    <string name="push_answer">A reply is ready</string>
+    <string name="push_question">A session has a question for you</string>
+    <string name="push_approval">A session waits for your approval</string>
+    <string name="push_courses">Your courses have news</string>
+    <string name="push_signin">The course sign-in needs renewing</string>
+    <string name="push_coach">The coach has something for you</string>
+    <string name="push_reminder">Reminder</string>
+    <string name="push_notice">A notice from your computer</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="notifications_push_ready">Your computer can reach this phone with notifications, also while the app is closed.</string>
+    <string name="notifications_push_missing">This build of the app has no push settings (or the phone has no Google Play services), so the computer cannot notify this phone.</string>
+    <string name="notifications_text">A notification says only what kind of thing happened; what it is about is shown after you open and unlock the app. Each kind (chat, courses, coach, reminders) can be switched off in the system settings.</string>
+    <string name="notifications_open_system">Notification settings</string>
 </resources>

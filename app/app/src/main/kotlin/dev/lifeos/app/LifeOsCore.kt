@@ -13,7 +13,12 @@ import java.time.LocalDate
 import java.time.ZoneId
 import com.goterl.lazysodium.LazySodiumAndroid
 import com.goterl.lazysodium.SodiumAndroid
+import dev.lifeos.app.crypto.Direction
 import dev.lifeos.app.crypto.E2e
+import dev.lifeos.app.push.PushKeyStore
+import dev.lifeos.app.push.PushNotifier
+import dev.lifeos.app.push.PushSetup
+import kotlinx.serialization.json.buildJsonObject
 import dev.lifeos.app.data.Api
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.CoachMessage
@@ -199,7 +204,55 @@ class LifeOsCore(private val app: Application) {
         if (answered) {
             drainOutbox()
             syncActivity()
+            registerPush()
         }
+    }
+
+    // ---- push (#38)
+
+    @Volatile
+    private var pushToken: String? = null
+
+    /** A new push address from Firebase: handed to the computer when it is connected. */
+    fun onPushToken(token: String) {
+        pushToken = token
+        registerPush()
+    }
+
+    /** A push arrived while the app runs: the screens ask the computer again. */
+    fun onPush() {
+        if (connectionState.value == ConnectionState.CONNECTED) reloadState.value++
+    }
+
+    /**
+     * Hand this phone's push address to the computer through the sealed channel (`/push/token`,
+     * answered by the bridge's relay code), when it is new or changed since the last time.
+     */
+    fun registerPush() {
+        if (!PushSetup.ready(app) || sample) return
+        scope.launch {
+            if (connectionState.value != ConnectionState.CONNECTED) return@launch
+            val token = pushToken ?: currentPushToken() ?: return@launch
+            pushToken = token
+            val keys = (app as LifeOsApplication).pushKeys
+            if (keys.sentToken() == token) return@launch
+            try {
+                api.call("POST", "/push/token", body = buildJsonObject { put("token", JsonPrimitive(token)) })
+                keys.markTokenSent(token)
+            } catch (_: ApiException) {
+                // Tried again on the next connection.
+            }
+        }
+    }
+
+    private suspend fun currentPushToken(): String? = try {
+        kotlinx.coroutines.suspendCancellableCoroutine { done ->
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                done.resumeWith(Result.success(if (task.isSuccessful) task.result else null))
+            }
+        }
+    } catch (_: Exception) {
+        null
     }
 
     val api = Api(TestAids.transport(app, relayTransport))
@@ -612,6 +665,13 @@ class LifeOsCore(private val app: Application) {
         val channel = Channel(e2e, current.deviceId, secret, store.counters()) { now() / 1000 }
         val client = RelayClient(mailbox, channel, current.deviceHex, sessionScope, now, e2e::randomBytes, ::contact)
         session = Session(job, channel, client)
+        // The push key, so hints open while the app is locked or closed (kept once per pairing).
+        val pushKeys = (app as LifeOsApplication).pushKeys
+        if (!pushKeys.has()) {
+            val pushKey = e2e.deriveKey(secret, Direction.PUSH)
+            pushKeys.save(pushKey, current.deviceId)
+            pushKey.fill(0)
+        }
         connectionState.value = ConnectionState.CONNECTING
         client.start()
         sessionScope.launch { check() }
@@ -795,6 +855,8 @@ class LifeOsCore(private val app: Application) {
     private fun forget(current: PairingRecord) = synchronized(lock) {
         stopSession()
         store.wipe()
+        // The push key belongs to the pairing too.
+        (app as LifeOsApplication).pushKeys.wipe()
         // Saved copies and unsent writes belong to the pairing: they go with it.
         cache.wipe()
         outbox.wipe()
@@ -832,8 +894,21 @@ class LifeOsCore(private val app: Application) {
 const val UNDO_MILLIS = 6_000L
 
 class LifeOsApplication : Application() {
-    val core: LifeOsCore by lazy { LifeOsCore(this) }
+    private val coreLazy = lazy { LifeOsCore(this) }
+    val core: LifeOsCore by coreLazy
+
+    /** The core if it was already started in this process (a push does not start it just to reload). */
+    fun runningCore(): LifeOsCore? = if (coreLazy.isInitialized()) core else null
 
     /** Screen time per day, shared by the app and the daily background measurement (one instance per process). */
     val activityStore: ActivityStore by lazy { ActivityStore(File(filesDir, "activity/activity.json")) }
+
+    /** The push key (#136 = A), shared by the app and the push service. */
+    val pushKeys: PushKeyStore by lazy { PushKeyStore(File(filesDir, "push"), Vaults::push) }
+
+    override fun onCreate() {
+        super.onCreate()
+        PushSetup.init(this)
+        PushNotifier.createChannels(this)
+    }
 }

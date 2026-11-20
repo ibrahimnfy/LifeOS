@@ -155,6 +155,11 @@ fun SettingsScreen(
                 }
             }
 
+            // ---- notifications (#38)
+            SettingsGroup(stringResource(R.string.settings_notifications)) {
+                NotificationsSection()
+            }
+
             SettingsGroup(stringResource(R.string.settings_about)) {
                 Row(
                     modifier = Modifier

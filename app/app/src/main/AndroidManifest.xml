@@ -65,6 +65,15 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Push (#38): Firebase data messages, opened with the push key; not reachable by other apps. -->
+        <service
+            android:name=".push.PushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- The morning question's alarm, a restart of the phone, a change of clock or time zone.
              Not exported: only the system and the app itself reach it. -->
         <receiver
