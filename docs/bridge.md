@@ -462,8 +462,14 @@ still answering (`POST /ask` with `session_id`, or
   (`cost_usd` is Claude Code's own estimate, not a bill; "week" starts on
   Monday). The coach conversation is counted apart from the morning run.
   Chat sessions are one job (`chat`); a resumed run adds only the growth
-  of the session's cumulative cost. Kept per day for two months in
+  of the session's cumulative cost (a session older than the counting
+  counts from its first resume on). Token counts are the main model's
+  (advisor tokens are not in them). Kept per day for two months in
   `~/.config/lifeos/usage.json`, no text. Never starts a run.
+- Precedence for chat sessions: the session's own choice, then
+  `LIFEOS_MODEL_ROUTING`'s `chat=…`, then `LIFEOS_DEFAULT_MODEL`/`_EFFORT`.
+  `LIFEOS_CLAUDE_MODEL` (the guardrail probes' fixed model) replaces every
+  job's model and switches the advisor off.
 
 ### Files: offers and `GET /files/{offer}`
 

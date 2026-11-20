@@ -117,8 +117,14 @@ def route(settings, job: str) -> Route:
 
 
 def run_options(settings, job: str) -> dict:
-    """Keyword arguments for :func:`claude.run` / :func:`claude.stream` of a job's run."""
+    """Keyword arguments for :func:`claude.run` / :func:`claude.stream` of a job's run.
+
+    ``LIFEOS_CLAUDE_MODEL`` (the guardrail probes' fixed model) overrides every job.
+    """
     chosen = route(settings, job)
+    if settings.claude_model:
+        return {"model": settings.claude_model, "effort": chosen.effort, "advisor": None,
+                "job": job}  # fmt: skip
     return {"model": chosen.model, "effort": chosen.effort, "advisor": chosen.advisor, "job": job}
 
 
@@ -162,10 +168,15 @@ def record(job: str, payload: object, today: date | None = None, *, resumed: boo
         data = store.read_json(path, {})
         sessions = data.get("sessions") if isinstance(data.get("sessions"), dict) else {}
         if session:
+            known = session in sessions
             previous = _number(sessions.pop(session, 0.0)) if resumed else 0.0
             sessions[session] = found["cost_usd"]  # newest last; the oldest are dropped
             data["sessions"] = dict(list(sessions.items())[-MAX_SESSIONS:])
-            if found["cost_usd"] >= previous:
+            if resumed and not known:
+                # A session from before the counting began: its total so far is only
+                # the baseline (counting it would book weeks of use to today).
+                found["cost_usd"] = 0.0
+            elif found["cost_usd"] >= previous:
                 found["cost_usd"] -= previous
         days = data.get("days") if isinstance(data.get("days"), dict) else {}
         entry = days.setdefault(day, {}).setdefault(job, {"runs": 0, "cost_usd": 0.0, "models": []})
@@ -208,14 +219,14 @@ def overview(settings, today: date | None = None) -> dict:
     jobs = []
     for name, job in JOBS.items():
         chosen = route(settings, name)
-        model = chosen.model or settings.claude_model or settings.default_model
+        model = settings.claude_model or chosen.model or settings.default_model
         jobs.append(
             {
                 "job": name,
                 "label": job.label,
                 "model": model,
                 "effort": chosen.effort or settings.default_effort,
-                "advisor": chosen.advisor,
+                "advisor": None if settings.claude_model else chosen.advisor,
                 "source": chosen.source,
                 "per_session": name == "chat",
                 "usage": {

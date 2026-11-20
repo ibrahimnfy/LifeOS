@@ -323,12 +323,15 @@ def create_app(settings: Settings) -> FastAPI:
         if choice:
             await asyncio.to_thread(session_meta.update_session, session_id, choice)
         chosen = await asyncio.to_thread(session_meta.entry_for, session_id)
+        # The session's own choice, else LIFEOS_MODEL_ROUTING's chat=…, else the defaults.
+        default = routing.run_options(settings, "chat")
         run_args = {
             "session_id": session_id,
             "resume": resume,
             "cwd": cwd,
-            "model": chosen["model"],
-            "effort": chosen["effort"],
+            "model": chosen["model"] or default["model"],
+            "effort": chosen["effort"] or default["effort"],
+            "advisor": None if chosen["model"] else default["advisor"],
             "on_process": control.tracker(session_id),
         }
         run_args["context"] = phone_instructions
@@ -449,11 +452,12 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/models")
     async def list_models():
         """Models and effort levels the app may offer, and the defaults."""
+        chat = routing.route(settings, "chat")
         return {
             "models": list(settings.models),
             "efforts": list(await asyncio.to_thread(claude.effort_levels, settings)),
-            "default_model": settings.claude_model or settings.default_model,
-            "default_effort": settings.default_effort,
+            "default_model": settings.claude_model or chat.model or settings.default_model,
+            "default_effort": chat.effort or settings.default_effort,
         }
 
     @app.get("/models/routing")

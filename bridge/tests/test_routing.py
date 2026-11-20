@@ -168,9 +168,41 @@ def test_a_resumed_session_adds_only_its_growth_in_cost(isolated_config):
     run(0.2, False)
     run(0.5, True)  # cumulative: this run cost 0.3
     run(0.5, False)  # another new session reusing nothing: counted in full
+    # A session from before the counting began: its first resume is only a baseline.
+    older = {"type": "result", "session_id": "s-old", "total_cost_usd": 9.0, "usage": {}}
+    routing.record("chat", older, day, resumed=True)
+    routing.record("chat", {**older, "total_cost_usd": 9.25}, day, resumed=True)
     settings = load_settings({"LIFEOS_BRIDGE_TOKEN": TOKEN})
     today = routing.overview(settings, day)["jobs"][0]["usage"]["today"]
-    assert (today["runs"], today["cost_usd"]) == (3, 1.0)
+    assert (today["runs"], today["cost_usd"]) == (5, 1.25)
+
+
+def test_routing_chat_changes_the_default_of_sessions(settings, auth, calls):
+    from fastapi.testclient import TestClient
+
+    from lifeos_bridge.app import create_app
+
+    routed = dataclasses.replace(
+        settings, default_model="opus", default_effort="high",
+        model_routing=routing.parse("chat=sonnet/low"),
+    )  # fmt: skip
+    client = TestClient(create_app(routed))
+    assert client.post("/ask", headers=auth, json={"prompt": "hi"}).status_code == 200
+    args = args_of(calls()[-1])
+    assert (value(args, "--model"), value(args, "--effort")) == ("sonnet", "low")
+    models = client.get("/models", headers=auth).json()
+    assert (models["default_model"], models["default_effort"]) == ("sonnet", "low")
+    # A model the session chose itself still wins.
+    chosen = client.post("/ask", headers=auth, json={"prompt": "hi", "model": "haiku"})
+    assert chosen.status_code == 200 and value(args_of(calls()[-1]), "--model") == "haiku"
+
+
+def test_the_fixed_probe_model_overrides_every_job(settings):
+    fixed = dataclasses.replace(settings, claude_model="haiku")
+    options = routing.run_options(fixed, "summaries")
+    assert (options["model"], options["advisor"]) == ("haiku", None)
+    jobs = {j["job"]: j for j in routing.overview(fixed)["jobs"]}
+    assert (jobs["coach_plan"]["model"], jobs["summaries"]["advisor"]) == ("haiku", None)
 
 
 @pytest.fixture
