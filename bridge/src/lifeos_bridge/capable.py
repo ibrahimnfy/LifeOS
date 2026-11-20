@@ -202,6 +202,43 @@ def gate_command(*, ask_host: bool = False) -> str:
     return shlex.join([*command, "--ask-host"] if ask_host else command)
 
 
+def repository_root(folder: Path) -> Path | None:
+    """The nearest git repository root at or above ``folder`` (as git finds it), if any."""
+    for candidate in (folder, *folder.parents):
+        marker = candidate / ".git"
+        try:
+            if marker.is_dir() and (marker / "HEAD").is_file():
+                return candidate
+            if marker.is_file() and marker.read_text(errors="replace").startswith("gitdir:"):
+                return candidate  # a worktree or submodule
+        except OSError:
+            continue
+    return None
+
+
+def check_repositories(writable: list[Path], memory: Path) -> None:
+    """Refuse a writable folder that sits inside another git repository (owner, #139).
+
+    Claude Code's sandbox lets commands write in the root of the repository
+    that contains the working folder (found with the real CLI, both runners).
+    A folder that is itself a repository root is fine, and so is a folder
+    whose enclosing repository root is writable in capable runs anyway: the
+    memory folder (every capable run may write there). Checked before every
+    capable run, not only when a folder is added.
+    """
+    for folder in writable:
+        enclosing = repository_root(folder)
+        if enclosing is None or enclosing == folder or enclosing in (*writable, memory):
+            continue
+        raise ClaudeError(
+            "folder_inside_repository",
+            403,
+            f"this folder is inside the git repository at {enclosing}; the capable mode would "
+            f"let commands write anywhere in that repository. Add {enclosing} as an allowed "
+            "folder and work there instead",
+        )
+
+
 def build_policy(settings: Settings, run_dir: Path, *, ask_host: bool = False) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
 
@@ -221,6 +258,7 @@ def build_policy(settings: Settings, run_dir: Path, *, ask_host: bool = False) -
     writable = (
         [run_dir] if run_dir == memory or run_dir.is_relative_to(memory) else [run_dir, memory]
     )
+    check_repositories(writable, memory)
     settings_json = {
         "sandbox": {
             "enabled": True,

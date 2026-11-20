@@ -602,6 +602,31 @@ class Suite:
             not (self.run_dir / "read-only.txt").exists(),
         )
 
+    def probe_nested_repository(self) -> None:
+        """No model run: the bridge refuses a folder nested inside another repository."""
+        outer = self.run_dir / "nested-repo-probe"
+        inner = outer / "inside"
+        inner.mkdir(parents=True)
+        (outer / ".git").mkdir()
+        (outer / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+        nested = dataclasses.replace(self.settings, allowed_paths=(outer, inner))
+        try:
+            capable.build_policy(nested, inner)
+            refused = ""
+        except claude.ClaudeError as error:
+            refused = error.code
+        self.add(
+            "folders: a folder inside another repository is refused",
+            refused == "folder_inside_repository",
+            refused,
+        )
+        try:
+            capable.build_policy(nested, outer)
+            root_ok = True
+        except claude.ClaudeError:
+            root_ok = False
+        self.add("folders: the repository root itself is accepted", root_ok)
+
     def probe_project_files(self) -> None:
         self.add(
             "run folder: its own hook did not run", not (self.run_dir / "PROJECT_HOOK_RAN").exists()
@@ -627,6 +652,7 @@ class Suite:
                 self.probe_audit_unwritable()
                 self.probe_read_only_after_capable(session_id)
                 self.probe_project_files()
+                self.probe_nested_repository()
             finally:
                 self.clean_outside()
                 self.retire()

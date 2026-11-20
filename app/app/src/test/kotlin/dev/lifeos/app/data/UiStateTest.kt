@@ -49,6 +49,14 @@ class UiStateTest {
     }
 
     @Test
+    fun `a folder inside another repository has its own message`() {
+        val refused = Outcome.Failure(ApiException(ApiException.Kind.HTTP, 403, UiStates.FOLDER_IN_REPOSITORY))
+        assertEquals(UiState.Error(Problem.FOLDER_IN_REPOSITORY, 403), UiStates.of(true, null, refused, empty))
+        val other = Outcome.Failure(ApiException(ApiException.Kind.HTTP, 403, "folder_not_allowed"))
+        assertEquals(UiState.Error(Problem.SERVER, 403), UiStates.of(true, null, other, empty))
+    }
+
+    @Test
     fun `a refusal by the relay means not paired, even with a saved copy`() {
         assertEquals(UiState.NotPaired, UiStates.of(true, listOf(1) to 5L, failure(ApiException.Kind.REFUSED), empty))
         assertEquals(UiState.NotPaired, UiStates.of(true, null, failure(ApiException.Kind.NOT_PAIRED), empty))

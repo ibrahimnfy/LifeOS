@@ -251,6 +251,14 @@ request:
 An update of Claude Code or of the Agent SDK switches the capable mode
 off on both runners (decision #84).
 
+**Folders inside another git repository (#139).** A capable request is
+refused with `403 folder_inside_repository` when the folder (or the memory
+folder) sits inside another git repository without being its root. The
+reason is that the sandbox would let commands write anywhere in that
+repository. The message names the repository root to allow instead.
+Subfolders of the memory folder are fine. Details:
+`permission-policy.md`, section 9.9.
+
 **After an update the check reruns by itself (#107).**
 
 - Every capable request compares the installed versions with the marker,
