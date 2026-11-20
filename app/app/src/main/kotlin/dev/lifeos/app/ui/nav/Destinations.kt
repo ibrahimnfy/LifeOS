@@ -3,11 +3,13 @@ package dev.lifeos.app.ui.nav
 /** Navigation routes. */
 object Routes {
     const val TODAY = "today"
+    const val COACH = "today/coach"
     const val CHAT = "chat"
     const val TASKS = "tasks"
     const val MORE = "more"
     const val ALL_TASKS = "tasks/all"
     const val SETTINGS = "more/settings"
+    const val PAIR = "more/settings/pair"
     const val SECTION = "more/section/{section}"
     const val SECTION_ARG = "section"
 

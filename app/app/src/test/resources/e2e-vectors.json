@@ -1,0 +1,146 @@
+{
+ "note": "Synthetic test vectors made by bridge/tests/make_e2e_vectors.py. No real keys.",
+ "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+ "device_id": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf",
+ "subkeys": {
+  "1": "8a8884e8a45d4f2a59d38e5aa7ecfc099d842b2874d6581bbb17202c8332b682",
+  "2": "846a52858fa5e37b7c9dea49999bf57e442142883a7873dc95900411096af6a1",
+  "3": "35a7ac3ca29d73fe4b5d4d03ddcd67de826e2c2104420bff83b366201157380a",
+  "4": "2b3991eb021469ecf3367f9c058d3c92d0806573787e6790e81d88371e5ea04c"
+ },
+ "sealed": [
+  {
+   "name": "hello",
+   "direction": 1,
+   "counter": 1,
+   "kind": 1,
+   "ts": 1800000000,
+   "rid": "hello",
+   "payload": {
+    "uid": "syntheticUid123",
+    "name": "Phone"
+   },
+   "nonce": "a8f5132cc64d5b484e02bbd9278204ad223ead27a02d5a1b",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf01000000000000000101",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8BAAAAAAAAAAEBqPUTLMZNW0hOArvZJ4IErSI+rSegLVobeSrb99tUsFzzH7+dBHZHo94ZnMnIjWZUdFs00McJMwTdSfQKHpObxIichdqIJumeDtbMCOnFhkOPtWaN+FWPPCKvib7EynW+361fkPqdwEYzp/8qZbmGZTgLpQE="
+  },
+  {
+   "name": "request",
+   "direction": 1,
+   "counter": 2,
+   "kind": 2,
+   "ts": 1800000001,
+   "rid": "r-0001",
+   "payload": {
+    "m": "GET",
+    "path": "/whoami",
+    "q": {},
+    "body": null
+   },
+   "nonce": "9e3f156324d42f0ea4b6f4fce81d56fbd64a2143a3fdd60a",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf01000000000000000202",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8BAAAAAAAAAAICnj8VYyTULw6ktvT86B1W+9ZKIUOj/dYKd7FKq0ued84csiHweI2SifC18C5VZcxF4VCMuPg7hY2PTKYGb+TvPjRoG5nH/cJDIeXt2WCmsywl+ePGp4M0PsHQEwiMXQn1xKcJI1hz4z1sMB05I7w5CJw2M4zUTVaUSRaS5g=="
+  },
+  {
+   "name": "request_non_ascii",
+   "direction": 1,
+   "counter": 3,
+   "kind": 2,
+   "ts": 1800000002,
+   "rid": "r-0002",
+   "payload": {
+    "m": "POST",
+    "path": "/notes",
+    "q": {},
+    "body": {
+     "text": "Çay, şeker, ığdır – 東京 🙂"
+    }
+   },
+   "nonce": "7474c1e7ed929af580fe66e460b0603960defee0c8399f3c",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf01000000000000000302",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8BAAAAAAAAAAMCdHTB5+2SmvWA/mbkYLBgOWDe/uDIOZ88gZxuM/NBHAHzaLtWNbk0Qu84CNa4NdkxPYgJR7e0UiUNlJXn4ls524u9hLY79Q4ifS7FGm+cZMicVSYU6Anp4LkK5TBwEyFuMsRAsilGd6OGMB6KAO1eIXJObPfPKNXmn0RM2sSsT3VoQCbAHVShghcYTszt8hnIUQYoIz99gcosTxYDls4k13bu04e54MI1Og=="
+  },
+  {
+   "name": "pair_end",
+   "direction": 2,
+   "counter": 1,
+   "kind": 17,
+   "ts": 1800000003,
+   "rid": "pair",
+   "payload": {
+    "paired": true,
+    "name": "Örnek telefon"
+   },
+   "nonce": "f3ba9e408e06fcfc2340e086d1f128bcce70651d0af663d7",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02000000000000000111",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8CAAAAAAAAAAER87qeQI4G/PwjQOCG0fEovM5wZR0K9mPX5lOL3cGTooKLhm7LlmfSIc+zXLKXN6+CG1o8klJJ3S4FtyL026Vmz/cqLagYebyxxM9tdsBcE/JJ2APSdzyQpI96IC4VUGXwrepXQUPma1Ek2N8neIQl+XE4"
+  },
+  {
+   "name": "chunk",
+   "direction": 2,
+   "counter": 2,
+   "kind": 16,
+   "ts": 1800000004,
+   "rid": "r-0001",
+   "payload": {
+    "i": 0,
+    "part": "{\"a\":\"ğ"
+   },
+   "nonce": "799f2a3f604d80916f5740fdb1fca4811e523b0c43902153",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02000000000000000210",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8CAAAAAAAAAAIQeZ8qP2BNgJFvV0D9sfykgR5SOwxDkCFT6XByzvvUfvCx1Xo0jFrN3DzIhmLkpjaOSwW4t2AN0ss2exN+RqZPebXBDjkAAd+KKOCXk0Cdna0R4GIQFrq6M2XGeHp1cXfjrmhmHT9zUCv5"
+  },
+  {
+   "name": "end",
+   "direction": 2,
+   "counter": 3,
+   "kind": 17,
+   "ts": 1800000005,
+   "rid": "r-0001",
+   "payload": {
+    "status": 200,
+    "parts": 1
+   },
+   "nonce": "b629ed66c7f4554af962a27a29db699435b178f8d548ffbf",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02000000000000000311",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8CAAAAAAAAAAMRtintZsf0VUr5YqJ6KdtplDWxePjVSP+/pbABYSRjqb+9neAtWHDf7g/bdOp6KexdWKoG/6wTyLX5NUU3jAEE0GLpuiJSo1ARaAREC2WVDPOX8UwyoGehWK3oGU2A5G6qt+MaaDQ="
+  },
+  {
+   "name": "error",
+   "direction": 2,
+   "counter": 1099511627781,
+   "kind": 18,
+   "ts": 1800000006,
+   "rid": "r-0002",
+   "payload": {
+    "status": 404,
+    "error": "not_found"
+   },
+   "nonce": "2ac454ac1af404aa310306e026cce345a64e7bf41bba102a",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf02000001000000000512",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8CAAABAAAAAAUSKsRUrBr0BKoxAwbgJszjRaZOe/QbuhAqORXiAkgSyEjmFh2LjLGQepyJuy3fOe1yIws3MT1ehLNbd53UmJigkTWhiveTezfGqw6BlS3wrGArBcMToq963JggEzd7S3RGy7bopE3v+1gQ03BZ3Up0"
+  },
+  {
+   "name": "push_hint",
+   "direction": 3,
+   "counter": 7,
+   "kind": 32,
+   "ts": 1800000007,
+   "rid": "",
+   "payload": {
+    "kind": "answer",
+    "session": "s1"
+   },
+   "nonce": "6d6005643d2792470fd8639db0e7a76984d52fe67ab0d8ae",
+   "header": "4c4f5301a0a1a2a3a4a5a6a7a8a9aaabacadaeaf03000000000000000720",
+   "blob": "TE9TAaChoqOkpaanqKmqq6ytrq8DAAAAAAAAAAcgbWAFZD0nkkcP2GOdsOenaYTVL+Z6sNiu9ZeqLtBobS4m+3UGcFAnDRStNG+zTI5g8HeiXz8RGsByXs89AXBDNG8SkiYdKgn4ig6XdTkIrB6T8g29TN6TYf10faMYapOzhb/elKlhYQ=="
+  }
+ ],
+ "comparison_code": "703180",
+ "pairing_text": "lifeos-pair:1:eyJkIjoiYTBhMWEyYTNhNGE1YTZhN2E4YTlhYWFiYWNhZGFlYWYiLCJzIjoiQUFFQ0F3UUZCZ2NJQ1FvTERBME9EeEFSRWhNVUZSWVhHQmthR3h3ZEhoOCIsInIiOnsiayI6InJ0ZGIiLCJ1IjoiaHR0cHM6Ly9yZWxheS5leGFtcGxlLmludmFsaWQiLCJhIjoic3ludGhldGljLWFwaS1rZXkifX0",
+ "relay": {
+  "k": "rtdb",
+  "u": "https://relay.example.invalid",
+  "a": "synthetic-api-key"
+ }
+}

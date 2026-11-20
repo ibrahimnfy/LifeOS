@@ -112,15 +112,19 @@ class Relay:
         self.receiver = devices.Receiver()
         self.stop = threading.Event()
         self._listeners: dict[str, threading.Event] = {}
+        self._send_locks: dict[bytes, threading.Lock] = {}
         self._pool = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="relay")
         self._thread: threading.Thread | None = None
 
     # -- sending ----------------------------------------------------------------
     def send(self, device_id: bytes, kind: int, request_id: str, payload: object) -> str:
         """Seal one message for the phone and put it into its mailbox. Returns the entry's key."""
-        blob = devices.seal_to(device_id, kind, request_id, payload)
-        key = mailbox.new_key()
-        self.box.put(f"lifeos/{device_id.hex()}/p/{key}", mailbox.encode(blob))
+        # Numbering and writing are one step per phone: messages reach the mailbox in
+        # counter order, so the phone never sees a lower counter after a higher one.
+        with self._send_locks.setdefault(device_id, threading.Lock()):
+            blob = devices.seal_to(device_id, kind, request_id, payload)
+            key = mailbox.new_key()
+            self.box.put(f"lifeos/{device_id.hex()}/p/{key}", mailbox.encode(blob))
         return key
 
     # -- receiving --------------------------------------------------------------

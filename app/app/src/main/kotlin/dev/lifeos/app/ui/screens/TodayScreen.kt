@@ -1,6 +1,20 @@
 package dev.lifeos.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
+import dev.lifeos.app.ui.components.LifeCard
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -36,7 +50,7 @@ import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
 
 @Composable
-fun TodayScreen(onConnectionClick: () -> Unit) {
+fun TodayScreen(onConnectionClick: () -> Unit, onOpenCoach: () -> Unit) {
     val doneStates = remember { mutableStateListOf(*SampleData.today.map { it.done }.toTypedArray()) }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = stringResource(R.string.nav_today), onConnectionClick = onConnectionClick)
@@ -48,14 +62,11 @@ fun TodayScreen(onConnectionClick: () -> Unit) {
                 .padding(top = 10.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            CoachCard()
+            CoachCard(onClick = onOpenCoach)
 
-            Column {
-                SectionHeader(
-                    title = stringResource(R.string.section_top_three),
-                    note = stringResource(R.string.section_top_three_note),
-                )
-                SampleData.topThree.forEachIndexed { index, task ->
+            LifeCard {
+                SectionHeader(title = stringResource(R.string.section_picks))
+                SampleData.picks.forEachIndexed { index, task ->
                     if (index > 0) RowDivider()
                     MarkRow(
                         title = stringResource(task.title),
@@ -66,7 +77,7 @@ fun TodayScreen(onConnectionClick: () -> Unit) {
                 }
             }
 
-            Column {
+            LifeCard {
                 SectionHeader(
                     title = stringResource(R.string.section_today),
                     note = pluralStringResource(
@@ -76,7 +87,44 @@ fun TodayScreen(onConnectionClick: () -> Unit) {
                         doneStates.count { it },
                     ),
                 )
-                SampleData.today.forEachIndexed { index, task ->
+                TodayTasks(doneStates)
+            }
+
+            SampleNote()
+        }
+    }
+}
+
+/** How many of today's tasks the Today card shows without scrolling inside it. */
+private const val VISIBLE_TODAY_ROWS = 3
+
+/**
+ * Today's tasks: the first three are visible, the rest is reached by scrolling inside the
+ * card. The height is the measured height of the first three rows, so it follows the font size.
+ */
+@Composable
+private fun TodayTasks(doneStates: MutableList<Boolean>) {
+    val colors = LifeTheme.colors
+    val density = LocalDensity.current
+    val scroll = rememberScrollState()
+    val rowHeights = remember { mutableStateMapOf<Int, Int>() }
+    val tasks = SampleData.today
+    val hidden = (tasks.size - VISIBLE_TODAY_ROWS).coerceAtLeast(0)
+    // Until the rows are measured (first frame) an estimate is used.
+    val maxHeight = if ((0 until minOf(VISIBLE_TODAY_ROWS, tasks.size)).all { it in rowHeights }) {
+        with(density) { (0 until minOf(VISIBLE_TODAY_ROWS, tasks.size)).sumOf { rowHeights.getValue(it) }.toDp() }
+    } else {
+        61.dp * VISIBLE_TODAY_ROWS
+    }
+
+    Box {
+        Column(
+            Modifier
+                .heightIn(max = maxHeight)
+                .verticalScroll(scroll),
+        ) {
+            tasks.forEachIndexed { index, task ->
+                Column(Modifier.onSizeChanged { rowHeights[index] = it.height }) {
                     if (index > 0) RowDivider()
                     TaskRow(
                         title = stringResource(task.title),
@@ -86,19 +134,44 @@ fun TodayScreen(onConnectionClick: () -> Unit) {
                     )
                 }
             }
-
-            SampleNote()
         }
+        // A soft fade over the last visible row while more tasks are below.
+        if (scroll.canScrollForward) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(22.dp)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, colors.surface))),
+            )
+        }
+    }
+    if (hidden > 0) {
+        // The hint fades out at the end of the list but keeps its place, so the card does not jump.
+        val more = scroll.canScrollForward || scroll.maxValue == 0
+        Text(
+            text = pluralStringResource(R.plurals.today_more, hidden, hidden),
+            style = LifeType.small,
+            color = colors.muted,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp)
+                .alpha(if (more) 1f else 0f),
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
 /** The coach card: a grey surface inside the gradient ring. */
 @Composable
-private fun CoachCard() {
+private fun CoachCard(onClick: () -> Unit) {
     val colors = LifeTheme.colors
+    val action = stringResource(R.string.coach_open)
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable(onClickLabel = action, role = Role.Button, onClick = onClick)
             .background(colors.gradient, RoundedCornerShape(20.dp))
             .padding(LifeDimens.ring)
             .background(colors.surface, RoundedCornerShape(17.dp))

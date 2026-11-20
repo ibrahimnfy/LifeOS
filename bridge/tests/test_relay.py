@@ -334,3 +334,29 @@ def test_foreign_expired_or_unknown_offers_send_nothing(with_file):
         phone.request("GET", path, query=query, rid=f"f{index}")
         (answer,) = phone.receive()
         assert answer.header.kind == e2e.ERROR and answer.payload["status"] in (400, 404)
+
+
+def test_answers_reach_the_mailbox_in_counter_order(paired):
+    """Several workers answer at once; keys (time order) and counters must agree."""
+    service, phone, box, _ = paired
+    phone.receive()
+    threads = [
+        threading.Thread(target=service.send, args=(phone.id, e2e.CHUNK, f"r{i}", {"n": i}))
+        for i in range(40)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    side = f"lifeos/{phone.id.hex()}/p"
+    counters = [
+        e2e.parse_header(mailbox.decode(box.get(f"{side}/{key}"))).counter
+        for key in sorted(
+            box.keys(side),
+            key=lambda k: (
+                k.split("-")[0],
+                box.recorded.index((f"{side}/{k}", box.get(f"{side}/{k}"))),
+            ),
+        )
+    ]
+    assert counters == sorted(counters) and len(counters) == 40

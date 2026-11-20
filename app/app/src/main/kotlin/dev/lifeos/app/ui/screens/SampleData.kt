@@ -16,7 +16,7 @@ data class SampleTask(
 )
 
 object SampleData {
-    val topThree = listOf(
+    val picks = listOf(
         SampleTask(R.string.sample_task_1, R.string.sample_task_1_sub, R.string.sample_task_1_why),
         SampleTask(R.string.sample_task_2, R.string.sample_task_2_sub, R.string.sample_task_2_why, overdue = true),
         SampleTask(R.string.sample_task_3, R.string.sample_task_3_sub, R.string.sample_task_3_why),
@@ -26,6 +26,9 @@ object SampleData {
         SampleTask(R.string.sample_task_1, R.string.sample_task_1_sub),
         SampleTask(R.string.sample_task_4, R.string.sample_task_4_sub),
         SampleTask(R.string.sample_task_5, R.string.sample_task_5_sub, done = true),
+        SampleTask(R.string.sample_task_8, R.string.sample_task_8_sub),
+        SampleTask(R.string.sample_task_9, R.string.sample_task_9_sub),
+        SampleTask(R.string.sample_task_10, R.string.sample_task_10_sub),
     )
 
     val mostImportant = listOf(

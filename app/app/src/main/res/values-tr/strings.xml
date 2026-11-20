@@ -23,13 +23,18 @@
     <string name="coach_text">Her şeyden önce Proje Alfa taslağını bitir. Haftanın geri kalanı ona dayanıyor.</string>
     <string name="coach_why">Neden</string>
     <string name="coach_why_text">Bugün teslim, ayrıca iki görev daha onu bekliyor.</string>
-    <string name="section_top_three">İlk üç</string>
-    <string name="section_top_three_note">asistanın seçimi</string>
+    <string name="section_picks">Asistanın seçtikleri</string>
     <string name="section_today">Bugün</string>
     <plurals name="section_today_note">
         <item quantity="one">%1$d görev · %2$d tamamlandı</item>
         <item quantity="other">%1$d görev · %2$d tamamlandı</item>
     </plurals>
+    <plurals name="today_more">
+        <item quantity="one">%1$d tane daha</item>
+        <item quantity="other">%1$d tane daha</item>
+    </plurals>
+    <string name="coach_conversation">Koç sohbeti</string>
+    <string name="coach_open">Koç sohbetini aç</string>
 
     <!-- Sample tasks (placeholders) -->
     <string name="sample_task_1">Proje Alfa taslağını hazırla</string>
@@ -49,6 +54,12 @@
     <string name="sample_task_6_sub">Perşembe · Proje Alfa</string>
     <string name="sample_task_7">Kütüphane kitabının süresini uzat</string>
     <string name="sample_task_7_sub">Cuma</string>
+    <string name="sample_task_8">Grup toplantısı için oda ayırt</string>
+    <string name="sample_task_8_sub">Bugün · Proje Alfa</string>
+    <string name="sample_task_9">Laboratuvar raporu taslağını gönder</string>
+    <string name="sample_task_9_sub">Bugün · Örnek ders</string>
+    <string name="sample_task_10">Çiçekleri sula</string>
+    <string name="sample_task_10_sub">Bugün</string>
     <string name="task_overdue">Gecikti</string>
 
     <!-- Tasks -->
@@ -96,7 +107,87 @@
     <string name="settings_connection">Bağlantı</string>
     <string name="settings_not_paired">Eşleştirilmedi</string>
     <string name="settings_pair">Bilgisayarla eşleştir</string>
-    <string name="settings_pair_hint">QR kodla eşleştirme sonraki bir adımda gelecek.</string>
     <string name="settings_about">Hakkında</string>
     <string name="settings_version">Uygulama sürümü</string>
+
+    <!-- Connection state -->
+    <string name="connection_connecting">Bağlantı: bağlanıyor</string>
+    <string name="connection_connected">Bağlantı: bağlı</string>
+    <string name="connection_unreachable">Bağlantı: bilgisayara ulaşılamıyor</string>
+
+    <!-- Settings: connection -->
+    <string name="settings_pair_hint">Bilgisayarında “lifeos-bridge pair” komutunu çalıştır ve çıkan kodu tara.</string>
+    <string name="settings_state_connecting">Bağlanıyor…</string>
+    <string name="settings_state_connected">Bağlı</string>
+    <string name="settings_state_unreachable">Bilgisayara ulaşılamıyor</string>
+    <string name="settings_paired_name">Bu telefon</string>
+    <string name="settings_last_contact">Son iletişim</string>
+    <string name="settings_last_contact_never">Henüz yok</string>
+    <string name="settings_test">Bağlantıyı sına</string>
+    <string name="settings_testing">Sınanıyor…</string>
+    <string name="settings_test_ok">Bilgisayar %1$d ms içinde yanıt verdi. Köprü sürümü %2$s.</string>
+    <string name="settings_test_not_paired">Bu telefon şu anda bağlı değil. Birazdan yeniden dene.</string>
+    <string name="settings_test_relay">Aktarıcıya ulaşılamadı. Telefonun internet bağlantısını kontrol et.</string>
+    <string name="settings_test_refused">Aktarıcı bu telefonu reddetti. Bilgisayarda eşleştirme kaldırılmış olabilir; burada da kaldırıp yeniden eşleştir.</string>
+    <string name="settings_test_no_answer">Mesaj gönderildi ama bilgisayar yanıt vermedi. Bilgisayar açık mı, köprü çalışıyor mu?</string>
+    <string name="settings_test_bad_answer">Bilgisayar hata ile yanıt verdi (%1$d).</string>
+    <string name="settings_unpair">Bu telefonun eşleştirmesini kaldır</string>
+    <string name="settings_unpair_title">Eşleştirme kaldırılsın mı?</string>
+    <string name="settings_unpair_text">Anahtar bu telefondan silinir. Yeniden bağlanmak için baştan eşleştirmen gerekir. Bilgisayarda da “lifeos-bridge devices revoke” komutunu çalıştır.</string>
+    <string name="settings_unpair_confirm">Kaldır</string>
+    <string name="action_cancel">Vazgeç</string>
+
+    <!-- Settings: app lock -->
+    <string name="settings_lock">Uygulama kilidi</string>
+    <string name="settings_lock_immediately">Hemen</string>
+    <string name="settings_lock_1_min">1 dakika sonra</string>
+    <string name="settings_lock_5_min">5 dakika sonra</string>
+    <string name="settings_lock_note">Telefon eşleştirildikten sonra uygulama, açıldığında ve bu süre kadar gözden uzak kaldığında parmak izini ya da ekran kilidini ister.</string>
+
+    <!-- Lock screen -->
+    <string name="lock_title">LifeOS kilitli</string>
+    <string name="lock_text">Devam etmek için parmak izin ya da ekran kilidinle onayla.</string>
+    <string name="lock_unlock">Kilidi aç</string>
+    <string name="lock_prompt_title">LifeOS kilidini aç</string>
+    <string name="lock_prompt_subtitle">Parmak izi ya da ekran kilidi</string>
+    <string name="lock_needs_credential">Bu, anahtarı açmaya yetmedi. Lütfen ekran kilidini (PIN, desen ya da parola) kullan.</string>
+    <string name="lock_pairing_lost">Bu telefondaki eşleştirme anahtarı artık açılamıyor. Lütfen yeniden eşleştir.</string>
+
+    <!-- Pairing -->
+    <string name="pair_title">Bilgisayarla eşleştir</string>
+    <string name="pair_intro">Eşleştirme bu telefonu bilgisayarına bağlar. Yalnızca bir kez yapılır.</string>
+    <string name="pair_step_1">Bilgisayarında şunu çalıştır:</string>
+    <string name="pair_command">lifeos-bridge pair \"Telefonum\"</string>
+    <string name="pair_step_2">Ekrana gelen QR kodu tara. Kod anahtarın kendisidir: başka kimseye gösterme.</string>
+    <string name="pair_step_3">İki ekrandaki altı haneli kodu karşılaştır ve bilgisayarda onayla.</string>
+    <string name="pair_label">Bu telefonun adı</string>
+    <string name="pair_label_default">Telefon</string>
+    <string name="pair_scan">Kodu tara</string>
+    <string name="pair_camera_why">Kamera yalnızca eşleştirme kodunu okumak için kullanılır. Hiçbir şey kaydedilmez ya da saklanmaz.</string>
+    <string name="pair_camera_denied">Kamera olmadan kod okunamaz. Telefonun ayarlarından LifeOS için kamera iznini ver, sonra yeniden dene.</string>
+    <string name="pair_scanning">Kamerayı terminaldeki QR koda doğrult.</string>
+    <string name="pair_scan_region">Eşleştirme kodunu taramak için kamera görüntüsü</string>
+    <string name="pair_not_a_code">Bu bir LifeOS eşleştirme kodu değil.</string>
+    <string name="pair_confirm_title">Eşleştirme anahtarını sakla</string>
+    <string name="pair_confirm_subtitle">Sen olduğunu onayla</string>
+    <string name="pair_working">Aktarıcıya bağlanılıyor…</string>
+    <string name="pair_code_label">Karşılaştırma kodu</string>
+    <string name="pair_code_text">Bilgisayarında da aynı kodun göründüğünü kontrol et. Aynıysa orada “yes” yaz.</string>
+    <string name="pair_code_waiting">Bilgisayardaki onay bekleniyor…</string>
+    <string name="pair_code_mismatch">Kodlar farklıysa onaylama. Vazgeç ve baştan başla.</string>
+    <string name="pair_done">Eşleştirildi</string>
+    <string name="pair_done_text">Bilgisayar bu telefonu “%1$s” adıyla tanıyor.</string>
+    <string name="pair_done_button">Tamam</string>
+    <string name="pair_retry">Yeniden dene</string>
+    <string name="pair_failed_confirmation">Anahtar ancak parmak izin ya da ekran kilidinle onayladıktan sonra saklanabilir.</string>
+    <string name="pair_failed_no_lock">Bu telefonda ekran kilidi yok. Önce telefonun ayarlarından PIN, desen ya da parola belirle; eşleştirme anahtarı onunla korunur.</string>
+    <string name="pair_failed_unreachable">Aktarıcıya ulaşılamadı. İnternet bağlantısını kontrol et ve yeni bir kodla baştan başla.</string>
+    <string name="pair_failed_refused">Aktarıcı bu kodu kabul etmedi. Kod kullanılmış ya da süresi dolmuş olabilir. Yeni bir kodla baştan başla.</string>
+    <string name="pair_failed_timeout">İki dakika içinde bilgisayarda onay verilmedi. Hiçbir şey saklanmadı. Yeni bir kodla baştan başla.</string>
+    <string name="pair_failed_storage">Eşleştirme bu telefonda saklanamadı. Hiçbir şey tutulmadı.</string>
+
+    <!-- Welcome -->
+    <string name="welcome_title">LifeOS\'a hoş geldin</string>
+    <string name="welcome_text">LifeOS, kendi bilgisayarındaki asistanla konuşur. Bu telefonu bir kez onunla eşleştir; o zamana kadar uygulamaya göz atabilirsin.</string>
+    <string name="welcome_later">Sonra</string>
 </resources>

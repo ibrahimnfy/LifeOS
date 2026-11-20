@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -21,7 +22,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
+import dev.lifeos.app.ConnectionState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -41,9 +45,20 @@ import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
 
+/** The connection state every top bar shows; provided once at the root. */
+val LocalConnection = compositionLocalOf { ConnectionState.NOT_PAIRED }
+
+@StringRes
+fun ConnectionState.descriptionRes(): Int = when (this) {
+    ConnectionState.NOT_PAIRED -> R.string.connection_not_paired
+    ConnectionState.CONNECTING -> R.string.connection_connecting
+    ConnectionState.CONNECTED -> R.string.connection_connected
+    ConnectionState.UNREACHABLE -> R.string.connection_unreachable
+}
+
 /**
  * Compact top bar: bold title on the left, the connection dot on the right.
- * [onBack] adds a back arrow; [onConnectionClick] shows the dot (grey = not paired).
+ * [onBack] adds a back arrow; [onConnectionClick] shows the dot (it opens settings).
  */
 @Composable
 fun TopBar(
@@ -83,7 +98,7 @@ fun TopBar(
                 .semantics { heading() },
         )
         if (onConnectionClick != null) {
-            val description = stringResource(R.string.connection_not_paired)
+            val description = stringResource(LocalConnection.current.descriptionRes())
             val action = stringResource(R.string.action_open_settings)
             Box(
                 modifier = Modifier
@@ -99,13 +114,38 @@ fun TopBar(
     }
 }
 
-/** The connection dot. Grey means "not paired"; other states arrive with pairing. */
+/**
+ * The connection dot: grey = not paired, hollow = connecting, green = connected,
+ * amber = the computer cannot be reached. The state is also given as text wherever it matters.
+ */
 @Composable
-fun StatusDot(modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .size(10.dp)
-            .background(LifeTheme.colors.muted, CircleShape),
+fun StatusDot(modifier: Modifier = Modifier, state: ConnectionState = LocalConnection.current) {
+    val colors = LifeTheme.colors
+    val shape = when (state) {
+        ConnectionState.NOT_PAIRED -> Modifier.background(colors.muted, CircleShape)
+        ConnectionState.CONNECTING -> Modifier.border(2.dp, colors.muted, CircleShape)
+        ConnectionState.CONNECTED -> Modifier.background(colors.ok, CircleShape)
+        ConnectionState.UNREACHABLE -> Modifier.background(colors.warn, CircleShape)
+    }
+    Box(modifier.size(10.dp).then(shape))
+}
+
+/**
+ * A card: the surface colour, rounded corners and a hairline border, so each section of a
+ * screen is clearly its own block in both themes.
+ */
+@Composable
+fun LifeCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val colors = LifeTheme.colors
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.surface)
+            .border(LifeDimens.hairline, colors.divider, shape)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        content = content,
     )
 }
 
@@ -295,6 +335,39 @@ fun PrimaryButton(
             text = text,
             style = LifeType.button,
             color = if (enabled) colors.onPrimary else colors.muted,
+        )
+    }
+}
+
+/** Full-width rounded secondary button (outlined). [danger] colours the text for destructive actions. */
+@Composable
+fun SecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    danger: Boolean = false,
+) {
+    val colors = LifeTheme.colors
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = LifeDimens.minTouch)
+            .clip(shape)
+            .border(1.5.dp, colors.divider, shape)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = LifeType.button,
+            color = when {
+                !enabled -> colors.muted
+                danger -> colors.badge
+                else -> colors.text
+            },
         )
     }
 }

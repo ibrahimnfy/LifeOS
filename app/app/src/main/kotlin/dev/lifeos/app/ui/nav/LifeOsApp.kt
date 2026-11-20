@@ -7,6 +7,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,12 +24,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.settings.ThemeSetting
 import dev.lifeos.app.ui.components.BottomBar
 import dev.lifeos.app.ui.components.CaptureSheet
 import dev.lifeos.app.ui.screens.ChatScreen
+import dev.lifeos.app.ui.screens.Authenticate
 import dev.lifeos.app.ui.screens.MoreScreen
+import dev.lifeos.app.ui.screens.PairScreen
 import dev.lifeos.app.ui.screens.PlaceholderScreen
 import dev.lifeos.app.ui.screens.SettingsScreen
 import dev.lifeos.app.ui.screens.TasksScreen
@@ -39,7 +43,14 @@ import kotlinx.coroutines.launch
 
 /** The whole app: navigation host, bottom bar, capture sheet and snackbar. */
 @Composable
-fun LifeOsApp(theme: ThemeSetting, onThemeChange: (ThemeSetting) -> Unit) {
+fun LifeOsApp(
+    core: LifeOsCore,
+    theme: ThemeSetting,
+    onThemeChange: (ThemeSetting) -> Unit,
+    authenticate: Authenticate,
+    openPairing: Boolean,
+    onPairingOpened: () -> Unit,
+) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val selectedTab = Tab.forRoute(backStackEntry?.destination?.route)
@@ -51,6 +62,19 @@ fun LifeOsApp(theme: ThemeSetting, onThemeChange: (ThemeSetting) -> Unit) {
     val openSettings: () -> Unit = {
         navController.openTab(Tab.MORE)
         navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+    }
+
+    val openPair: () -> Unit = {
+        navController.openTab(Tab.MORE)
+        navController.navigate(Routes.SETTINGS) { launchSingleTop = true }
+        navController.navigate(Routes.PAIR) { launchSingleTop = true }
+    }
+    // The welcome screen or a test aid asked for the pairing screen.
+    LaunchedEffect(openPairing) {
+        if (openPairing) {
+            openPair()
+            onPairingOpened()
+        }
     }
 
     Scaffold(
@@ -73,7 +97,19 @@ fun LifeOsApp(theme: ThemeSetting, onThemeChange: (ThemeSetting) -> Unit) {
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding),
         ) {
-            composable(Routes.TODAY) { TodayScreen(onConnectionClick = openSettings) }
+            composable(Routes.TODAY) {
+                TodayScreen(
+                    onConnectionClick = openSettings,
+                    onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
+                )
+            }
+            composable(Routes.COACH) {
+                PlaceholderScreen(
+                    title = stringResource(R.string.coach_conversation),
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                )
+            }
             composable(Routes.CHAT) { ChatScreen(onConnectionClick = openSettings) }
             composable(Routes.TASKS) {
                 TasksScreen(
@@ -108,8 +144,17 @@ fun LifeOsApp(theme: ThemeSetting, onThemeChange: (ThemeSetting) -> Unit) {
             }
             composable(Routes.SETTINGS) {
                 SettingsScreen(
+                    core = core,
                     theme = theme,
                     onThemeChange = onThemeChange,
+                    onPair = { navController.navigate(Routes.PAIR) { launchSingleTop = true } },
+                    onBack = { navController.popBackStack() },
+                )
+            }
+            composable(Routes.PAIR) {
+                PairScreen(
+                    core = core,
+                    authenticate = authenticate,
                     onBack = { navController.popBackStack() },
                 )
             }

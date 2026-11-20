@@ -25,13 +25,18 @@
     <string name="coach_text">Finish the Project Alpha outline before anything else. The rest of the week builds on it.</string>
     <string name="coach_why">Why</string>
     <string name="coach_why_text">Due today, and two other tasks wait for it.</string>
-    <string name="section_top_three">Top three</string>
-    <string name="section_top_three_note">chosen by the assistant</string>
+    <string name="section_picks">Assistant\'s picks</string>
     <string name="section_today">Today</string>
     <plurals name="section_today_note">
         <item quantity="one">%1$d task · %2$d done</item>
         <item quantity="other">%1$d tasks · %2$d done</item>
     </plurals>
+    <plurals name="today_more">
+        <item quantity="one">%1$d more</item>
+        <item quantity="other">%1$d more</item>
+    </plurals>
+    <string name="coach_conversation">Coach conversation</string>
+    <string name="coach_open">Open the coach conversation</string>
 
     <!-- Sample tasks (placeholders) -->
     <string name="sample_task_1">Draft the Project Alpha outline</string>
@@ -51,6 +56,12 @@
     <string name="sample_task_6_sub">Thursday · Project Alpha</string>
     <string name="sample_task_7">Renew the library book</string>
     <string name="sample_task_7_sub">Friday</string>
+    <string name="sample_task_8">Book a room for the group meeting</string>
+    <string name="sample_task_8_sub">Today · Project Alpha</string>
+    <string name="sample_task_9">Send the lab report draft</string>
+    <string name="sample_task_9_sub">Today · Example course</string>
+    <string name="sample_task_10">Water the plants</string>
+    <string name="sample_task_10_sub">Today</string>
     <string name="task_overdue">Overdue</string>
 
     <!-- Tasks -->
@@ -98,7 +109,87 @@
     <string name="settings_connection">Connection</string>
     <string name="settings_not_paired">Not paired</string>
     <string name="settings_pair">Pair with computer</string>
-    <string name="settings_pair_hint">Pairing by QR code arrives with a later step.</string>
     <string name="settings_about">About</string>
     <string name="settings_version">App version</string>
+
+    <!-- Connection state -->
+    <string name="connection_connecting">Connection: connecting</string>
+    <string name="connection_connected">Connection: connected</string>
+    <string name="connection_unreachable">Connection: computer not reachable</string>
+
+    <!-- Settings: connection -->
+    <string name="settings_pair_hint">On your computer, run “lifeos-bridge pair” and scan the code it shows.</string>
+    <string name="settings_state_connecting">Connecting…</string>
+    <string name="settings_state_connected">Connected</string>
+    <string name="settings_state_unreachable">Computer not reachable</string>
+    <string name="settings_paired_name">This phone</string>
+    <string name="settings_last_contact">Last contact</string>
+    <string name="settings_last_contact_never">Not yet</string>
+    <string name="settings_test">Test connection</string>
+    <string name="settings_testing">Testing…</string>
+    <string name="settings_test_ok">The computer answered in %1$d ms. Bridge version %2$s.</string>
+    <string name="settings_test_not_paired">This phone is not connected right now. Try again in a moment.</string>
+    <string name="settings_test_relay">The relay could not be reached. Check the phone\'s internet connection.</string>
+    <string name="settings_test_refused">The relay refused this phone. It may have been unpaired on the computer; unpair here and pair again.</string>
+    <string name="settings_test_no_answer">The message was sent, but the computer did not answer. Is it on, and is the bridge running?</string>
+    <string name="settings_test_bad_answer">The computer answered with an error (%1$d).</string>
+    <string name="settings_unpair">Unpair this phone</string>
+    <string name="settings_unpair_title">Unpair this phone?</string>
+    <string name="settings_unpair_text">The key is deleted from this phone. To connect again you have to pair again. On the computer, also run “lifeos-bridge devices revoke”.</string>
+    <string name="settings_unpair_confirm">Unpair</string>
+    <string name="action_cancel">Cancel</string>
+
+    <!-- Settings: app lock -->
+    <string name="settings_lock">App lock</string>
+    <string name="settings_lock_immediately">Immediately</string>
+    <string name="settings_lock_1_min">After 1 minute</string>
+    <string name="settings_lock_5_min">After 5 minutes</string>
+    <string name="settings_lock_note">Once this phone is paired, the app asks for your fingerprint or screen lock when it is opened and after it was out of sight for this long.</string>
+
+    <!-- Lock screen -->
+    <string name="lock_title">LifeOS is locked</string>
+    <string name="lock_text">Confirm with your fingerprint or screen lock to continue.</string>
+    <string name="lock_unlock">Unlock</string>
+    <string name="lock_prompt_title">Unlock LifeOS</string>
+    <string name="lock_prompt_subtitle">Fingerprint or screen lock</string>
+    <string name="lock_needs_credential">That was not enough to open the key. Please use your screen lock (PIN, pattern or password).</string>
+    <string name="lock_pairing_lost">The pairing key on this phone can no longer be opened. Please pair again.</string>
+
+    <!-- Pairing -->
+    <string name="pair_title">Pair with computer</string>
+    <string name="pair_intro">Pairing connects this phone to your computer. It is done once.</string>
+    <string name="pair_step_1">On your computer, run:</string>
+    <string name="pair_command">lifeos-bridge pair \"My phone\"</string>
+    <string name="pair_step_2">Scan the QR code it shows. The code is the key: show it to nobody else.</string>
+    <string name="pair_step_3">Compare the six-digit code on both screens and confirm on the computer.</string>
+    <string name="pair_label">Name of this phone</string>
+    <string name="pair_label_default">Phone</string>
+    <string name="pair_scan">Scan the code</string>
+    <string name="pair_camera_why">The camera is used only to read the pairing code. Nothing is recorded or stored.</string>
+    <string name="pair_camera_denied">Without the camera the code cannot be read. Allow camera access for LifeOS in the phone\'s settings, then try again.</string>
+    <string name="pair_scanning">Point the camera at the QR code in the terminal.</string>
+    <string name="pair_scan_region">Camera view for scanning the pairing code</string>
+    <string name="pair_not_a_code">This is not a LifeOS pairing code.</string>
+    <string name="pair_confirm_title">Store the pairing key</string>
+    <string name="pair_confirm_subtitle">Confirm that it is you</string>
+    <string name="pair_working">Connecting to the relay…</string>
+    <string name="pair_code_label">Comparison code</string>
+    <string name="pair_code_text">Check that your computer shows the same code. If it does, type “yes” there.</string>
+    <string name="pair_code_waiting">Waiting for the confirmation on the computer…</string>
+    <string name="pair_code_mismatch">If the codes differ, do not confirm. Cancel and start again.</string>
+    <string name="pair_done">Paired</string>
+    <string name="pair_done_text">The computer knows this phone as “%1$s”.</string>
+    <string name="pair_done_button">Done</string>
+    <string name="pair_retry">Try again</string>
+    <string name="pair_failed_confirmation">The key can only be stored after you confirm with your fingerprint or screen lock.</string>
+    <string name="pair_failed_no_lock">This phone has no screen lock. Set a PIN, pattern or password in the phone\'s settings first; the pairing key is protected with it.</string>
+    <string name="pair_failed_unreachable">The relay could not be reached. Check the internet connection and start again with a new code.</string>
+    <string name="pair_failed_refused">The relay did not accept this code. It may be used already or expired. Start again with a new code.</string>
+    <string name="pair_failed_timeout">Nobody confirmed on the computer within two minutes. Nothing was stored. Start again with a new code.</string>
+    <string name="pair_failed_storage">The pairing could not be stored on this phone. Nothing was kept.</string>
+
+    <!-- Welcome -->
+    <string name="welcome_title">Welcome to LifeOS</string>
+    <string name="welcome_text">LifeOS talks to the assistant on your own computer. Pair this phone with it once; until then you can still look around.</string>
+    <string name="welcome_later">Later</string>
 </resources>

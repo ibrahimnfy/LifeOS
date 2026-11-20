@@ -14,6 +14,11 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        ndk {
+            // libsodium ships for these; the JNA archive also carries ABIs no phone uses.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
     }
 
     buildTypes {
@@ -58,5 +63,23 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    // End-to-end layer: libsodium through lazysodium. The app loads the native library
+    // from the JNA Android archive; JVM unit tests use the desktop binding instead.
+    implementation(libs.lazysodium.android) {
+        exclude(group = "net.java.dev.jna", module = "jna")
+    }
+    implementation("${libs.jna.get()}@aar")
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.zxing.core)
+
     testImplementation(libs.junit)
+    testImplementation(libs.lazysodium.java)
+    testImplementation(libs.jna)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
