@@ -415,6 +415,7 @@ def test_every_phone_request_is_recorded_without_bodies_or_ids(paired, isolated_
     for index, (method, path, body, query) in enumerate(asks):
         phone.request(method, path, body, query, rid=f"r{index}")
         phone.receive()
+        wait_for(isolated_config, "RelayRequest", index + 1)  # written after the answer
     records = wait_for(isolated_config, "RelayRequest", len(asks))
     assert [
         (r["detail"]["method"], r["detail"]["route"], r["detail"]["status"]) for r in records
