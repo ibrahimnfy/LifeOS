@@ -52,6 +52,31 @@ class AssignmentTest {
     }
 
     @Test
+    fun `a deadline that names its assignment opens it directly, others are looked up`() = runTest {
+        val transport = FakeTransport()
+        transport.answer(
+            "GET /courses/summary",
+            200,
+            """{"configured":true,"deadlines":[
+                {"course_id":5,"course":"Example course A","name":"Assignment 2","due":1800352800,"due_iso":"x","assignment_id":41},
+                {"course_id":5,"course":"Example course A","name":"Quiz closes","due":1800439200,"due_iso":"y"}]}""",
+        )
+        transport.answer(
+            "GET /courses",
+            200,
+            """{"courses":[{"id":5,"name":"Example course A","next_deadline":{"name":"Assignment 2","due":1800352800,"course_id":5,"assignment_id":41}}]}""",
+        )
+        val api = Api(transport)
+        val deadlines = api.get(Endpoints.courseSummary).first.deadlines
+        assertEquals(41L, AssignmentMatch.direct(deadlines[0]))
+        assertNull(AssignmentMatch.direct(deadlines[1]))
+        assertEquals(41L, api.get(Endpoints.courses).first.courses.single().nextDeadline?.assignmentId)
+        // Without a course there is nothing to open; an id of 0 is no id.
+        assertNull(AssignmentMatch.direct(Deadline(name = "x", assignmentId = 41)))
+        assertNull(AssignmentMatch.direct(Deadline(courseId = 5, name = "x", assignmentId = 0)))
+    }
+
+    @Test
     fun `new pages count among a course's new content`() {
         val counts = BridgeJson.decodeFromString(NewCounts.serializer(), """{"files":1,"pages":2,"announcements":0,"deadlines":0,"grades":0}""")
         assertEquals(2, counts.pages)

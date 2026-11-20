@@ -153,6 +153,8 @@ data class Deadline(
     val course: String? = null,
     val name: String = "",
     val due: Long? = null,
+    /** The assignment this deadline belongs to (#144); absent for other deadlines. */
+    @SerialName("assignment_id") val assignmentId: Long? = null,
 )
 
 @Serializable
@@ -268,8 +270,14 @@ data class AssignmentDetail(
     val task: String? = null,
 )
 
-/** Which assignment a deadline of the summary is: the summary names it by name and due time only. */
+/**
+ * Which assignment a deadline is: the id the bridge sends with it (#144), or, for an older
+ * bridge or a deadline without it, the one found by name and due time ([find]).
+ */
 object AssignmentMatch {
+    /** The assignment id to open directly, or null when it must be looked up. */
+    fun direct(deadline: Deadline): Long? = deadline.assignmentId?.takeIf { it > 0 && deadline.courseId != null }
+
     fun find(assignments: List<Assignment>, name: String, due: Long?): Assignment? =
         assignments.firstOrNull { it.name == name && it.due == due }
             ?: assignments.filter { due != null && it.due == due }.singleOrNull()

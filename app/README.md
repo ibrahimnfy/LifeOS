@@ -266,9 +266,11 @@ with plain HTTPS requests.
   words); the instructions (the site's Markdown: headings, lists, bold,
   italic, web links that open in the browser); the attached files, which
   download and open like other materials; the submission (status, when it
-  closes, when it is graded) and whether it is in the task list. (The
-  summary names a deadline by its name and time only, so the app finds the
-  assignment in the course's list by them.) Files
+  closes, when it is graded) and whether it is in the task list. A deadline
+  that belongs to an assignment carries its id (`assignment_id`, #144) and
+  opens it directly, and so does the course page's header card for the
+  course's next deadline; without the id (an older bridge) the app finds the
+  assignment in the course's list by name and due time. Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
 - **Activity** (under More), two tabs:

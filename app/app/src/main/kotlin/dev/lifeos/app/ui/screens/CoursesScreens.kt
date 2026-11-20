@@ -434,7 +434,7 @@ fun CourseScreen(
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = name ?: stringResource(R.string.course_title), onBack = onBack, onConnectionClick = onConnectionClick)
-        if (course != null) CourseHero(course, Modifier.padding(horizontal = LifeDimens.pad).padding(top = 4.dp, bottom = 10.dp))
+        if (course != null) CourseHero(course, Modifier.padding(horizontal = LifeDimens.pad).padding(top = 4.dp, bottom = 10.dp), onOpenAssignment)
         Row(
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
@@ -454,18 +454,21 @@ fun CourseScreen(
 
 /** P3: the course's header card in its colour, with its ornament, its icon and the next deadline. */
 @Composable
-private fun CourseHero(course: Course, modifier: Modifier = Modifier) {
+private fun CourseHero(course: Course, modifier: Modifier = Modifier, onOpenAssignment: (Long) -> Unit = {}) {
     val colors = LifeTheme.colors
     val look = LocalLooks.current.course(course.id)
     val toned = colors.tone(look.tone)
     val shape = RoundedCornerShape(20.dp)
     val next = course.nextDeadline
+    // When the next deadline names its assignment (#144), the card opens it.
+    val assignmentId = next?.assignmentId?.takeIf { it > 0 }
     Column(
         modifier
             .fillMaxWidth()
             .clip(shape)
             .background(toned.card)
-            .border(LifeDimens.hairline, toned.second, shape),
+            .border(LifeDimens.hairline, toned.second, shape)
+            .then(if (assignmentId != null) Modifier.clickable(role = Role.Button) { onOpenAssignment(assignmentId) } else Modifier),
     ) {
         Ornament(look.pattern, look.tone, Modifier.fillMaxWidth().height(40.dp))
         Row(
