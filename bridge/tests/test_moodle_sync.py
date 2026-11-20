@@ -1442,6 +1442,24 @@ def test_assignments_in_full_with_their_files(site, configured, folder, brain):
     )
 
 
+def test_after_an_upgrade_existing_pages_and_attachments_are_not_news(site, configured, folder):
+    give_homework_in_full(site)
+    sync(folder)
+    # A state written before pages, books and attachments were synced.
+    stored = state()
+    for record in stored["courses"].values():
+        record["parts"] = [p for p in record["parts"] if p not in ("pages", "attachments")]
+        record["files"] = {k: f for k, f in record["files"].items() if f.get("assignment") is None}
+        record.pop("texts", None)
+        for item in record.get("assignments") or []:
+            for name in ("files", "folder", "description", "task"):
+                item.pop(name, None)
+    ms.state_path().write_text(json.dumps(stored))
+    result = sync(folder, when=later(7))
+    assert result["new"] == {"files": 0, "pages": 0, "announcements": 0, "deadlines": 0,
+                             "grades": 0}  # fmt: skip
+
+
 def test_assignment_endpoints(site, configured, folder, settings_, auth, monkeypatch):
     give_homework_in_full(site)
     monkeypatch.setattr(time, "time", lambda: float(TS))

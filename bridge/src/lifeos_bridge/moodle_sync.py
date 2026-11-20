@@ -788,6 +788,7 @@ def merge_assignments(run: Run, record: dict, found: Gathered) -> None:
             if a["duedate"] is not None:
                 _deadline(run, record, current, old, f"assign-{a['id']}", a["name"], a["duedate"])
         _done(record, "assignments")
+        _done(record, "attachments")
     if found.events is None:
         current.update({k: v for k, v in old.items() if k.startswith("event-")})
     else:
@@ -808,7 +809,9 @@ def _assignment(run: Run, record: dict, a: dict, previous: dict, found: Gathered
     for entry in a["attachments"]:
         key = entry["key"]
         previous_file = record["files"].get(key)
-        item = _file_item(run, record, previous_file, entry, part="assignments")
+        # A part of its own: a state from before attachments were synced has
+        # "assignments" already, and its existing attachments are not news.
+        item = _file_item(run, record, previous_file, entry, part="attachments")
         record["files"][key] = {**item, "dir": folder, "assignment": a["id"]}
         keys.append(key)
     kept = {k: previous[k] for k in KEPT_ASSIGNMENT_FIELDS if k in previous}
