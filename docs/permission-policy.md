@@ -405,8 +405,8 @@ version changes, the guardrail checks rerun by themselves, the capable mode
 is off until they pass, and the owner is notified".
 
 - **Off at once.** Every capable request compares the versions read at that
-  moment with the marker: the Claude Code version, and on the SDK runner
-  also the SDK version loaded and the one installed on disk. Nothing has to
+  moment with the marker: the Claude Code version and the SDK version
+  (loaded and installed on disk), on both runners. Nothing has to
   run first for the mode to be off.
 - **No other way in.** The mode is also refused when:
   - the marker is missing;

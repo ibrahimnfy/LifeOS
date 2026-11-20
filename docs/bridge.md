@@ -246,15 +246,14 @@ request:
   of writer);
 - otherwise is refused with `503`.
 
-An update of the Agent SDK switches the SDK path off, just as a Claude
-Code update switches both off.
+An update of Claude Code or of the Agent SDK switches the capable mode
+off on both runners (decision #84).
 
 **After an update the check reruns by itself (#107).**
 
 - Every capable request compares the installed versions with the marker,
-  read at that moment: the Claude Code version, and for the SDK runner
-  also the Agent SDK version loaded and the one on disk. A mismatch
-  refuses the request.
+  read at that moment: the Claude Code version and the Agent SDK version
+  (loaded and on disk), for both runners. A mismatch refuses the request.
 - The marker is signed with a key kept next to it (`guardrail-key`), so a
   marker changed by hand is ignored. While a check runs, the mode of that
   runner is off.
@@ -537,17 +536,23 @@ A run can stop and wait for the owner, in two cases:
   message, network action. The gate answers `ask` instead of refusing.
   The bridge shows exactly what will run and where, and lets it run only
   after an explicit yes. Commands that are never allowed (`sudo`, system
-  settings) are still refused by the gate and are never asked about.
+  settings) are still refused by the gate and are never asked about. Only
+  a plain command can be confirmed: a call that asks to run outside the
+  sandbox, or carries anything besides the command, is refused.
 
 How it reaches the owner:
 
-- While a client streams the answer (`"stream": true`, also through the
-  relay), the stream carries an event
+- Only while a client streams the answer **and opts in** (`"stream":
+  true, "interactive": true`, also through the relay; a client without
+  question cards leaves it out), the stream carries an event
   `interaction {"id", "session_id", "kind": "question"|"approval", ...,
   "created_at", "expires_at"}`. A question carries `questions: [{"question",
   "header", "multi_select", "options": [{"label", "description"}]}]`; an
   approval carries `tool`, `command`, `folder`, `category` and `reason`.
   Paired phones also get a sealed push hint (`question` or `approval`).
+  While the owner is being asked, the stream sends an SSE comment
+  (`: keep-alive`) every 30 seconds, so the relay's read does not time
+  out.
 - `GET /sessions/{id}/interactions` → `{"pending": [...]}` (same objects).
 - `POST /sessions/{id}/interactions/{iid}` answers:
   - question: `{"answers": {"<question>": "<label or own text>"}}` (a list
@@ -560,8 +565,8 @@ How it reaches the owner:
   counts as **no**. The run's own time limit is paused while it waits.
   Cancel, send now, the end of the run and the bridge stopping also count
   as no. Nothing is ever approved by default.
-- **Without an answering client** (a request that does not stream, or a
-  queued message) the behaviour is today's: a question is refused at once
+- **Without an answering client** (a request that does not stream or
+  does not opt in, or a queued message) the behaviour is today's: a question is refused at once
   with the instruction to ask in plain text, and an approval action is
   refused with the usual explanation.
 - **Audit log:** an approval request, then its outcome (`approved`, or

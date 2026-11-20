@@ -2,9 +2,10 @@
 
 Design and status: docs/permission-policy.md. The mode is switched off
 unless a marker file says that the guardrail probes passed for exactly the
-installed Claude Code version, on the runner that would run it. Each runner
-has its own marker: ``claude -p`` (``cli``) and the Agent SDK (``sdk``,
-which also records the SDK version).
+installed Claude Code and Agent SDK versions, on the runner that would run
+it. Each runner has its own marker: ``claude -p`` (``cli``) and the Agent
+SDK (``sdk``). Both record both versions: an update of either switches the
+mode off on both runners (decision #84).
 
 The marker is signed with a key that only the check and the bridge read
 (``guardrail-key`` in the private settings folder), so a marker changed by
@@ -176,9 +177,8 @@ async def check_available(
         raise unavailable("the guardrail marker was not written by the check; it is ignored")
     if marker.get("runner", "cli") != runner:
         raise unavailable(f"the guardrail check did not cover the {runner} runner")
-    if runner == "sdk" and not (
-        marker.get("sdk_version") == sdk_version() == installed_sdk_version()
-    ):
+    # Decision #84: a change of either version switches the mode off, on both runners.
+    if not marker.get("sdk_version") == sdk_version() == installed_sdk_version():
         raise unavailable(
             "the Agent SDK was updated since the guardrail check; run scripts/verify-guardrails"
         )
@@ -314,7 +314,9 @@ class AuditWatch:
             is_result = isinstance(block, dict) and block.get("type") == "tool_result"
             if is_result and not block.get("is_error"):
                 self.results_seen += 1
-        if self.results_seen > len(self.entries()):
+        # Only the gate's own records count: the bridge adds records for approvals.
+        gate_records = [e for e in self.entries() if e.get("source") != "bridge"]
+        if self.results_seen > len(gate_records):
             raise ClaudeError(
                 "audit_mismatch", 502, "a tool ran without an audit record; the run was stopped"
             )

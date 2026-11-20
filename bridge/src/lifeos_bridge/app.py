@@ -393,9 +393,11 @@ def create_app(settings: Settings) -> FastAPI:
                 watch = capable.AuditWatch(session_id)
                 policy = capable.build_policy(settings, cwd, ask_host=use_sdk)
                 run_args |= {"policy": policy, "observer": watch}
-                if use_sdk:
-                    run_args["answering"] = streaming  # approvals only with a client
-            elif not streaming:
+            if use_sdk:
+                # Questions and approvals wait only for a client that streams the answer
+                # and said it can show them; anything else is refused at once, as before.
+                run_args["answering"] = streaming and data.get("interactive") is True
+            if not is_capable and not streaming:
                 try:
                     if use_sdk:
                         result = await sdk_runner.run(sdk_pool, settings, prompt, **run_args)
@@ -460,6 +462,9 @@ def create_app(settings: Settings) -> FastAPI:
         async def events() -> AsyncIterator[bytes]:
             yield sse("session", {"session_id": session_id})
             async for event, payload in run_events():
+                if event == "keepalive":
+                    yield b": keep-alive\n\n"  # a comment: keeps the relay's read open
+                    continue
                 yield sse(event, payload)
 
         return StreamingResponse(

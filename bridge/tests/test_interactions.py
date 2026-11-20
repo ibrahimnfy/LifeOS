@@ -375,7 +375,7 @@ def test_api_question_round_trip(sdk_settings, auth):
 
         def ask():
             holder["response"] = client.post(
-                "/ask", headers=auth, json={"prompt": prompt, "stream": True}
+                "/ask", headers=auth, json={"prompt": prompt, "stream": True, "interactive": True}
             )
 
         thread = threading.Thread(target=ask)

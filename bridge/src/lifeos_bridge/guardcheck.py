@@ -12,8 +12,8 @@ the marker; nothing here ever does).
 - **Which runners:** those that were checked on this computer before (their
   results file exists), and ``sdk`` only while it is the selected runner.
   A runner that was never checked is never switched on by itself.
-- **Which versions:** ``cli`` runs ``claude -p`` and depends on the Claude
-  Code version; ``sdk`` depends on both.
+- **Which versions:** both, for both runners (decision #84: a change of
+  either switches the capable mode off).
 - **Once per version pair**, with retries only for a check that could not
   complete (crash, time limit, environment missing): at most
   ``MAX_ATTEMPTS`` attempts, ``RETRY_SECONDS`` apart. A probe that fails is
@@ -84,11 +84,8 @@ def enrolled(settings: Settings) -> list[str]:
 
 
 async def version_key(settings: Settings, runner: str) -> str:
-    """The versions a runner's check depends on, as one text."""
-    key = await capable.claude_version(settings)
-    if runner == "sdk":
-        key += " | sdk " + capable.installed_sdk_version()
-    return key
+    """The versions a runner's check depends on, as one text: both, for both runners."""
+    return await capable.claude_version(settings) + " | sdk " + capable.installed_sdk_version()
 
 
 def only_infrastructure(runner: str) -> bool:

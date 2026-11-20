@@ -65,7 +65,7 @@ def check(settings, runner, run_dir=None):
 def test_each_runner_needs_its_own_marker(settings, marker):
     with pytest.raises(ClaudeError):
         check(settings, "sdk")
-    marker("cli", sdk_version=None)
+    marker("cli")
     check(settings, "cli")
     with pytest.raises(ClaudeError):
         check(settings, "sdk")  # a pass of claude -p says nothing about the SDK path
@@ -74,7 +74,8 @@ def test_each_runner_needs_its_own_marker(settings, marker):
 
 
 def test_a_marker_from_before_runners_counts_for_cli_only(settings, isolated_config):
-    legacy = {"claude_version": VERSION, "all_passed": True, "scope": "all_allowed_folders"}
+    legacy = {"claude_version": VERSION, "all_passed": True, "scope": "all_allowed_folders",
+              "sdk_version": capable.sdk_version()}  # fmt: skip
     (isolated_config / "capable-mode.json").write_text(json.dumps(capable.sign_marker(legacy)))
     check(settings, "cli")
     with pytest.raises(ClaudeError):
@@ -112,7 +113,7 @@ def test_without_any_marker_capable_is_refused(sdk_settings, auth, ask_dir):
 
 
 def test_until_the_sdk_path_passed_claude_p_is_the_fallback(sdk_settings, auth, ask_dir, marker):
-    marker("cli", sdk_version=None)
+    marker("cli")
     with TestClient(create_app(sdk_settings)) as client:
         first = client.post("/ask", headers=auth, json={"prompt": "read only first"}).json()
         session_id = first["session_id"]
@@ -178,7 +179,9 @@ def test_capable_approval_through_the_api(sdk_settings, auth, ask_dir, marker, i
 
         def run():
             holder["response"] = client.post(
-                "/ask", headers=auth, json={"prompt": prompt, "mode": "capable", "stream": True}
+                "/ask",
+                headers=auth,
+                json={"prompt": prompt, "mode": "capable", "stream": True, "interactive": True},
             )
 
         thread = threading.Thread(target=run)
@@ -250,7 +253,7 @@ def write_env(config):
 def test_verify_writes_the_marker_of_its_runner_only(
     settings, isolated_config, monkeypatch, marker
 ):
-    marker("cli", sdk_version=None)
+    marker("cli")
     marker("sdk")
     monkeypatch.setattr(verify, "load_settings", lambda: settings)
     passed = [verify.Probe("x", True)]

@@ -69,6 +69,7 @@ from .interactions import ANSWERED, APPROVAL, QUESTION, TIMEOUT, Interactions
 GRACE = 5.0  # seconds for an interrupt to end the turn, and for a process to exit
 STDERR_KEEP = 64 * 1024  # tail of stderr kept to explain a failed start (never logged)
 REAP_INTERVAL = 30.0
+KEEPALIVE_SECONDS = 30.0
 INPUT_FLAGS = ("--input-format", "stream-json")
 
 # Set by the SDK's own launcher too: they mark the session as an SDK one and
@@ -120,6 +121,14 @@ APPROVAL_REFUSED = (
 APPROVAL_TIMEOUT = (
     "The owner did not confirm this in time, so it did not run. Do not try another way; tell "
     "the owner exactly what you wanted to run and why."
+)
+
+
+# Input of a shell call that can be confirmed: exactly what the owner is shown.
+APPROVABLE_KEYS = frozenset({"command", "description", "timeout"})
+UNSANDBOXED_NOTE = (
+    "Denied: an action that needs the owner's confirmation can only be asked for as a plain "
+    "command inside the sandbox."
 )
 
 
@@ -551,6 +560,10 @@ class LiveSession:
     async def _approval(self, tool_input: dict):
         """An action the gate sent here (``ask``): runs only after the owner's explicit yes."""
         command = str(tool_input.get("command") or "")
+        if set(tool_input) - APPROVABLE_KEYS or tool_input.get("dangerouslyDisableSandbox"):
+            # The owner sees the command and the folder; nothing else may ride along
+            # (above all no request to run outside the sandbox).
+            return PermissionResultDeny(message=UNSANDBOXED_NOTE)
         found = gate.classify(command)
         if found is None or found[2] != gate.APPROVAL_NOTE:
             return PermissionResultDeny(message=DENIED_NOTE)  # only approval actions are asked
@@ -561,6 +574,7 @@ class LiveSession:
             "tool": "Bash",
             "detail": {"command": command},
             "category": category,
+            "source": "bridge",  # not one of the gate's records (see capable.AuditWatch)
         }
         if not _audit(record, "approval_requested"):
             return PermissionResultDeny(message=gate.APPROVAL_NOTE)
@@ -727,10 +741,19 @@ async def _events(
     deadline = loop.time() + settings.ask_timeout
     try:
         while final is None:
-            left = None if turn.waiting else deadline + turn.waited - loop.time()
-            if left is not None and left <= 0:
-                raise TimeoutError
-            item = await asyncio.wait_for(turn.queue.get(), left)
+            if turn.waiting:
+                # The owner is being asked: no time limit, but a sign of life now and then,
+                # so that a reader with a read timeout (the relay) keeps the stream open.
+                try:
+                    item = await asyncio.wait_for(turn.queue.get(), KEEPALIVE_SECONDS)
+                except TimeoutError:
+                    yield "keepalive", {}
+                    continue
+            else:
+                left = deadline + turn.waited - loop.time()
+                if left <= 0:
+                    raise TimeoutError
+                item = await asyncio.wait_for(turn.queue.get(), left)
             if isinstance(item, ClaudeError):
                 raise item
             if isinstance(item, tuple):  # ("interaction" | "interaction_closed", data)
@@ -794,7 +817,7 @@ async def stream(
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
         async with contextlib.aclosing(events):
             async for event, payload in events:
-                if event in ("delta", "interaction"):
+                if event in ("delta", "interaction", "keepalive"):
                     yield event, payload
                     continue
                 result: RunResult = payload
@@ -828,6 +851,7 @@ async def run(
     on_process: Callable[[LiveSession], None] | None = None,
     policy: claude.Policy = claude.READ_ONLY,
     observer: Callable[[dict], None] | None = None,
+    answering: bool = False,  # accepted for symmetry: nobody can answer a run that is not streamed
 ) -> RunResult:
     """Same as ``claude.run``: the whole answer, or a ClaudeError."""
     events = _events(
