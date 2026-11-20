@@ -1185,7 +1185,14 @@ def test_summary_and_list(bridge):
         (B, "Example course B", "Example quiz closes"),
     ]  # the report of course B is due in twenty days: outside the two weeks
     assert summary["deadlines"][0]["due_iso"] == moodle.iso(TS + 4 * DAY)
+    # An assignment's deadline names the assignment; other deadlines are as before.
+    homework, quiz = summary["deadlines"]
+    assert (homework["course_id"], homework["assignment_id"]) == (A, 41)
+    assert set(quiz) == {"course_id", "course", "name", "due", "due_iso"}
+    detail = bridge(f"/courses/{homework['course_id']}/assignments/{homework['assignment_id']}")
+    assert detail.status_code == 200 and detail.json()["name"] == "Example homework (part 1)"
     listing = bridge("/courses").json()
+    assert listing["courses"][0]["next_deadline"]["assignment_id"] == 41
     first, second = listing["courses"]
     assert (first["id"], first["name"], first["has_new"], first["folder_exists"]) == (
         A,

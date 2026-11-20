@@ -1136,8 +1136,13 @@ while the site cannot be reached. Lists carry `"last_sync"` and `"stale"`
 a half hours). Times are the site's number plus `…_iso`.
 
 - `GET /courses/summary` → `{"configured", "deadlines": [{"course_id",
-  "course", "name", "due", "due_iso"}], "new_total", "last_sync",
-  "stale"}`: what is due in the next 14 days, nearest first.
+  "course", "name", "due", "due_iso", "assignment_id"?}], "new_total",
+  "last_sync", "stale"}`: what is due in the next 14 days, nearest first.
+  A deadline that belongs to an assignment carries `"assignment_id"` (a
+  number), so `GET /courses/{course_id}/assignments/{assignment_id}` opens
+  it directly; other deadlines (quizzes and other timeline entries) have no
+  such field. A course's `next_deadline` in `GET /courses` carries the same
+  two fields.
 - `GET /courses` → `{"courses": [{"id", "name", "shortname",
   "next_deadline": {"name", "due", "due_iso"} | null, "new": {"files",
   "pages", "assignments", "announcements", "deadlines", "grades"}, "has_new",

@@ -154,11 +154,15 @@ def _records(state: dict) -> list[dict]:
 
 def _upcoming(record: dict, now_ts: int, until_ts: int | None = None) -> list[dict]:
     """Deadlines of a course that are still ahead, nearest first."""
-    found = [
-        {"name": item["name"], "due": item["at"], "due_iso": moodle.iso(item["at"])}
-        for item in (record.get("deadlines") or {}).values()
-        if item["at"] >= now_ts and (until_ts is None or item["at"] <= until_ts)
-    ]
+    found = []
+    for key, item in (record.get("deadlines") or {}).items():
+        if item["at"] < now_ts or (until_ts is not None and item["at"] > until_ts):
+            continue
+        entry = {"name": item["name"], "due": item["at"], "due_iso": moodle.iso(item["at"])}
+        if key.startswith("assign-") and key[7:].isdigit():
+            # An assignment's deadline names it, so the app opens its detail directly.
+            entry |= {"course_id": record["id"], "assignment_id": int(key[7:])}
+        found.append(entry)
     return sorted(found, key=lambda item: item["due"])
 
 
