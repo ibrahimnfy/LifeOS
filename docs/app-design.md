@@ -76,26 +76,30 @@ decided in the issue that builds them.
 
 ### 3.1 Today
 
-*Content set by the owner: as simple as possible, no events.*
+*Content and layout set by the owner: as simple as possible, no events,
+every section in its own clearly visible card.*
 
 - **Purpose:** what to do today.
-- **Content, top to bottom:**
-  1. **Coach card:** one message from the morning's batch (what to focus on
-     and why, an observation, a question); a different one each time the app
-     is opened, without a new model run.
-  2. **Top three:** the three most important tasks, chosen by the assistant,
-     each with a one-line reason.
-  3. **Today:** the tasks that belong to today.
+- **Content, top to bottom, three cards:**
+  1. **Coach card** (gradient ring): one message from the morning's batch
+     (what to focus on and why, an observation, a question); a different one
+     each time the app is opened, without a new model run. **Tapping it
+     opens the coach conversation** (section 3.2).
+  2. **Assistant's picks:** the three most important tasks, chosen by the
+     assistant, each with a one-line reason.
+  3. **Today:** the tasks that belong to today. The card shows three tasks;
+     the rest of today's tasks are reached by scrolling **inside the card**,
+     so the screen itself stays short.
 
-  Nothing else. Events, deadline lists, sleep and screen-time tiles are not
-  on this screen; they live on their own screens.
+  Nothing else. Events, deadline lists, sleep and screen-time tiles live on
+  their own screens.
 - **Actions:** tick a task; tap a task to open it; pull to refresh (may ask
   the computer for a fresh batch).
 - **States:** loading skeleton · saved copy with "prepared 2 h ago" when the
   computer is unreachable · empty ("Nothing for today") · no plan yet (tasks
-  shown in date order, advice card hidden) · error with retry.
-- **Endpoints:** the coach's plan ([`coach-design.md`](coach-design.md))
-  *(planned, Phase 3)*, tasks *(planned, Phase 3)*.
+  shown in date order, coach card hidden) · error with retry.
+- **Endpoints:** the coach's plan ([`coach-design.md`](coach-design.md)),
+  tasks.
 
 ### 3.2 Chat
 
@@ -108,6 +112,14 @@ decided in the issue that builds them.
   progress indicator shows elapsed time, with a cancel button. If streaming is
   available the answer appears as it is written. The owner may leave: a
   push notification arrives when the answer is ready.
+- **Coach conversation:** one persistent conversation with the coach,
+  **pinned at the top of the Chat tab** and opened by the coach card on
+  Today (there is no fifth tab). It keeps itself short by compacting, and
+  what it learns about the owner goes to the memory, so it improves over
+  time. Its plan usage is shown in its header, separate from the morning
+  run.
+- **New chat:** starting a conversation asks in which folder it should run:
+  the memory folder (default) or one of the allowed folders.
 - **History:** opening a conversation loads only the last few exchanges
   (default 4); older ones load when the owner scrolls up. The computer keeps
   the full transcript; the phone does not store whole sessions.
@@ -130,10 +142,15 @@ decided in the issue that builds them.
   the button is tapped; the file is then saved to the system Downloads
   folder and the app keeps no copy. Over the size limit the card explains
   why it cannot be sent.
-- **Questions from the assistant:** shown as text; the assistant offers
-  lettered options and the owner answers in the composer. Option cards with
-  a free-text field are possible only with a different way of running the
-  assistant (an open decision, see [`chat-design.md`](chat-design.md)).
+- **Questions from the assistant:** shown as cards with selectable options
+  and a free-text answer, in the middle of a run; the run continues when
+  the owner answers. (The owner decided to run the assistant through the
+  Agent SDK, which supports this natively; until that is built, questions
+  arrive as text with lettered options.)
+- **Approvals in the middle of a run:** when the assistant is about to do
+  something that needs approval (first of all an obvious deletion), the run
+  pauses, a card shows exactly what will happen and where, and the run
+  continues or is told no after the owner's tap.
 - **Skill installs and other approvals:** an approval card shows exactly
   what is asked (for a skill: source, contents, warnings, target folder);
   nothing happens without the owner's tap.
@@ -248,16 +265,41 @@ decided in the issue that builds them.
 
 ### 3.9 Courses
 
-- **Purpose:** courses, materials and deadlines from the university Moodle.
-- **Content:** list of courses with the next deadline of each; a course page
-  with sections, files and assignments; an assignment shows its due date and
-  status.
-- **Actions:** open a file (downloaded through the bridge); "Ask about this
-  course" jumps to Chat with the course as context.
-- **States:** loading · saved copy with last sync time · empty · "Moodle not
-  connected yet" · error with retry.
-- **Endpoints:** courses, sections, files, assignments, deadlines
-  *(planned, Phase 5)*.
+*Structure set by the owner. The section is called "Courses", never after
+the platform the data comes from.*
+
+- **Purpose:** courses, materials, announcements, assignments and grades
+  from the university's learning platform, kept current without asking.
+- **Courses screen, top to bottom:**
+  1. **Summary card:** the upcoming deadlines of all courses (next two
+     weeks, nearest first) and an **"All grades"** button.
+  2. **Course list:** each course with its next deadline and **a marker
+     when it has new content** since the owner last opened it.
+- **All grades:** one screen with the grades of all courses, grouped by
+  course.
+- **Course page, four tabs:**
+  - **Materials:** sections and files (name, type, size, date; new ones
+    marked), and the course's video and external links.
+  - **Announcements:** newest first.
+  - **Assignments:** due date and status.
+  - **Grades:** the grade items of the course.
+- **Downloads:** materials are **listed, not stored or embedded**. Tapping
+  download fetches the file without any model run and saves it to the
+  phone's Downloads folder; the app keeps no copy. The file comes directly
+  from the university site over HTTPS, with a one-time address the computer
+  sends through the encrypted channel (no relay quota is used); if that
+  fails, the computer's copy is sent through the relay.
+- **Staying current:** the computer syncs every 6 hours and on the manual
+  **refresh** action here; new files, announcements, deadlines or grades
+  arrive as a notification and appear in the lists by themselves.
+- **Actions:** refresh; download; "Ask about this course" opens Chat in the
+  course's folder.
+- **States:** loading · saved copy with last sync time · empty · "Not
+  connected yet" · sign-in needed (with the renew action) · error with
+  retry.
+- **Endpoints:** the course endpoints of the bridge (summary, list with
+  markers, materials, announcements, assignments, grades, download address,
+  refresh).
 
 ### 3.10 Activity
 
@@ -437,5 +479,6 @@ layout, subtle motion (short fades and slides, nothing bouncy).
 | Tasks: prioritised, the rest behind "show all" | set by the owner |
 | Sessions: groups, rename, pin, reminders, reply notifications | set by the owner |
 | Coach: questions in chat, nudges with limits | set by the owner; design in `coach-design.md` |
+| Today in cards, "Assistant's picks", scrolling Today card; Courses with summary, all grades and four tabs; coach conversation pinned in Chat; folder choice for new chats | set by the owner (2026-11-20) |
 | Chat: lazy history, queue / send now / cancel, "/" commands, model per session, file cards, questions | set by the owner; design in `chat-design.md` |
 | Visual direction | **D3 approved**; light theme by default, switch in settings |
