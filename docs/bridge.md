@@ -134,7 +134,8 @@ documented here as they are built.
 | GET | `/courses` | yes | The synced courses with their next deadline and "new" counters |
 | GET | `/courses/{id}/materials` | yes | Sections and files of a course (new ones marked), and its links |
 | GET | `/courses/{id}/announcements` | yes | The announcements of a course, newest first |
-| GET | `/courses/{id}/assignments` | yes | Assignments with due date and hand-in state |
+| GET | `/courses/{id}/assignments` | yes | Assignments with dates and hand-in state |
+| GET | `/courses/{id}/assignments/{aid}` | yes | One assignment in full: description, dates, state, attached files |
 | GET | `/courses/{id}/grades` | yes | The grade items of a course |
 | GET | `/courses/grades` | yes | The grades of all courses |
 | POST | `/courses/{id}/seen` | yes | Clears the "new" counters and marks of a course |
@@ -780,6 +781,13 @@ previous data. Then, course by course:
     revision or time of the activity (or of a chapter) changed, so an
     unchanged book costs no request. A book that could not be read keeps its
     previous file and counts in `page_errors`; it is tried at the next sync.
+  - `assignments/`: one Markdown file per assignment
+    (`<name>-<assignment id>.md`: opening, due and cut-off times, the
+    submission state, the description as Markdown, the attached files) and
+    a folder of the same name with the attached files, downloaded like the
+    materials (only new or changed ones, within the same limits). The
+    description and attachments are what the site shows the owner (some
+    assignments hide them until they open).
   - `links.md`: the course's video and external links by section; then
     "In pages and books": every link and embedded video found in those
     files, with the activity it came from, without the ones already listed
@@ -862,11 +870,20 @@ a half hours). Times are the site's number plus `…_iso`.
   `"source": "page" | "book"` (their `section` is the activity's name).
 - `GET /courses/{id}/announcements` → `{"announcements": [{"id",
   "subject", "text", "created", "created_iso", "modified_iso"}]}`.
-- `GET /courses/{id}/assignments` → `{"assignments": [{"id", "name", "due",
-  "due_iso", "cutoff_iso", "status": {"submission", "grading", "graded"} |
-  null}]}`. `submission` is the site's word (`new`, `draft`, `submitted`,
-  `reopened`). The state is asked for assignments without a date or due
+- `GET /courses/{id}/assignments` → `{"assignments": [{"id", "name",
+  "opens", "opens_iso", "due", "due_iso", "cutoff", "cutoff_iso", "status":
+  {"submission", "grading", "graded"} | null, "submitted", "files"}]}`
+  (`files`: how many attached files). `submission` is the site's word
+  (`new`, `draft`, `submitted`, `reopened`); `submitted` is `true` for
+  `submitted`. The state is asked for assignments without a date or due
   less than 30 days ago; older ones have `null`.
+- `GET /courses/{id}/assignments/{assignment id}` → the same fields plus
+  `"course"`, `"grading_due"`, `"grading_due_iso"`, `"modified_iso"`,
+  `"description"` (Markdown; `""` when the site shows none) and `"files"`:
+  `[{"key", "name", "type", "size", "modified", "modified_iso", "new",
+  "downloaded", "skipped"}]`. An attached file downloads through the same
+  routes as a material: `POST /courses/{id}/files/{key}/address` or
+  `/offer`. `404 assignment_not_found` for an unknown id.
 - `GET /courses/{id}/grades` → `{"overall", "items": [{"name", "type",
   "grade", "range", "percentage", "feedback", "graded_at",
   "graded_at_iso"}]}`; `GET /courses/grades` → the same for every course:
@@ -1266,7 +1283,9 @@ curl -s -H "$H" $B/courses/summary               # deadlines of the next two wee
 curl -s -H "$H" $B/courses                       # the courses; note an id
 curl -s -H "$H" $B/courses/<id>/materials        # sections and files with "key", "new", "downloaded"; links
 curl -s -H "$H" $B/courses/<id>/announcements
-curl -s -H "$H" $B/courses/<id>/assignments
+curl -s -H "$H" $B/courses/<id>/assignments    # note an assignment id with "files" > 0
+curl -s -H "$H" $B/courses/<id>/assignments/<aid>   # "description" as Markdown; "files" with "key"
+ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/assignments   # <name>-<aid>.md and a folder with the attached files
 curl -s -H "$H" $B/courses/<id>/grades ; curl -s -H "$H" $B/courses/grades
 curl -s -X POST -H "$H" $B/courses/<id>/seen     # {"seen":true}; the course's "new" counters are 0 afterwards
 curl -s -X POST -H "$H" $B/courses/<id>/files/<key>/offer    # a card; fetch it with /files/<offer>?session_id=<session_id>

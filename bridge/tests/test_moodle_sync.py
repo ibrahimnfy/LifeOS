@@ -399,11 +399,15 @@ def test_first_sync_writes_folders_files_and_memory_without_news(
     script, lines = notified
     result = sync(folder, script=script, brain=brain)
     assert tree(folder) == [
-        f"{FOLDER_A}/announcements.md", f"{FOLDER_A}/grades.md", f"{FOLDER_A}/links.md",
+        f"{FOLDER_A}/announcements.md",
+        f"{FOLDER_A}/assignments/example-homework-part-1-41.md",
+        f"{FOLDER_A}/assignments/old-example-homework-42.md",
+        f"{FOLDER_A}/grades.md", f"{FOLDER_A}/links.md",
         f"{FOLDER_A}/materials/notes.pdf", f"{FOLDER_A}/materials/reading.pdf",
         f"{FOLDER_A}/materials/slides.pdf",
         f"{FOLDER_A}/pages/a-page-27.md", f"{FOLDER_A}/pages/example-book-28.md",
-        f"{FOLDER_B}/announcements.md", f"{FOLDER_B}/grades.md", f"{FOLDER_B}/links.md",
+        f"{FOLDER_B}/announcements.md", f"{FOLDER_B}/assignments/example-report-43.md",
+        f"{FOLDER_B}/grades.md", f"{FOLDER_B}/links.md",
         f"{FOLDER_B}/materials/sheet.pdf",
     ]  # fmt: skip
     assert (folder / FOLDER_A / "materials" / "notes.pdf").read_bytes() == b"content of notes.pdf"
@@ -815,7 +819,7 @@ def test_a_course_folder_that_points_outside_gets_nothing(site, configured, fold
     outside.mkdir()
     (folder / FOLDER_B).symlink_to(outside, target_is_directory=True)
     result = sync(folder)
-    assert list(outside.iterdir()) == [] and result["failed"] == 1 and result["write_errors"] == 3
+    assert list(outside.iterdir()) == [] and result["failed"] == 1 and result["write_errors"] == 4
     assert result["downloaded"] == 3
 
 
@@ -1044,6 +1048,7 @@ ROUTES = [
     ("get", "/courses"), ("get", "/courses/summary"), ("get", "/courses/grades"),
     ("get", "/courses/sync"), ("post", "/courses/refresh"), ("get", "/courses/5/materials"),
     ("get", "/courses/5/announcements"), ("get", "/courses/5/assignments"),
+    ("get", "/courses/5/assignments/41"),
     ("get", "/courses/5/grades"), ("post", "/courses/5/seen"),
     ("post", "/courses/5/files/abc/address"), ("post", "/courses/5/files/abc/offer"),
 ]  # fmt: skip
@@ -1306,6 +1311,86 @@ def test_the_offer_sends_the_computers_copy(bridge, folder):
     assert bridge(f"/courses/5/files/{key}/offer", "post").status_code == 404
     assert bridge(f"/courses/5/files/{key}/offer", "post").json()["error"] == "no_local_copy"
     assert bridge("/courses/5/files/unknown/offer", "post").status_code == 404
+
+
+def brief_entry(name="brief.pdf", size=900, modified=TS - DAY):
+    url = f"{SITE}/webservice/pluginfile.php/13/mod_assign/introattachment/0/{name}"
+    return {"filename": name, "filepath": "/", "filesize": size, "fileurl": url,
+            "timemodified": modified, "mimetype": "application/pdf"}  # fmt: skip
+
+
+def give_homework_in_full(site):
+    site.assignments[A][0].update(
+        cmid=141, allowsubmissionsfromdate=TS - 5 * DAY, cutoffdate=TS + 6 * DAY,
+        gradingduedate=TS + 10 * DAY, timemodified=TS - DAY,
+        intro="<p>Write <b>two</b> pages; see <a href='https://docs.example.invalid/style'>the style guide</a>.</p>",
+        introattachments=[brief_entry()],
+    )  # fmt: skip
+
+
+def test_assignments_in_full_with_their_files(site, configured, folder, brain):
+    give_homework_in_full(site)
+    result = sync(folder, brain=brain)
+    assert result["downloaded"] == 5
+    attached = folder / FOLDER_A / "assignments" / "example-homework-part-1-41" / "brief.pdf"
+    assert attached.read_bytes() == b"content of brief.pdf"
+    text = (folder / FOLDER_A / "assignments" / "example-homework-part-1-41.md").read_text()
+    assert text.startswith("# Example homework (part 1)\n")
+    assert "Assignment of the course Example course A." in text and "- Submission: new" in text
+    assert "Write **two** pages; see [the style guide](https://docs.example.invalid/style)." in text
+    assert "- brief.pdf (`example-homework-part-1-41/brief.pdf`)" in text
+    assert "outside text" in text and "<p>" not in text
+    # The attachment is not a file of the course page: not in Materials, not in the summary.
+    stored = state()["courses"][str(A)]
+    materials = [k for s in stored["sections"] for k in s["files"]]
+    assert all(stored["files"][k]["name"] != "brief.pdf" for k in materials)
+    assert "3 files, 2 links" in (brain / "courses" / f"{FOLDER_A}.md").read_text()
+    # A later sync: the attachment changed, another one was added; both are new files.
+    site.asked.clear()
+    site.assignments[A][0]["introattachments"] = [brief_entry(size=950, modified=TS),
+                                                  brief_entry("data.csv", 50)]  # fmt: skip
+    again = sync(folder, when=later(7))
+    assert sorted(site.downloads()) == ["brief.pdf", "data.csv"] and again["new"]["files"] == 2
+    # Removed on the site: gone from the assignment, the local copy stays.
+    site.assignments[A][0]["introattachments"] = []
+    sync(folder, when=later(14))
+    assert attached.is_file()
+    assert (
+        "Attached files"
+        not in (folder / FOLDER_A / "assignments" / "example-homework-part-1-41.md").read_text()
+    )
+
+
+def test_assignment_endpoints(site, configured, folder, settings_, auth, monkeypatch):
+    give_homework_in_full(site)
+    monkeypatch.setattr(time, "time", lambda: float(TS))
+    sync(folder)
+    client = TestClient(create_app(settings_))
+    listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
+    homework = next(a for a in listing if a["id"] == 41)
+    assert set(homework) == {"id", "name", "opens", "opens_iso", "due", "due_iso", "cutoff",
+                             "cutoff_iso", "status", "submitted", "files"}  # fmt: skip
+    assert (homework["opens"], homework["cutoff"], homework["files"]) == (
+        TS - 5 * DAY,
+        TS + 6 * DAY,
+        1,
+    )
+    assert homework["status"]["submission"] == "new" and homework["submitted"] is False
+    detail = client.get("/courses/5/assignments/41", headers=auth).json()
+    assert detail["course"] == "Example course A" and detail["grading_due"] == TS + 10 * DAY
+    assert detail["description"].startswith("Write **two** pages")
+    (brief,) = detail["files"]
+    assert (brief["name"], brief["size"], brief["downloaded"]) == ("brief.pdf", 900, True)
+    # Attached files use the course file routes.
+    card = client.post(f"/courses/5/files/{brief['key']}/offer", headers=auth).json()
+    fetched = client.get(f"/files/{card['offer']}?session_id={card['session_id']}", headers=auth)
+    assert fetched.content == b"content of brief.pdf"
+    address = client.post(f"/courses/5/files/{brief['key']}/address", headers=auth).json()
+    assert "/mod_assign/introattachment/0/brief.pdf" in address["url"]
+    assert client.get("/courses/5/assignments/99", headers=auth).status_code == 404
+    assert client.get("/courses/7/assignments/41", headers=auth).status_code == 404
+    assert TOKEN not in client.get("/courses/5/assignments/41", headers=auth).text
+    assert "fileurl" not in client.get("/moodle/assignments", headers=auth).text
 
 
 def test_the_offer_follows_the_rules_for_files(bridge, settings_, folder, auth):

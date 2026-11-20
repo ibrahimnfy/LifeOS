@@ -143,7 +143,7 @@ def _timed(record: dict, source: dict, *fields: str) -> dict:
     return record
 
 
-def file_key(module_id: int | None, entry: dict) -> str:
+def file_key(module_id: int | str | None, entry: dict) -> str:
     """A short stable name for one file of a course, without its address."""
     identity = f"{module_id}|{_text(entry.get('filepath'))}|{_text(entry.get('filename'))}"
     return hashlib.sha256(identity.encode()).hexdigest()[:16]
@@ -367,7 +367,7 @@ def parse_course(item: dict) -> dict:
     return _timed(record, item, "startdate", "enddate", "lastaccess")
 
 
-def parse_file(module_id: int | None, entry: dict) -> dict:
+def parse_file(module_id: int | str | None, entry: dict) -> dict:
     record = {
         "key": file_key(module_id, entry),
         "filename": _text(entry.get("filename")),
@@ -524,12 +524,29 @@ def parse_announcement(item: dict) -> dict:
 
 
 def parse_assignment(item: dict, course_id: int | None) -> dict:
+    """One assignment of ``mod_assign_get_assignments``.
+
+    ``intro`` (HTML) and ``attachments`` are given only when the site shows
+    the description to the owner. Attachment entries carry their address
+    (``fileurl``, without the token): not for responses.
+    """
+    assignment_id = _number(item.get("id"))
     record = {
-        "id": _number(item.get("id")),
+        "id": assignment_id,
+        "cmid": _number(item.get("cmid")),
         "course": _number(item.get("course")) or course_id,
         "name": _text(item.get("name")),
+        "intro": _text(item.get("intro")),
+        "attachments": [
+            parse_file(f"assign-{assignment_id}", entry)
+            for entry in _dicts(item.get("introattachments"))
+            if entry.get("fileurl") and entry.get("filename") and entry.get("filename") != "."
+        ],
     }
-    return _timed(record, item, "duedate", "cutoffdate", "allowsubmissionsfromdate")
+    return _timed(
+        record, item, "duedate", "cutoffdate", "allowsubmissionsfromdate", "gradingduedate",
+        "timemodified",
+    )  # fmt: skip
 
 
 def parse_event(item: dict) -> dict:

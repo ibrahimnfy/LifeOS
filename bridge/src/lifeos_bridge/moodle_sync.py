@@ -56,6 +56,9 @@ FILE_MODULES = ("resource", "folder")  # activities whose files are course mater
 TEXT_FOLDER = "pages"  # Page and Book activities as Markdown, inside the course folder
 MAX_CHAPTERS = 100
 MAX_TEXT_LINKS = 200
+ASSIGN_FOLDER = "assignments"  # one description file and one folder of attachments each
+MAX_DESCRIPTION = 20_000
+KEPT_ASSIGNMENT_FIELDS: tuple[str, ...] = ()  # fields the sync keeps from the last record
 MB = 1024 * 1024
 DEFAULT_FILE_MB = 200
 MAX_TOTAL_BYTES = 1024 * MB
@@ -464,13 +467,19 @@ def merge_files(run: Run, record: dict, page: dict | None) -> None:
         if keys:
             sections.append({"name": moodle.one_line(section["name"]), "files": keys})
     for key, previous in old.items():
-        if key not in files:  # no longer on the course page; the local copy stays
+        if key in files:
+            continue
+        if previous.get("assignment") is not None:
+            files[key] = previous  # an assignment's attachment: kept up by merge_assignments
+        else:  # no longer on the course page; the local copy stays
             files[key] = {**previous, "gone": True, "pending": False, "new": False}
     record.update(files=files, sections=sections, links=page["links"])
     _done(record, "files")
 
 
-def _file_item(run: Run, record: dict, previous: dict | None, entry: dict) -> dict:
+def _file_item(
+    run: Run, record: dict, previous: dict | None, entry: dict, part: str = "files"
+) -> dict:
     item = {
         "name": moodle.one_line(entry["filename"], 1000) or "file",
         "type": entry["mimetype"],
@@ -483,31 +492,45 @@ def _file_item(run: Run, record: dict, previous: dict | None, entry: dict) -> di
         "skipped": None,
     }
     if previous is None or previous.get("gone"):
-        run.report(record, "files", "files")
-        item["new"] = not run.first and "files" in record["parts"]
+        run.report(record, "files", part)
+        item["new"] = not run.first and part in record["parts"]
         item["local"] = (previous or {}).get("local")
         return item
     item.update({name: previous.get(name) for name in ("local", "new", "pending", "skipped")})
     if (previous.get("modified"), previous.get("size")) != (item["modified"], item["size"]):
-        run.report(record, "files", "files")
+        run.report(record, "files", part)
         item.update(new=True, pending=True, skipped=None)
     return item
 
 
+def _ready(root: Path, course_dir: Path, relative: str) -> bool:
+    """``course_dir/relative`` exists (made when missing), each level really inside ``root``."""
+    folder = course_dir
+    if not inside(root, folder):
+        return False
+    for part in Path(relative).parts:
+        folder = folder / part
+        if not inside(root, folder):
+            return False
+    return True
+
+
 def download_files(run: Run, record: dict) -> None:
-    """Fetch what is new or changed into ``materials/``, within the limits of this sync."""
+    """Fetch what is new or changed (into ``materials/``, or an assignment's folder)."""
     pending = [(key, item) for key, item in record["files"].items() if item.get("pending")]
     if not pending:
         return
     course_dir = run.root / record["folder"]
-    materials = course_dir / "materials"
-    usable = inside(run.root, course_dir) and inside(run.root, materials)
+    usable: dict[str, bool] = {}
     for _key, item in pending:
-        if not usable:
+        relative = item.get("dir") or "materials"
+        if relative not in usable:
+            usable[relative] = _ready(run.root, course_dir, relative)
+        if not usable[relative]:
             item["skipped"] = "failed"
             run.failed += 1
             continue
-        _download(run, record, materials, item)
+        _download(run, record, course_dir / relative, item)
 
 
 def _download(run: Run, record: dict, materials: Path, item: dict) -> None:
@@ -523,7 +546,12 @@ def _download(run: Run, record: dict, materials: Path, item: dict) -> None:
         return
     name = item.get("local")
     if not name:
-        taken = {f["local"].casefold() for f in record["files"].values() if f.get("local")}
+        here = item.get("dir") or "materials"
+        taken = {
+            f["local"].casefold()
+            for f in record["files"].values()
+            if f.get("local") and (f.get("dir") or "materials") == here
+        }
         name = free_name(safe_file_name(item["name"]), taken, materials)
     target = materials / name
     try:
@@ -733,17 +761,13 @@ def merge_assignments(run: Run, record: dict, found: Gathered) -> None:
         current.update({k: v for k, v in old.items() if k.startswith("assign-")})
     else:
         mine = [a for a in found.assignments if a["course"] == record["id"] and a["id"] is not None]
-        before = {a.get("id"): a.get("status") for a in record.get("assignments") or []}
-        record["assignments"] = [
-            {
-                "id": a["id"],
-                "name": moodle.one_line(a["name"]),
-                "due": a["duedate"],
-                "cutoff": a["cutoffdate"],
-                "status": found.statuses.get(a["id"]) or before.get(a["id"]),
-            }
-            for a in mine
-        ]
+        before = {a.get("id"): a for a in record.get("assignments") or []}
+        record["assignments"] = [_assignment(run, record, a, before.get(a["id"]) or {}, found)
+                                 for a in mine]  # fmt: skip
+        attached = {key for a in record["assignments"] for key in a["files"]}
+        for key, item in record["files"].items():
+            if item.get("assignment") is not None and key not in attached and not item.get("gone"):
+                record["files"][key] = {**item, "gone": True, "pending": False, "new": False}
         for a in mine:
             if a["duedate"] is not None:
                 _deadline(run, record, current, old, f"assign-{a['id']}", a["name"], a["duedate"])
@@ -757,6 +781,36 @@ def merge_assignments(run: Run, record: dict, found: Gathered) -> None:
                 _deadline(run, record, current, old, f"event-{e['id']}", e["name"], e["timesort"])
         _done(record, "events")
     record["deadlines"] = current
+
+
+def _assignment(run: Run, record: dict, a: dict, previous: dict, found: Gathered) -> dict:
+    """One assignment in full: dates, hand-in state, description, attached files."""
+    name = moodle.one_line(a["name"])
+    folder = previous.get("folder") or f"{ASSIGN_FOLDER}/{course_folder_name(name, a['id'])}"
+    description, _links = moodle.to_markdown(a["intro"], heading_shift=2, limit=MAX_DESCRIPTION)
+    keys = []
+    for entry in a["attachments"]:
+        key = entry["key"]
+        previous_file = record["files"].get(key)
+        item = _file_item(run, record, previous_file, entry, part="assignments")
+        record["files"][key] = {**item, "dir": folder, "assignment": a["id"]}
+        keys.append(key)
+    kept = {k: previous[k] for k in KEPT_ASSIGNMENT_FIELDS if k in previous}
+    return {
+        **kept,
+        "id": a["id"],
+        "cmid": a["cmid"],
+        "name": name,
+        "opens": a["allowsubmissionsfromdate"],
+        "due": a["duedate"],
+        "cutoff": a["cutoffdate"],
+        "grading_due": a["gradingduedate"],
+        "modified": a["timemodified"],
+        "status": found.statuses.get(a["id"]) or previous.get("status"),
+        "description": description,
+        "files": keys,
+        "folder": folder,
+    }
 
 
 def _deadline(
@@ -848,6 +902,33 @@ def grades_text(record: dict, today: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _when(timestamp: int | None) -> str:
+    return (moodle.iso(timestamp) or "").replace("T", " ") or "not set"
+
+
+def assignment_text(record: dict, item: dict) -> str:
+    """``assignments/<name>-<id>.md``: dates, hand-in state, description, attached files."""
+    status = item.get("status") or {}
+    files = [record["files"][key] for key in item.get("files") or [] if key in record["files"]]
+    lines = [f"# {_md(item['name'])}", "", OUTSIDE_NOTE, "",
+             f"Assignment of the course {_md(record['name'])}.", "",
+             f"- Opens: {_when(item.get('opens'))}", f"- Due: {_when(item.get('due'))}",
+             f"- Cut-off: {_when(item.get('cutoff'))}",
+             f"- Submission: {status.get('submission') or 'unknown'}"
+             + (" (graded)" if status.get("graded") else ""),
+             "", "## Description", "", item.get("description") or "(none shown)", ""]  # fmt: skip
+    if files:
+        lines += ["## Attached files", ""]
+        lines += [
+            f"- {_md(f['name'])}"
+            + (f" (`{item['folder'].rsplit('/', 1)[-1]}/{f['local']}`)" if f.get("local") else
+               " (not downloaded)")
+            for f in files
+        ]  # fmt: skip
+        lines.append("")
+    return "\n".join(lines)
+
+
 def write_course_files(run: Run, record: dict) -> None:
     course_dir = run.root / record["folder"]
     for name, text in (
@@ -856,6 +937,13 @@ def write_course_files(run: Run, record: dict) -> None:
         ("grades.md", grades_text(record, run.today)),
     ):
         if not write_inside(run.root, course_dir / name, text):
+            run.write_errors += 1
+    for item in record.get("assignments") or []:
+        if "folder" not in item:  # written before this sync kept assignments in full
+            continue
+        ready = _ready(run.root, course_dir, ASSIGN_FOLDER)
+        path = course_dir / f"{item['folder']}.md"
+        if not ready or not write_inside(run.root, path, assignment_text(record, item)):
             run.write_errors += 1
 
 
@@ -909,8 +997,15 @@ def _yaml(text: str) -> str:
     return f'"{plain}"'
 
 
+def _page_files(record: dict) -> list[dict]:
+    """Files on the course page (not an assignment's attachments) that are still there."""
+    return [
+        f for f in record["files"].values() if not f.get("gone") and f.get("assignment") is None
+    ]
+
+
 def _summary(record: dict, now_ts: int) -> str:
-    files = [f for f in record["files"].values() if not f.get("gone")]
+    files = _page_files(record)
     upcoming = sorted(
         d["at"] for d in (record.get("deadlines") or {}).values() if d["at"] >= now_ts
     )
@@ -927,7 +1022,7 @@ def _summary(record: dict, now_ts: int) -> str:
 
 def _facts(record: dict, today: str) -> list[str]:
     tag = f"- [external:moodle {today}]"
-    files = [f for f in record["files"].values() if not f.get("gone")]
+    files = _page_files(record)
     local = len([f for f in files if f.get("local")])
     facts = [f"{tag} {len(files)} files on the course page; {local} have a local copy."]
     if record.get("overall"):
