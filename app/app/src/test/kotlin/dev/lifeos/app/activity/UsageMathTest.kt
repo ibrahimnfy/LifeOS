@@ -176,7 +176,7 @@ class UsageMathTest {
         val next = SleepPromptTime.next(ZonedDateTime.of(2027, 3, 27, 12, 0, 0, 0, berlin), LocalTime.of(2, 30))
         assertEquals(LocalDateTime.parse("2027-03-28T03:30:00"), next.toLocalDateTime())
         // A day of 23 hours: the alarm is 23 hours after the previous one, at the same local time.
-        val before = SleepPromptTime.next(ZonedDateTime.of(2027, 3, 27, 6, 0, 0, 0, berlin), five)
+        val before = SleepPromptTime.next(ZonedDateTime.of(2027, 3, 27, 4, 0, 0, 0, berlin), five) // 05:00 on the 27th
         val after = SleepPromptTime.next(before, five)
         assertEquals(23L, java.time.Duration.between(before, after).toHours())
     }
