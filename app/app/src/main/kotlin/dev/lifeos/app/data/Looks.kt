@@ -39,9 +39,16 @@ class Looks private constructor(private val byCourse: Map<Long, Look>, private v
         return task.project?.takeIf { it.isNotBlank() }?.let { named(it, project = true) }
     }
 
-    /** The course a task's `course` field names: by id, short name or name, ignoring case and spaces. */
+    /**
+     * The course a task's `course` field names: its course folder (`ex-101-5`, the bridge's
+     * short name plus course id), its id, short name or name, ignoring case and spaces.
+     */
     fun match(name: String): Course? {
         val key = norm(name)
+        FOLDER.find(name.trim())?.let { found ->
+            val id = found.groupValues[2].toLongOrNull()
+            courses.firstOrNull { it.id == id && norm(it.shortname) == norm(found.groupValues[1]) }?.let { return it }
+        }
         return courses.firstOrNull { it.id.toString() == key || norm(it.shortname) == key || norm(it.name) == key }
     }
 
@@ -50,6 +57,8 @@ class Looks private constructor(private val byCourse: Map<Long, Look>, private v
     override fun hashCode(): Int = byCourse.hashCode()
 
     companion object {
+        /** A course folder as the bridge names it: the short name in lowercase with hyphens, then `-<id>`. */
+        private val FOLDER = Regex("^([a-z0-9-]+?)-(\\d+)$")
         private val TONES = Tone.entries
         private val COURSE_GLYPHS = listOf(Glyph.WAVE, Glyph.CHIP, Glyph.MATRIX, Glyph.PEN, Glyph.DICE, Glyph.FLASK)
         private val PATTERNS = listOf(Pattern.WAVES, Pattern.GRID, Pattern.DOTS, Pattern.ARCS, Pattern.TRIANGLES, Pattern.CIRCLES)

@@ -236,7 +236,7 @@ private fun DaysLeft(due: Long?, big: Boolean = true) {
     val days = due?.let { Dates.daysUntil(it, today(), ZoneId.systemDefault()) } ?: return
     val number = if (big) LifeType.bigNumber else LifeType.screenTitle
     if (days <= 0) {
-        Text(stringResource(R.string.courses_due_today), style = number, color = colors.text, maxLines = 1)
+        Text(stringResource(R.string.courses_due_today), style = number, color = colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
     } else {
         Text("%d".format(days), style = number, color = colors.text)
         Text(pluralStringResource(R.plurals.courses_days_unit, days.toInt()), style = LifeType.label, color = colors.muted)

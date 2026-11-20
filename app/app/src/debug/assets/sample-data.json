@@ -9,16 +9,16 @@
     ],
     "top_three": [
       {"task": {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0}, "reason": "Due today; two tasks depend on it"},
-      {"task": {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1}, "reason": "One day late; about 30 minutes of work"},
-      {"task": {"id": "t-3", "title": "Reply about the essay topic", "course": "WRI 110"}, "reason": "Waiting for 6 days"}
+      {"task": {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "sig-201-11", "due_date_in_days": -1}, "reason": "One day late; about 30 minutes of work"},
+      {"task": {"id": "t-3", "title": "Reply about the essay topic", "course": "wri-110-14"}, "reason": "Waiting for 6 days"}
     ],
     "order": [
       {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0},
-      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1},
-      {"id": "t-3", "title": "Reply about the essay topic", "course": "WRI 110"},
+      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "sig-201-11", "due_date_in_days": -1},
+      {"id": "t-3", "title": "Reply about the essay topic", "course": "wri-110-14"},
       {"id": "t-4", "title": "Review the check-in notes", "project": "Project Alpha", "due_date_in_days": 1},
-      {"id": "t-5", "title": "Prepare the lab kit", "course": "EMB 230", "due_date_in_days": 2},
-      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "LIN 101", "due_date_in_days": 0},
+      {"id": "t-5", "title": "Prepare the lab kit", "course": "emb-230-12", "due_date_in_days": 2},
+      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "lin-101-13", "due_date_in_days": 0},
       {"id": "t-7", "title": "Send the meeting notes", "due_date_in_days": 0}
     ]
   },
@@ -26,22 +26,22 @@
     "date": "2026-01-01",
     "events_today": [],
     "tasks_overdue": [
-      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1}
+      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "sig-201-11", "due_date_in_days": -1}
     ],
     "tasks_today": [
       {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0},
-      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "LIN 101", "due_date_in_days": 0},
+      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "lin-101-13", "due_date_in_days": 0},
       {"id": "t-7", "title": "Send the meeting notes", "due_date_in_days": 0}
     ]
   },
   "GET /tasks": {
     "tasks": [
       {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0},
-      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "SIG 201", "due_date_in_days": -1},
-      {"id": "t-3", "title": "Reply about the essay topic", "course": "WRI 110"},
+      {"id": "t-2", "title": "Submit Exercise sheet 1", "course": "sig-201-11", "due_date_in_days": -1},
+      {"id": "t-3", "title": "Reply about the essay topic", "course": "wri-110-14"},
       {"id": "t-4", "title": "Review the check-in notes", "project": "Project Alpha", "due_date_in_days": 1},
-      {"id": "t-5", "title": "Prepare the lab kit", "course": "EMB 230", "due_date_in_days": 2},
-      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "LIN 101", "due_date_in_days": 0},
+      {"id": "t-5", "title": "Prepare the lab kit", "course": "emb-230-12", "due_date_in_days": 2},
+      {"id": "t-6", "title": "Read chapter 3 of the lecture notes", "course": "lin-101-13", "due_date_in_days": 0},
       {"id": "t-7", "title": "Send the meeting notes", "due_date_in_days": 0}
     ]
   },

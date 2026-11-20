@@ -46,6 +46,13 @@ class LooksTest {
         assertEquals(looks.course(11), looks.forTask(Task("t", "x", course = "Signals and Systems")))
         assertEquals(looks.course(12), looks.forTask(Task("t", "x", course = "12")))
         assertNull(looks.forTask(Task("t", "x")))
+        // The bridge files a course's tasks under its folder: the short name as a slug plus the id.
+        val withFolder = Looks.of(listOf(course(5, "Example course A", "EX 101"), course(7, "Example course B", "EX-102")))
+        assertEquals(5L, withFolder.match("ex-101-5")?.id)
+        assertEquals(7L, withFolder.match("ex-102-7")?.id)
+        assertEquals(withFolder.course(5), withFolder.forTask(Task("t", "x", course = "ex-101-5")))
+        // A folder whose id is another course's is not that course.
+        assertNull(withFolder.match("ex-101-7"))
     }
 
     @Test
