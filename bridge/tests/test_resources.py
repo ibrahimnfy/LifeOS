@@ -4,6 +4,7 @@
 import asyncio
 import io
 import json
+import shutil
 import socket
 import urllib.error
 
@@ -194,6 +195,44 @@ def test_a_run_without_the_web_or_outside_the_allowed_folders_stores_nothing(
     assert resources.view(A)["items"] == [] and web.asked == []
     assert resources.request(A) == "too_soon"  # read, no loop
     assert asyncio.run(resources.run_course(settings, A)) == "folder_not_allowed"
+
+
+def audit_records(config, tool):
+    return [
+        json.loads(line)["detail"]
+        for path in sorted((config / "audit").glob("*.jsonl"))
+        for line in path.read_text().splitlines()
+        if json.loads(line)["tool"] == tool
+    ]
+
+
+def test_downloads_and_runs_are_audited_without_page_text(
+    synced, settings_, model, web, configured
+):
+    go(settings_)
+    downloads = audit_records(configured, "ResourceDownload")
+    assert downloads == [
+        {"course_id": A, "host": "openstax.org", "name": "Example Open Book.pdf",
+         "size": len(PDF), "result": "downloaded"},
+        {"course_id": A, "host": "arxiv.org", "name": None, "size": None,
+         "result": "not_a_document"},
+    ]  # fmt: skip
+    (run,) = audit_records(configured, "ResourcesRun")
+    assert run == {"course_id": A, "result": "ok", "refused_piracy": 1, "proposed": 7, "new": 7,
+                   "retried": 0, "downloaded": 1, "listed": 5}  # fmt: skip
+    log = "".join(p.read_text() for p in (configured / "audit").glob("*.jsonl"))
+    for text in ("Openly licensed", "Main textbook", "abstract", "https://", "libgen"):
+        assert text not in log, text
+
+
+def test_nothing_is_kept_without_its_audit_record(synced, settings_, model, web, configured):
+    shutil.rmtree(configured / "audit", ignore_errors=True)
+    (configured / "audit").write_text("not a folder")
+    assert go(settings_) == "ok"
+    book = next(i for i in resources.view(A)["items"] if i["title"] == "Example Open Book")
+    assert (book["status"], book["reason"]) == ("listed", "audit_unavailable")
+    assert not (synced / FOLDER_A / "resources" / "Example Open Book.pdf").exists()
+    assert "audit_unavailable" in resources.RETRY  # tried again at the next run
 
 
 def test_rules_for_addresses_and_redirects(web):

@@ -1255,6 +1255,11 @@ a run error code.
 - `POST /courses/{id}/resources/{index}/offer` → a file offer (as for
   course files) for a downloaded item, by its position in `items`; `404
   no_local_copy` for a listed one.
+- Audit log: one `ResourceDownload` record per fetch (course, host, file
+  name, size, result) and one `ResourcesRun` per run (result and counts);
+  never page text or addresses. A downloaded file whose record cannot be
+  written is removed and listed as `audit_unavailable` (retried). Manual
+  check: `grep -h 'Resource' ~/.config/lifeos/audit/*.jsonl | tail -n 3`.
 - State: `~/.config/lifeos/course-resources.json` (mode 600), apart from
   the sync's state.
 
