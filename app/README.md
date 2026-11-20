@@ -14,8 +14,10 @@ client and the app lock. On top of that, **Today, Tasks, Capture, Calendar,
 Notes and Courses work on the owner's real data** through that connection,
 with saved copies for when the computer is unreachable and an outbox for
 writes made offline. **Activity** shows the phone's screen time (usage
-access) and sends it to the computer once a day. Chat and the other screens
-under More are still placeholders.
+access) and sends it to the computer once a day. **Chat** sends a message
+to the assistant on the computer and shows the answer as it is written, and
+**Sessions** lists the Claude Code sessions there and continues one. The
+coach conversation and Projects are still placeholders.
 
 ## Requirements
 
@@ -139,7 +141,7 @@ app/                         Gradle root (this folder)
         │       ├── components/      top bar, bottom bar, rows, cards, QR scanner
         │       ├── nav/             routes and the navigation host
         │       └── screens/         Today, Chat, Tasks, Calendar, Notes, Courses, More,
-        │                            Settings, Pair, Lock
+        │                            Sessions, Settings, Pair, Lock
         ├── main/res/values/         English strings (default)
         ├── main/res/values-tr/      Turkish strings
         ├── debug/                   test aids of debug builds (see below)
@@ -231,6 +233,24 @@ with plain HTTPS requests.
   (here and on Today) opens the task to change its title and due date (or
   remove the date); the change is shown at once with "Waiting to sync" until
   the computer confirmed it.
+- **Chat** (the tab): the coach's conversation pinned on top (a placeholder
+  for now), the chat in progress, the three most recent sessions with **All
+  sessions**, and **New chat**. New chat asks where it should run: the
+  memory folder (the default) or one of the allowed folders, as the computer
+  lists them. A conversation shows the owner's messages on the right and the
+  assistant's answers on the left (paragraphs, headings, lists, code blocks,
+  bold and inline code are rendered; the text can be selected), "Working…"
+  with the time since the message was sent, and the answer as it is written.
+  **The same conversation is continued until New chat** (or until another
+  session is opened), also after the app was closed: the Chat tab then opens
+  it directly, once per start, with its last few messages read from the
+  computer. The folder is in the header.
+- **Sessions** (the clock in Chat, or under More): a field that filters by
+  title and folder, pinned sessions, then every folder with its sessions,
+  newest first; "Working" marks a session the computer is answering right
+  now. Tapping one opens it in Chat; the next message continues it in its own
+  folder. A session that is open in a terminal on the computer is refused
+  there when the message is sent, and the app says so and offers **Retry**.
 - **Capture:** a note or a task with an optional due date. Also reachable
   from the home-screen shortcut (long-press on the app icon) and from other
   apps' "share" (text or a link).
@@ -274,7 +294,7 @@ with plain HTTPS requests.
     LifeOS left out) as bars.
   - Below both: the switch "Send screen time and sleep once a day" with the
     state of sending and "Send now".
-- **More:** Sessions and Projects are placeholder screens.
+- **More:** Projects is a placeholder screen.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
   (immediately / 1 minute / 5 minutes), app version.
@@ -360,6 +380,37 @@ Nothing on these screens is sample content any more. Not paired, they show
   keeps running, nothing from the computer. Entering last night removes the
   notification.
 
+- **Chat** (`data/Chat.kt`, owned by `LifeOsCore`, so an answer keeps
+  arriving while another screen is shown): a message goes out as `POST /ask`
+  (a new conversation, with the chosen folder) or `POST
+  /sessions/{id}/messages`, both with `"stream": true`; the answer comes back
+  through the relay as events (`session`, `delta`…, then `done` or `error`).
+  **The computer keeps the conversation; the phone keeps only which one is
+  open** (`chat/current.json`: the session's id and its folder, never a
+  message; deleted on unpair) and what is on screen. Rules:
+  - Before sending, the computer must have answered (the dot is green, or it
+    answers a quick question now). If not, **nothing is sent**: the text goes
+    back into the composer and a notice says so. It is never sent later by
+    itself.
+  - The computer takes a message within seconds (it names the session or
+    refuses), so no first answer within 45 seconds counts as "no answer". After
+    that a run may stay quiet for up to 11 minutes.
+  - **Whenever the app stops receiving an answer the computer is still
+    writing** (the app was locked, the connection dropped, a long silence),
+    the run goes on there. The conversation then shows "The computer is still
+    working on this", asks every five seconds while it is on screen (`GET
+    /sessions/{id}/queue`), and reads the last messages (`GET
+    /sessions/{id}/history`) when the run has ended. If the message is not in
+    the conversation there, the app says that it did not arrive and offers
+    **Retry**; it never repeats a message on its own. A first message that
+    got no answer at all cannot be followed up (its session is not known):
+    the app says that it may have arrived and points to Sessions.
+  - A refusal (session open on the computer, too many runs, folder gone,
+    message too long) keeps the message with **Retry**; a run that breaks off
+    keeps what was written and says why.
+  - While the app is locked nothing of the conversation is in memory; it is
+    read again after unlocking.
+
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
 an event, and listing finished tasks (no "done" filter).
@@ -399,7 +450,7 @@ phone side mirrors the bridge's `e2e.py`, `devices.py`, `mailbox.py` and
   message; requests other than GET are retried only when the first try
   certainly did not leave the phone.
 
-Not built yet: push, and Chat through the connection.
+Not built yet: push.
 
 ### Test vectors
 
@@ -444,6 +495,13 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   generic courses and a project; dates are counted from the current day).
   Writes are simply accepted and go nowhere; nothing is kept as a saved
   copy. A paired phone ignores it. Close the app to leave the mode.
+  **Chat and Sessions** come from `src/debug/assets/sample-chat.json`: three
+  folders, five sessions, one conversation, and an invented answer that
+  arrives piece by piece for any message. A message that contains one of
+  these words shows another state: `in use` (the session is open on the
+  computer), `fail` (the run breaks off), `offline` (nothing is sent, the
+  text comes back), `silent` (the answer stops arriving and the message is
+  not found on the computer).
 
   ```sh
   adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --ez lifeos.test.sample_data true
@@ -457,7 +515,11 @@ The pairing text is the key. Never put it into a file, a log or a report.
 ## What is not in it yet
 
 - No push notifications.
-- Chat does not send; the coach conversation, Sessions and Projects are
+- Chat: older messages than the last few (scrolling up), messages while a
+  run is in progress (queue, send now) and cancelling a run, "/" commands,
+  the model picker, file cards (a file the assistant offers is only named in
+  its answer) and tables in answers (shown as text). Sessions: groups,
+  renaming, pinning and reminders. The coach conversation and Projects are
   placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course" and renewing the sign-in from the phone.
@@ -576,6 +638,43 @@ running on the computer with the relay set up.
    is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### Chat and sessions
+
+Paired, with the bridge running (each message is a model run on the plan;
+keep them small). On an emulator without a computer, the `sample_data` test
+aid shows the same screens with invented answers.
+
+1. **New chat:** open the Chat tab and tap **New chat**. "Where should this
+   chat run?" lists **Memory (default)** and the allowed folders. Choose one,
+   **Start**: an empty conversation with three example prompts; the header
+   shows the folder.
+2. **Send:** type "Say hello in one sentence" and send. The message appears
+   on the right, then "Working… 0:03" counts up, then the answer is written
+   on the left. Send a second message that refers to the first ("Say it in
+   Turkish"): the answer shows that it is the same conversation. On the
+   computer, `claude --resume` in that folder lists the session.
+3. **Continues after a restart:** close the app completely, open it, unlock
+   and tap the Chat tab: the same conversation opens with its last messages.
+   Back leads to the Chat list, where it is under "Current chat".
+4. **Sessions:** tap the clock (or More → Sessions): sessions grouped by
+   folder, newest first, also the ones started in a terminal. Type a word
+   into the search field: only matching sessions remain. Tap a session: its
+   last messages appear; send a message: it continues that session in its
+   folder.
+5. **Open on the computer:** run `claude --resume` on the computer, choose a
+   session and leave it open. Open the same session in the app and send a
+   message: "This session is open on the computer right now…" with
+   **Retry**. Close it on the computer and tap Retry: the answer arrives.
+6. **Computer not reachable:** stop the bridge, wait until the dot is amber,
+   send a message: "Not sent: the computer cannot be reached…", and the text
+   is back in the composer. Start the bridge, wait for the green dot, send it.
+7. **Leaving during an answer:** send "Count slowly from 1 to 30, one number
+   per line", and lock the phone at once (app lock on "Immediately"). Unlock
+   after a few seconds and open the conversation: "The computer is still
+   working on this…", and a little later the whole answer, once.
+8. Settings → Language → **Türkçe** and Appearance → **Dark**: the Chat
+   list, a conversation and Sessions are fully in Turkish and readable.
 
 ### The warmer design (P2, Courses in P3)
 

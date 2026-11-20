@@ -45,7 +45,7 @@
 
     <!-- Chat -->
     <string name="chat_empty_title">Ask anything</string>
-    <string name="chat_empty_text">The assistant runs on your computer. Sending messages arrives with a later step.</string>
+    <string name="chat_empty_text">The assistant runs on your computer and answers here.</string>
     <string name="chat_prompt_1">What should I focus on today?</string>
     <string name="chat_prompt_2">What is still open for Project Alpha?</string>
     <string name="chat_prompt_3">Summarise my notes from this week</string>
@@ -414,4 +414,50 @@
 
     <string name="action_undo">Undo</string>
     <string name="tasks_done_message">Marked as done</string>
+
+    <!-- Chat and sessions (#33) -->
+    <string name="chat_new">New chat</string>
+    <string name="chat_current">Current chat</string>
+    <string name="chat_current_new">New conversation</string>
+    <string name="chat_recent">Recent</string>
+    <string name="chat_all_sessions">All sessions</string>
+    <string name="chat_list_empty">No conversations yet. Start one with “New chat”.</string>
+    <string name="chat_pinned">Pinned</string>
+    <string name="chat_folder_title">Where should this chat run?</string>
+    <string name="chat_folder_memory">Memory (default)</string>
+    <string name="chat_folder_memory_sub">Notes, tasks and daily logs</string>
+    <string name="chat_folder_allowed">Allowed folder</string>
+    <string name="chat_folder_start">Start</string>
+    <string name="chat_folder_none">The computer named no folder to work in.</string>
+    <string name="chat_memory_label">Memory</string>
+    <string name="chat_you">You</string>
+    <string name="chat_working">Working… %1$s</string>
+    <string name="chat_elsewhere">The computer is still working on this. The answer appears here when it is ready. %1$s</string>
+    <string name="chat_elsewhere_queued">Your message waits on the computer until the run before it has ended. %1$s</string>
+    <string name="chat_elsewhere_unreachable">The computer does not answer right now. The app keeps asking; a run that was started goes on there.</string>
+    <string name="chat_incomplete">This answer was cut off.</string>
+    <string name="chat_older">Earlier messages are on the computer.</string>
+    <string name="chat_open_sessions">Open sessions</string>
+    <string name="chat_dismiss">Dismiss</string>
+    <string name="chat_fail_not_reached">Not sent: the computer cannot be reached right now. Your message is back in the box below; send it when the connection is back.</string>
+    <string name="chat_fail_no_answer">The computer did not answer. The message may still have arrived: if it did, the conversation is listed under Sessions. It is not sent again by itself.</string>
+    <string name="chat_fail_not_delivered">This message did not arrive on the computer.</string>
+    <string name="chat_fail_in_use">This session is open on the computer right now, so it cannot be continued from the phone. Close it there, then send again.</string>
+    <string name="chat_fail_busy">The computer is busy with other runs. Try again in a moment.</string>
+    <string name="chat_fail_folder_gone">This session\'s folder no longer exists or is no longer an allowed folder.</string>
+    <string name="chat_fail_session_gone">The computer no longer has this conversation. Your next message starts a new one in the same folder.</string>
+    <string name="chat_fail_capable_off">Making changes is switched off on the computer right now: its safety check has not passed for the installed version. Ask without changes, or try again later.</string>
+    <string name="chat_fail_not_set_up">The assistant is not set up on the computer.</string>
+    <string name="chat_fail_too_long">The run took too long and the computer stopped it. What was written until then is above.</string>
+    <string name="chat_fail_stopped">The run was stopped on the computer.</string>
+    <string name="chat_fail_too_large">This message is longer than the computer accepts.</string>
+    <string name="chat_fail_not_paired">This phone is no longer paired with the computer.</string>
+    <string name="chat_fail_failed">The run failed on the computer.</string>
+    <string name="sessions_search">Search sessions</string>
+    <string name="sessions_by_folder">By folder</string>
+    <string name="sessions_automatic">automatic</string>
+    <string name="sessions_empty">No sessions in the allowed folders yet.</string>
+    <string name="sessions_none_found">No session matches.</string>
+    <string name="sessions_working">Working</string>
+    <string name="sessions_untitled">Untitled session</string>
 </resources>

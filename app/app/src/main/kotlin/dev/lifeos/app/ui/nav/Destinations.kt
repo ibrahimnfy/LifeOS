@@ -22,6 +22,11 @@ object Routes {
     const val SECTION = "more/section/{section}"
     const val SECTION_ARG = "section"
 
+    // Chat and sessions: the Chat tab is the list, the conversation and the sessions sit below it.
+    const val CHAT_THREAD = "chat/thread"
+    const val CHAT_SESSIONS = "chat/sessions"
+    const val SESSIONS = "more/sessions"
+
     fun course(id: Long): String = "more/course/$id"
 
     /** Note ids are letters, digits and dashes (the bridge checks this); encoded all the same. */
@@ -29,6 +34,7 @@ object Routes {
 
     /** Sections that are built have their own screen; the others share the placeholder. */
     fun section(section: MoreSection): String = when (section) {
+        MoreSection.SESSIONS -> SESSIONS
         MoreSection.NOTES -> NOTES
         MoreSection.CALENDAR -> CALENDAR
         MoreSection.COURSES -> COURSES

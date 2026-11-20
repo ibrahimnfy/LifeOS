@@ -40,6 +40,9 @@ import dev.lifeos.app.ui.components.LocalLooks
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
+import dev.lifeos.app.ui.screens.ChatListScreen
+import dev.lifeos.app.ui.screens.NewChatSheet
+import dev.lifeos.app.ui.screens.SessionsScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
 import dev.lifeos.app.ui.screens.AllGradesScreen
 import dev.lifeos.app.ui.screens.AllTasksScreen
@@ -117,6 +120,16 @@ fun LifeOsApp(
         }
     }
 
+    // Chat: the conversation is one for the whole app; it opens on the Chat tab, above the list.
+    var newChatOpen by rememberSaveable { mutableStateOf(false) }
+    val openChat: () -> Unit = {
+        if (Tab.forRoute(navController.currentDestination?.route) != Tab.CHAT) navController.openTab(Tab.CHAT)
+        navController.navigate(Routes.CHAT_THREAD) {
+            popUpTo(Routes.CHAT)
+            launchSingleTop = true
+        }
+    }
+
     val undoLabel = stringResource(R.string.action_undo)
     val showUndo: (String, () -> Unit) -> Unit = { message, onUndo ->
         scope.launch {
@@ -172,7 +185,40 @@ fun LifeOsApp(
                     onConnectionClick = openSettings,
                 )
             }
-            composable(Routes.CHAT) { ChatScreen(onConnectionClick = openSettings) }
+            composable(Routes.CHAT) {
+                ChatListScreen(
+                    core = core,
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                    onOpenChat = openChat,
+                    onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
+                    onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
+                    onNewChat = { newChatOpen = true },
+                )
+            }
+            composable(Routes.CHAT_THREAD) {
+                ChatScreen(
+                    core = core,
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                    onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
+                    onNewChat = { newChatOpen = true },
+                )
+            }
+            // The same list from the Chat tab and from More.
+            listOf(Routes.CHAT_SESSIONS, Routes.SESSIONS).forEach { route ->
+                composable(route) {
+                    SessionsScreen(
+                        core = core,
+                        onBack = { navController.popBackStack() },
+                        onConnectionClick = openSettings,
+                        onPair = openPair,
+                        onOpenChat = openChat,
+                        onNewChat = { newChatOpen = true },
+                    )
+                }
+            }
             composable(Routes.TASKS) {
                 TasksScreen(
                     core = core,
@@ -273,6 +319,22 @@ fun LifeOsApp(
         }
     }
 
+    }
+
+    if (newChatOpen && !locked) {
+        NewChatSheet(
+            core = core,
+            onDismiss = { newChatOpen = false },
+            onPair = {
+                newChatOpen = false
+                openPair()
+            },
+            onStart = { folder ->
+                newChatOpen = false
+                core.chat.newChat(folder)
+                openChat()
+            },
+        )
     }
 
     // Sheets are windows of their own: while the app is locked none may be open above the lock screen.

@@ -43,7 +43,7 @@
 
     <!-- Chat -->
     <string name="chat_empty_title">İstediğini sor</string>
-    <string name="chat_empty_text">Asistan bilgisayarında çalışır. Mesaj gönderme sonraki bir adımda gelecek.</string>
+    <string name="chat_empty_text">Asistan bilgisayarında çalışır ve burada cevap verir.</string>
     <string name="chat_prompt_1">Bugün neye odaklanmalıyım?</string>
     <string name="chat_prompt_2">Proje Alfa için hâlâ açık olan ne var?</string>
     <string name="chat_prompt_3">Bu haftaki notlarımı özetle</string>
@@ -412,4 +412,50 @@
 
     <string name="action_undo">Geri al</string>
     <string name="tasks_done_message">Tamamlandı olarak işaretlendi</string>
+
+    <!-- Chat and sessions (#33) -->
+    <string name="chat_new">Yeni sohbet</string>
+    <string name="chat_current">Açık sohbet</string>
+    <string name="chat_current_new">Yeni konuşma</string>
+    <string name="chat_recent">Son sohbetler</string>
+    <string name="chat_all_sessions">Tüm oturumlar</string>
+    <string name="chat_list_empty">Henüz konuşma yok. “Yeni sohbet” ile başlat.</string>
+    <string name="chat_pinned">Sabitlendi</string>
+    <string name="chat_folder_title">Bu sohbet nerede çalışsın?</string>
+    <string name="chat_folder_memory">Hafıza (varsayılan)</string>
+    <string name="chat_folder_memory_sub">Notlar, görevler ve günlükler</string>
+    <string name="chat_folder_allowed">İzin verilen klasör</string>
+    <string name="chat_folder_start">Başlat</string>
+    <string name="chat_folder_none">Bilgisayar çalışılacak bir klasör bildirmedi.</string>
+    <string name="chat_memory_label">Hafıza</string>
+    <string name="chat_you">Sen</string>
+    <string name="chat_working">Çalışıyor… %1$s</string>
+    <string name="chat_elsewhere">Bilgisayar bunun üzerinde hâlâ çalışıyor. Cevap hazır olunca burada görünecek. %1$s</string>
+    <string name="chat_elsewhere_queued">Mesajın, önündeki çalışma bitene kadar bilgisayarda bekliyor. %1$s</string>
+    <string name="chat_elsewhere_unreachable">Bilgisayar şu an cevap vermiyor. Uygulama sormaya devam ediyor; başlamış bir çalışma orada sürer.</string>
+    <string name="chat_incomplete">Bu cevap yarıda kesildi.</string>
+    <string name="chat_older">Daha eski mesajlar bilgisayarda.</string>
+    <string name="chat_open_sessions">Oturumları aç</string>
+    <string name="chat_dismiss">Kapat</string>
+    <string name="chat_fail_not_reached">Gönderilmedi: bilgisayara şu an ulaşılamıyor. Mesajın aşağıdaki kutuya geri kondu; bağlantı gelince gönder.</string>
+    <string name="chat_fail_no_answer">Bilgisayar cevap vermedi. Mesaj yine de ulaşmış olabilir: ulaştıysa konuşma Oturumlar altında listelenir. Kendiliğinden yeniden gönderilmez.</string>
+    <string name="chat_fail_not_delivered">Bu mesaj bilgisayara ulaşmadı.</string>
+    <string name="chat_fail_in_use">Bu oturum şu an bilgisayarda açık, bu yüzden telefondan devam ettirilemiyor. Orada kapat, sonra yeniden gönder.</string>
+    <string name="chat_fail_busy">Bilgisayar başka çalışmalarla meşgul. Birazdan yeniden dene.</string>
+    <string name="chat_fail_folder_gone">Bu oturumun klasörü artık yok ya da artık izin verilen bir klasör değil.</string>
+    <string name="chat_fail_session_gone">Bu konuşma artık bilgisayarda yok. Bir sonraki mesajın aynı klasörde yeni bir konuşma başlatır.</string>
+    <string name="chat_fail_capable_off">Değişiklik yapma şu an bilgisayarda kapalı: güvenlik denetimi kurulu sürüm için geçmedi. Değişiklik istemeden sor ya da daha sonra yeniden dene.</string>
+    <string name="chat_fail_not_set_up">Asistan bilgisayarda kurulu değil.</string>
+    <string name="chat_fail_too_long">Çalışma çok uzun sürdü ve bilgisayar onu durdurdu. O ana kadar yazılanlar yukarıda.</string>
+    <string name="chat_fail_stopped">Çalışma bilgisayarda durduruldu.</string>
+    <string name="chat_fail_too_large">Bu mesaj bilgisayarın kabul ettiğinden uzun.</string>
+    <string name="chat_fail_not_paired">Bu telefon artık bilgisayarla eşleşmiş değil.</string>
+    <string name="chat_fail_failed">Çalışma bilgisayarda başarısız oldu.</string>
+    <string name="sessions_search">Oturumlarda ara</string>
+    <string name="sessions_by_folder">Klasöre göre</string>
+    <string name="sessions_automatic">otomatik</string>
+    <string name="sessions_empty">İzin verilen klasörlerde henüz oturum yok.</string>
+    <string name="sessions_none_found">Eşleşen oturum yok.</string>
+    <string name="sessions_working">Çalışıyor</string>
+    <string name="sessions_untitled">Adsız oturum</string>
 </resources>
