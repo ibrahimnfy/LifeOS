@@ -71,6 +71,22 @@ def test_add_list_remove(client, auth, project, isolated_config, notifications):
     notes = notifications.read_text().splitlines()
     assert len(notes) == 2 and "added" in notes[0] and "removed" in notes[1]
     assert str(project) not in notifications.read_text(), "notifications must not contain the path"
+    audited = [
+        (entry["tool"], entry["detail"])
+        for path in (isolated_config / "audit").glob("*.jsonl")
+        for entry in map(json.loads, path.read_text().splitlines())
+    ]
+    assert audited == [
+        ("AllowedPathAdded", {"path": str(project)}),
+        ("AllowedPathRemoved", {"path": str(project)}),
+    ]
+
+
+def test_no_change_without_its_audit_record(client, auth, project, isolated_config):
+    (isolated_config / "audit").write_text("not a folder")
+    refused = request(client, auth, "POST", project)
+    assert refused.status_code == 503 and refused.json()["error"] == "audit_unavailable"
+    assert client.get("/allowed-paths", headers=auth).json()["paths"] == []
 
 
 def test_change_applies_without_restart(client, auth, project, write_session):

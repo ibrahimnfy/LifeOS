@@ -16,10 +16,9 @@ import secrets
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
-from . import capable, gate
+from . import audit
 from .claude import ClaudeError
 from .config import Settings
 
@@ -66,17 +65,9 @@ def refusal(settings: Settings, path: Path) -> str | None:
 
 def _audit(action: str, session_id: str, detail: dict) -> None:
     """Offers and downloads are recorded with name and size, never content or path."""
-    entry = {
-        "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
-        "session_id": session_id,
-        "cwd": "",
-        "tool": action,
-        "detail": detail,
-        "decision": "allowed",
-    }
     try:
-        gate.write_audit(capable.audit_dir(), entry)
-    except OSError as exc:
+        audit.record(action, detail, session_id=session_id)
+    except audit.AuditUnavailable as exc:
         raise ClaudeError(
             "audit_unavailable", 503, "the audit log cannot be written; no file is offered"
         ) from exc
@@ -133,11 +124,12 @@ class Offers:
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
         return text, cards, refused
 
-    def for_path(self, path: Path, session_id: str) -> Offer:
+    def for_path(self, path: Path, session_id: str, extra: dict | None = None) -> Offer:
         """Offer one file the bridge itself chose (a synced course file), after the same checks.
 
         ``session_id`` is the name the download must be asked with, as for
-        any offer. Raises ``file_unavailable`` when the file may not be sent.
+        any offer; ``extra`` goes into the audit record (a course id).
+        Raises ``file_unavailable`` when the file may not be sent.
         """
         now = time.time()
         self._sweep(now)
@@ -158,7 +150,7 @@ class Offers:
             mimetypes.guess_type(path.name)[0] or "application/octet-stream",
             now + OFFER_SECONDS,
         )
-        _audit("FileOffer", session_id, {"name": offer.name, "size": offer.size})
+        _audit("FileOffer", session_id, {**(extra or {}), "name": offer.name, "size": offer.size})
         self._offers[offer.id] = offer
         return offer
 

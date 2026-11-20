@@ -9,6 +9,7 @@ import dataclasses
 import io
 import json
 import logging
+import shutil
 import subprocess
 import time
 import urllib.parse
@@ -29,6 +30,7 @@ TS = int(NOW.timestamp())
 DAY = 86400
 A, B = 5, 7
 FOLDER_A, FOLDER_B = "ex-101-5", "ex-102-7"
+COMMIT = "Sync courses from the university platform"
 
 
 def file_url(name):
@@ -48,6 +50,65 @@ def resource(module_id, name, *entries):
         "visible": 1,
         "contents": list(entries),
     }
+
+
+def chapter_path(chapter):
+    return f"/webservice/pluginfile.php/12/mod_book/chapter/{chapter}/index.html"
+
+
+def book_module(module_id, name, chapters):
+    """A book as core_course_get_contents lists it: a table of contents, one index.html per chapter."""
+    toc, last = [], None
+    for chapter, title, level in chapters:
+        item = {
+            "title": title,
+            "href": f"{chapter}/index.html",
+            "level": level,
+            "hidden": "0",
+            "subitems": [],
+        }
+        if level and last is not None:
+            last["subitems"].append(item)
+        else:
+            toc.append(item)
+            last = item
+    contents = [
+        {
+            "type": "content",
+            "filename": "structure",
+            "filepath": "/",
+            "filesize": 0,
+            "fileurl": None,
+            "content": json.dumps(toc),
+            "timemodified": TS - DAY,
+        }
+    ]
+    for chapter, title, _level in chapters:
+        contents.append(
+            {
+                "type": "file",
+                "filename": "index.html",
+                "filepath": f"/{chapter}/",
+                "filesize": 0,
+                "fileurl": SITE + chapter_path(chapter),
+                "timemodified": TS - DAY,
+                "content": title,
+            }
+        )
+    return {"id": module_id, "name": name, "modname": "book", "visible": 1, "contents": contents}  # fmt: skip
+
+
+PAGE_HTML = (
+    "<h2>Overview</h2><p>Watch <a href='https://video.example.invalid/watch?v=1'>the intro video</a> "
+    "and read <a href='https://docs.example.invalid/guide?token=leak&amp;x=1'>the guide</a>.</p>"
+    "<ul><li>first point</li><li>second <b>point</b></li></ul>"
+    "<iframe title='Lecture 1' src='https://video.example.invalid/embed/2'></iframe>"
+    "<script>alert(1)</script><p>--- not a rule</p><a href='javascript:x()'>bad</a>"
+)
+CHAPTER_ONE = (
+    "<html><head><title>Example book</title></head><body><p>Chapter text.</p>"
+    "<video src='https://video.example.invalid/clip.mp4'></video></body></html>"
+)
 
 
 def discussion(number, subject, message, created):
@@ -72,6 +133,7 @@ class Site:
 
     def __init__(self):
         self.calls, self.asked = [], []
+        self.submitted, self.status_asked = {43}, []
         self.down = False
         self.refuse = set()
         self.token = TOKEN
@@ -92,7 +154,8 @@ class Site:
                     {"id": 25, "name": "Reading", "modname": "folder", "contents": [
                         file_entry("reading.pdf", 300),
                         {"type": "url", "filename": "Outside reading", "fileurl": "https://read.example.invalid/x"},
-                        {"type": "url", "filename": "Bad link", "fileurl": "javascript:alert(1)"}]}]}],
+                        {"type": "url", "filename": "Bad link", "fileurl": "javascript:alert(1)"}]},
+                    book_module(28, "Example book", [(301, "First chapter", 0), (302, "A sub chapter", 1)])]}],
             B: [{"id": 3, "section": 0, "name": "General", "modules": [
                     resource(31, "Sheet", file_entry("sheet.pdf", 500))]}],
         }  # fmt: skip
@@ -126,7 +189,18 @@ class Site:
             {"courseid": A, "grade": "70.00", "rawgrade": "70"},
             {"courseid": B, "grade": "-"},
         ]
-        self.bodies = {}
+        self.bodies = {
+            chapter_path(301): CHAPTER_ONE.encode(),
+            chapter_path(302): b"<p>Sub chapter text with the <a href='https://read.example.invalid/x'>outside reading</a>.</p>",
+        }  # fmt: skip
+        self.text_pages = [
+            {"id": 501, "coursemodule": 27, "course": A, "name": "A page", "intro": "<p>ignored</p>",
+             "content": PAGE_HTML, "revision": 1, "timemodified": TS - DAY},
+        ]  # fmt: skip
+        self.books = [
+            {"id": 601, "coursemodule": 28, "course": A, "name": "Example book", "intro": "",
+             "revision": 3, "timemodified": TS - DAY},
+        ]  # fmt: skip
 
     def post(self, url, data, content_type):
         fields = dict(urllib.parse.parse_qsl(data.decode()))
@@ -167,8 +241,14 @@ class Site:
         if function == "mod_forum_get_forum_discussions":
             assert (fields["sortorder"], fields["page"], fields["perpage"]) == ("3", "0", "100")
             return {"discussions": self.discussions[int(fields["forumid"])], "warnings": []}
+        if function == "mod_page_get_pages_by_courses":
+            assert fields["courseids[0]"] == str(A)
+            return {"pages": copy.deepcopy(self.text_pages), "warnings": []}
+        if function == "mod_book_get_books_by_courses":
+            return {"books": copy.deepcopy(self.books), "warnings": []}
         if function == "mod_assign_get_submission_status":
-            status = "submitted" if fields["assignid"] == "43" else "new"
+            self.status_asked.append(int(fields["assignid"]))
+            status = "submitted" if int(fields["assignid"]) in self.submitted else "new"
             return {"lastattempt": {"submission": {"status": status}, "graded": False,
                                     "gradingstatus": "notgraded"}}  # fmt: skip
         raise AssertionError(function)
@@ -180,7 +260,7 @@ class Site:
         parts = urllib.parse.urlsplit(address)
         assert ("token", TOKEN) in urllib.parse.parse_qsl(parts.query)
         name = urllib.parse.unquote(parts.path.rsplit("/", 1)[-1])
-        body = self.bodies.get(name, f"content of {name}".encode())
+        body = self.bodies.get(parts.path, self.bodies.get(name, f"content of {name}".encode()))
         response = io.BytesIO(body)
         response.headers = {"Content-Length": str(len(body))}
         return response
@@ -322,15 +402,27 @@ def test_first_sync_writes_folders_files_and_memory_without_news(
     script, lines = notified
     result = sync(folder, script=script, brain=brain)
     assert tree(folder) == [
-        f"{FOLDER_A}/announcements.md", f"{FOLDER_A}/grades.md", f"{FOLDER_A}/links.md",
+        f"{FOLDER_A}/announcements.md",
+        f"{FOLDER_A}/assignments/example-homework-part-1-41.md",
+        f"{FOLDER_A}/assignments/old-example-homework-42.md",
+        f"{FOLDER_A}/grades.md", f"{FOLDER_A}/links.md",
         f"{FOLDER_A}/materials/notes.pdf", f"{FOLDER_A}/materials/reading.pdf",
         f"{FOLDER_A}/materials/slides.pdf",
-        f"{FOLDER_B}/announcements.md", f"{FOLDER_B}/grades.md", f"{FOLDER_B}/links.md",
+        f"{FOLDER_A}/pages/a-page-27.md", f"{FOLDER_A}/pages/example-book-28.md",
+        f"{FOLDER_B}/announcements.md", f"{FOLDER_B}/assignments/example-report-43.md",
+        f"{FOLDER_B}/grades.md", f"{FOLDER_B}/links.md",
         f"{FOLDER_B}/materials/sheet.pdf",
     ]  # fmt: skip
     assert (folder / FOLDER_A / "materials" / "notes.pdf").read_bytes() == b"content of notes.pdf"
     assert result["first"] and result["courses"] == 2 and result["downloaded"] == 4
-    assert result["new"] == {"files": 0, "announcements": 0, "deadlines": 0, "grades": 0}
+    assert result["pages"] == 2 and result["page_errors"] == 0
+    assert result["new"] == {
+        "files": 0,
+        "pages": 0,
+        "announcements": 0,
+        "deadlines": 0,
+        "grades": 0,
+    }
     assert result["announcements"] == 2 and result["grade_items"] == 4 and result["links"] == 2
     assert result["part_errors"] == 0 and result["memory"] == "ok" and result["memory_commit"]
     assert lines() == ["LifeOS: new in your courses|Courses were synced for the first time.|"]
@@ -362,6 +454,68 @@ def test_links_announcements_and_grades_files(site, configured, folder):
     )
     assert "No announcements." in (folder / FOLDER_B / "announcements.md").read_text()
     assert "Overall: none yet" in (folder / FOLDER_B / "grades.md").read_text()
+
+
+def test_pages_and_books_become_markdown_files(site, configured, folder):
+    sync(folder)
+    page = (folder / FOLDER_A / "pages" / "a-page-27.md").read_text()
+    assert page.startswith("# A page\n\n<!-- Written by the LifeOS bridge")
+    assert "Page of the course Example course A." in page
+    assert "## Overview\n\nWatch [the intro video](https://video.example.invalid/watch?v=1)" in page
+    assert "[the guide](https://docs.example.invalid/guide?x=1)" in page
+    assert "- first point\n- second **point**" in page
+    assert "[Lecture 1](https://video.example.invalid/embed/2)" in page
+    assert "\\--- not a rule" in page and "alert" not in page and "javascript" not in page
+    assert "leak" not in page and "ignored" not in page  # no token parameter; no intro
+    book = (folder / FOLDER_A / "pages" / "example-book-28.md").read_text()
+    first, sub = book.index("## First chapter"), book.index("### A sub chapter")
+    assert first < sub and "Chapter text." in book and "<title>" not in book
+    assert book.count("Example book") == 1  # the title of the chapter's HTML head is dropped
+    assert "Sub chapter text with the [outside reading](https://read.example.invalid/x)." in book
+    links = (folder / FOLDER_A / "links.md").read_text()
+    inner = links[links.index("## In pages and books") :]
+    assert inner.splitlines()[2:] == [
+        "- the guide: <https://docs.example.invalid/guide?x=1> (from: A page)",
+        "- Lecture 1: <https://video.example.invalid/embed/2> (from: A page)",
+        "- Embedded media: <https://video.example.invalid/clip.mp4> (from: Example book)",
+    ]  # links already on the course page are not repeated
+    assert links.count("https://video.example.invalid/watch?v=1") == 1
+    assert links.count("https://read.example.invalid/x") == 1
+
+
+def test_changed_pages_are_rewritten_and_count_as_new(site, configured, folder, notified):
+    script, lines = notified
+    sync(folder, script=script)
+    site.asked.clear()
+    assert sync(folder, when=later(7))["new"]["pages"] == 0
+    assert site.asked == []  # an unchanged book is not fetched again
+    site.text_pages[0].update(content="<p>New text</p>", revision=2)
+    site.books[0]["revision"] = 4
+    site.bodies[chapter_path(301)] = b"<p>Rewritten chapter.</p>"
+    result = sync(folder, when=later(14), script=script)
+    assert result["new"]["pages"] == 2 and lines()[-1].endswith("|2 new pages.|")
+    assert "New text" in (folder / FOLDER_A / "pages" / "a-page-27.md").read_text()
+    assert "Rewritten chapter." in (folder / FOLDER_A / "pages" / "example-book-28.md").read_text()
+    assert sorted(site.downloads()) == ["index.html", "index.html"]
+    links = (folder / FOLDER_A / "links.md").read_text()
+    assert "docs.example.invalid" not in links  # the link left the page, and links.md
+    site.text_pages[0]["revision"] = 3  # a new revision with the same text is not news
+    assert sync(folder, when=later(21))["new"]["pages"] == 0
+    site.text_pages.append({"id": 502, "coursemodule": 29, "course": A, "name": "Second page",
+                            "content": "<p>x</p>", "revision": 1, "timemodified": TS})  # fmt: skip
+    assert sync(folder, when=later(28))["new"]["pages"] == 1
+
+
+def test_html_to_markdown_keeps_structure_and_drops_scripts():
+    text, links = moodle.to_markdown(
+        "<h1>T</h1><ol><li>a</li><li>b<ul><li>c</li></ul></li></ol><pre>x  y</pre>"
+        "<p><code>z</code> <i>w</i> <img alt='A chart'> <a href='/relative'>r</a></p>"
+        "<style>p{}</style><a href='https://e.example.invalid/?wstoken=s&amp;q=1'>[x]</a>"
+    )
+    assert text.startswith("## T\n\n1. a\n2. b\n  - c")
+    assert "```\nx  y\n```" in text and "`z` _w_ [image: A chart] r" in text
+    assert links == [{"name": "[x]", "url": "https://e.example.invalid/?q=1"}]
+    assert "[(x)](https://e.example.invalid/?q=1)" in text and "p{}" not in text
 
 
 def test_memory_gets_course_files_index_lines_and_one_commit(site, configured, folder, brain):
@@ -402,6 +556,82 @@ def test_upcoming_deadlines_become_calendar_events(site, configured, folder, bra
     assert not any("Old example" in e.title or "is due" in e.title for e in events)
 
 
+def homework_task(brain):
+    return memory.task_with_field(brain, "assignment", "moodle-41")
+
+
+def test_open_assignments_become_tasks_once(site, configured, folder, brain, monkeypatch):
+    from lifeos_bridge import claude
+
+    async def refuse(*args, **kwargs):
+        raise AssertionError("the sync started a model run")
+
+    monkeypatch.setattr(claude, "_start", refuse)
+    result = sync(folder, brain=brain)
+    assert result["tasks_written"] == 1 and commits(brain)[0] == COMMIT
+    (task,) = memory.list_tasks(brain)  # the past one and the submitted one get none
+    due = datetime.fromtimestamp(TS + 3 * DAY).astimezone().date().isoformat()
+    assert task.title == "EX 101: Example homework [part 1]"
+    assert task.fields == {"due": due, "course": FOLDER_A, "assignment": "moodle-41",
+                           "added": NOW.astimezone().date().isoformat()}  # fmt: skip
+    assert task.as_json()["assignment"] == "moodle-41"
+    assert len(memory.all_events(brain)) == 3  # the deadline events stay as they are
+    assert state()["courses"][str(A)]["assignments"][0]["task"] == task.id
+    # Lost state: the task is found again by its field, never duplicated.
+    ms.state_path().unlink()
+    sync(folder, when=later(7), brain=brain)
+    assert [t.id for t in memory.list_tasks(brain)] == [task.id]
+    assert git(brain, "status", "--porcelain") == ""
+
+
+def test_a_submitted_assignment_completes_its_task(site, configured, folder, brain):
+    sync(folder, brain=brain)
+    site.submitted.add(41)
+    result = sync(folder, when=later(7), brain=brain)
+    assert result["tasks_written"] == 1 and memory.list_tasks(brain) == []
+    done = homework_task(brain)
+    assert done.done and done.fields["done"] == later(7).astimezone().date().isoformat()
+    assert commits(brain)[0] == COMMIT and git(brain, "status", "--porcelain") == ""
+    before = len(commits(brain))
+    again = sync(folder, when=later(14), brain=brain)
+    assert again["tasks_written"] == 0 and len(commits(brain)) == before
+
+
+def test_a_task_the_owner_closed_or_removed_stays_that_way(site, configured, folder, brain):
+    sync(folder, brain=brain)
+    memory.complete_task(brain, homework_task(brain).id)
+    site.assignments[A][0]["duedate"] = TS + 5 * DAY  # the site moves the deadline
+    result = sync(folder, when=later(7), brain=brain)
+    assert result["tasks_written"] == 0 and memory.list_tasks(brain) == []  # not reopened
+    assert state()["courses"][str(A)]["assignments"][0]["task_closed"] == "owner"
+    # Removed by hand: never created again.
+    (brain / "tasks-done.md").write_text("# Finished tasks\n\n")
+    sync(folder, when=later(14), brain=brain)
+    assert homework_task(brain) is None and memory.list_tasks(brain) == []
+
+
+def test_an_open_task_gets_its_hand_in_state_first(site, configured, folder, brain, monkeypatch):
+    sync(folder, brain=brain)
+    monkeypatch.setattr(ms, "MAX_STATUS_CALLS", 1)
+    site.status_asked.clear()
+    site.submitted.add(41)
+    sync(folder, when=later(7), brain=brain)
+    assert site.status_asked == [41] and homework_task(brain).done
+
+
+def test_assignments_name_their_task(site, configured, folder, brain, settings_, auth):
+    sync(folder, brain=brain)
+    client = TestClient(create_app(settings_))
+    listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
+    task = next(a for a in listing if a["id"] == 41)["task"]
+    assert task == homework_task(brain).id
+    assert next(a for a in listing if a["id"] == 42)["task"] is None
+    tasks = client.get("/tasks", headers=auth).json()["tasks"]
+    assert [(t["id"], t["assignment"], t["course"]) for t in tasks] == [
+        (task, "moodle-41", FOLDER_A)
+    ]
+
+
 def test_a_second_sync_without_changes_does_nothing(site, configured, folder, brain, notified):
     script, lines = notified
     sync(folder, script=script, brain=brain)
@@ -440,13 +670,20 @@ def test_second_sync_fetches_and_reports_only_what_changed(
     assert (
         folder / FOLDER_A / "materials" / "slides.pdf"
     ).read_bytes() == b"second version of the slides"
-    assert result["new"] == {"files": 2, "announcements": 1, "deadlines": 1, "grades": 1}
+    assert result["new"] == {
+        "files": 2,
+        "pages": 0,
+        "announcements": 1,
+        "deadlines": 1,
+        "grades": 1,
+    }
     assert lines()[1:] == [
         "LifeOS: new in your courses|2 new files, 1 announcement, 1 deadline, 1 grade.|"
     ]
     stored = state()
     assert stored["courses"][str(A)]["new"] == {
         "files": 2,
+        "pages": 0,
         "announcements": 1,
         "deadlines": 1,
         "grades": 1,
@@ -472,7 +709,9 @@ def test_second_sync_fetches_and_reports_only_what_changed(
         and len(commits(brain)) == 3
     )
     changed = git(brain, "show", "--name-only", "--format=", "HEAD").split()
-    assert sorted(changed) == ["calendar/events.md", f"courses/{FOLDER_A}.md"]
+    assert sorted(changed) == ["calendar/events.md", f"courses/{FOLDER_A}.md", "tasks.md"]
+    (task,) = memory.list_tasks(brain)  # the assignment's task followed the moved due date
+    assert task.fields["due"] == moved.day.isoformat()
     assert "Overall grade: 80.00." in (brain / "courses" / f"{FOLDER_A}.md").read_text()
     assert "Example exam date" in (folder / FOLDER_A / "announcements.md").read_text()
 
@@ -661,7 +900,7 @@ def test_a_course_folder_that_points_outside_gets_nothing(site, configured, fold
     outside.mkdir()
     (folder / FOLDER_B).symlink_to(outside, target_is_directory=True)
     result = sync(folder)
-    assert list(outside.iterdir()) == [] and result["failed"] == 1 and result["write_errors"] == 3
+    assert list(outside.iterdir()) == [] and result["failed"] == 1 and result["write_errors"] == 4
     assert result["downloaded"] == 3
 
 
@@ -717,9 +956,14 @@ def test_failed_downloads_are_retried_and_a_dead_site_is_given_up(
     monkeypatch.setattr(ms, "MAX_FAILURES_IN_A_ROW", 2)
     result = sync(folder)
     assert (result["downloaded"], result["failed"], result["skipped_later"]) == (0, 2, 2)
-    assert len(site.asked) == 2 and TOKEN not in ms.state_path().read_text()
+    files = [a for a in site.asked if "mod_book" not in a]
+    assert len(files) == 2 and TOKEN not in ms.state_path().read_text()
+    assert result["page_errors"] == 1  # the book could not be read: tried again next time
+    assert not (folder / FOLDER_A / "pages" / "example-book-28.md").exists()
     monkeypatch.setattr(moodle, "_open", site.open)
-    assert sync(folder, when=later(7))["downloaded"] == 4
+    again = sync(folder, when=later(7))
+    assert again["downloaded"] == 4 and again["page_errors"] == 0
+    assert (folder / FOLDER_A / "pages" / "example-book-28.md").is_file()
 
 
 # ---- failures -----------------------------------------------------------------------------
@@ -754,13 +998,24 @@ def test_refused_parts_keep_what_was_known(site, configured, folder):
     sync(folder)
     before = state()["courses"][str(A)]
     site.refuse = {"mod_forum_get_forums_by_courses", "gradereport_user_get_grade_items",
-                   "mod_assign_get_assignments", "gradereport_overview_get_course_grades"}  # fmt: skip
+                   "mod_assign_get_assignments", "gradereport_overview_get_course_grades",
+                   "mod_page_get_pages_by_courses", "mod_book_get_books_by_courses"}  # fmt: skip
     site.contents[A][0]["modules"].append(resource(26, "Extra", file_entry("extra.pdf")))
     result = sync(folder, when=later(7))
     after = state()["courses"][str(A)]
-    assert result["part_errors"] == 5 and result["errorcode"] == "nopermission"
-    assert result["new"] == {"files": 1, "announcements": 0, "deadlines": 0, "grades": 0}
-    for part in ("announcements", "grades", "overall", "assignments", "known_grades"):
+    assert result["part_errors"] == 7 and result["errorcode"] == "nopermission"
+    assert result["new"] == {
+        "files": 1,
+        "pages": 0,
+        "announcements": 0,
+        "deadlines": 0,
+        "grades": 0,
+    }
+    assert (
+        result["pages"] == 2
+        and "In pages and books" in (folder / FOLDER_A / "links.md").read_text()
+    )
+    for part in ("announcements", "grades", "overall", "assignments", "known_grades", "texts"):
         assert after[part] == before[part], part
     assert "assign-41" in after["deadlines"] and "example.invalid" not in json.dumps(result)
 
@@ -874,6 +1129,7 @@ ROUTES = [
     ("get", "/courses"), ("get", "/courses/summary"), ("get", "/courses/grades"),
     ("get", "/courses/sync"), ("post", "/courses/refresh"), ("get", "/courses/5/materials"),
     ("get", "/courses/5/announcements"), ("get", "/courses/5/assignments"),
+    ("get", "/courses/5/assignments/41"),
     ("get", "/courses/5/grades"), ("post", "/courses/5/seen"),
     ("post", "/courses/5/files/abc/address"), ("post", "/courses/5/files/abc/offer"),
 ]  # fmt: skip
@@ -906,7 +1162,7 @@ def test_summary_and_list(bridge):
         True,
         True,
     )
-    assert first["new"] == {"files": 2, "announcements": 1, "deadlines": 1, "grades": 1}
+    assert first["new"] == {"files": 2, "pages": 0, "announcements": 1, "deadlines": 1, "grades": 1}
     assert first["next_deadline"]["due"] == TS + 4 * DAY
     assert second["next_deadline"]["name"] == "Example quiz closes" and not second["has_new"]
 
@@ -924,7 +1180,16 @@ def test_materials_announcements_assignments_grades(bridge, folder):
     assert files["slides.pdf"]["size"] == 2500 and files["slides.pdf"]["type"] == "application/pdf"
     assert [link["url"] for link in materials["links"]] == [
         "https://video.example.invalid/watch?v=1", "https://read.example.invalid/x",
+        "https://docs.example.invalid/guide?x=1", "https://video.example.invalid/embed/2",
+        "https://video.example.invalid/clip.mp4",
     ]  # fmt: skip
+    assert [link.get("source") for link in materials["links"]] == [
+        None,
+        None,
+        "page",
+        "page",
+        "book",
+    ]
     (folder / FOLDER_A / "materials" / "notes.pdf").unlink()
     again = bridge("/courses/5/materials").json()["sections"][0]["files"][0]
     assert (again["name"], again["downloaded"]) == ("notes.pdf", False)
@@ -1060,14 +1325,38 @@ def test_the_download_address_is_the_only_place_the_token_appears(bridge, site, 
     assert (parts.scheme, parts.netloc) == ("https", "moodle.example.invalid")
     assert parts.path == "/webservice/pluginfile.php/11/mod_resource/content/1/notes.pdf"
     assert urllib.parse.parse_qsl(parts.query) == [("forcedownload", "1"), ("token", TOKEN)]
-    # Nowhere else: no other endpoint, no state file, no log, no audit entry.
+    # Nowhere else: no other endpoint, no state file, no log, not in the audit log.
     for method, path in [*ROUTES[:-2], ("post", f"/courses/5/files/{key}/offer")]:
         assert TOKEN not in bridge(path, method).text, path
     stored = [p.read_text() for p in configured.rglob("*") if p.is_file() and p.name != "env"]
     assert stored and not any(TOKEN in text for text in stored)
     assert TOKEN not in caplog.text and "pluginfile" not in caplog.text
+    # The audit log has a record of the address (course, name, size), without it.
+    records = [
+        json.loads(line)
+        for path in sorted((configured / "audit").glob("*.jsonl"))
+        for line in path.read_text().splitlines()
+    ]
+    given = [r for r in records if r["tool"] == "CourseFileAddress"]
+    assert [r["detail"] for r in given] == [{"course_id": A, "name": "notes.pdf", "size": 1000}]
+    assert given[0]["session_id"] == f"course-{A}"
+    offered = [r["detail"] for r in records if r["tool"] == "FileOffer"]
+    assert offered == [{"course_id": A, "name": "notes.pdf", "size": 20}]  # the local copy
+    log = "".join(p.read_text() for p in (configured / "audit").glob("*.jsonl"))
+    assert TOKEN not in log and "pluginfile" not in log and SITE not in log
     assert bridge("/courses/5/files/unknown/address", "post").status_code == 404
     assert bridge(f"/courses/7/files/{key}/address", "post").status_code == 404
+
+
+def test_no_address_without_its_audit_record(bridge, configured):
+    key = key_of(bridge, "notes.pdf")
+    shutil.rmtree(configured / "audit", ignore_errors=True)
+    (configured / "audit").write_text("not a folder")  # the log cannot be written
+    refused = bridge(f"/courses/5/files/{key}/address", "post")
+    assert refused.status_code == 503 and refused.json()["error"] == "audit_unavailable"
+    assert TOKEN not in refused.text and "url" not in refused.json()
+    offer = bridge(f"/courses/5/files/{key}/offer", "post")
+    assert offer.status_code == 503 and offer.json()["error"] == "audit_unavailable"
 
 
 def test_the_address_needs_a_working_configuration(bridge, isolated_config):
@@ -1103,6 +1392,104 @@ def test_the_offer_sends_the_computers_copy(bridge, folder):
     assert bridge(f"/courses/5/files/{key}/offer", "post").status_code == 404
     assert bridge(f"/courses/5/files/{key}/offer", "post").json()["error"] == "no_local_copy"
     assert bridge("/courses/5/files/unknown/offer", "post").status_code == 404
+
+
+def brief_entry(name="brief.pdf", size=900, modified=TS - DAY):
+    url = f"{SITE}/webservice/pluginfile.php/13/mod_assign/introattachment/0/{name}"
+    return {"filename": name, "filepath": "/", "filesize": size, "fileurl": url,
+            "timemodified": modified, "mimetype": "application/pdf"}  # fmt: skip
+
+
+def give_homework_in_full(site):
+    site.assignments[A][0].update(
+        cmid=141, allowsubmissionsfromdate=TS - 5 * DAY, cutoffdate=TS + 6 * DAY,
+        gradingduedate=TS + 10 * DAY, timemodified=TS - DAY,
+        intro="<p>Write <b>two</b> pages; see <a href='https://docs.example.invalid/style'>the style guide</a>.</p>",
+        introattachments=[brief_entry()],
+    )  # fmt: skip
+
+
+def test_assignments_in_full_with_their_files(site, configured, folder, brain):
+    give_homework_in_full(site)
+    result = sync(folder, brain=brain)
+    assert result["downloaded"] == 5
+    attached = folder / FOLDER_A / "assignments" / "example-homework-part-1-41" / "brief.pdf"
+    assert attached.read_bytes() == b"content of brief.pdf"
+    text = (folder / FOLDER_A / "assignments" / "example-homework-part-1-41.md").read_text()
+    assert text.startswith("# Example homework (part 1)\n")
+    assert "Assignment of the course Example course A." in text and "- Submission: new" in text
+    assert "Write **two** pages; see [the style guide](https://docs.example.invalid/style)." in text
+    assert "- brief.pdf (`example-homework-part-1-41/brief.pdf`)" in text
+    assert "outside text" in text and "<p>" not in text
+    # The attachment is not a file of the course page: not in Materials, not in the summary.
+    stored = state()["courses"][str(A)]
+    materials = [k for s in stored["sections"] for k in s["files"]]
+    assert all(stored["files"][k]["name"] != "brief.pdf" for k in materials)
+    assert "3 files, 2 links" in (brain / "courses" / f"{FOLDER_A}.md").read_text()
+    # A later sync: the attachment changed, another one was added; both are new files.
+    site.asked.clear()
+    site.assignments[A][0]["introattachments"] = [brief_entry(size=950, modified=TS),
+                                                  brief_entry("data.csv", 50)]  # fmt: skip
+    again = sync(folder, when=later(7))
+    assert sorted(site.downloads()) == ["brief.pdf", "data.csv"] and again["new"]["files"] == 2
+    # Removed on the site: gone from the assignment, the local copy stays.
+    site.assignments[A][0]["introattachments"] = []
+    sync(folder, when=later(14))
+    assert attached.is_file()
+    assert (
+        "Attached files"
+        not in (folder / FOLDER_A / "assignments" / "example-homework-part-1-41.md").read_text()
+    )
+
+
+def test_after_an_upgrade_existing_pages_and_attachments_are_not_news(site, configured, folder):
+    give_homework_in_full(site)
+    sync(folder)
+    # A state written before pages, books and attachments were synced.
+    stored = state()
+    for record in stored["courses"].values():
+        record["parts"] = [p for p in record["parts"] if p not in ("pages", "attachments")]
+        record["files"] = {k: f for k, f in record["files"].items() if f.get("assignment") is None}
+        record.pop("texts", None)
+        for item in record.get("assignments") or []:
+            for name in ("files", "folder", "description", "task"):
+                item.pop(name, None)
+    ms.state_path().write_text(json.dumps(stored))
+    result = sync(folder, when=later(7))
+    assert result["new"] == {"files": 0, "pages": 0, "announcements": 0, "deadlines": 0,
+                             "grades": 0}  # fmt: skip
+
+
+def test_assignment_endpoints(site, configured, folder, settings_, auth, monkeypatch):
+    give_homework_in_full(site)
+    monkeypatch.setattr(time, "time", lambda: float(TS))
+    sync(folder)
+    client = TestClient(create_app(settings_))
+    listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
+    homework = next(a for a in listing if a["id"] == 41)
+    assert set(homework) == {"id", "name", "opens", "opens_iso", "due", "due_iso", "cutoff",
+                             "cutoff_iso", "status", "submitted", "files", "task"}  # fmt: skip
+    assert (homework["opens"], homework["cutoff"], homework["files"]) == (
+        TS - 5 * DAY,
+        TS + 6 * DAY,
+        1,
+    )
+    assert homework["status"]["submission"] == "new" and homework["submitted"] is False
+    detail = client.get("/courses/5/assignments/41", headers=auth).json()
+    assert detail["course"] == "Example course A" and detail["grading_due"] == TS + 10 * DAY
+    assert detail["description"].startswith("Write **two** pages")
+    (brief,) = detail["files"]
+    assert (brief["name"], brief["size"], brief["downloaded"]) == ("brief.pdf", 900, True)
+    # Attached files use the course file routes.
+    card = client.post(f"/courses/5/files/{brief['key']}/offer", headers=auth).json()
+    fetched = client.get(f"/files/{card['offer']}?session_id={card['session_id']}", headers=auth)
+    assert fetched.content == b"content of brief.pdf"
+    address = client.post(f"/courses/5/files/{brief['key']}/address", headers=auth).json()
+    assert "/mod_assign/introattachment/0/brief.pdf" in address["url"]
+    assert client.get("/courses/5/assignments/99", headers=auth).status_code == 404
+    assert client.get("/courses/7/assignments/41", headers=auth).status_code == 404
+    assert TOKEN not in client.get("/courses/5/assignments/41", headers=auth).text
+    assert "fileurl" not in client.get("/moodle/assignments", headers=auth).text
 
 
 def test_the_offer_follows_the_rules_for_files(bridge, settings_, folder, auth):

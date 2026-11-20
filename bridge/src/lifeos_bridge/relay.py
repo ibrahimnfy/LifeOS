@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import threading
 import time
 import urllib.error
@@ -21,7 +22,7 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import devices, e2e, files, google, mailbox, push
+from . import audit, devices, e2e, files, google, mailbox, push
 from .claude import ClaudeError
 from .config import Settings
 
@@ -93,6 +94,34 @@ def _sse_events(response) -> Iterator[tuple[str, object]]:
                     continue
 
 
+REFUSED_ROUTE = "(refused)"
+UNKNOWN_ROUTE = "(unknown)"
+# (compiled path pattern, template) of the bridge's routes, e.g. "/notes/{note_id}".
+RouteTable = list[tuple[re.Pattern[str], str]]
+
+
+def route_table(app) -> RouteTable:
+    """The route templates of the running bridge, to name requests without their ids."""
+    return [
+        (route.path_regex, route.path)
+        for route in getattr(app, "routes", [])
+        if getattr(route, "path_regex", None) is not None
+    ]
+
+
+def route_template(routes: RouteTable, method: object, path: object) -> str:
+    """The template a request matched: never the path itself, which may carry ids."""
+    if path == "/push/token":  # answered by the relay itself
+        return path
+    is_file = isinstance(path, str) and path.startswith("/files/") and "/" not in path[7:]
+    if not is_file and not allowed(method, path):
+        return REFUSED_ROUTE
+    for pattern, template in routes:
+        if pattern.match(str(path)):
+            return template
+    return UNKNOWN_ROUTE
+
+
 def allowed(method: object, path: object) -> bool:
     return (
         method in ALLOWED_METHODS
@@ -105,10 +134,18 @@ def allowed(method: object, path: object) -> bool:
 
 
 class Relay:
-    def __init__(self, box, call_local: LocalCall, offers: files.Offers | None = None) -> None:
+    def __init__(
+        self,
+        box,
+        call_local: LocalCall,
+        offers: files.Offers | None = None,
+        routes: RouteTable | None = None,
+    ) -> None:
         self.box = box
         self.call_local = call_local
         self.offers = offers
+        self.routes = routes or []
+        self._answering = threading.local()  # the status of the request this thread answers
         self.receiver = devices.Receiver()
         self.stop = threading.Event()
         self._listeners: dict[str, threading.Event] = {}
@@ -125,6 +162,8 @@ class Relay:
             blob = devices.seal_to(device_id, kind, request_id, payload)
             key = mailbox.new_key()
             self.box.put(f"lifeos/{device_id.hex()}/p/{key}", mailbox.encode(blob))
+        if kind in (e2e.END, e2e.ERROR) and isinstance(payload, dict):
+            self._answering.status = payload.get("status")
         return key
 
     # -- receiving --------------------------------------------------------------
@@ -140,6 +179,26 @@ class Relay:
         self._pool.submit(self._answer, message)
 
     def _answer(self, message: e2e.Message) -> None:
+        """Answer one request, then record it in the audit log (never its body or query)."""
+        self._answering.status = None
+        try:
+            self._handle(message)
+        finally:
+            request = message.payload if isinstance(message.payload, dict) else {}
+            method = request.get("m")
+            # Best effort: the request has been answered already; a full disk must
+            # not turn every answer into a failure.
+            audit.try_record(
+                "RelayRequest",
+                {
+                    "device": message.header.device_id.hex(),
+                    "method": method if method in ALLOWED_METHODS else "(other)",
+                    "route": route_template(self.routes, method, request.get("path")),
+                    "status": self._answering.status,
+                },
+            )
+
+    def _handle(self, message: e2e.Message) -> None:
         device_id, rid = message.header.device_id, message.request_id
         request = message.payload
         if isinstance(request, dict) and request.get("path") == "/push/token":
@@ -330,12 +389,14 @@ def configured() -> bool:
     ).is_file()
 
 
-def start_if_configured(settings: Settings, offers: files.Offers | None = None) -> Relay | None:
+def start_if_configured(
+    settings: Settings, offers: files.Offers | None = None, routes: RouteTable | None = None
+) -> Relay | None:
     """Start the relay when the owner's Firebase files exist; otherwise the bridge is local only."""
     if not configured():
         return None
     try:
-        relay = Relay(mailbox.Mailbox(), local_api(settings), offers)
+        relay = Relay(mailbox.Mailbox(), local_api(settings), offers, routes)
     except google.FirebaseConfigError:
         return None
     relay.start()

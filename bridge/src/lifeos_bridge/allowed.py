@@ -12,7 +12,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import notifications
+from . import audit, notifications
 from .claude import ClaudeError
 from .config import read_allowed_paths
 from .paths import refusal_reason
@@ -45,6 +45,13 @@ def _write(file: Path, text: str) -> None:
 
 
 def _record(file: Path, action: str, path: Path) -> None:
+    """The change log next to the list, and the audit log. Raises when either fails."""
+    try:
+        audit.record(f"AllowedPath{action.capitalize()}", {"path": str(path)})
+    except audit.AuditUnavailable as exc:
+        raise ClaudeError(
+            "audit_unavailable", 503, "the audit log cannot be written; nothing was changed"
+        ) from exc
     entry = {"ts": datetime.now(UTC).isoformat(timespec="seconds"), "action": action,
              "path": str(path)}  # fmt: skip
     log = file.with_name(CHANGE_LOG_NAME)

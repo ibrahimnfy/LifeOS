@@ -25,7 +25,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from . import moodle, moodle_sync, moodle_watch
+from . import audit, moodle, moodle_sync, moodle_watch
 from .claude import ClaudeError
 
 CACHE_SECONDS = 600
@@ -177,8 +177,10 @@ def _local_copy(record: dict, item: dict) -> Path | None:
     folder = _folder(record)
     if folder is None or not item.get("local"):
         return None
-    path = folder / "materials" / item["local"]
-    return path if path.is_file() and not path.is_symlink() else None
+    path = folder / (item.get("dir") or "materials") / item["local"]
+    if not path.is_file() or path.is_symlink():
+        return None
+    return path if path.resolve().is_relative_to(folder.resolve()) else None
 
 
 def summary_view(state: dict, now_ts: int) -> dict:
@@ -243,7 +245,8 @@ def materials_view(state: dict, record: dict) -> dict:
         "course_id": record["id"],
         "name": record["name"],
         "sections": sections,
-        "links": record.get("links") or [],
+        # The course page's links, then those found in its pages and books ("source").
+        "links": [*(record.get("links") or []), *moodle_sync.text_links(record)],
         **_envelope(state),
     }
 
@@ -263,20 +266,50 @@ def announcements_view(state: dict, record: dict) -> dict:
     return {"course_id": record["id"], "announcements": items, **_envelope(state)}
 
 
+def _assignment_summary(item: dict) -> dict:
+    return {
+        "id": item["id"],
+        "name": item["name"],
+        "opens": item.get("opens"),
+        "opens_iso": moodle.iso(item.get("opens")),
+        "due": item["due"],
+        "due_iso": moodle.iso(item["due"]),
+        "cutoff": item.get("cutoff"),
+        "cutoff_iso": moodle.iso(item.get("cutoff")),
+        "status": item.get("status"),
+        "submitted": (item.get("status") or {}).get("submission") == "submitted",
+        "files": len(item.get("files") or []),
+        "task": item.get("task"),  # the id of its task in the memory (see /tasks), or null
+    }
+
+
 def assignments_view(state: dict, record: dict) -> dict:
-    items = [
-        {
-            "id": item["id"],
-            "name": item["name"],
-            "due": item["due"],
-            "due_iso": moodle.iso(item["due"]),
-            "cutoff_iso": moodle.iso(item["cutoff"]),
-            "status": item.get("status"),
-        }
-        for item in record.get("assignments") or []
-    ]
+    items = [_assignment_summary(item) for item in record.get("assignments") or []]
     items.sort(key=lambda item: (item["due"] is None, item["due"] or 0))
     return {"course_id": record["id"], "assignments": items, **_envelope(state)}
+
+
+def assignment_view(state: dict, record: dict, assignment_id: int) -> dict:
+    """One assignment in full; its files download through the course file routes."""
+    item = next((a for a in record.get("assignments") or [] if a["id"] == assignment_id), None)
+    if item is None:
+        raise ClaudeError("assignment_not_found", 404, "the course has no assignment with this id")
+    files = record.get("files") or {}
+    return {
+        "course_id": record["id"],
+        "course": record["name"],
+        **_assignment_summary(item),
+        "grading_due": item.get("grading_due"),
+        "grading_due_iso": moodle.iso(item.get("grading_due")),
+        "modified_iso": moodle.iso(item.get("modified")),
+        "description": item.get("description") or "",
+        "files": [
+            _file_view(record, key, files[key])
+            for key in item.get("files") or []
+            if key in files and not files[key].get("gone")
+        ],
+        **_envelope(state),
+    }
 
 
 def _grades(record: dict) -> dict:
@@ -296,7 +329,11 @@ def _synced_file(state: dict, course_id: int, key: str) -> tuple[dict, dict]:
 
 
 def download_address(state: dict, course_id: int, key: str) -> dict:
-    """Where the phone can fetch a file directly from the site. **Contains the token.**"""
+    """Where the phone can fetch a file directly from the site. **Contains the token.**
+
+    Recorded in the audit log first (course, name, size; never the address);
+    when the record cannot be written, no address is handed out.
+    """
     item = _synced_file(state, course_id, key)[1]
     try:
         address = moodle.from_env().address_for(item.get("url") or "")
@@ -304,6 +341,17 @@ def download_address(state: dict, course_id: int, key: str) -> dict:
         if error.code == "bad_file_url":
             raise ClaudeError("file_unavailable", 409, error.message) from None
         raise as_claude_error(error) from None
+    try:
+        audit.record(
+            "CourseFileAddress",
+            {"course_id": course_id, "name": item["name"], "size": item.get("size")},
+            session_id=f"course-{course_id}",
+        )
+    except audit.AuditUnavailable:
+        del address  # never handed out without its record
+        raise ClaudeError(
+            "audit_unavailable", 503, "the audit log cannot be written; no address is given"
+        ) from None
     return {
         "url": address,
         "name": item["name"],
@@ -367,6 +415,11 @@ def courses_router() -> APIRouter:
         state = moodle_sync.load_state()
         return assignments_view(state, _record(state, course_id))
 
+    @routes.get("/{course_id}/assignments/{assignment_id}")
+    def assignment(course_id: int, assignment_id: int) -> dict:
+        state = moodle_sync.load_state()
+        return assignment_view(state, _record(state, course_id), assignment_id)
+
     @routes.get("/{course_id}/grades")
     def grades(course_id: int) -> dict:
         state = moodle_sync.load_state()
@@ -394,7 +447,7 @@ def courses_router() -> APIRouter:
         if path is None:
             raise ClaudeError("no_local_copy", 404, "the computer has no copy of this file")
         session_id = f"course-{course_id}"
-        offer = request.app.state.offers.for_path(path, session_id)
+        offer = request.app.state.offers.for_path(path, session_id, {"course_id": course_id})
         return {**offer.card(), "session_id": session_id}
 
     return routes
@@ -424,7 +477,22 @@ def router(api: MoodleApi | None = None) -> APIRouter:
 
     @routes.get("/assignments")
     def moodle_assignments(course: int | None = None, refresh: bool = False) -> dict:
-        return {"assignments": api.assignments(course, refresh)}
+        """Assignments with their dates; no description, attachments without address.
+
+        The description (as Markdown) is served by ``/courses/{id}/assignments/{id}``.
+        """
+        return {
+            "assignments": [
+                {
+                    **{name: value for name, value in item.items() if name != "intro"},
+                    "attachments": [
+                        {name: value for name, value in entry.items() if name != "fileurl"}
+                        for entry in item.get("attachments") or []
+                    ],
+                }
+                for item in api.assignments(course, refresh)
+            ]
+        }
 
     @routes.get("/deadlines")
     def moodle_deadlines(days: int = 30, refresh: bool = False) -> dict:

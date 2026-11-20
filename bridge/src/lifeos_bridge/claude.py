@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import routing
 from .config import Settings
 
 # Temporary policy until the owner decides the permission policy: file
@@ -119,6 +120,7 @@ def build_command(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
 ) -> list[str]:
     command = [settings.claude_bin, "-p"]
     if stream:
@@ -134,6 +136,7 @@ def build_command(
         context=context,
         model=model,
         effort=effort,
+        advisor=advisor,
     )
 
 
@@ -147,6 +150,7 @@ def run_flags(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
 ) -> list[str]:
     """Every restriction and choice of a run. Shared by the ``claude -p`` and the SDK runner."""
     command = [
@@ -176,6 +180,10 @@ def run_flags(
     level = effort or settings.default_effort
     if level:
         command += ["--effort", level]
+    if advisor:
+        # Documented, not listed in --help: the run may consult this stronger
+        # model at hard steps (docs/research/claude-headless.md, "Advisor").
+        command += ["--advisor", advisor]
     if context:
         # The always-loaded part of the memory; passed explicitly, never discovered.
         command += ["--append-system-prompt", context]
@@ -322,9 +330,48 @@ async def run(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
+    job: str = "chat",
     on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
 ) -> RunResult:
-    """Run one read-only prompt to completion and return the answer."""
+    """Run one read-only prompt to completion and return the answer.
+
+    ``job`` names the run for the plan-usage counters (routing.py). When the
+    CLI refuses to start with ``advisor`` (the documented launch error for a
+    pairing or allow-list it does not accept), the run is made once without it.
+    """
+    try:
+        return await _run_once(
+            settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
+            grace=grace, context=context, model=model, effort=effort, advisor=advisor,
+            job=job, on_process=on_process,
+        )  # fmt: skip
+    except ClaudeError as error:
+        if not advisor or error.code != "claude_failed":
+            raise
+    return await _run_once(
+        settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
+        grace=grace, context=context, model=model, effort=effort, advisor=None, job=job,
+        on_process=on_process,
+    )  # fmt: skip
+
+
+async def _run_once(
+    settings: Settings,
+    prompt: str,
+    *,
+    session_id: str,
+    resume: bool,
+    cwd: Path | None,
+    name: str | None,
+    grace: float,
+    context: str | None,
+    model: str | None,
+    effort: str | None,
+    advisor: str | None,
+    job: str,
+    on_process: Callable[[asyncio.subprocess.Process], None] | None,
+) -> RunResult:
     command = build_command(
         settings,
         session_id=session_id,
@@ -334,6 +381,7 @@ async def run(
         context=context,
         model=model,
         effort=effort,
+        advisor=advisor,
     )
     process = await _start(settings, command, cwd or settings.ask_dir)
     if on_process is not None:
@@ -354,6 +402,7 @@ async def run(
         payload = json.loads(stdout)
     except ValueError as exc:
         raise ClaudeError("bad_output", 502, "claude returned an unexpected answer format") from exc
+    routing.record(job, payload, resumed=resume)  # also for a failed run: it used the plan too
     return parse_result(payload)
 
 
@@ -371,6 +420,8 @@ async def stream(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
+    job: str = "chat",
     on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Run one prompt and yield ``(event, data)`` pairs as the answer is written.
@@ -388,6 +439,7 @@ async def stream(
         context=context,
         model=model,
         effort=effort,
+        advisor=advisor,
     )
     process = await _start(settings, command, cwd or settings.ask_dir, capable=policy.capable)
     if on_process is not None:
@@ -418,6 +470,7 @@ async def stream(
                         yield "delta", {"text": str(delta.get("text") or "")}
                 elif event.get("type") == "result":
                     final = event
+                    routing.record(job, event, resumed=resume)
             await process.wait()
             stderr = await stderr_task
     except TimeoutError:

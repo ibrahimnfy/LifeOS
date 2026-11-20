@@ -15,7 +15,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import e2e, notifications, store
+from . import audit, e2e, notifications, store
 from .config import config_dir
 
 # One writer at a time for device records: receiving and sending both update counters.
@@ -145,6 +145,7 @@ def revoke(
         device.push_token = None
         device.revoked_at = int(now if now is not None else time.time())
         save(device)
+        audit.try_record("DeviceRevoked", {"device": device.id.hex()})  # never blocks it
         notifications.send(
             "LifeOS: a phone was unpaired",
             "A paired phone was revoked on the computer.",
@@ -385,6 +386,7 @@ def confirm_pairing(
     device.relay_uid = pending.relay_uid
     save(device)
     _destroy_pending(device_id)
+    audit.try_record("DevicePaired", {"device": device.id.hex()})
     notifications.send(
         "LifeOS: a phone was paired", "A new phone was paired on the computer.", "", notify_script
     )

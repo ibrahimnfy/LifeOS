@@ -150,6 +150,8 @@ def test_token_is_stored_privately_and_other_lines_are_kept(env_file):
     )
     assert env_file.stat().st_mode & 0o777 == 0o600
     assert not (env_file.parent / ml.WATCH_FILE).exists()  # the new token is checked at once
+    audit = "".join(p.read_text() for p in (env_file.parent / "audit").glob("*.jsonl"))
+    assert '"tool": "MoodleSignIn"' in audit and "new-token" not in audit
     ml.store_value("MOODLE_LOGIN_ISSUER", "3")
     ml.store_value("MOODLE_LOGIN_ISSUER", "none")
     assert env_file.read_text() == text + "MOODLE_LOGIN_ISSUER=none\n"

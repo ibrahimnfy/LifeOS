@@ -44,6 +44,7 @@ from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
 
+from . import audit
 from .config import CONFIG_DIR_VAR, ENV_FILE_NAME, config_dir, read_env_file
 from .paths import repo_dir
 
@@ -213,6 +214,7 @@ def store_token(token: str, issuer: str | None = None, today: date | None = None
         values[ISSUER_KEY] = issuer
     store_values(values)
     (config_dir() / WATCH_FILE).unlink(missing_ok=True)
+    audit.try_record("MoodleSignIn", {"stored": "token"})  # never the token itself
 
 
 def check_token(url: str, token: str) -> dict:

@@ -102,6 +102,7 @@ def build_command(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
 ) -> list[str]:
     """The command of a live session: the read-only flags of ``claude -p``, in SDK form."""
     return [
@@ -115,6 +116,7 @@ def build_command(
             context=context,
             model=model,
             effort=effort,
+            advisor=advisor,
         ),
         *INPUT_FLAGS,
     ]
@@ -227,6 +229,7 @@ class Launch:
     model: str | None
     effort: str | None
     context: str | None
+    advisor: str | None = None
 
 
 def result_payload(message: ResultMessage) -> dict:
@@ -284,6 +287,7 @@ class LiveSession:
             context=launch.context,
             model=launch.model,
             effort=launch.effort,
+            advisor=launch.advisor,
         )
         self.transport = InstalledCLITransport(command, launch.cwd, child_env())
         # The options are not applied to a custom transport (the command above
@@ -523,9 +527,12 @@ async def _events(
     model: str | None,
     effort: str | None,
     on_process: Callable[[LiveSession], None] | None,
+    advisor: str | None = None,
 ) -> AsyncIterator[tuple[str, Any]]:
     """``("delta", {...})`` events, then ``("done", RunResult)``; failures raise ClaudeError."""
-    launch = Launch(cwd=cwd or settings.ask_dir, model=model, effort=effort, context=context)
+    launch = Launch(
+        cwd=cwd or settings.ask_dir, model=model, effort=effort, context=context, advisor=advisor
+    )
     live = await pool.session_for(session_id, launch, resume=resume, name=name)
     if on_process is not None:
         on_process(live)
@@ -573,12 +580,14 @@ async def stream(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
     on_process: Callable[[LiveSession], None] | None = None,
 ) -> AsyncIterator[tuple[str, dict]]:
     """Same events as ``claude.stream``: ``delta``s, then one ``done`` or ``error``."""
     events = _events(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
+        advisor=advisor,
     )  # fmt: skip
     try:
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
@@ -615,12 +624,14 @@ async def run(
     context: str | None = None,
     model: str | None = None,
     effort: str | None = None,
+    advisor: str | None = None,
     on_process: Callable[[LiveSession], None] | None = None,
 ) -> RunResult:
     """Same as ``claude.run``: the whole answer, or a ClaudeError."""
     events = _events(
         pool, settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, on_process=on_process,
+        advisor=advisor,
     )  # fmt: skip
     async with contextlib.aclosing(events):
         async for event, payload in events:

@@ -168,6 +168,9 @@ if resume and not transcript.exists():
     print(f"No conversation found with session ID: {resume}", file=sys.stderr)
     sys.exit(1)
 
+if "--advisor" in args and (Path.home() / ".fake-claude-no-advisor").exists():
+    print("Error: the advisor model cannot be used with this model", file=sys.stderr)
+    sys.exit(1)
 if prompt.startswith("FAKE_SLEEP"):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     time.sleep(60)
@@ -198,7 +201,12 @@ result = {
     "num_turns": 1,
     "permission_denials": [],
     "extra_unknown_key": 1,
-}
+    # What a real run reports about its plan usage (fixed numbers here).
+    "usage": {"input_tokens": 100, "output_tokens": 20, "cache_creation_input_tokens": 5,
+              "cache_read_input_tokens": 50},
+    "total_cost_usd": 0.01,
+    "modelUsage": {f"model-{option('--model') or 'default'}": {"inputTokens": 100}},
+}  # fmt: skip
 canned = Path.home() / ".fake-claude-answer"
 if canned.exists():  # tests that need a specific answer write it here
     result["result"] = canned.read_text()
