@@ -187,6 +187,18 @@ class Api(private val transport: Transport) {
     suspend fun runState(sessionId: String): RunState =
         read(RunState.serializer(), chatCall("GET", "/sessions/$sessionId/queue"))
 
+    /** The questions and approvals a run of the session waits for right now. */
+    suspend fun interactions(sessionId: String): List<InteractionData> =
+        read(PendingInteractions.serializer(), chatCall("GET", "/sessions/$sessionId/interactions")).pending
+
+    /**
+     * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours).
+     * `404 not_pending` when the computer no longer waits for it.
+     */
+    suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement) {
+        chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)
+    }
+
     /** Chat's own lane: its small requests wait neither for the screens' loaders nor the other way round. */
     private suspend fun chatCall(method: String, path: String, body: JsonElement? = null): JsonElement =
         chatLane.withLock { exchange(method, path, emptyMap(), body, READ_TIMEOUT_MILLIS) }

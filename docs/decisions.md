@@ -216,3 +216,11 @@ a new entry is added that says what changed and why.
 - **Only the last page of the history is read** (default four exchanges); scrolling further back, the queue, send now and cancel stay with #94. Sending is disabled while an answer is awaited.
 - **"Working" on a session row** is the bridge's `in_use` (it is answering a message of that session). A session open in a terminal is only known from the refusal when a message is sent.
 - **Answers are rendered with a small Markdown subset** written for the app (paragraphs, headings, lists, fenced code, bold, inline code); no library was added. Tables are shown as text.
+
+### Implementation choices for approvals and questions in the app (agent, #53; cheap to change)
+- **Changes are allowed per conversation with a switch above the composer, off by default** ("Read-only" / "Changes allowed"). It sets `mode: capable` for the following messages and is off again after a new chat, another session or a lock of the app. This is how "a capable mode is chosen per request" (#5) is offered on the phone until the owner asks for something else.
+- **Every message opts in to questions and approvals** (`interactive: true`), also read-only ones, so the assistant's question tool gets cards instead of a refusal.
+- **Approval card:** the kind of action in words (from the gate's category), then the command and the folder exactly as the bridge sent them, whole and selectable; a deletion gets a red frame and a warning line. One tap on "Allow" is the confirmation; there is no second dialog. The mockup's sentence with the number of files cannot be built: the bridge sends the command, not a list of files.
+- **The phone never answers by itself.** When the time is over the card closes and nothing is sent; the bridge counts the silence as "no". The countdown runs on the phone's monotonic clock from the bridge's waiting time, so differing wall clocks neither shorten nor lengthen it.
+- **Question cards were built with the same mechanism** (choices, several choices, own words, skip), because a client that opts in must be able to answer them; #98 keeps whatever goes beyond that.
+- **Settled cards stay above the answer that followed them until the next message**, as a record of what was allowed or refused; they are kept in memory only.

@@ -519,9 +519,14 @@ class LifeOsCore(private val app: Application) {
     }
 
     /** The conversation of the Chat tab; it outlives the screens (see [Chat]). */
-    val chat = Chat(api, chatStore, scope, System::currentTimeMillis) {
-        connectionState.value == ConnectionState.CONNECTED || (session != null && check() is TestResult.Ok)
-    }
+    val chat = Chat(
+        api,
+        chatStore,
+        scope,
+        System::currentTimeMillis,
+        reachable = { connectionState.value == ConnectionState.CONNECTED || (session != null && check() is TestResult.Ok) },
+        uptimeMillis = SystemClock::elapsedRealtime,
+    )
 
     private val lock = Any()
     private var record: PairingRecord? = null

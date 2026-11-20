@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -28,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -56,12 +58,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
+import dev.lifeos.app.data.Chat
 import dev.lifeos.app.data.ChatFailure
 import dev.lifeos.app.data.ChatFolder
 import dev.lifeos.app.data.ChatMessage
 import dev.lifeos.app.data.ChatPhase
 import dev.lifeos.app.data.ChatProblem
 import dev.lifeos.app.data.ChatState
+import dev.lifeos.app.data.Interaction
 import dev.lifeos.app.ui.components.ErrorNotice
 import dev.lifeos.app.ui.components.LifeCard
 import dev.lifeos.app.ui.components.MarkdownText
@@ -146,7 +150,7 @@ fun ChatScreen(
                 if (moving) follow = max - value < 120 else if (follow && value < max) scroll.scrollTo(max)
             }
         }
-        LaunchedEffect(state.generation, state.messages.size) { follow = true }
+        LaunchedEffect(state.generation, state.messages.size, state.interactions.size) { follow = true }
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -161,9 +165,10 @@ fun ChatScreen(
                 state.loading && state.messages.isEmpty() -> SkeletonCard(rows = 2)
                 state.loadProblem != null -> ErrorNotice(checkNotNull(state.loadProblem), 0, onRetry = chat::load)
                 state.isEmpty && state.loaded -> EmptyChat(onPrompt = { draft = it })
-                else -> Thread(state, onRetry = chat::retry, onDismiss = chat::dismissFailure, onSessions = onSessions)
+                else -> Thread(state, chat, onSessions = onSessions)
             }
         }
+        if (paired) ModeRow(state.capable, enabled = state.phase == ChatPhase.IDLE, onChange = chat::setCapable)
         Composer(
             draft = draft,
             onDraftChange = { draft = it },
@@ -206,22 +211,90 @@ private fun EmptyChat(onPrompt: (String) -> Unit) {
 }
 
 @Composable
-private fun ColumnScope.Thread(state: ChatState, onRetry: () -> Unit, onDismiss: () -> Unit, onSessions: () -> Unit) {
+private fun ColumnScope.Thread(state: ChatState, chat: Chat, onSessions: () -> Unit) {
     if (state.olderExist) SystemLine(stringResource(R.string.chat_older))
+    // Questions and approvals of the last run. Those that wait for the owner come last, where
+    // the eye is; those that are settled stay as a record above the answer that followed them.
+    val (waiting, settled) = state.interactions.partition { it.status == Interaction.Status.WAITING || it.status == Interaction.Status.SENDING }
+    val cards: @Composable (List<Interaction>) -> Unit = { list ->
+        list.forEach { interaction ->
+            key(interaction.id) {
+                InteractionCard(
+                    interaction = interaction,
+                    onApprove = { chat.answerApproval(interaction.id, it) },
+                    onAnswer = { chat.answerQuestion(interaction.id, it) },
+                    onSkip = { chat.skipQuestion(interaction.id) },
+                    onExpire = { chat.expire(interaction.id) },
+                )
+            }
+        }
+    }
+    val answer = state.messages.lastOrNull()?.takeIf { !it.fromOwner }
     state.messages.forEach { message ->
+        if (message === answer) cards(settled)
         if (message.fromOwner) OwnerBubble(message) else AssistantBubble(message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
     }
+    if (answer == null) cards(settled)
+    cards(waiting)
+    val asked = state.interactions.any { it.status == Interaction.Status.WAITING }
     when (state.phase) {
-        ChatPhase.SENDING, ChatPhase.ANSWERING -> Working(state.sinceMillis) { stringResource(R.string.chat_working, it) }
+        ChatPhase.SENDING, ChatPhase.ANSWERING -> Working(state.sinceMillis) {
+            if (asked) stringResource(R.string.chat_waiting_for_you) else stringResource(R.string.chat_working, it)
+        }
         ChatPhase.ELSEWHERE -> {
             Working(state.sinceMillis) {
-                stringResource(if (state.queued) R.string.chat_elsewhere_queued else R.string.chat_elsewhere, it)
+                when {
+                    asked -> stringResource(R.string.chat_waiting_for_you)
+                    state.queued -> stringResource(R.string.chat_elsewhere_queued, it)
+                    else -> stringResource(R.string.chat_elsewhere, it)
+                }
             }
             if (state.unreachable) SystemLine(stringResource(R.string.chat_elsewhere_unreachable))
         }
         ChatPhase.IDLE -> Unit
     }
-    state.failure?.let { FailureNotice(it, onRetry, onDismiss, onSessions) }
+    state.failure?.let { FailureNotice(it, chat::retry, chat::dismissFailure, onSessions) }
+}
+
+/**
+ * Read-only (the default for every conversation) or "changes allowed": the next messages then
+ * ask the computer for its capable mode, in which the assistant may change files and run
+ * commands inside the guardrails, and asks here before a deletion and the like.
+ */
+@Composable
+private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val colors = LifeTheme.colors
+    val label = stringResource(R.string.chat_mode_toggle)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = LifeDimens.pad),
+    ) {
+        Box(
+            modifier = Modifier
+                .heightIn(min = LifeDimens.minTouch)
+                .clip(RoundedCornerShape(50))
+                .toggleable(value = capable, enabled = enabled, role = Role.Switch, onValueChange = onChange)
+                .semantics { contentDescription = label },
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(
+                modifier = Modifier
+                    .border(1.5.dp, if (capable) colors.warn else colors.divider, RoundedCornerShape(50))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(Modifier.size(8.dp).background(if (capable) colors.warn else colors.muted, CircleShape))
+                Text(
+                    text = stringResource(if (capable) R.string.chat_mode_capable else R.string.chat_mode_read_only),
+                    style = LifeType.label,
+                    color = if (enabled) colors.text else colors.muted,
+                )
+            }
+        }
+        if (capable) Text(text = stringResource(R.string.chat_mode_capable_note), style = LifeType.small, color = colors.muted)
+    }
 }
 
 /** The owner's message: to the right, on the surface colour, with one tight corner. */

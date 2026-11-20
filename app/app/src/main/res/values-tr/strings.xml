@@ -458,4 +458,38 @@
     <string name="sessions_none_found">Eşleşen oturum yok.</string>
     <string name="sessions_working">Çalışıyor</string>
     <string name="sessions_untitled">Adsız oturum</string>
+
+    <!-- Approvals and questions in chat (#53) -->
+    <string name="chat_mode_read_only">Salt okunur</string>
+    <string name="chat_mode_capable">Değişikliğe izin var</string>
+    <string name="chat_mode_toggle">Bu konuşmada değişikliğe izin ver</string>
+    <string name="chat_mode_capable_note">Asistan bu klasörde dosya değiştirebilir ve komut çalıştırabilir. Silme, gönderme (push), kurulum ve benzerleri önce sana sorulur.</string>
+    <string name="chat_waiting_for_you">Cevabın bekleniyor</string>
+    <string name="approval_label">Onay gerekiyor</string>
+    <string name="approval_title_deletion">Asistan dosyaları kalıcı olarak silmek istiyor.</string>
+    <string name="approval_title_force">Asistan zorlayan ya da geçmişi yeniden yazan bir işlem çalıştırmak istiyor.</string>
+    <string name="approval_title_push">Asistan uzak bir depoya göndermek (push) istiyor.</string>
+    <string name="approval_title_install">Asistan paket kurmak istiyor.</string>
+    <string name="approval_title_message">Asistan bir mesaj ya da e-posta göndermek istiyor.</string>
+    <string name="approval_title_network">Asistan ağı kullanmak istiyor. Veri bilgisayardan dışarı çıkabilir.</string>
+    <string name="approval_title_other">Asistan onayını gerektiren bir komut çalıştırmak istiyor.</string>
+    <string name="approval_warning_deletion">Uyarı: silinen dosyalar geri getirilemez.</string>
+    <string name="approval_command">Çalışacak komut</string>
+    <string name="approval_folder">Bu klasörde</string>
+    <string name="approval_allow">İzin ver</string>
+    <string name="approval_deny">İzin verme</string>
+    <string name="approval_kept_note">Yapılmış değişiklikler kalır.</string>
+    <string name="approval_allowed">Buna izin verdin.</string>
+    <string name="approval_refused">Buna izin vermedin.</string>
+    <string name="interaction_time_left">%1$s sonra “hayır” sayılacak</string>
+    <string name="interaction_sending">Cevabın gönderiliyor…</string>
+    <string name="interaction_send_failed">Cevabın gönderilemedi. Yeniden dene.</string>
+    <string name="interaction_expired">Zamanında cevaplanmadı: “hayır” sayıldı.</string>
+    <string name="interaction_gone">Bu artık bir cevap beklemiyor.</string>
+    <string name="question_label">Soru</string>
+    <string name="question_multi">Birden fazla seçilebilir</string>
+    <string name="question_own">Ya da kendi cevabını yaz</string>
+    <string name="question_skip">Geç</string>
+    <string name="question_answered">Cevaplandı.</string>
+    <string name="question_skipped">Geçildi.</string>
 </resources>

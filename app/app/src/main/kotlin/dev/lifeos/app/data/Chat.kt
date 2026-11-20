@@ -157,6 +157,14 @@ data class ChatState(
     val queued: Boolean = false,
     /** In [ChatPhase.ELSEWHERE]: the last question to the computer got no answer. */
     val unreachable: Boolean = false,
+    /** Questions and approvals of the current run, in the order they came; answered ones stay until the next message. */
+    val interactions: List<Interaction> = emptyList(),
+    /**
+     * The owner allowed changes for this conversation: its messages ask for the capable mode
+     * (files may be changed and commands run, inside the computer's guardrails). Off for
+     * every new conversation.
+     */
+    val capable: Boolean = false,
 ) {
     val canSend: Boolean get() = phase == ChatPhase.IDLE && !loading && loadProblem == null && loaded
     val isEmpty: Boolean get() = messages.isEmpty() && phase == ChatPhase.IDLE && failure == null
@@ -181,6 +189,8 @@ class Chat(
     private val nowMillis: () -> Long,
     /** Does the computer answer right now? Asked before a message is sent. */
     private val reachable: suspend () -> Boolean = { true },
+    /** A clock that only runs forward (time since start), for how long a question still waits. */
+    private val uptimeMillis: () -> Long = nowMillis,
 ) {
     private val mutable = MutableStateFlow(ChatState())
     private val keys = AtomicLong()
@@ -305,6 +315,8 @@ class Chat(
     private suspend fun read(generation: Int, id: String, wholeThread: Boolean) {
         val run = attempt { api.runState(id) }
         val busy = run.getOrNull()?.busy
+        // A run the app does not hear may be waiting for the owner's yes or no.
+        if (busy == true) pending(generation, id)
         if (!wholeThread) {
             if (busy == null) return change(generation) { it.copy(unreachable = true) }
             if (busy) return change(generation) { it.copy(unreachable = false) }
@@ -351,14 +363,34 @@ class Chat(
         val base = state.copy(messages = messages, loading = false, loaded = true, loadProblem = null, olderExist = page.older != null, unreachable = false)
         if (busy) return base.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = since(state))
         val arrived = sent == null || page.exchanges.lastOrNull()?.user?.let { same(it, sent.first) } == true
-        if (arrived) return base.copy(phase = ChatPhase.IDLE, queued = false)
+        // The run is over: whatever still waited was counted as "no" there.
+        val ended = base.copy(phase = ChatPhase.IDLE, queued = false, interactions = closed(base.interactions))
+        if (arrived) return ended
         val bubble = ChatMessage(sent.second, true, sent.first)
-        return base.copy(
-            messages = messages + bubble,
-            phase = ChatPhase.IDLE,
-            queued = false,
-            failure = ChatFailure(ChatProblem.NOT_DELIVERED, sent.first, replaces = sent.second),
-        )
+        return ended.copy(messages = messages + bubble, failure = ChatFailure(ChatProblem.NOT_DELIVERED, sent.first, replaces = sent.second))
+    }
+
+    /** What the computer says is waiting: new items are shown, items it no longer lists are closed. */
+    private suspend fun pending(generation: Int, id: String) {
+        val list = attempt { api.interactions(id) }.getOrNull() ?: return
+        val now = uptimeMillis()
+        val wall = nowMillis()
+        change(generation) { state ->
+            val listed = list.map { it.id }.toSet()
+            val known = state.interactions.map { it.id }.toSet()
+            val kept = state.interactions.map {
+                when {
+                    it.status != Interaction.Status.WAITING -> it
+                    it.id !in listed -> it.copy(status = Interaction.Status.GONE)
+                    // The computer still waits, whatever the two clocks say: answerable until the next look.
+                    else -> it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS))
+                }
+            }
+            val added = list.filter { it.id !in known }.mapNotNull { data ->
+                Interaction.of(data, now, wall, fresh = false)?.let { it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS)) }
+            }
+            state.copy(interactions = kept + added)
+        }
     }
 
     private fun since(state: ChatState): Long = if (state.phase == ChatPhase.IDLE || state.sinceMillis == 0L) nowMillis() else state.sinceMillis
@@ -382,6 +414,7 @@ class Chat(
                 draft = null,
                 queued = false,
                 unreachable = false,
+                interactions = emptyList(),
             )
         }
         run = scope.launch { exchange(generation, text, key) }
@@ -433,8 +466,84 @@ class Chat(
         }
     }
 
-    /** What the request carries besides the prompt (for a later step: the mode and the like). */
-    private fun options(state: ChatState): Map<String, JsonElement> = emptyMap()
+    /**
+     * What the request carries besides the prompt. `interactive`: this app shows questions and
+     * approvals, so the run may wait for the owner instead of being refused at once. `mode`:
+     * only when the owner allowed changes for this conversation.
+     */
+    private fun options(state: ChatState): Map<String, JsonElement> = buildMap {
+        put("interactive", JsonPrimitive(true))
+        if (state.capable) put("mode", JsonPrimitive("capable"))
+    }
+
+    // ------------------------------------------------------------------ questions and approvals
+
+    /** "May make changes" for this conversation, from the next message on. */
+    fun setCapable(on: Boolean) = mutable.update { it.copy(capable = on) }
+
+    /** Yes or no to an action that needs the owner's approval. Only an explicit tap leads here. */
+    fun answerApproval(id: String, approve: Boolean) =
+        answer(id, Interaction.approvalBody(approve), if (approve) Interaction.Status.ALLOWED else Interaction.Status.REFUSED)
+
+    /** The owner's choices (or own words) per question; see [Interaction.answersBody]. */
+    fun answerQuestion(id: String, answers: Map<String, List<String>>) {
+        val interaction = mutable.value.interactions.firstOrNull { it.id == id } ?: return
+        if (!Interaction.complete(interaction.questions, answers)) return
+        answer(id, Interaction.answersBody(interaction.questions, answers), Interaction.Status.ANSWERED)
+    }
+
+    /** The owner does not want to answer the question; the assistant continues without. */
+    fun skipQuestion(id: String) = answer(id, Interaction.declineBody, Interaction.Status.SKIPPED)
+
+    /**
+     * The time ran out on the phone: the card closes. Nothing is sent: the computer counts
+     * the missing answer as "no" by itself.
+     */
+    fun expire(id: String) = mutable.update { state ->
+        val now = uptimeMillis()
+        state.copy(
+            interactions = state.interactions.map {
+                if (it.id == id && it.status == Interaction.Status.WAITING && now >= it.deadline) it.copy(status = Interaction.Status.EXPIRED) else it
+            },
+        )
+    }
+
+    private fun answer(id: String, body: JsonElement, result: Interaction.Status) {
+        val state = mutable.value
+        val session = state.sessionId ?: return
+        val interaction = state.interactions.firstOrNull { it.id == id } ?: return
+        if (!interaction.open(uptimeMillis())) return expire(id)
+        val generation = state.generation
+        mark(generation, id) { it.copy(status = Interaction.Status.SENDING, sendFailed = false) }
+        scope.launch {
+            val outcome = try {
+                api.answerInteraction(session, id, body)
+                result
+            } catch (error: ApiException) {
+                // "Not pending": answered, expired or cancelled meanwhile. Anything else: not delivered.
+                if (error.kind == ApiException.Kind.HTTP && error.status == 404) Interaction.Status.GONE else null
+            }
+            mark(generation, id) {
+                if (outcome != null) it.copy(status = outcome, sendFailed = false) else it.copy(status = Interaction.Status.WAITING, sendFailed = true)
+            }
+        }
+    }
+
+    private fun mark(generation: Int, id: String, transform: (Interaction) -> Interaction) =
+        change(generation) { state -> state.copy(interactions = state.interactions.map { if (it.id == id) transform(it) else it }) }
+
+    /** The run ended: what was still waiting is closed (an answer on its way keeps its own result). */
+    private fun closed(interactions: List<Interaction>): List<Interaction> {
+        val now = uptimeMillis()
+        return interactions.map {
+            when {
+                it.status != Interaction.Status.WAITING -> it
+                // Its time was up, give or take a moment: the computer counted the silence as "no".
+                now >= it.deadline - EXPIRY_SLACK_MILLIS -> it.copy(status = Interaction.Status.EXPIRED)
+                else -> it.copy(status = Interaction.Status.GONE)
+            }
+        }
+    }
 
     /** True when the event ends the answer. */
     private fun onEvent(generation: Int, event: AnswerEvent.Stream, prompt: String, answer: Long, streamed: StringBuilder): Boolean {
@@ -455,6 +564,18 @@ class Chat(
                     change(generation) { it.copy(messages = put(it.messages, ChatMessage(answer, false, text)), phase = ChatPhase.ANSWERING) }
                 }
             }
+            "interaction" -> {
+                val asked = try {
+                    BridgeJson.decodeFromJsonElement(InteractionData.serializer(), event.data)
+                } catch (_: Exception) {
+                    return false
+                }
+                // Just created: the whole waiting time lies ahead.
+                val interaction = Interaction.of(asked, uptimeMillis(), nowMillis(), fresh = true) ?: return false
+                change(generation) { state ->
+                    if (state.interactions.any { it.id == interaction.id }) state else state.copy(interactions = state.interactions + interaction)
+                }
+            }
             "done" -> {
                 awaiting = null
                 // The finished answer replaces what was streamed: the computer has tidied it.
@@ -463,7 +584,13 @@ class Chat(
                 change(generation) { state ->
                     val messages = if (text.isBlank()) state.messages else put(state.messages, ChatMessage(answer, false, text))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
-                    state.copy(messages = messages, phase = ChatPhase.IDLE, sessionId = id ?: state.sessionId, loaded = true)
+                    state.copy(
+                        messages = messages,
+                        phase = ChatPhase.IDLE,
+                        sessionId = id ?: state.sessionId,
+                        loaded = true,
+                        interactions = closed(state.interactions),
+                    )
                 }
                 return true
             }
@@ -473,7 +600,7 @@ class Chat(
                 change(generation) { state ->
                     val messages = state.messages.map { if (it.key == answer) it.copy(incomplete = true) else it }
                     // The run had started: the message is part of the conversation, a retry is a new message.
-                    state.copy(messages = messages, phase = ChatPhase.IDLE, failure = ChatFailure(problem, prompt))
+                    state.copy(messages = messages, phase = ChatPhase.IDLE, failure = ChatFailure(problem, prompt), interactions = closed(state.interactions))
                 }
                 return true
             }
@@ -549,6 +676,12 @@ class Chat(
         }
 
         private const val LONG = 2000
+
+        /** A waiting item the computer still lists stays answerable at least until the app looks again. */
+        private const val STILL_WAITING_MILLIS = 15_000L
+
+        /** How close to its end a waiting item must be for the end of the run to mean "timed out". */
+        private const val EXPIRY_SLACK_MILLIS = 3_000L
 
         private fun JsonObject?.text(name: String): String? = (this?.get(name) as? JsonPrimitive)?.takeIf { it.isString }?.content
 

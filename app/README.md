@@ -245,6 +245,22 @@ with plain HTTPS requests.
   session is opened), also after the app was closed: the Chat tab then opens
   it directly, once per start, with its last few messages read from the
   computer. The folder is in the header.
+  - **Read-only or "Changes allowed"** (the pill above the composer): every
+    conversation starts read-only. Switched on, its next messages ask the
+    computer for the capable mode, in which the assistant may change files
+    and run commands inside the computer's guardrails. It is off again after
+    a new chat, another session or a lock of the app.
+  - **Approvals:** when the assistant is about to do something that needs
+    the owner's yes (delete files, a force or history-rewriting operation,
+    push, install, send a message, use the network), the run waits and a
+    card shows what kind of action it is, **exactly the command that will
+    run and the folder it runs in**, with **Allow** and **Don't allow** and
+    the time left. A deletion has a red frame and a warning. Nothing runs
+    without the tap on Allow; when the time is over the card says that it
+    counted as "no".
+  - **Questions:** when the assistant asks with its question tool, a card
+    shows each question with its choices (one or several) and a field for
+    the owner's own words, with **Send** and **Skip**.
 - **Sessions** (the clock in Chat, or under More): a field that filters by
   title and folder, pinned sessions, then every folder with its sessions,
   newest first; "Working" marks a session the computer is answering right
@@ -410,6 +426,21 @@ Nothing on these screens is sample content any more. Not paired, they show
     keeps what was written and says why.
   - While the app is locked nothing of the conversation is in memory; it is
     read again after unlocking.
+  - **Approvals and questions** (`data/Interactions.kt`, the bridge's
+    "Questions and approvals"): every message is sent with `"interactive":
+    true`, and with `"mode": "capable"` only while "Changes allowed" is on.
+    An `interaction` event of the answer becomes a card; the answer goes out
+    as `POST /sessions/{id}/interactions/{iid}` (`{"approve": true|false}`,
+    `{"answers": {...}}` or `{"decline": true}`). **The app never answers
+    by itself:** when the time is over it only closes the card (the computer
+    counts the silence as "no"), and a tap after that sends nothing. The
+    time left is the computer's waiting time counted on the phone's running
+    clock, so the two wall clocks need not agree. `404 not_pending` is shown
+    as "no longer waiting"; an answer that could not be sent can be given
+    again. While the app is not receiving the answer (locked, connection
+    lost) it reads `GET /sessions/{id}/interactions` with every look at the
+    run, so a waiting card appears again and can still be answered. Cards
+    are kept in memory only, until the next message.
 
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
@@ -501,7 +532,10 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   these words shows another state: `in use` (the session is open on the
   computer), `fail` (the run breaks off), `offline` (nothing is sent, the
   text comes back), `silent` (the answer stops arriving and the message is
-  not found on the computer).
+  not found on the computer), `delete` or `push` (the run waits for an
+  approval; the first is a deletion), `choose` (the run waits for the answer
+  to two questions). With `hurry` the wait lasts 20 seconds instead of ten
+  minutes, to see what running out of time looks like.
 
   ```sh
   adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --ez lifeos.test.sample_data true
@@ -675,6 +709,47 @@ aid shows the same screens with invented answers.
    working on this…", and a little later the whole answer, once.
 8. Settings → Language → **Türkçe** and Appearance → **Dark**: the Chat
    list, a conversation and Sessions are fully in Turkish and readable.
+
+### Approvals and questions
+
+On an emulator with the `sample_data` test aid (no computer, nothing runs):
+
+1. Chat → **New chat** → Start. Tap the pill **Read-only**: it becomes
+   **Changes allowed** with a line of explanation.
+2. Send "delete the old drafts": a card with a red frame, "The assistant
+   wants to delete files permanently", the warning, the whole `rm` command,
+   the folder, **Allow**, **Don't allow** and "Counts as “no” in 9:5x". Tap
+   **Don't allow**: "You did not allow this." and the answer says that
+   nothing was changed. Send it again and tap **Allow**: "You allowed this."
+3. Send "hurry push it" and wait 20 seconds without tapping: the buttons go
+   away and the card says that it was not answered in time.
+4. Send "choose for me": two questions with choices. Send stays grey until
+   both have an answer; choose one for the first, two for the second (or
+   type your own words), **Send**: "Answered." and the reply repeats the
+   choices. **Skip** declines instead.
+
+With the computer (the bridge with `LIFEOS_RUNNER=sdk` and the capable mode
+switched on by its guardrail check; each step is a short run on the plan):
+
+5. In a conversation in the memory folder switch **Changes allowed** on and
+   send "Create the file approval-test.txt here with one line of text, then
+   delete it again with rm". The card shows the `rm` command and the memory
+   folder. **Don't allow**: the assistant says it was not allowed, the file
+   is still there, and `tail -n 4 ~/.config/lifeos/audit/$(date -u
+   +%Y-%m).jsonl` on the computer shows the request and `refused` by the
+   owner. Ask it to delete the file again and tap **Allow**: the file is
+   gone and the log shows `approved`.
+6. Ask for a deletion once more and do not answer: after ten minutes the
+   card says that it counted as "no", the file is still there, and the log
+   shows `refused` with `timeout`.
+7. Lock the phone while a card is waiting, unlock and open the conversation:
+   "The computer is still working on this" and the same card, which can
+   still be answered.
+8. Send "Use the question tool to ask me Red or Blue, then say what I
+   chose": a question card; choose one, **Send**: the reply names it.
+9. With "Changes allowed" on and the capable mode switched off on the
+   computer, a message is refused with "Making changes is switched off on
+   the computer right now…" and **Retry**.
 
 ### The warmer design (P2, Courses in P3)
 

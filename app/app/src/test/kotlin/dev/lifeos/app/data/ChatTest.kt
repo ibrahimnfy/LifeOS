@@ -78,7 +78,7 @@ class ChatTest {
 
         val call = transport.calls.single()
         assertEquals("POST /ask", call.method + " " + call.path)
-        assertEquals(json("""{"prompt":"Hi","stream":true,"folder":"/home/owner/project-alpha"}"""), call.body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"folder":"/home/owner/project-alpha"}"""), call.body)
         val state = chat.state.value
         assertEquals(listOf("me:Hi", "it:Hello there"), texts(chat))
         assertEquals(ChatPhase.IDLE, state.phase)
@@ -95,7 +95,7 @@ class ChatTest {
         answerWith("s-1", "Hello there")
         chat.send("Hi")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Hi","stream":true}"""), transport.calls.single().body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true}"""), transport.calls.single().body)
     }
 
     @Test
@@ -111,7 +111,7 @@ class ChatTest {
 
         val second = transport.calls.last()
         assertEquals("POST /sessions/s-1/messages", second.method + " " + second.path)
-        assertEquals(json("""{"prompt":"And then?","stream":true}"""), second.body)
+        assertEquals(json("""{"prompt":"And then?","stream":true,"interactive":true}"""), second.body)
         assertEquals(listOf("me:Hi", "it:Hello there", "me:And then?", "it:Second answer"), texts(chat))
 
         chat.newChat(memory)
@@ -546,7 +546,7 @@ class ChatTest {
         chat.send("Again")
         advanceUntilIdle()
         assertEquals("/ask", transport.calls.last().path)
-        assertEquals(json("""{"prompt":"Again","stream":true,"folder":"/home/owner/project-alpha"}"""), transport.calls.last().body)
+        assertEquals(json("""{"prompt":"Again","stream":true,"interactive":true,"folder":"/home/owner/project-alpha"}"""), transport.calls.last().body)
     }
 
     @Test

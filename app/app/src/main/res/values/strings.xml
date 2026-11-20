@@ -460,4 +460,38 @@
     <string name="sessions_none_found">No session matches.</string>
     <string name="sessions_working">Working</string>
     <string name="sessions_untitled">Untitled session</string>
+
+    <!-- Approvals and questions in chat (#53) -->
+    <string name="chat_mode_read_only">Read-only</string>
+    <string name="chat_mode_capable">Changes allowed</string>
+    <string name="chat_mode_toggle">Allow changes in this conversation</string>
+    <string name="chat_mode_capable_note">The assistant may change files and run commands in this folder. Deleting, pushing, installing and the like ask you first.</string>
+    <string name="chat_waiting_for_you">Waiting for your answer</string>
+    <string name="approval_label">Approval needed</string>
+    <string name="approval_title_deletion">The assistant wants to delete files permanently.</string>
+    <string name="approval_title_force">The assistant wants to run a force or history-rewriting operation.</string>
+    <string name="approval_title_push">The assistant wants to push to a remote repository.</string>
+    <string name="approval_title_install">The assistant wants to install packages.</string>
+    <string name="approval_title_message">The assistant wants to send a message or e-mail.</string>
+    <string name="approval_title_network">The assistant wants to use the network. Data could leave the computer.</string>
+    <string name="approval_title_other">The assistant wants to run a command that needs your approval.</string>
+    <string name="approval_warning_deletion">Warning: deleted files cannot be brought back.</string>
+    <string name="approval_command">This will run</string>
+    <string name="approval_folder">In this folder</string>
+    <string name="approval_allow">Allow</string>
+    <string name="approval_deny">Don’t allow</string>
+    <string name="approval_kept_note">Changes already made are kept.</string>
+    <string name="approval_allowed">You allowed this.</string>
+    <string name="approval_refused">You did not allow this.</string>
+    <string name="interaction_time_left">Counts as “no” in %1$s</string>
+    <string name="interaction_sending">Sending your answer…</string>
+    <string name="interaction_send_failed">Your answer could not be sent. Try again.</string>
+    <string name="interaction_expired">Not answered in time: it was counted as “no”.</string>
+    <string name="interaction_gone">This is no longer waiting for an answer.</string>
+    <string name="question_label">Question</string>
+    <string name="question_multi">Several can be chosen</string>
+    <string name="question_own">Or write your own answer</string>
+    <string name="question_skip">Skip</string>
+    <string name="question_answered">Answered.</string>
+    <string name="question_skipped">Skipped.</string>
 </resources>
