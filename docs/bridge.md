@@ -144,6 +144,9 @@ documented here as they are built.
 | GET | `/courses/sync` | yes | Whether a sync is running, the last sync and its counts |
 | POST | `/courses/{id}/files/{key}/address` | yes | A download address on the university site (**contains the Moodle token**) |
 | POST | `/courses/{id}/files/{key}/offer` | yes | Offers the computer's copy of a file for `GET /files/{offer}` |
+| GET | `/courses/{id}/resources` | yes | Books and documents found from the syllabus: downloaded or listed only |
+| POST | `/courses/{id}/resources/refresh` | yes | Asks for a new course-resources run (in the background) |
+| POST | `/courses/{id}/resources/{index}/offer` | yes | Offers a downloaded resource for `GET /files/{offer}` |
 
 ### `POST /ask`
 
@@ -1166,6 +1169,45 @@ the phone. Two ways, neither with a model run:
    `LIFEOS_MAX_FILE_MB` (`409 file_unavailable`). This is the fallback
    when the direct way fails.
 
+### Course resources from the syllabus
+
+The one course feature that uses a model, kept apart from the sync. The
+sync only notes each course's syllabus: a downloaded course file or a page
+whose name looks like one ("syllabus", "course outline", "izlence", "ders
+planı" and similar), with a fingerprint of its version. When the
+fingerprint is new or changed, or the owner asks, the bridge's background
+loop runs one **course-resources job** (Sonnet with the Opus advisor, see
+"Model routing per job"), one course at a time. The run's permissions are
+the profile in [`permission-policy.md`](permission-policy.md) section 9.10:
+it sees only a copy of the syllabus, may read and search the web, writes
+nothing, and proposes a list. **The bridge downloads** by its own rules:
+HTTPS, hosts on the allow-list of open-access publishers plus
+`LIFEOS_RESOURCE_HOSTS`, no private addresses, PDF or EPUB only, the size
+limit of course files, at most ten per run. Paid books, web pages and other
+hosts are listed only; piracy sources are dropped. An address already
+recorded is never fetched again. A run that failed counts the syllabus as
+read (no loop); ask again from the app.
+
+- In the course folder: `resources/` with the downloaded files and
+  `resources/sources.md` (per item: title, link, kind, licence, why it is
+  legal, "Downloaded as …" or "Listed only (reason)"; outside text).
+- `GET /courses/{id}/resources` → `{"course_id", "syllabus": {"name"} |
+  null, "items": [{"title", "url", "kind": "open_access_book" |
+  "vendor_documentation" | "public_material" | "paid" | "other",
+  "licence", "why_legal", "reference", "status": "downloaded" | "listed",
+  "file", "reason": null | "paid" | "other" | "host_not_allowed" |
+  "not_https" | "private_address" | "not_a_document" | "too_large" |
+  "download_failed" | "later" | …}], "running", "pending", "last_run",
+  "last_result"}`. Never starts a run.
+- `POST /courses/{id}/resources/refresh` → `202` with `"reason": "queued"`
+  and the view above; `429 "too_soon"` within ten minutes of the last run;
+  `409 no_syllabus`; `404 course_not_found`.
+- `POST /courses/{id}/resources/{index}/offer` → a file offer (as for
+  course files) for a downloaded item, by its position in `items`; `404
+  no_local_copy` for a listed one.
+- State: `~/.config/lifeos/course-resources.json` (mode 600), apart from
+  the sync's state.
+
 ## Paired phones and the relay
 
 The phone never connects to the computer. Both sides make outbound HTTPS
@@ -1563,6 +1605,19 @@ grep -c token= ~/.config/lifeos/audit/*.jsonl    # 0 in every file: never an add
 grep RelayRequest ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl | tail -n 3
 git -C ~/brain log -1 --format=%s                # "Sync courses from the university platform" after the first sync
 curl -s -H "$H" "$B/events?start=<today>&end=<in 30 days>"   # upcoming deadlines, each with a note "moodle:…"
+```
+
+Course resources (one routine-job run on the owner's plan per syllabus; a
+course whose materials include a file or page named like a syllabus):
+
+```
+curl -s -H "$H" $B/courses/<id>/resources        # "syllabus": {"name"}; "pending": true after the sync found it
+# within a minute or two the run is done (the bridge's loop starts it); then:
+curl -s -H "$H" $B/courses/<id>/resources        # "items": downloaded or listed, "last_result": "ok"
+ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources     # sources.md and the downloaded PDFs/EPUBs
+grep -c 'Listed only' "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources/sources.md
+curl -s -X POST -H "$H" $B/courses/<id>/resources/refresh   # 429 "too_soon" within ten minutes of a run
+curl -s -H "$H" $B/models/routing | grep -o '"course_resources"[^}]*'   # model sonnet, advisor opus; runs today 1
 ```
 
 Start-up refusals to try (each prints a configuration error and exits):

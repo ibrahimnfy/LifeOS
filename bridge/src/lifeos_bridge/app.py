@@ -33,6 +33,7 @@ from . import (
     push,
     relay,
     reminders,
+    resources,
     routing,
     runcontrol,
     sdk_runner,
@@ -141,6 +142,8 @@ def create_app(settings: Settings) -> FastAPI:
                     )
                 with contextlib.suppress(Exception):  # the course sync, every six hours
                     await course_sync_tick()
+                with contextlib.suppress(Exception):  # resources of a new syllabus, one at a time
+                    await resources_tick()
                 await asyncio.sleep(reminders.CHECK_INTERVAL_SECONDS)
 
         coach_runs: set[asyncio.Task] = set()
@@ -162,6 +165,16 @@ def create_app(settings: Settings) -> FastAPI:
                 course_syncs.add(run)
                 run.add_done_callback(course_syncs.discard)
 
+        resource_runs: set[asyncio.Task] = set()
+
+        async def resources_tick() -> None:
+            """A syllabus is new, changed or asked for: one course-resources run, apart
+            from the six-hour sync (which never starts a run)."""
+            if not resource_runs and await asyncio.to_thread(resources.due):
+                run = asyncio.create_task(resources.run_next(settings))
+                resource_runs.add(run)
+                run.add_done_callback(resource_runs.discard)
+
         task = asyncio.create_task(watch_reminders())
         # SDK runner: live sessions close after a while without messages.
         reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
@@ -182,7 +195,8 @@ def create_app(settings: Settings) -> FastAPI:
             if phone_relay is not None:
                 phone_relay.close()
             moodle_sync.cancel()  # a running course sync starts no further download
-            for pending in (task, *coach_runs, *course_syncs, *([reaper] if reaper else [])):
+            running = (task, *coach_runs, *course_syncs, *resource_runs)
+            for pending in (*running, *([reaper] if reaper else [])):
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await pending

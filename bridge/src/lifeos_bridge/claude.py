@@ -45,6 +45,8 @@ ENV_ALLOW_LIST = (
     "DBUS_SESSION_BUS_ADDRESS",
 )
 
+# What a read-only profile may add (docs/permission-policy.md 9.10): web tools, no writing.
+PROFILE_TOOLS = frozenset({"Read", "Glob", "Grep", "WebSearch", "WebFetch"})
 CAPABLE_TOOLS = "Read,Glob,Grep,Edit,Write,Bash"
 # The terminal's structured question tool; only runs with an answering host get it.
 QUESTION_TOOL = "AskUserQuestion"
@@ -356,8 +358,12 @@ async def run(
     job: str = "chat",
     on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
     persist: bool = True,
+    tools: str | None = None,
 ) -> RunResult:
     """Run one read-only prompt to completion and return the answer.
+
+    ``tools`` replaces the read-only tool list for a profile of
+    docs/permission-policy.md (the course-resources run); never a write tool.
 
     ``job`` names the run for the plan-usage counters (routing.py). When the
     CLI refuses to start with ``advisor`` (the documented launch error for a
@@ -367,7 +373,7 @@ async def run(
         return await _run_once(
             settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
             grace=grace, context=context, model=model, effort=effort, advisor=advisor,
-            job=job, on_process=on_process, persist=persist,
+            job=job, on_process=on_process, persist=persist, tools=tools,
         )  # fmt: skip
     except ClaudeError as error:
         if not advisor or error.code != "claude_failed":
@@ -375,7 +381,7 @@ async def run(
     return await _run_once(
         settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, advisor=None, job=job,
-        on_process=on_process, persist=persist,
+        on_process=on_process, persist=persist, tools=tools,
     )  # fmt: skip
 
 
@@ -395,7 +401,10 @@ async def _run_once(
     job: str,
     on_process: Callable[[asyncio.subprocess.Process], None] | None,
     persist: bool = True,
+    tools: str | None = None,
 ) -> RunResult:
+    if tools is not None and set(tools.split(",")) - PROFILE_TOOLS:
+        raise ClaudeError("bad_policy", 500, "only reading and web tools may be given to a run")
     command = build_command(
         settings,
         session_id=session_id,
@@ -407,6 +416,7 @@ async def _run_once(
         effort=effort,
         advisor=advisor,
         persist=persist,
+        policy=Policy(tools=tools) if tools else READ_ONLY,
     )
     process = await _start(settings, command, cwd or settings.ask_dir)
     if on_process is not None:

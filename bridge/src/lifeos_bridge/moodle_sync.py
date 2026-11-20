@@ -708,6 +708,32 @@ def _text_entry(
     return entry
 
 
+SYLLABUS = re.compile(
+    r"syllab|izlence|course[\s_-]*(outline|plan|information)|ders[\s_-]*(plan|bilgi)", re.I
+)
+
+
+def note_syllabus(run: Run, record: dict) -> None:
+    """Remember the course's syllabus (a downloaded file or a page) and its fingerprint.
+
+    The course-resources job (``resources.py``) compares the fingerprint with
+    the one it last read; the sync itself starts no run.
+    """
+    folder = run.root / record["folder"]
+    found = None
+    for item in record["files"].values():
+        if item.get("gone") or not item.get("local") or not SYLLABUS.search(item["name"]):
+            continue
+        relative = f"{item.get('dir') or 'materials'}/{item['local']}"
+        if (folder / relative).is_file():
+            mark = f"{item.get('modified')}|{item.get('size')}"
+            found = found or {"name": item["name"], "path": relative, "mark": mark}
+    for entry in (record.get("texts") or {}).values():
+        if found is None and SYLLABUS.search(entry["name"]) and (folder / entry["file"]).is_file():
+            found = {"name": entry["name"], "path": entry["file"], "mark": entry.get("mark")}
+    record["syllabus"] = found
+
+
 def text_links(record: dict) -> list[dict]:
     """Links found in pages and books, without the ones the course page already lists."""
     seen = {link["url"] for link in record.get("links") or []}
@@ -1257,6 +1283,7 @@ def sync(
         merge_assignments(run, record, found)
         merge_texts(run, record, found)
         download_files(run, record)
+        note_syllabus(run, record)
         write_course_files(run, record)
         _save(state)  # a checkpoint: an interrupted sync downloads nothing twice
     written = (
