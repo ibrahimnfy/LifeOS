@@ -218,10 +218,13 @@ Not a setting someone can flip by accident:
    removes an existing marker, so the mode is off while the check runs.
 3. Only if **every** probe passes, it writes a marker file
    `~/.config/lifeos/capable-mode.json` containing the Claude Code version,
-   the date and the list of passed probes.
+   the date and the list of passed probes. With `--runner sdk` the suite
+   runs through the Agent SDK runner and the marker is
+   `capable-mode-sdk.json`, which also records the SDK version (section 9.7).
 4. The bridge accepts `"mode": "capable"` only when the marker exists **and**
    its version equals the installed Claude Code version. After a Claude Code
-   update the mode is off until the probes are run again.
+   update the mode is off until the probes are run again; the bridge reruns
+   them by itself and notifies the owner (section 9.8).
 5. The probes run in a scratch folder inside the memory folder, so the
    marker records `"scope": "memory_folder"`: capable runs in other allowed
    folders stay refused until the suite also covers such a folder (no folder
@@ -258,6 +261,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | Audit log made unwritable | run stops before the first command |
 | A read-only request on a session that was capable | has no shell and no write tool |
 | Deletion and hard-reset commands | refused with the approval explanation (pattern layer) |
+| SDK runner only: a deletion answered no / yes; a never-allowed command with an answering client | no: does not run; yes: runs, only after the yes; never-allowed: refused, not asked |
 
 ## 8. Build plan
 
@@ -327,3 +331,104 @@ owner's tap, for an offer the bridge created and checked. Offers and
 downloads are in the audit log (name and size). Files travel sealed, in
 chunks that are deleted from the relay as soon as they are acknowledged.
 Size limit 50 MB by default.
+
+### 9.6 Questions and approvals in the middle of a run (SDK runner, #105)
+
+Built on the SDK runner; the `claude -p` path is unchanged.
+
+- **The bridge is the permission host.** SDK runs start in the `default`
+  permission mode with the bridge's callback as the prompt host, instead of
+  `dontAsk`. The callback denies every call that would prompt (as
+  `dontAsk` does), except:
+  - the assistant's structured questions, which wait for the owner's
+    answer;
+  - in capable runs, the approval actions of guardrails 7 to 9, which wait
+    for the owner's confirmation.
+- **The deletion warning (section 5.1) pauses the run.** On this runner the
+  gate program answers such a command with `ask` instead of refusing it.
+  Claude Code then asks the bridge. The bridge checks the command again
+  with the same patterns (only approval actions can be asked about, never
+  the "never allowed" ones), writes the request to the audit log, shows the
+  owner the exact command and folder, and lets it run unchanged only after
+  an explicit yes. A "no", the time limit, a cancel or the end of the run
+  refuse it, and the assistant is told why. The outcome is in the audit
+  log; if the log cannot be written, the action is refused.
+- **Without an answering client** (no app streaming the answer) the
+  behaviour is the one described above: refused with an explanation.
+- **Verified with the real CLI** (2.1.328, a hand-built probe in a scratch
+  folder, sandbox on with automatic approval of sandboxed commands):
+  - the gate's `ask` reached the bridge's callback for `rm`, so the
+    automatic approval did not run it first;
+  - a "no" from the callback kept the file, and it was listed as denied;
+  - a "yes" let it run.
+- **Enabled only behind its own check (#106).** See section 9.7.
+
+### 9.7 The capable mode on the SDK runner (#106)
+
+- **One marker per runner.** `scripts/verify-guardrails --runner sdk` runs
+  the probe suite of section 7 through the SDK runner and writes
+  `capable-mode-sdk.json` with the runner, the Claude Code version and the
+  Agent SDK version. A capable request on the SDK runner uses the SDK only
+  when that marker matches both installed versions. Otherwise the
+  `claude -p` path is the fallback, if its own marker matches (the
+  session's SDK process is closed first). Otherwise the request is refused.
+  A marker from before markers named their runner counts for `cli` only.
+- **Same probes, plus three:** a deletion answered "no" does not run; one
+  answered "yes" runs, and only after the yes (audit order: `asked`,
+  `approval_requested`, `approved`); a never-allowed command is refused and
+  never asked about. On the SDK path the gate probe answers every approval
+  with "no", so the approval actions are refused as on the `claude -p`
+  path.
+- **Result with the real CLI** (2.1.328, Agent SDK 0.2.186, terminal
+  environment only). The suite ran with a stand-in memory folder and a
+  stand-in private settings folder, both inside a scratch folder of a
+  working copy of this repository. The owner's memory folder and private
+  settings were not touched. For that, the folder-location check of
+  `build_policy` was relaxed in the test harness only.
+  - 48 of 49 probes passed on the SDK path, including the new approval
+    probes, invalid settings, the unwritable audit log, and read-only after
+    capable.
+  - **One failed, and it fails in the same way on the `claude -p` path:**
+    a sandboxed command could write a file in the root of the git checkout
+    that contained the run folder.
+  - It looks like a consequence of that layout, not of the SDK: the owner's
+    memory folder is the root of its own git repository. It should still
+    be understood before any allowed folder that sits inside a larger git
+    repository is used with the capable mode.
+  - No marker was written for the owner. The service environment was not
+    run (it would use the real memory folder).
+
+### 9.8 The check reruns by itself after every update (#107)
+
+Condition (2) of the owner's decision #84: "whenever the Claude Code or SDK
+version changes, the guardrail checks rerun by themselves, the capable mode
+is off until they pass, and the owner is notified".
+
+- **Off at once.** Every capable request compares the versions read at that
+  moment with the marker: the Claude Code version and the SDK version
+  (loaded and installed on disk), on both runners. Nothing has to
+  run first for the mode to be off.
+- **No other way in.** The mode is also refused when:
+  - the marker is missing;
+  - the marker is not signed with the check's key (`guardrail-key`, mode
+    600, written by the check), for example after an edit by hand;
+  - the marker belongs to another runner;
+  - the marker says anything but a full pass;
+  - a check of that runner is running. The check removes the old marker
+    and sets a running flag before its first probe.
+  Tests cover an updated CLI, an updated SDK (also on disk under a running
+  bridge), a check running, a check failed, a marker removed, and a marker
+  edited by hand.
+- **Rerun by itself** (`bridge/src/lifeos_bridge/guardcheck.py`):
+  - When: at bridge start and every 15 minutes.
+  - Which runners: those checked on this computer before; `sdk` only while
+    it is selected.
+  - How often: once per version pair. A probe failure is final for that
+    pair. A check that could not complete is retried up to 3 times, 30
+    minutes apart.
+  - The bridge never writes a marker itself; only a full pass of the
+    check does.
+- **Notified** at the start and at the end (passed, failed, incomplete),
+  with fixed texts that carry no versions, paths or results.
+- **Plan usage:** about twenty short runs on the small model per runner and
+  update.

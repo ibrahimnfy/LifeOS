@@ -232,6 +232,50 @@ only if every probe passed in both. It takes a few minutes and about twenty
 short runs of the owner's Claude plan. Results:
 `~/.config/lifeos/guardrail-results.json`. The check covers runs in the
 memory folder; capable runs in other allowed folders stay refused for now.
+
+**Each runner has its own check (#106).** `scripts/verify-guardrails
+--runner sdk` runs the same suite through the Agent SDK runner. It adds
+the approval probes: a deletion answered "no" does not run; one answered
+"yes" runs, and only after the yes; a never-allowed command is refused
+without being asked about. It writes `capable-mode-sdk.json` and
+`guardrail-results-sdk.json`, recording the runner, the Claude Code
+version and the Agent SDK version. With `LIFEOS_RUNNER=sdk`, a capable
+request:
+
+- runs through the SDK when that marker matches the installed versions;
+- otherwise falls back to `claude -p` if the `cli` marker matches (the
+  session's SDK process is closed first, so a session never has two kinds
+  of writer);
+- otherwise is refused with `503`.
+
+An update of Claude Code or of the Agent SDK switches the capable mode
+off on both runners (decision #84).
+
+**After an update the check reruns by itself (#107).**
+
+- Every capable request compares the installed versions with the marker,
+  read at that moment: the Claude Code version and the Agent SDK version
+  (loaded and on disk), for both runners. A mismatch refuses the request.
+- The marker is signed with a key kept next to it (`guardrail-key`), so a
+  marker changed by hand is ignored. While a check runs, the mode of that
+  runner is off.
+- At bridge start and every 15 minutes, the bridge looks for runners that
+  were checked on this computer before (`sdk` only while it is selected)
+  and whose marker no longer matches. It then starts
+  `scripts/verify-guardrails` for them by itself, once per version pair.
+  It notifies the owner when the check starts and when it ends, with fixed
+  texts: passed (the mode is on again), failed (a probe failed; final for
+  these versions), or incomplete (it could not complete after 3 attempts,
+  30 minutes apart).
+- **Plan usage:** one automatic check costs about twenty short runs on the
+  small model per runner and update (the suite in the terminal and in the
+  service environment).
+- State: `~/.config/lifeos/guardrail-check.json`.
+- `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
+  still goes off after an update; run the check by hand then.
+- A marker written before #107 has no signature. After this update the
+  mode is therefore off once, until the check reruns by itself (or by
+  hand).
 After the check, restart the service (`systemctl --user restart
 lifeos-bridge`) if the bridge code changed since it was started.
 
@@ -438,9 +482,17 @@ for both; only how the assistant process lives differs.
   (`bridge/src/lifeos_bridge/sdk_runner.py`).
   - Same restrictions as `cli` read-only runs: the command line is built by
     the same function (tools `Read,Glob,Grep`, `--restricted`, no MCP, no
-    slash commands, `dontAsk`, memory context, model and effort per
-    session), and the child gets the same allow-listed environment plus
-    the SDK's three protocol markers. No API key variable reaches it.
+    slash commands, memory context, model and effort per session), and the
+    child gets the same allow-listed environment plus the SDK's three
+    protocol markers. No API key variable reaches it.
+  - One difference (#105): the bridge is the permission host. The run
+    starts in the `default` permission mode with
+    `--permission-prompt-tool stdio` instead of `dontAsk`, and it has the
+    question tool `AskUserQuestion`. Every call that would ask for
+    permission reaches the bridge's callback, which denies it, exactly as
+    `dontAsk` would. The only exceptions are the owner's answers to
+    questions and, in capable runs (#106), the confirmations described
+    under "Questions and approvals".
   - Sign-in is the subscription login of the installed Claude Code (#115).
     The bridge starts the installed `claude` named by `LIFEOS_CLAUDE_BIN`
     through its own transport. It never uses the copy bundled in the SDK
@@ -460,8 +512,10 @@ for both; only how the assistant process lives differs.
   - Cancel and send now use the SDK's interrupt. Only when the turn does not
     end within a few seconds is the process closed (terminate, then kill).
     The same happens in the background when the phone goes away mid-answer.
-  - **The capable mode is off on this runner** (`503
-    capable_mode_unavailable`) until the guardrail checks pass on it.
+  - **The capable mode runs on this runner only after its own guardrail
+    check passed** (`scripts/verify-guardrails --runner sdk`, see "Capable
+    mode"). Until then a capable request falls back to `claude -p` if that
+    path passed its check, and is refused otherwise.
 - Sessions move freely between the bridge and the terminal: a session
   started through the SDK runner continues with `claude -p --resume <id>`
   or `claude --resume <id>`, and the reverse (verified with the real CLI).
@@ -471,6 +525,63 @@ restart the bridge, ask twice in the same conversation. The second answer
 should come faster, and `ps` should show one `claude` process for the
 conversation. After the idle time it is gone, and a third message still
 continues the conversation.
+
+### Questions and approvals (SDK runner)
+
+A run can stop and wait for the owner, in two cases:
+
+- **Question.** The assistant uses the question tool: 1-4 questions with
+  2-4 options each, single or multiple choice.
+- **Approval** (capable runs only, once #106 enables them on this runner).
+  A command the gate marks as needing confirmation: obvious deletion, force
+  or history-rewriting git operations, push, package install, sending a
+  message, network action. The gate answers `ask` instead of refusing.
+  The bridge shows exactly what will run and where, and lets it run only
+  after an explicit yes. Commands that are never allowed (`sudo`, system
+  settings) are still refused by the gate and are never asked about. Only
+  a plain command can be confirmed: a call that asks to run outside the
+  sandbox, or carries anything besides the command, is refused.
+
+How it reaches the owner:
+
+- Only while a client streams the answer **and opts in** (`"stream":
+  true, "interactive": true`, also through the relay; a client without
+  question cards leaves it out), the stream carries an event
+  `interaction {"id", "session_id", "kind": "question"|"approval", ...,
+  "created_at", "expires_at"}`. A question carries `questions: [{"question",
+  "header", "multi_select", "options": [{"label", "description"}]}]`; an
+  approval carries `tool`, `command`, `folder`, `category` and `reason`.
+  Paired phones also get a sealed push hint (`question` or `approval`).
+  While the owner is being asked, the stream sends an SSE comment
+  (`: keep-alive`) every 30 seconds, so the relay's read does not time
+  out.
+- `GET /sessions/{id}/interactions` → `{"pending": [...]}` (same objects).
+- `POST /sessions/{id}/interactions/{iid}` answers:
+  - question: `{"answers": {"<question>": "<label or own text>"}}` (a list
+    of labels for multiple choice), optionally `"response": "<free text>"`,
+    or `{"decline": true}`;
+  - approval: `{"approve": true}` or `{"approve": false}`.
+  It returns `{"answered": true, "id": ...}`, or `404 not_pending` once
+  the question was answered, expired or cancelled.
+- No answer within `LIFEOS_INTERACTION_TIMEOUT` seconds (default 600)
+  counts as **no**. The run's own time limit is paused while it waits.
+  Cancel, send now, the end of the run and the bridge stopping also count
+  as no. Nothing is ever approved by default.
+- **Without an answering client** (a request that does not stream or
+  does not opt in, or a queued message) the behaviour is today's: a question is refused at once
+  with the instruction to ask in plain text, and an approval action is
+  refused with the usual explanation.
+- **Audit log:** an approval request, then its outcome (`approved`, or
+  `refused` with `owner`, `timeout`, `cancelled` or `no_client`), next to
+  the gate's own entry (`asked`). If the log cannot be written, the action
+  is refused. Questions and answers are prompt text and are kept in memory
+  only, never logged.
+
+Manual check (`sdk`, one short run on the plan): send `"stream": true`
+with a prompt such as "Use the question tool to ask me Red or Blue, then
+say what I chose". An `interaction` event appears. Answer it with the POST
+above, and the reply names the choice. Without `"stream": true` the same
+prompt is answered with a plain-text question.
 
 ### Model and effort
 

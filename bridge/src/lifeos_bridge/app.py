@@ -24,6 +24,7 @@ from . import (
     commands,
     contextmap,
     files,
+    guardcheck,
     history,
     memory,
     moodle_api,
@@ -164,6 +165,9 @@ def create_app(settings: Settings) -> FastAPI:
         task = asyncio.create_task(watch_reminders())
         # SDK runner: live sessions close after a while without messages.
         reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
+        # After an update of Claude Code or the Agent SDK the guardrail check reruns by itself.
+        guard = guardcheck.GuardCheck(settings)
+        guarding = asyncio.create_task(guard.run_forever())
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
         phone_relay = await asyncio.to_thread(
@@ -182,6 +186,10 @@ def create_app(settings: Settings) -> FastAPI:
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await pending
+            guarding.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await guarding
+            await guard.close()  # a running check is stopped; the mode stays off
             if sdk_pool is not None:
                 await sdk_pool.close_all()  # the transcripts keep every conversation
 
@@ -232,6 +240,11 @@ def create_app(settings: Settings) -> FastAPI:
         + " When you need the owner to decide something, ask one clear question at a time and "
         "give the choices as a short lettered list (A, B, C), so that a one-letter reply is enough."
     )
+    if settings.runner == "sdk":
+        phone_instructions += (
+            " If the question tool is available you may use it instead for a choice between a few "
+            "options; when it is refused, ask in your reply as described."
+        )
 
     def with_files(payload: dict, session_id: str, cwd: Path) -> dict:
         """Turn file-offer lines of a finished answer into cards."""
@@ -266,6 +279,17 @@ def create_app(settings: Settings) -> FastAPI:
         if data.get("effort") is not None:  # the CLI is asked only when needed
             chosen["effort"] = read_choice(data, "effort", claude.effort_levels(settings))
         return {name: value for name, value in chosen.items() if value is not None}
+
+    async def capable_on_sdk(cwd: Path) -> bool:
+        """Which runner a capable run uses; raises when neither passed the guardrail check."""
+        if sdk_pool is not None:
+            try:
+                await capable.check_available(settings, cwd, runner="sdk")
+                return True
+            except ClaudeError:
+                pass  # the claude -p path stays the fallback until the SDK path passed
+        await capable.check_available(settings, cwd, runner="cli")
+        return False
 
     def finish(session_id: str) -> None:
         """A run of the session ended: free it and send what is waiting, if anything."""
@@ -306,9 +330,6 @@ def create_app(settings: Settings) -> FastAPI:
         prompt = read_prompt(data)
         mode = read_mode(data)
         is_capable = mode == "capable"
-        if is_capable and sdk_pool is not None:
-            # Decision #84: off on the SDK runner until the guardrail checks pass there.
-            raise capable.unavailable("not yet verified with the SDK runner")
         when = data.get("when", "queue")
         if when not in ("queue", "now"):
             raise ClaudeError("bad_request", 400, "`when` must be `queue` or `now`")
@@ -352,6 +373,7 @@ def create_app(settings: Settings) -> FastAPI:
             if loaded:
                 run_args["context"] = phone_instructions + "\n\n" + loaded
         streaming = bool(data.get("stream"))
+        use_sdk = sdk_pool is not None
         watch = None
         slots.acquire(session_id)
         control.take_stopped(session_id)  # a stop request for an earlier run is not ours
@@ -370,12 +392,21 @@ def create_app(settings: Settings) -> FastAPI:
                     "session_in_use", 409, "this session is open on the computer right now"
                 )
             if is_capable:
-                await capable.check_available(settings, cwd)
+                # Decision #84: on the SDK runner only after the guardrail check passed
+                # there; until then the claude -p path is the fallback, if it passed.
+                use_sdk = await capable_on_sdk(cwd)
+                if not use_sdk and sdk_pool is not None:
+                    await sdk_pool.drop(session_id)  # never two kinds of writer at once
                 watch = capable.AuditWatch(session_id)
-                run_args |= {"policy": capable.build_policy(settings, cwd), "observer": watch}
-            elif not streaming:
+                policy = capable.build_policy(settings, cwd, ask_host=use_sdk)
+                run_args |= {"policy": policy, "observer": watch}
+            if use_sdk:
+                # Questions and approvals wait only for a client that streams the answer
+                # and said it can show them; anything else is refused at once, as before.
+                run_args["answering"] = streaming and data.get("interactive") is True
+            if not is_capable and not streaming:
                 try:
-                    if sdk_pool is not None:
+                    if use_sdk:
                         result = await sdk_runner.run(sdk_pool, settings, prompt, **run_args)
                     else:
                         result = await claude.run(settings, prompt, **run_args)
@@ -406,7 +437,7 @@ def create_app(settings: Settings) -> FastAPI:
             try:
                 runner = (
                     sdk_runner.stream(sdk_pool, settings, prompt, **run_args)
-                    if sdk_pool is not None
+                    if use_sdk and sdk_pool is not None
                     else claude.stream(settings, prompt, **run_args)
                 )
                 async for event, payload in runner:
@@ -438,6 +469,9 @@ def create_app(settings: Settings) -> FastAPI:
         async def events() -> AsyncIterator[bytes]:
             yield sse("session", {"session_id": session_id})
             async for event, payload in run_events():
+                if event == "keepalive":
+                    yield b": keep-alive\n\n"  # a comment: keeps the relay's read open
+                    continue
                 yield sse(event, payload)
 
         return StreamingResponse(
@@ -500,6 +534,19 @@ def create_app(settings: Settings) -> FastAPI:
             control.pause(session_id, "cancel")
         return {"cancelled": stopped, "queue_paused": session_id in control.paused,
                 "note": runcontrol.STOP_NOTE if stopped else "nothing was running"}  # fmt: skip
+
+    @app.get("/sessions/{session_id}/interactions")
+    async def list_interactions(session_id: str):
+        """Questions and approvals of the session that wait for the owner (SDK runner)."""
+        return {"pending": sdk_pool.asking.pending(session_id) if sdk_pool is not None else []}
+
+    @app.post("/sessions/{session_id}/interactions/{interaction_id}")
+    async def answer_interaction(session_id: str, interaction_id: str, request: Request):
+        """Answer a waiting question or approval; see ``interactions.parse_answer``."""
+        if sdk_pool is None:
+            raise ClaudeError("not_pending", 404, "this question is no longer waiting")
+        data = await read_json_object(request)
+        return sdk_pool.asking.answer(session_id, interaction_id, data)
 
     @app.get("/sessions/{session_id}/queue")
     async def show_queue(session_id: str):

@@ -243,6 +243,18 @@ would be exactly the fragile workaround the owner ruled out.
   change a logged decision (keep `claude -p`), so it is **a human decision**
   (section 7).
 
+**Built (#105) on the SDK runner.** The question tool reaches the bridge
+through the SDK's permission callback. While the app streams the answer,
+the question is shown as an `interaction` event with options and free text.
+The run waits, and its time limit is paused. The owner's answer is passed
+to the assistant, which continues. With no streaming client, the tool is
+refused at once with the plain-text instruction above, so a queued message
+or a non-streaming request behaves as before. No answer within the time
+limit counts as "no". Verified with the real CLI: a question with two
+options was answered by script, and the reply named the chosen option.
+In the same run, a read outside the folder was still denied and listed in
+`denied_tools`. API: `docs/bridge.md`, "Questions and approvals".
+
 ## 7. The Agent SDK
 
 The owner decided on 2026-11-20 to move the runs to the Agent SDK, to get

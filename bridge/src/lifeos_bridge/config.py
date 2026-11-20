@@ -51,6 +51,8 @@ class Settings:
     # at most this many are live at once (the longest-idle one is closed first).
     sdk_idle_seconds: int = DEFAULT_SDK_IDLE_MINUTES * 60
     sdk_max_live: int = DEFAULT_SDK_MAX_LIVE
+    # SDK runner: how long a question or approval waits for the owner (then "no").
+    interaction_timeout: int = 600
     # Fixed model for every run (overrides the per-session choice). Used by the
     # guardrail probes; leave unset in normal use.
     claude_model: str | None = None
@@ -198,6 +200,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         sdk_idle_seconds=60
         * _int_setting(values, "LIFEOS_SDK_IDLE_MINUTES", DEFAULT_SDK_IDLE_MINUTES, 1, 1440),
         sdk_max_live=_int_setting(values, "LIFEOS_SDK_MAX_LIVE", DEFAULT_SDK_MAX_LIVE, 1, 16),
+        interaction_timeout=_int_setting(values, "LIFEOS_INTERACTION_TIMEOUT", 600, 30, 3600),
         claude_model=values.get("LIFEOS_CLAUDE_MODEL") or None,
         default_model=values.get("LIFEOS_DEFAULT_MODEL") or "opus",
         default_effort=values.get("LIFEOS_DEFAULT_EFFORT") or "high",
