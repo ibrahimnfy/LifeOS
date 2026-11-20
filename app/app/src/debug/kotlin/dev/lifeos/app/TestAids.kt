@@ -84,6 +84,19 @@ object TestAids {
         if (intent?.hasExtra(EXTRA_SAMPLE_DATA) == true) sampleWanted = intent.getBooleanExtra(EXTRA_SAMPLE_DATA, false)
     }
 
+    /**
+     * `--es lifeos.test.push <event>` (optionally `--es lifeos.test.push_ref <item>`) shows the
+     * notification a push of that kind would show, without Firebase, to check its text, channel
+     * and what a tap opens. Nothing is received or sent.
+     */
+    fun showSamplePush(context: Context, intent: Intent?) {
+        val event = intent?.getStringExtra("lifeos.test.push") ?: return
+        intent.removeExtra("lifeos.test.push")
+        if (event !in dev.lifeos.app.push.PushHints.EVENTS) return
+        val ref = intent.getStringExtra("lifeos.test.push_ref").orEmpty()
+        dev.lifeos.app.push.PushNotifier.show(context, dev.lifeos.app.push.Hint(event, ref, title = "Sample notice".takeIf { event == "notice" }))
+    }
+
     /** A Keystore key without user confirmation, for test pairings only. */
     fun vault(kind: String): SecretVault? =
         if (kind == VAULT) KeystoreVault("lifeos.device.test.v1") {} else null

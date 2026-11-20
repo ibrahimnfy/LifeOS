@@ -20,6 +20,8 @@ object TestAids {
 
     fun startSampleData() = Unit
 
+    fun showSamplePush(context: Context, intent: Intent?) = Unit
+
     fun vault(kind: String): SecretVault? = null
 
     fun transport(context: Context, real: Transport): Transport = real

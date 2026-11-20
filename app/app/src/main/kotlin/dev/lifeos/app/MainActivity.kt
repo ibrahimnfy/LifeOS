@@ -22,6 +22,9 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dev.lifeos.app.activity.SleepPrompt
+import dev.lifeos.app.push.Destination
+import dev.lifeos.app.push.PushNotifier
+import dev.lifeos.app.push.PushOpen
 import dev.lifeos.app.lock.Authenticator
 import dev.lifeos.app.pairing.PairingText
 import dev.lifeos.app.ui.components.LocalConnection
@@ -45,6 +48,9 @@ class MainActivity : AppCompatActivity() {
 
     /** The morning question was tapped: open the Sleep tab. */
     private var openSleep by mutableStateOf(false)
+
+    /** A push notification was tapped: the screen it opens. */
+    private var openPush by mutableStateOf<PushOpen?>(null)
 
     /** Once the welcome screen was answered it does not come back in this run. */
     private var welcomeDone by mutableStateOf(false)
@@ -113,6 +119,8 @@ class MainActivity : AppCompatActivity() {
                                     onPairingOpened = { openPairing = false },
                                     openSleep = openSleep,
                                     onSleepOpened = { openSleep = false },
+                                    openPush = openPush,
+                                    onPushOpened = { openPush = null },
                                     captureRequest = captureRequest,
                                     onCaptureHandled = { captureRequest = null },
                                 )
@@ -185,6 +193,15 @@ class MainActivity : AppCompatActivity() {
                 openSleep = true
                 welcomeDone = true
             }
+            // A push notification was tapped: open its screen (after unlocking, as always).
+            PushNotifier.ACTION_OPEN -> {
+                openPush = PushOpen(
+                    Destination.decode(intent.getStringExtra(PushNotifier.EXTRA_DESTINATION)) ?: Destination.Today,
+                    intent.getStringExtra(PushNotifier.EXTRA_NOTICE_TITLE),
+                    intent.getStringExtra(PushNotifier.EXTRA_NOTICE_LINK),
+                )
+                welcomeDone = true
+            }
             Intent.ACTION_SEND -> if (intent.type == "text/plain") {
                 val text = listOfNotNull(intent.getStringExtra(Intent.EXTRA_SUBJECT), intent.getStringExtra(Intent.EXTRA_TEXT))
                     .filter { it.isNotBlank() }.distinct().joinToString("\n")
@@ -199,6 +216,7 @@ class MainActivity : AppCompatActivity() {
     /** Debug builds only (see `src/debug/.../TestAids.kt`); in release builds this does nothing. */
     private fun useTestAids(intent: Intent?) {
         TestAids.readSwitches(intent)
+        TestAids.showSamplePush(this, intent)
         if (TestAids.wantsSampleData) {
             welcomeDone = true
             core.useSampleData()

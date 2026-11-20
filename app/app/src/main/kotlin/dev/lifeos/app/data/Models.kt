@@ -171,8 +171,15 @@ data class CourseSummary(
 }
 
 @Serializable
-data class NewCounts(val files: Int = 0, val announcements: Int = 0, val deadlines: Int = 0, val grades: Int = 0, val pages: Int = 0) {
-    val total: Int get() = files + announcements + deadlines + grades + pages
+data class NewCounts(
+    val files: Int = 0,
+    val announcements: Int = 0,
+    val deadlines: Int = 0,
+    val grades: Int = 0,
+    val pages: Int = 0,
+    val assignments: Int = 0,
+) {
+    val total: Int get() = files + announcements + deadlines + grades + pages + assignments
 }
 
 @Serializable

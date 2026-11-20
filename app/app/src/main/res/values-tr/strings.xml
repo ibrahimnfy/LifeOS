@@ -464,4 +464,27 @@
     <string name="models_none_course_sync">Ders eşitleme</string>
     <string name="models_none_notifications">Bildirimler</string>
     <string name="models_cost_note">Kullanım, çalıştırmaların bildirdiği gibidir, önbellek dahil. Maliyet Claude Code\'un kendi tahminidir, fatura değildir.</string>
+
+    <!-- Anlık bildirimler (#38): sabit metinler, asla içerik yok -->
+    <string name="push_channel_chat">Sohbet</string>
+    <string name="push_channel_chat_text">Bir yanıt hazır ya da bir oturum yanıtını veya onayını bekliyor.</string>
+    <string name="push_channel_courses">Dersler</string>
+    <string name="push_channel_courses_text">Yeni notlar, ödevler, dosyalar, duyurular ya da değişen tarihler; her eşitleme için tek bildirim.</string>
+    <string name="push_channel_coach">Koç</string>
+    <string name="push_channel_coach_text">Koç senin için bir şey hazırladı.</string>
+    <string name="push_channel_reminders">Hatırlatıcılar</string>
+    <string name="push_channel_reminders_text">Bilgisayarından hatırlatıcılar ve duyurular.</string>
+    <string name="push_answer">Bir yanıt hazır</string>
+    <string name="push_question">Bir oturumun sana bir sorusu var</string>
+    <string name="push_approval">Bir oturum onayını bekliyor</string>
+    <string name="push_courses">Derslerinde yenilikler var</string>
+    <string name="push_signin">Ders oturumunun yenilenmesi gerekiyor</string>
+    <string name="push_coach">Koçun senin için bir şeyi var</string>
+    <string name="push_reminder">Hatırlatıcı</string>
+    <string name="push_notice">Bilgisayarından bir duyuru</string>
+    <string name="settings_notifications">Bildirimler</string>
+    <string name="notifications_push_ready">Bilgisayarın, uygulama kapalıyken de bu telefona bildirim gönderebilir.</string>
+    <string name="notifications_push_missing">Uygulamanın bu sürümünde anlık bildirim ayarları yok (ya da telefonda Google Play hizmetleri yok); bu yüzden bilgisayar bu telefona bildirim gönderemez.</string>
+    <string name="notifications_text">Bir bildirim yalnızca ne tür bir şey olduğunu söyler; neyle ilgili olduğu, uygulamayı açıp kilidini kaldırınca görünür. Her tür (sohbet, dersler, koç, hatırlatıcılar) sistem ayarlarından kapatılabilir.</string>
+    <string name="notifications_open_system">Bildirim ayarları</string>
 </resources>

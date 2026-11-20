@@ -102,6 +102,13 @@ class KeystoreVault(
 }
 
 object Vaults {
+    /**
+     * The key that seals the push key only (owner's choice #136 = A): usable without the
+     * owner's confirmation, so a push can be opened while the app is locked or closed. It never
+     * seals the device secret.
+     */
+    fun push(): SecretVault = KeystoreVault("lifeos.push.v1") {}
+
     /** The vault kind of every real pairing, as recorded in [PairingRecord.vault]. */
     const val AUTH = "auth"
 
