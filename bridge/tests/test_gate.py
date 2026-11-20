@@ -23,6 +23,14 @@ from lifeos_bridge import gate
         ("ls | xargs rm", "deletion"),
         ("git clean -fdx", "deletion"),
         ("shred secret", "deletion"),
+        ("rmdir empty", "deletion"),
+        ("unlink a.txt", "deletion"),
+        ("truncate -s 0 log.txt", "deletion"),
+        ("git rm old.md", "deletion"),
+        ("cd notes && rm -r drafts", "deletion"),
+        ("env X=1 rm a", "deletion"),
+        ("git stash drop", "force"),
+        ("git restore file.txt", "force"),
         ("git reset --hard HEAD~1", "force"),
         ("git branch -D old", "force"),
         ("git checkout -- file.txt", "force"),
@@ -130,3 +138,18 @@ def test_as_a_program(tmp_path):
     garbage = run_gate("not json", tmp_path)
     assert garbage.returncode == 2
     assert len(read_log(tmp_path)) == 2
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo new > notes.md",  # overwrite
+        "cp other.md notes.md",  # overwrite
+        "mv notes.md archive/",  # move over an existing file
+        "python3 -c \"import os; os.remove('notes.md')\"",  # indirect deletion
+        "make clean",  # a tool that deletes as a side effect
+    ],
+)
+def test_known_limit_overwrites_and_indirect_deletions_are_not_recognised(command):
+    """Documented in docs/permission-policy.md (guardrail 9): the owner accepted this limit."""
+    assert gate.classify(command) is None

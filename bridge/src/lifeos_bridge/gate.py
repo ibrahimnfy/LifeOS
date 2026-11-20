@@ -43,7 +43,8 @@ def _commands(*names: str) -> re.Pattern[str]:
     """Match any of ``names`` where a command can start."""
     joined = "|".join(re.escape(n).replace(r"\ ", r"\s+") for n in names)
     return re.compile(
-        rf"(?:^|[;&|(){{}}`\n]|\$\(|\b(?:xargs|exec|env|nohup|time)\s)\s*(?:{joined})(?=\s|$|;|&|\|)"
+        rf"(?:^|[;&|(){{}}`\n]|\$\(|\b(?:xargs|exec|env|nohup|time)\s)\s*(?:\w+=\S*\s+)*"
+        rf"(?:{joined})(?=\s|$|;|&|\|)"
     )
 
 

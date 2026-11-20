@@ -153,7 +153,7 @@ and its children; **CC** = enforced by Claude Code for its own file tools;
 | 6 | No change of system settings | OS: system folders are read-only; desktop settings go through the session bus, which needs Unix sockets → blocked by the seccomp filter and by hiding `/run/user`. **Depends on the optional seccomp component being installed** | to verify; see human issue on prerequisites |
 | 7 | Approval needed: any network action that sends data out; pushes; package installs; message or e-mail sending | OS: commands have **no network at all** (empty allow-list, strict). pattern: clear refusal naming the reason | to verify |
 | 8 | Approval needed: force operations on remotes | same as 7 (no network) | to verify |
-| 9 | Approval needed: permanent deletion; local force operations (hard reset, branch deletion, clean) | pattern only. **Cannot be enforced by the OS**: a shell that may write a folder may also delete in it, by many routes | **not enforceable → human decision issue** |
+| 9 | Confirmation needed: obvious permanent deletion; local force operations (hard reset, branch deletion, clean) | pattern only. **Cannot be enforced by the OS**: a shell that may write a folder may also delete in it, by many routes | **decided by the owner: warn and confirm, with a known limit** (section 5.1); refusal built and unit-tested |
 | 10 | Refusal with a clear explanation until the app has an approval screen | bridge: the `PreToolUse` gate program answers with the reason ("needs the owner's approval; approvals are not available yet"); the response lists refused actions | **built**; blocking through the hook tested with the real CLI; command patterns unit-tested |
 | 11 | Every command is written to a local audit log outside the repository | bridge: the gate program appends each tool call to `~/.config/lifeos/audit/` **before** it runs and blocks the call if the write fails; the bridge cross-checks against the tool calls seen in the stream and stops the run on a mismatch | **built**; log-before-run and block-on-failure tested with the real CLI (file tool); shell commands to verify with the sandbox |
 | 12 | Nothing about prompts in the public repository | the audit log and all logs live under `~/.config/lifeos/`; the repository ships code and templates only | enforced by layout |
@@ -167,7 +167,41 @@ and its children; **CC** = enforced by Claude Code for its own file tools;
 - The model's own connection to its API is not sandboxed (it must work).
   Everything a capable run reads can therefore reach the model provider, as
   with every Claude Code session. It cannot reach any other destination.
-- Guardrail 9 is the one promise that is not enforceable as stated.
+- Guardrail 9 is the one promise that is not enforceable as stated; the
+  owner decided how it is handled (section 5.1).
+
+### 5.1 Deletion: the owner's decision
+
+Raised as a human decision because it cannot be enforced; decided as follows
+(see `docs/decisions.md`):
+
+- **Warn and confirm.** When a capable run is about to run an *obvious*
+  deletion or local force operation, the app shows a warning and the run
+  proceeds only after the owner confirms. Until the app has that screen, the
+  gate program refuses the command with an explanation, and the response
+  lists it as a refused action.
+- **No snapshots.** The bridge does not copy folders before a run. When the
+  owner wants a backup of a project, the prompt says so.
+- **Everything is in the audit log**, allowed or refused.
+- **The memory folder is under its own local git**, which is its safety net:
+  a deleted or overwritten note can be restored from history.
+
+What "obvious" means: the command text starts a known deleting command
+(`rm`, `rmdir`, `unlink`, `shred`, `truncate`, `find … -delete`,
+`git clean`, `git rm`, …) or a history-discarding git operation
+(`git reset`, `git restore`, `git checkout --`, `--force`, `-D`, …). The
+list is in `bridge/src/lifeos_bridge/gate.py` and its tests.
+
+**Known limit, accepted by the owner.** These are *not* recognised and run
+without a warning inside the folders the run may write:
+
+- overwriting a file (`>` redirection, `cp` or `mv` onto an existing file,
+  an edit through the file tools);
+- indirect deletion: a script or one-liner in any language, a build tool's
+  clean target, a program that removes files as a side effect.
+
+The sandbox still limits the damage to the run's folder and the memory
+folder; nothing outside them can be touched.
 
 ## 6. Switching the capable mode on
 
@@ -213,8 +247,8 @@ forbidden; it passes only if the attempt fails for the right reason.
 | Issue | Content | Depends on |
 |---|---|---|
 | human | Install the sandbox prerequisites (needs `sudo`) | — |
-| human, decision | What to do about permanent deletion (guardrail 9) | — |
+| human, decision | What to do about permanent deletion (guardrail 9): **answered**, section 5.1 | — |
 | agent | Capable-mode plumbing behind the gate: `mode` parameter, settings generation, gate program with audit log and approval refusals, marker check, never-allowed folders. Tested with the stand-in `claude`; stays switched off | this design |
 | agent | `scripts/verify-guardrails`: the real probes, marker file, documentation; opens a human issue for any probe that fails | plumbing; prerequisites |
-| agent | Whatever the owner decides for guardrail 9 | decision; plumbing |
-| agent (app phase) | Approval screen: the gate program asks the phone instead of refusing | app skeleton; verified capable mode |
+| agent | Guardrail 9 as decided: refusal of obvious deletions, tests, documented limit | decision; plumbing |
+| agent (app phase) | Approval screen, including the deletion warning: the gate program asks the phone instead of refusing | app skeleton; verified capable mode; relay transport |
