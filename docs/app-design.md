@@ -379,8 +379,8 @@ least 48 dp; charts have a text summary; colour is never the only signal
 
 ## 5. Visual direction
 
-The owner chose none of the first three proposals (A, B, C below, kept for
-the record) and asked for a new one, **D**, which is now the working
+The owner chose none of the first three proposals (A, B, C below, kept here
+for the record; no longer drawn in the mockups) and asked for a new one, **D**, which is now the working
 direction and is refined from its mockups in
 [`docs/design/mockups/`](design/mockups/) (open `index.html` in a browser;
 light and dark, English and Turkish).
@@ -410,8 +410,14 @@ variants, **D1, D2, D3**, to be compared side by side (light and dark).
   up. Tokens: the mockups' README.
 - **Variants that were compared:** D1 cool (blue-black dark mode, blue-led accent, thin ring);
   D2 warm (warm off-white, charcoal, gradient-led accent, thick ring); D3 in
-  between. Exact tones and contrast ratios are listed in the mockups'
-  README; body text meets the usual contrast recommendation in all six.
+  between. D1 and D2 are dropped and no longer drawn in the mockups.
+- **Making D3 warmer (#132, proposals awaiting the owner's choice):** the
+  coach card stays; the other cards get soft tints, icons and patterns.
+  Three proposals on the D3 base are mocked up side by side: **P1** soft
+  tints per section, **P2** a colour and icon per course with faint
+  watermark icons, **P3** playful card shapes with small geometric
+  illustrations. The mockups' README describes them and lists their tones
+  and contrast ratios (all text pairs at least 4.5:1).
 - **Own designs only:** icons, buttons and tones are made for this project.
   No third-party logos, assets, gradients, icon sets or product names
   anywhere in the repository.
