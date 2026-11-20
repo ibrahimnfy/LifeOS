@@ -9,7 +9,7 @@ directory) and behaves according to the first word of the prompt:
   FAKE_DENIED       answers, reporting a denied tool call
   FAKE_GARBAGE      prints something that is not JSON
   FAKE_CRASH        prints nothing and exits 1
-  anything else     answers "echo: <prompt>"
+  anything else     answers "echo: <prompt>", or the content of ~/.fake-claude-answer
 """
 
 import json
@@ -83,6 +83,9 @@ result = {
     "permission_denials": [],
     "extra_unknown_key": 1,
 }
+canned = Path.home() / ".fake-claude-answer"
+if canned.exists():  # tests that need a specific answer write it here
+    result["result"] = canned.read_text()
 if prompt.startswith("FAKE_ERROR"):
     result.update(subtype="error_max_turns", is_error=True, result="", errors=["turn limit"])
 if prompt.startswith("FAKE_DENIED"):

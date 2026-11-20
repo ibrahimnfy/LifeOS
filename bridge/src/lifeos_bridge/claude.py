@@ -387,3 +387,19 @@ async def stream(
             "denied_tools": result.denied_tools,
         },
     )
+
+
+def json_from_answer(answer: str) -> dict:
+    """The JSON object in a model answer (tolerates code fences and surrounding words)."""
+    start, end = answer.find("{"), answer.rfind("}")
+    if start == -1 or end <= start:
+        raise ClaudeError("bad_output", 502, "the answer did not contain the expected data")
+    try:
+        data = json.loads(answer[start : end + 1])
+    except ValueError as exc:
+        raise ClaudeError(
+            "bad_output", 502, "the answer did not contain the expected data"
+        ) from exc
+    if not isinstance(data, dict):
+        raise ClaudeError("bad_output", 502, "the answer did not contain the expected data")
+    return data

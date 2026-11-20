@@ -14,7 +14,17 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from . import __version__, allowed, capable, claude, memory, reminders, session_meta, sessions
+from . import (
+    __version__,
+    allowed,
+    capable,
+    claude,
+    contextmap,
+    memory,
+    reminders,
+    session_meta,
+    sessions,
+)
 from .claude import ClaudeError
 from .config import Settings
 
@@ -268,6 +278,12 @@ def create_app(settings: Settings) -> FastAPI:
             raise ClaudeError("folder_missing", 409, "the session's folder no longer exists")
         return await run_prompt(data, session_id=info.id, resume=True, cwd=info.folder)
 
+    background: set[asyncio.Task] = set()
+
+    async def map_in_background(folder: Path) -> None:
+        with contextlib.suppress(ClaudeError, OSError):
+            await contextmap.refresh_folder(settings, folder)
+
     def allowed_file() -> Path:
         if settings.allowed_paths_file is None:
             raise ClaudeError("not_configured", 503, "no allowed-paths file is configured")
@@ -289,6 +305,11 @@ def create_app(settings: Settings) -> FastAPI:
         """Allow a folder. Body: ``{"path": "/home/.../folder"}``."""
         path = read_path(await read_json_object(request))
         added = allowed.add(allowed_file(), path, settings.notify_script)
+        if added:
+            # The context map grows with the list; a failure here never fails the request.
+            task = asyncio.create_task(map_in_background(Path(path).expanduser()))
+            background.add(task)
+            task.add_done_callback(background.discard)
         return {"added": added, "paths": allowed.listing(allowed_file())}
 
     @app.delete("/allowed-paths")
@@ -369,6 +390,24 @@ def create_app(settings: Settings) -> FastAPI:
     async def delete_reminder(reminder_id: str):
         reminders.delete(reminder_id)
         return {"deleted": True}
+
+    @app.get("/context-map")
+    async def list_context_map():
+        """The allowed folders and the memory file that describes each (if written yet)."""
+        return {"folders": await asyncio.to_thread(contextmap.listing, settings)}
+
+    @app.post("/context-map/refresh")
+    async def refresh_context_map(request: Request):
+        """Rewrite the map files. Body: ``{}`` for all folders or ``{"path": "/folder"}``."""
+        data = await read_json_object(request)
+        slots.acquire("context-map")
+        try:
+            if data.get("path") is None:
+                return {"results": await contextmap.refresh_all(settings)}
+            folder = Path(read_path(data)).expanduser()
+            return {"results": [{"ok": True, **await contextmap.refresh_folder(settings, folder)}]}
+        finally:
+            slots.release("context-map")
 
     # ---- memory: quick capture, tasks, calendar, agenda -------------------
     brain = settings.ask_dir

@@ -99,6 +99,8 @@ bridge by hand.
 | GET / POST | `/events` | yes | Lists or creates calendar events |
 | PATCH | `/events/{id}` | yes | Changes an event |
 | GET | `/agenda` | yes | Today's events and tasks, overdue tasks, the coming days |
+| GET | `/context-map` | yes | Allowed folders and their summary files in the memory |
+| POST | `/context-map/refresh` | yes | Writes or updates those summaries |
 | GET / POST / DELETE | `/allowed-paths` | yes | Lists, adds or removes an allowed folder |
 
 ### `POST /ask`
@@ -350,6 +352,26 @@ memory loaded: the bridge passes the memory's `CLAUDE.md`, `INDEX.md`,
 the model explicitly (at most about 60,000 characters), on every request of
 that conversation. Resumed sessions of other folders do not get it. The text
 goes to the model only; it is never logged.
+
+### `/context-map`
+
+For every allowed folder the memory holds one file `map/<name>.md`: where
+the folder is, what it is, its state and its key files (pointers, never
+copies).
+
+- `POST /context-map/refresh` with `{}` rewrites the files of all allowed
+  folders, with `{"path": "/folder"}` of one. Per folder it starts one
+  read-only run inside that folder (uses the owner's Claude plan), checks the
+  answer, writes the file, adds a line to the index and commits in the
+  memory folder. Running it again updates the same file; everything from the
+  `## Facts` heading on is kept.
+- When a folder is added through `/allowed-paths`, its file is written in
+  the background. Removing a folder leaves its file in place.
+- `GET /context-map` lists the allowed folders and the file of each (`null`
+  when not written yet).
+- Only key files that exist inside the folder are listed. The folder's
+  content is outside text: it reaches the map file only, never the
+  always-loaded files.
 
 ### `/allowed-paths`
 
