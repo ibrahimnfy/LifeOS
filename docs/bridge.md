@@ -805,7 +805,9 @@ copies).
   read-only run inside that folder (uses the owner's Claude plan), checks the
   answer, writes the file, adds a line to the index and commits in the
   memory folder. Running it again updates the same file; everything from the
-  `## Facts` heading on is kept.
+  `## Facts` heading on is kept. The run is not saved as a session
+  (`--no-session-persistence`), so it never appears in the session list of
+  that folder.
 - When a folder is added through `/allowed-paths`, its file is written in
   the background. Removing a folder leaves its file in place.
 - `GET /context-map` lists the allowed folders and the file of each (`null`

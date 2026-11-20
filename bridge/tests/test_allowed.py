@@ -100,6 +100,25 @@ def test_change_applies_without_restart(client, auth, project, write_session):
     assert client.get("/sessions", headers=auth).json()["sessions"] == []
 
 
+def test_the_context_map_run_never_becomes_a_session(client, auth, project, write_session):
+    """#141: the map run that adding a folder starts used to appear as a session, by timing."""
+    import time
+
+    session_id = write_session(project, [user_line(project, "project work")])
+    with client:  # a running event loop, so the background map run really runs
+        request(client, auth, "POST", project)
+        log = project / ".fake-claude-calls.jsonl"
+        deadline = time.time() + 10
+        while not log.exists():
+            assert time.time() < deadline
+            time.sleep(0.02)
+        time.sleep(1.0)  # long after the stand-in would have written a transcript
+        args = json.loads(log.read_text().splitlines()[0])["args"]
+        assert "--no-session-persistence" in args and "--session-id" not in args
+        listed = client.get("/sessions", headers=auth).json()["sessions"]
+        assert [s["id"] for s in listed] == [session_id]
+
+
 def test_refusals(client, auth, tmp_path, isolated_config, notifications):
     home = tmp_path / "home"
     (home / ".ssh").mkdir()
