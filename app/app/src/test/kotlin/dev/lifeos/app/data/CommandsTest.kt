@@ -62,7 +62,7 @@ class CommandsTest {
 
     @Test
     fun `choosing a command completes its name and a known command is recognised`() {
-        assertEquals("/summarise ", Commands.complete(list.commands[1]))
+        assertEquals("/summarise ", Commands.complete(list, list.commands[1]))
         assertEquals("summarise", Commands.recognised(list, "/summarise notes.md")?.name)
         assertEquals("summarise", Commands.recognised(list, "/folder:summarise")?.name)
         assertEquals("/summarise".length, Commands.recognisedLength(list, "/summarise notes.md"))
@@ -79,6 +79,74 @@ class CommandsTest {
         assertFalse(Commands.unknown(list, "/ alone"))
     }
 
+    // ------------------------------------------------------------------ personal skills (#162)
+
+    private val mixed = CommandList(
+        enabled = false,
+        switchedOn = false,
+        prefix = "folder:",
+        personal = PersonalCommands(enabled = true, prefix = "personal:"),
+        commands = listOf(
+            SlashCommand("summarise", "skill", "Summarise a file"),
+            SlashCommand("review", "command", "Review a change"),
+            SlashCommand("standup", "skill", "Write the stand-up", source = "personal"),
+            SlashCommand("summarise", "skill", "My own summary", source = "personal"),
+        ),
+    )
+
+    @Test
+    fun `personal skills are offered while the folder's switch is off, and the folder's are not`() {
+        assertEquals(listOf("standup", "summarise"), Commands.matching(mixed, "/").map { it.name })
+        assertTrue(Commands.matching(mixed, "/").all { it.personal })
+        // The folder's own: not with the switch off, so "/review" is not one this conversation can use.
+        assertNull(Commands.recognised(mixed, "/review now"))
+        assertTrue(Commands.unknown(mixed, "/review now"))
+        assertEquals(CommandNote.UNKNOWN, Commands.note(mixed, "/review now", hasSession = true, capable = true))
+        assertEquals("standup", Commands.recognised(mixed, "/standup")?.name)
+        assertEquals("/personal:standup".length, Commands.recognisedLength(mixed, "/personal:standup today"))
+        // Not offered at all: the personal ones cannot be used yet, and the folder's are off.
+        val unchecked = mixed.copy(personal = PersonalCommands(enabled = false))
+        assertEquals(emptyList<SlashCommand>(), Commands.matching(unchecked, "/"))
+        assertEquals(CommandNote.UNAVAILABLE, Commands.note(unchecked, "/", hasSession = true, capable = true))
+        assertEquals(0, Commands.recognisedLength(unchecked, "/standup"))
+    }
+
+    @Test
+    fun `a name both have goes to the folder's, so a personal one is completed with its prefix`() {
+        val both = mixed.copy(enabled = true, switchedOn = true)
+        val personalSummary = both.commands[3]
+        assertEquals("/personal:summarise ", Commands.complete(both, personalSummary))
+        assertEquals("/standup ", Commands.complete(both, both.commands[2]))
+        assertEquals("/summarise ", Commands.complete(both, both.commands[0]))
+        // While the folder's own are off, the personal one has the name to itself.
+        assertEquals("/summarise ", Commands.complete(mixed, personalSummary))
+        // Recognised as the computer resolves it: the folder's first, a prefix names one exactly.
+        assertFalse(checkNotNull(Commands.recognised(both, "/summarise x")).personal)
+        assertTrue(checkNotNull(Commands.recognised(both, "/personal:summarise x")).personal)
+        assertFalse(checkNotNull(Commands.recognised(both, "/folder:summarise x")).personal)
+        // A typed prefix narrows the list to its source.
+        assertEquals(listOf(true), Commands.matching(both, "/personal:sum").map { it.personal })
+        assertEquals(listOf(false), Commands.matching(both, "/folder:sum").map { it.personal })
+        assertEquals(4, Commands.matching(both, "/").size)
+    }
+
+    @Test
+    fun `the line above the list says where things stand`() {
+        assertEquals(CommandNote.NEW, Commands.note(null, "/", hasSession = false, capable = true))
+        assertNull(Commands.note(null, "/", hasSession = true, capable = true))
+        assertNull(Commands.note(mixed, "/", hasSession = true, capable = true))
+        assertEquals(CommandNote.NO_MATCH, Commands.note(mixed, "/xyz", hasSession = true, capable = true))
+        assertEquals(CommandNote.CAPABLE, Commands.note(mixed, "/standup now", hasSession = true, capable = false))
+        assertNull(Commands.note(mixed, "/standup now", hasSession = true, capable = true))
+        // Personal ones listed, but the folder's switched on and not yet usable: said above the list.
+        assertEquals(CommandNote.FOLDER_UNAVAILABLE, Commands.note(mixed.copy(switchedOn = true), "/", hasSession = true, capable = true))
+        // No personal ones at all, the folder's switched off.
+        val folderOnly = mixed.copy(commands = mixed.folderCommands)
+        assertEquals(CommandNote.FOLDER_OFF, Commands.note(folderOnly, "/", hasSession = true, capable = true))
+        assertEquals(CommandNote.NONE, Commands.note(folderOnly.copy(commands = emptyList()), "/", hasSession = true, capable = true))
+        assertEquals(CommandNote.UNAVAILABLE, Commands.note(folderOnly.copy(switchedOn = true), "/", hasSession = true, capable = true))
+    }
+
     @Test
     fun `the commands of a session are read with their switches`() = runTest {
         transport.answer(
@@ -91,6 +159,19 @@ class CommandsTest {
         assertTrue(read.switchedOn)
         assertEquals("folder:", read.prefix)
         assertEquals(SlashCommand("summarise", "skill", "Summarise a file", null, listOf("shell_lines", "requests_tools")), read.commands.single())
+        // Before #162 there was no source and no personal state: the folder's, and none personal usable.
+        assertEquals("folder", read.commands.single().source)
+        assertFalse(read.personal.enabled)
+        assertEquals("personal:", read.personal.prefix)
+        transport.answer(
+            "GET /sessions/s-1/commands",
+            200,
+            """{"enabled":false,"switched_on":false,"reason":"skills are switched off for this session","capable_only":true,"prefix":"folder:","personal":{"enabled":true,"reason":null,"prefix":"personal:"},"commands":[{"name":"review","kind":"command","description":"…","argument_hint":"<file>","warnings":["shell_lines"],"source":"folder"},{"name":"standup","kind":"skill","description":"…","argument_hint":null,"warnings":[],"source":"personal"}]}""",
+        )
+        val both = api.commands("s-1")
+        assertTrue(both.personal.enabled)
+        assertEquals(listOf("review"), both.folderCommands.map { it.name })
+        assertEquals(listOf("standup"), both.usable.map { it.name })
         assertEquals(ChatProblem.COMMAND_UNKNOWN, Chat.problemOf("command_not_allowed", 400))
         assertEquals(ChatProblem.SKILLS_OFF, Chat.problemOf("skills_unavailable", 503))
     }

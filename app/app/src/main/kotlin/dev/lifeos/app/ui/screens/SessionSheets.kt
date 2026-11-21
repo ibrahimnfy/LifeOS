@@ -213,7 +213,7 @@ internal fun SessionSheet(
             if (!coach) {
                 // The folder's own skills and commands, for this session only (#97).
                 SkillsSwitch(core, session, change)
-                // The MCP servers the folder declares (#153): listed, approved one by one, revoked.
+                // The MCP servers the folder and the owner's personal settings declare (#153, #162): listed, approved one by one, revoked.
                 SheetAction(LifeIcons.Chip, stringResource(R.string.mcp_action), note = stringResource(R.string.mcp_action_note)) { page = SessionSheetPage.MCP }
             }
         }
@@ -319,13 +319,27 @@ private fun SkillsSwitch(core: LifeOsCore, session: SessionSummary, change: Sess
         }
     }
     val found = list ?: return
-    val count = found.commands.size
+    // The switch is about the folder's own; the owner's personal ones are offered without it (#162).
+    val count = found.folderCommands.size
     Text(
         text = if (count == 0) stringResource(R.string.session_skills_none) else pluralStringResource(R.plurals.session_skills_count, count, count),
         style = LifeType.small,
         color = colors.muted,
         modifier = Modifier.padding(horizontal = 4.dp),
     )
+    val personal = found.commands.size - count
+    if (personal > 0) {
+        Text(
+            text = if (found.personal.enabled) {
+                pluralStringResource(R.plurals.session_personal_count, personal, personal)
+            } else {
+                stringResource(R.string.session_personal_unavailable)
+            },
+            style = LifeType.small,
+            color = colors.muted,
+            modifier = Modifier.padding(horizontal = 4.dp),
+        )
+    }
     if (on && found.switchedOn && !found.enabled) {
         Text(
             text = stringResource(R.string.session_skills_unavailable),

@@ -30,7 +30,9 @@
   "commands": [
     {"name": "summarise", "kind": "skill", "description": "Summarise a file or a folder of notes", "argument_hint": "<path>", "warnings": []},
     {"name": "milestone-report", "kind": "skill", "description": "Write the milestone report from the check-in notes", "argument_hint": null, "warnings": ["has_scripts"]},
-    {"name": "tidy-drafts", "kind": "command", "description": "Move old drafts into the archive folder", "argument_hint": null, "warnings": ["shell_lines"]}
+    {"name": "tidy-drafts", "kind": "command", "description": "Move old drafts into the archive folder", "argument_hint": null, "warnings": ["shell_lines"]},
+    {"name": "standup", "kind": "skill", "description": "Write a short stand-up from today's notes", "argument_hint": null, "warnings": [], "source": "personal"},
+    {"name": "summarise", "kind": "skill", "description": "Summarise in three bullet points", "argument_hint": "<path>", "warnings": [], "source": "personal"}
   ],
   "answer": "Here is what I found:\n\n1. **Draft the outline** is due today.\n2. The check-in notes still need a review.\n\nBoth are in `notes/alpha`:\n\n```\n$ ls notes/alpha\noutline.md   check-in.md\n```\n\nShall I add the summary as a task for Monday?"
 }

@@ -412,6 +412,7 @@ private enum class CourseTab(val title: Int) {
     ANNOUNCEMENTS(R.string.course_announcements),
     ASSIGNMENTS(R.string.course_assignments),
     GRADES(R.string.course_grades),
+    RESOURCES(R.string.course_resources),
 }
 
 /** One course: Materials, Announcements, Assignments, Grades. Opening it clears its "new" markers. */
@@ -457,6 +458,7 @@ fun CourseScreen(
             CourseTab.ANNOUNCEMENTS -> AnnouncementsTab(core, courseId, onPair)
             CourseTab.ASSIGNMENTS -> AssignmentsTab(core, courseId, onPair, onOpenAssignment)
             CourseTab.GRADES -> GradesTab(core, courseId, onPair)
+            CourseTab.RESOURCES -> ResourcesTab(core, courseId, onPair)
         }
     }
 }
@@ -505,7 +507,7 @@ private fun CourseHero(course: Course, modifier: Modifier = Modifier, onOpenAssi
 }
 
 @Composable
-private fun TabBody(refreshing: Boolean, onRefresh: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun TabBody(refreshing: Boolean, onRefresh: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     RefreshBox(refreshing = refreshing, onRefresh = onRefresh, modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier

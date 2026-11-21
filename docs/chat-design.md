@@ -118,7 +118,12 @@ What the documentation says, and what follows:
   folder's skills and commands (name, one-line description, argument hint)
   by reading those documented folders. It runs nothing and needs no model.
   The app shows the list when "/" is typed, completes names, and
-  highlights a recognised command in the composer.
+  highlights a recognised command in the composer. Since #162 the list also
+  holds the owner's personal ones (`"source": "personal"`); the app (#172)
+  offers them whenever `personal.enabled` is true, also with the switch off,
+  marks each entry as the folder's or personal, and completes a personal
+  entry whose name a usable folder entry also has as `/personal:<name>`
+  (the computer gives a shared bare name to the folder's).
 - **In the run:** shell lines inside skills are disabled; a skill's
   self-approval of tools cannot widen the tool list the bridge passes; all
   commands a skill causes go through the same sandbox, the same gate
@@ -409,10 +414,14 @@ How the app uses sections 3, 6 and 7.1 to 7.3 (details and manual checks:
 - **Session sheet** (the dots next to the pills above the composer, or a
   long press on a session): rename, pin, group, reminders, the reply
   notification switch, then **Use this folder's skills and commands** (off
-  unless switched on; with what it means, how many the folder has, and a
+  unless switched on; with what it means, how many the folder has, how many
+  personal ones the owner has (offered without the switch, #162), and a
   line when the computer's check for skills has not passed) and **MCP
-  servers** (list with state and what would start, the outside-the-sandbox
-  warning first, "Review and approve", "Revoke approval"). The session is
+  servers** (the folder's, then the owner's personal ones, each with its
+  scope, state and what would start, the outside-the-sandbox warning first,
+  "Review and approve", "Revoke approval"; both requests send `?scope=`; a
+  personal server's card and approval say they cover every folder; an
+  `unsupported` personal server has no button). The session is
   read fresh (`GET /sessions/{id}`). The coach conversation's sheet has
   neither the skills switch nor the MCP page.
 - **Cards** live in the conversation. Those of a run (question, approval)

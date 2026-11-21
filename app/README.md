@@ -337,21 +337,28 @@ with plain HTTPS requests.
     that conversation. **The default** for all chat sessions is changed under
     Settings → Models ("Chat sessions").
   - **"/" commands:** a message that starts with "/" lists the skills and
-    commands of the session's folder above the composer, narrowed while the
-    name is typed, each with its description, argument hint and warnings; a
-    tap completes the name. A recognised command is coloured in the
-    composer. The list appears only where the folder's skills are switched
-    on for the session and usable; otherwise one line says why not (switched
-    off, the computer's check has not passed, not one of this folder's,
-    needs "Changes allowed").
+    commands the session can use above the composer, narrowed while the
+    name is typed, each with its description, argument hint, warnings and
+    whether it is the folder's or the owner's personal one; a tap completes
+    the name. A recognised command is coloured in the composer. The
+    folder's own appear only where they are switched on for the session and
+    usable; the owner's personal ones (#162, #172) whenever the computer
+    offers them (`personal.enabled`), also with the switch off. A personal
+    one whose name the folder also uses is completed as
+    `/personal:<name>`. Otherwise one line says why nothing is listed (the
+    computer's check has not passed, the folder's switched off and no
+    personal ones, none at all, not one this conversation can use, needs
+    "Changes allowed").
   - **The skills switch (#97):** the session's sheet (the dots next to the
     pills, or a long press on a session) has **Use this folder's skills and
     commands**, off unless switched on, per session, with what it means in
     plain words: only in messages with "Changes allowed", only the skills
-    and commands of the folder's own `.claude` folder, never the personal
-    ones, and a skill cannot widen what the assistant may do. Under it the
-    sheet says how many the folder has, and when the computer's check for
-    skills has not passed, that they cannot be used right now.
+    and commands of the folder's own `.claude` folder (the owner's personal
+    ones are offered in every such message without the switch, #162), and
+    a skill cannot widen what the assistant may do. Under it the sheet says
+    how many the folder has, how many personal ones the owner has (or that
+    they cannot be used right now), and when the computer's check for
+    skills has not passed, that the folder's cannot be used right now.
   - **Skill installs (#97):** when the assistant proposes a skill, a card
     shows **where it comes from, what is in it and where it would go**
     before anything can be approved: the source address, what the skill says
@@ -363,9 +370,12 @@ with plain HTTPS requests.
     refused. **Nothing is installed without the tap on Install.** The card
     waits for up to a day, also across messages, runs and restarts, and is
     shown whenever the conversation is opened.
-  - **MCP servers (#153):** the session's sheet has **MCP servers**: the
-    servers the folder's `.mcp.json` declares, each with its state (not
-    approved, approved, changed since the approval) and what would start:
+  - **MCP servers (#153, #172):** the session's sheet has **MCP servers**:
+    the servers the folder's `.mcp.json` declares, then the owner's personal
+    (user-scope) servers, each with its scope ("This folder's server", "Your
+    personal server: one approval covers every folder"), its state (not
+    approved, approved, changed since the approval, or for a personal one
+    "cannot be approved", without any button) and what would start:
     the command with its arguments or the address, and only the *names* of
     environment variables and headers. **The warning that an approved server
     runs outside the sandbox** (an ordinary program with the network and the
@@ -374,7 +384,8 @@ with plain HTTPS requests.
     **Review and approve** asks the computer for the approval card of exactly
     that definition and shows it at once (**Approve**, **Don't approve**);
     left unanswered, the card waits for a day in the conversation like a
-    skill install. **Revoke approval** takes an approval back. An answer that
+    skill install. A personal server's card asks for every folder and says
+    so. **Revoke approval** takes an approval back. An answer that
     used servers says which under its text, and that they run outside the
     sandbox.
   - **Read-only or "Changes allowed"** (the pill above the composer): every
@@ -482,8 +493,10 @@ with plain HTTPS requests.
   "All courses" as tiles (the first one wide, the others two by two, each in
   its course's colour with its icon, ornament, next deadline and the marker
   for new content). A course page has a header card in the course's colour
-  with the next deadline, and Materials, Announcements, Assignments and
-  Grades; files and links carry the course's colour. Every deadline ticket
+  with the next deadline, and Materials, Announcements, Assignments,
+  Grades and Resources (what the computer found from the syllabus, each
+  downloaded or with the reason it is only listed, #172); files and links
+  carry the course's colour. Every deadline ticket
   or row and every assignment of the Assignments tab opens the
   **assignment detail**: a ticket in the course's colour with the due date,
   the days left on its stub, when it opened and the status (a dot and the
@@ -814,7 +827,9 @@ Nothing on these screens is sample content any more. Not paired, they show
     computer's `"approved"` decides what is shown (`false` after a yes: the
     definition changed meanwhile; `503 audit_unavailable`: nothing was
     approved and the card can be answered again). Revoking is `DELETE
-    …/mcp-servers/{name}`. `mcp_servers` of a finished answer becomes the
+    …/mcp-servers/{name}`. Both requests always send `?scope=folder` or
+    `?scope=personal` (#162); `409 mcp_server_unsupported` gets its own
+    line. The card's top-level `"scope"` decides its wording. `mcp_servers` of a finished answer becomes the
     line under it, and each exchange of `GET /sessions/{id}/history` carries
     it too (#157), so an answer read again later says the same. A message
     refused with
@@ -1130,7 +1145,7 @@ running on the computer with the relay set up.
    with "Last sync …" under it, "All grades" and the refresh arrow. The rose
    deadline card shows only "Upcoming deadlines" as tickets; the course tiles
    follow. A course's colour and icon are the same on its tile, its page,
-   its files, its deadlines and the labels of its tasks. A course's four tabs;
+   its files, its deadlines and the labels of its tasks. A course's five tabs (Resources: see "Course resources" below);
    the download arrow of a file → "Saved to Downloads", and the file is in
    the phone's Downloads folder. Tap **Open** next to it: a PDF opens in the
    phone's PDF viewer (or the system asks which app to use); back in LifeOS
@@ -1630,10 +1645,26 @@ minute:
    the list narrows. Tap one: its name is completed, coloured in the
    composer, and the line says that commands run only with "Changes
    allowed". Switch that on and send: the skill runs.
-4. Type "/nothing-like-this x": "This is not one of this folder's skills or
-   commands"; sent with "Changes allowed", the computer refuses it and the
-   message can be corrected. In a session without the switch, "/" shows
-   "Skills and commands are switched off for this session".
+4. Type "/nothing-like-this x": "This is not one of the skills or commands
+   this conversation can use"; sent with "Changes allowed", the computer
+   refuses it and the message can be corrected.
+5. **Personal skills (#172).** On the computer, have one personal skill in
+   `~/.claude/skills/<name>/SKILL.md` (and the guardrail check passed with
+   the personal-skill probes). In a session **without** the folder's switch,
+   type "/": the personal skill is listed as "Your personal skill", the
+   folder's own are not. Choose it, switch **Changes allowed** on and send:
+   the skill runs. Switch the folder's skills on: both kinds are listed, the
+   folder's marked "Skill of this folder"; when both have the same name, the
+   personal one is completed as `/personal:<name>`. Without any personal
+   skill and with the switch off, "/" says that the folder's own are
+   switched off and there are no personal ones; nothing claims that a "/"
+   message is sent as plain text. The session sheet says how many personal
+   skills there are, and that they are offered without the switch.
+
+On an emulator with `sample_data`: a session without the switch lists
+"standup" and "summarise" as personal skills on "/"; with the switch on, the
+three folder entries come first and the personal "summarise" is completed as
+`/personal:summarise `.
 
 ### Files in chat
 
@@ -1717,10 +1748,10 @@ On an emulator with the `sample_data` test aid (nothing is installed
 anywhere):
 
 1. Open a session, tap the dots next to the pills: the sheet has **Use this
-   folder's skills and commands** with its explanation and "This folder has
-   3 skills and commands." Switch it off, close the sheet and type "/": the
-   line says that skills are switched off for this session. Switch it on
-   again: "/" lists them.
+   folder's skills and commands** with its explanation, "This folder has
+   3 skills and commands." and "You have 2 personal skills or commands…".
+   Switch it off, close the sheet and type "/": only the two personal ones
+   are listed. Switch it on again: "/" lists all five.
 2. Send "install a skill": under the answer a card "Skill install" with the
    source address and "The computer is fetching it…", and only **Don't
    install**. After a few seconds, without a tap, it shows what the skill
@@ -1754,18 +1785,26 @@ With the computer (capable mode on; each step is a short run on the plan):
    exists in the folder already and that nothing is replaced, with **Put
    away** only.
 
-### A session's MCP servers (#153)
+### A session's MCP servers (#153, personal ones #172)
 
 On an emulator with the `sample_data` test aid (nothing is started
 anywhere):
 
 1. Open a session → the dots next to the pills → **MCP servers**. The
-   warning in the amber frame stands first; below it three servers:
+   warning in the amber frame stands first; below it three servers of the
+   folder, each marked "This folder's server":
    "calendar" (approved, amber frame, an address and the header name
    `Authorization`), "issue-tracker" (changed since the approval) and
    "notes-index" (not approved, `npx -y notes-index-server --root notes`,
-   the variable name `NOTES_TOKEN`). No value of a variable or header is
-   shown anywhere.
+   the variable name `NOTES_TOKEN`); then two personal ones, marked "Your
+   personal server: one approval covers every folder": "web-search" (not
+   approved) and "team-wiki" ("Cannot be approved…", no button at all). No
+   value of a variable or header is shown anywhere.
+1a. **Review and approve** on "web-search": the card asks "Approve your
+   personal MCP server “web-search” for every folder?" and says that one
+   approval covers every folder (no folder path). **Approve**: "Approved.
+   Messages with “Changes allowed” in every folder…"; back in the list it
+   is "Approved for every folder". **Revoke approval** takes it back.
 2. **Review and approve** on "issue-tracker": the approval card with the
    same warning, the command and the folder. **Approve**: "Approved.
    Messages with “Changes allowed”…"; **Back to the servers**: it is listed
@@ -1794,6 +1833,37 @@ that declares a harmless server, for example `{"mcpServers": {"clock":
 8. Change an argument in `.mcp.json` on the computer and open the sheet
    again: "Changed since you approved it: not used". **Revoke approval**: it
    is not approved, and the log has `mcp_server_revoked`.
+9. **A personal server (#172).** Add a harmless user-scope server on the
+   computer (`claude mcp add --scope user clock -- python3
+   /path/to/clock_server.py`) and restart the bridge (its check reruns with
+   the new probes). The sheet of any session lists "clock" twice if the
+   folder also has one, each with its scope. Approve the personal one: the
+   card says it is for every folder; open a session of **another** allowed
+   folder: its sheet shows the personal "clock" approved as well. On the
+   computer `GET /sessions/<id>/mcp-servers` shows `"scope": "personal"`,
+   and the audit log has the request and the approval with the scope.
+   Revoke it from either session: it is not approved in both. A personal
+   server whose definition uses `headersHelper` is listed as "Cannot be
+   approved" without buttons.
+
+### Course resources (#172)
+
+On an emulator with `sample_data`: open a course → **Resources**. Above the
+list: "Nothing is downloaded yet: first name, on the computer, the folders
+where you already keep course resources." Three items: the open textbook
+("Waiting: nothing is downloaded until you have named your resource folders
+on the computer"), the lecture notes ("Not downloaded: you already have this
+file") and the handbook ("Listed only: a paid book"). Tapping a title opens
+its HTTPS address in the browser. In Turkish the same lines are in Turkish.
+
+With the computer: before `~/.config/lifeos/resource_folders` exists, a
+course with a syllabus shows the same top line and its items as waiting
+(`GET /courses/<id>/resources` has `"folders_named": false`). Create the
+file (an empty one is enough), wait for the next resources run (or ask for
+one with `POST /courses/<id>/resources/refresh` on the computer) and pull to
+refresh: the line is gone; items are downloaded or listed with their reason,
+and a book already in one of the named folders says "you already have this
+file".
 
 ### The warmer design (P2, Courses in P3)
 

@@ -145,10 +145,14 @@ every section in its own clearly visible card.*
     run and sends that message immediately;
   - **Cancel** stops the run. Both confirmations say plainly: "Changes the
     assistant has already made to files are kept."
-- **"/" commands:** typing "/" opens the list of skills and commands of the
-  session's folder, with completion; a recognised command is highlighted in
-  the composer. Available only where the owner switched them on for that
-  session (capable mode, allowed folder).
+- **"/" commands:** typing "/" opens the list of skills and commands the
+  session can use, with completion; each entry says whether it is the
+  folder's own or one of the owner's personal ones, and a recognised command
+  is highlighted in the composer. The folder's own are listed only where the
+  owner switched them on for that session; the owner's personal ones (#162)
+  in every session, once the computer's check for them has passed (capable
+  mode, allowed folder). A personal entry whose name the folder also uses is
+  completed as `/personal:<name>`.
 - **Model:** the top bar shows the session's model and effort; tapping it
   changes them for this session. The default (Opus, high effort) is in
   Settings.
@@ -168,7 +172,9 @@ every section in its own clearly visible card.*
   continues or is told no after the owner's tap.
 - **Skill installs and other approvals:** an approval card shows exactly
   what is asked (for a skill: source, contents, warnings, target folder; for
-  an MCP server: what would start and the outside-the-sandbox warning);
+  an MCP server: what would start, the outside-the-sandbox warning, and
+  whether the approval is for this folder or, for a personal server, for
+  every folder);
   nothing happens without the owner's tap. These cards wait for up to a day
   and are shown whenever the conversation is opened; an answer the computer
   refuses keeps the card open with the reason.
@@ -204,8 +210,11 @@ every section in its own clearly visible card.*
   - long-press or row menu → **rename**, **pin / unpin**, **move to group**
     (or a new group), **remind me**, **reply notifications on / off**,
     **use this folder's skills and commands** (per session, off by default)
-    and **MCP servers** (list, approve one by one, revoke; an approved server
-    runs outside the sandbox, and the sheet says so first). The coach
+    and **MCP servers** (the folder's and the owner's personal ones, each
+    with its scope; list, approve one by one, revoke; an approved server
+    runs outside the sandbox, and the sheet says so first; a personal
+    server's approval covers every folder; a personal server the computer
+    cannot show in full is "cannot be approved", without a button). The coach
     conversation's session has neither of the last two;
   - groups: create, rename, delete (the sessions stay).
 - **Reminders:** "remind me about this session at <time>", with an optional
@@ -325,12 +334,23 @@ the platform the data comes from.*
      time of the last sync.
 - **All grades:** one screen with the grades of all courses, grouped by
   course.
-- **Course page, four tabs:**
+- **Course page, five tabs** (Resources since #172):
   - **Materials:** sections and files (name, type, size, date; new ones
     marked), and the course's video and external links.
   - **Announcements:** newest first.
   - **Assignments:** due date and status; each opens the assignment detail.
   - **Grades:** the grade items of the course.
+  - **Resources:** what the computer found from the course's syllabus
+    (`GET /courses/{id}/resources`, #128, #160), read only: each item's
+    title (an HTTPS address opens in the browser) and one line, either
+    "downloaded to the course's folder on the computer" or why it is only
+    listed, in the app's own words (paid, not a document, too large, not
+    downloaded yet, you already have this file, waiting until the resource
+    folders are named, …; an unknown reason is "Listed only"). While the
+    owner has not named the existing resource folders on the computer
+    (`"folders_named": false`), one line above the list says that nothing is
+    downloaded until then. Asking for a new run and fetching a downloaded
+    resource to the phone are not built.
 - **Assignment detail (#129, P3 in the course's colour):** a ticket with
   the due date and time, when it opened and the status, and a stub with the
   days left; the instructions (Markdown); the attached files (download and

@@ -244,7 +244,7 @@ internal fun ColumnScope.ConversationPane(
     if (paired && state.queue.isNotEmpty()) QueueList(state, chat, locked)
     // Coach (#114): the owner asked to tidy the conversation up; that is one run on the computer.
     if (paired && state.compacting) SystemLine(stringResource(R.string.coach_tidying_now))
-    // "/" commands of the session's folder: asked for when a message starts with "/".
+    // "/" commands of the session (the folder's own and the owner's personal ones): asked for when a message starts with "/".
     var commands by remember(state.sessionId) { mutableStateOf<CommandList?>(null) }
     val slash = modes && draft.startsWith("/")
     LaunchedEffect(state.sessionId, slash, reload) {
@@ -257,7 +257,7 @@ internal fun ColumnScope.ConversationPane(
             }
         }
     }
-    if (paired && slash) CommandHelp(commands, draft, state, onPick = { draft = Commands.complete(it) })
+    if (paired && slash) CommandHelp(commands, draft, state, onPick = { picked -> commands?.let { draft = Commands.complete(it, picked) } })
     if (paired && modes) {
         val modelChoices = (rememberLoad(core, Endpoints.modelChoices) { false }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
         var pickingModel by rememberSaveable { mutableStateOf(false) }

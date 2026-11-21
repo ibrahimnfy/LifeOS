@@ -209,36 +209,54 @@ internal class SampleChat(private val context: Context) {
 
     private fun proposalCards(session: String) = proposals.filter { it.value.session == session }.toSortedMap().map { (id, proposal) -> proposalCard(id, proposal) }
 
-    // ---- the MCP servers of a folder (#153): what its .mcp.json declares, and the owner's approvals
-    private val mcpState = ConcurrentHashMap(mapOf("notes-index" to "not_approved", "calendar" to "approved", "issue-tracker" to "changed"))
+    // ---- the MCP servers of a session (#153, #162): what the folder's .mcp.json and the owner's
+    // personal settings declare, and the owner's approvals; keyed "scope/name"
+    private val mcpState = ConcurrentHashMap(
+        mapOf(
+            "folder/notes-index" to "not_approved",
+            "folder/calendar" to "approved",
+            "folder/issue-tracker" to "changed",
+            "personal/web-search" to "not_approved",
+            "personal/team-wiki" to "unsupported",
+        ),
+    )
 
-    private fun mcpServer(name: String) = buildJsonObject {
+    private fun mcpServer(key: String) = buildJsonObject {
+        val (scope, name) = key.split("/", limit = 2)
         put("name", JsonPrimitive(name))
+        put("scope", JsonPrimitive(scope))
         when (name) {
-            "calendar" -> {
+            "calendar", "team-wiki" -> {
                 put("type", JsonPrimitive("http"))
                 put("command", JsonNull)
                 put("args", JsonArray(emptyList()))
-                put("url", JsonPrimitive("https://calendar.example.org/mcp"))
+                put("url", JsonPrimitive(if (name == "team-wiki") "https://wiki.example.org/mcp" else "https://calendar.example.org/mcp"))
                 put("env_names", JsonArray(emptyList()))
                 put("header_names", Json.parseToJsonElement("""["Authorization"]"""))
             }
             else -> {
                 put("type", JsonPrimitive("stdio"))
-                put("command", JsonPrimitive(if (name == "notes-index") "npx" else "python3"))
-                put("args", Json.parseToJsonElement(if (name == "notes-index") """["-y","notes-index-server","--root","notes"]""" else """["tools/issue_tracker.py","--read-only"]"""))
+                put("command", JsonPrimitive(if (name == "issue-tracker") "python3" else "npx"))
+                put("args", Json.parseToJsonElement(when (name) { "notes-index" -> """["-y","notes-index-server","--root","notes"]"""; "web-search" -> """["-y","web-search-server"]"""; else -> """["tools/issue_tracker.py","--read-only"]""" }))
                 put("url", JsonNull)
-                put("env_names", Json.parseToJsonElement(if (name == "notes-index") """["NOTES_TOKEN"]""" else "[]"))
+                put("env_names", Json.parseToJsonElement(when (name) { "notes-index" -> """["NOTES_TOKEN"]"""; "web-search" -> """["SEARCH_API_KEY"]"""; else -> "[]" }))
                 put("header_names", JsonArray(emptyList()))
             }
         }
-        put("hash", JsonPrimitive("samplehash-$name"))
+        put("hash", JsonPrimitive("samplehash-$key"))
         put("outside_sandbox", JsonPrimitive(true))
-        put("state", JsonPrimitive(mcpState[name] ?: "not_approved"))
-        put("approved_at", if (mcpState[name] == "not_approved") JsonNull else JsonPrimitive(Instant.now().minusSeconds(86_400).toString()))
+        val state = mcpState[key] ?: "not_approved"
+        put("state", JsonPrimitive(state))
+        put("approved_at", if (state == "approved" || state == "changed") JsonPrimitive(Instant.now().minusSeconds(86_400).toString()) else JsonNull)
     }
 
-    /** An approval card for one server: it waits for a day, like a skill install. */
+    /** The key of the server a request names: its scope (`?scope=`, else the folder's if it has one) and name. */
+    private fun mcpKey(name: String, query: Map<String, String>): String {
+        val scope = query["scope"] ?: if (mcpState.containsKey("folder/$name")) "folder" else "personal"
+        return "$scope/$name"
+    }
+
+    /** An approval card for one server ([name] is its "scope/name" key): it waits for a day, like a skill install. */
     private class McpCard(val session: String, val name: String, val madeAt: Instant = Instant.now())
 
     private val mcpCards = ConcurrentHashMap<String, McpCard>()
@@ -248,6 +266,7 @@ internal class SampleChat(private val context: Context) {
         put("kind", JsonPrimitive("mcp_server"))
         put("session_id", JsonPrimitive(card.session))
         put("folder", JsonPrimitive("/home/owner/project-alpha"))
+        put("scope", JsonPrimitive(card.name.substringBefore("/")))
         put("server", mcpServer(card.name))
         put("warning", JsonPrimitive("An approved MCP server runs outside the sandbox."))
         put("created_at", JsonPrimitive(card.madeAt.toString()))
@@ -293,8 +312,9 @@ internal class SampleChat(private val context: Context) {
                         put("servers", buildJsonArray { mcpState.keys.sorted().forEach { add(mcpServer(it)) } })
                     }
                     method == "POST" && rest.startsWith("mcp-servers/") && rest.endsWith("/approval") -> {
-                        val name = rest.removePrefix("mcp-servers/").removeSuffix("/approval")
+                        val name = mcpKey(rest.removePrefix("mcp-servers/").removeSuffix("/approval"), query)
                         if (!mcpState.containsKey(name)) return@synchronized error(404, "mcp_server_not_found")
+                        if (mcpState[name] == "unsupported") return@synchronized error(409, "mcp_server_unsupported")
                         // One card per definition (#157): asked for again, the card that waits comes back.
                         val waitingId = mcpCards.entries.firstOrNull { it.value.session == parts[1] && it.value.name == name }?.key
                         val cardId = waitingId ?: "samplemcp%03d".format(++asked)
@@ -302,8 +322,8 @@ internal class SampleChat(private val context: Context) {
                         RelayResponse(200, JsonObject(mcpCard(cardId, card) + ("already_waiting" to JsonPrimitive(waitingId != null))))
                     }
                     method == "DELETE" && rest.startsWith("mcp-servers/") -> {
-                        val name = rest.removePrefix("mcp-servers/")
-                        val had = mcpState[name].let { it != null && it != "not_approved" }
+                        val name = mcpKey(rest.removePrefix("mcp-servers/"), query)
+                        val had = mcpState[name].let { it == "approved" || it == "changed" }
                         if (had) mcpState[name] = "not_approved"
                         ok { put("revoked", JsonPrimitive(had)) }
                     }
@@ -316,7 +336,7 @@ internal class SampleChat(private val context: Context) {
                             put("answered", JsonPrimitive(true))
                             put("id", JsonPrimitive(id))
                             put("approved", JsonPrimitive(approved))
-                            if (approved) put("name", JsonPrimitive(card.name))
+                            if (approved) put("name", JsonPrimitive(card.name.substringAfter("/")))
                         }
                     }
                     // A skill install: the computer takes it out of its list, then acts on a yes.
@@ -357,6 +377,8 @@ internal class SampleChat(private val context: Context) {
                         put("reason", if (session.skills) JsonNull else JsonPrimitive("skills are switched off for this session"))
                         put("capable_only", JsonPrimitive(true))
                         put("prefix", JsonPrimitive("folder:"))
+                        // The owner's personal skills (#162): offered without the session's switch.
+                        put("personal", Json.parseToJsonElement("""{"enabled":true,"reason":null,"prefix":"personal:"}"""))
                         put("commands", data.getValue("commands"))
                     }
                     method == "GET" && rest == "queue" -> ok {
