@@ -49,6 +49,12 @@ import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.CommandList
+import dev.lifeos.app.data.skills
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import dev.lifeos.app.data.Reminder
 import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.UiState
@@ -189,6 +195,8 @@ internal fun SessionSheet(
                     }
                 }
             }
+            // The folder's own skills and commands, for this session only (#97).
+            SkillsSwitch(core, session, change)
         }
         SessionSheetPage.REMINDERS -> RemindersSheet(
             reminders = reminders,
@@ -255,6 +263,57 @@ internal fun SessionSheet(
                 // Two requests: when the second fails the new group exists and is empty.
                 change { api.patchSession(session.id, SessionEdits.group(api.createGroup(name).id)) }
             },
+        )
+    }
+}
+
+/**
+ * "Use this folder's skills and commands" for one session (#97), with what that means in plain
+ * words, what the folder has, and whether the computer can use them right now. Off unless the
+ * owner switches it on; the computer keeps it (`PATCH /sessions/{id}`).
+ */
+@Composable
+private fun SkillsSwitch(core: LifeOsCore, session: SessionSummary, change: SessionChange) {
+    val colors = LifeTheme.colors
+    // Shown at once; the list follows when the computer has answered.
+    var on by remember(session.skills) { mutableStateOf(session.skills) }
+    // Counts the changes the computer has taken: what it says about the folder is asked again.
+    var taken by remember { mutableStateOf(0) }
+    val list by produceState<CommandList?>(null, session.id, taken) {
+        value = try {
+            core.api.commands(session.id)
+        } catch (_: ApiException) {
+            null
+        }
+    }
+    SheetSwitch(stringResource(R.string.session_skills), stringResource(R.string.session_skills_note), checked = on) { wanted ->
+        on = wanted
+        change {
+            try {
+                core.api.patchSession(session.id, SessionEdits.skills(wanted))
+                taken++
+            } catch (error: ApiException) {
+                on = !wanted
+                throw error
+            }
+        }
+    }
+    val found = list ?: return
+    val count = found.commands.size
+    Text(
+        text = if (count == 0) stringResource(R.string.session_skills_none) else pluralStringResource(R.plurals.session_skills_count, count, count),
+        style = LifeType.small,
+        color = colors.muted,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+    if (on && found.switchedOn && !found.enabled) {
+        Text(
+            text = stringResource(R.string.session_skills_unavailable),
+            style = LifeType.label,
+            color = colors.warn,
+            modifier = Modifier
+                .padding(horizontal = 4.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite },
         )
     }
 }

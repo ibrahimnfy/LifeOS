@@ -507,8 +507,9 @@ class Chat(
         // A run under the id the phone chose: the first message arrived, the session exists.
         if (busy == true) change(generation) { confirmed(it, id) }
         run.getOrNull()?.let { listed -> change(generation) { queueFrom(it, listed) } }
-        // A run the app does not hear may be waiting for the owner's yes or no.
-        if (busy == true) pending(generation, id)
+        // A run the app does not hear may be waiting for the owner's yes or no; and a card that
+        // waits across runs (a skill install, #97) is there whenever the conversation is read.
+        if (busy == true || (!coach && mutable.value.sessionId == id)) pending(generation, id)
         if (!wholeThread) {
             if (busy == null) return change(generation) { it.copy(unreachable = true) }
             if (busy) return change(generation) { it.copy(unreachable = false) }
@@ -647,20 +648,32 @@ class Chat(
         }
     }
 
+    /**
+     * One more look at what waits for the owner, for the screen: a skill that is still being
+     * downloaded becomes ready (or fails) without any event, so the card asks while it is shown.
+     */
+    suspend fun refreshCards() {
+        val state = mutable.value
+        val id = state.sessionId ?: return
+        if (!state.loading && state.loaded) pending(state.generation, id)
+    }
+
     /** What the computer says is waiting: new items are shown, items it no longer lists are closed. */
     private suspend fun pending(generation: Int, id: String) {
         val list = attempt { api.interactions(id) }.getOrNull() ?: return
         val now = uptimeMillis()
         val wall = nowMillis()
         change(generation) { state ->
-            val listed = list.map { it.id }.toSet()
+            val listed = list.associateBy { it.id }
             val known = state.interactions.map { it.id }.toSet()
             val kept = state.interactions.map {
+                val data = listed[it.id]
                 when {
                     it.status != Interaction.Status.WAITING -> it
-                    it.id !in listed -> it.copy(status = Interaction.Status.GONE)
+                    data == null -> it.copy(status = Interaction.Status.GONE)
                     // The computer still waits, whatever the two clocks say: answerable until the next look.
-                    else -> it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS))
+                    // What a card that waits across runs shows may have changed (downloaded, or failed).
+                    else -> it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS), install = if (it.install != null) SkillInstall.of(data) else null)
                 }
             }
             val added = list.filter { it.id !in known }.mapNotNull { data ->
@@ -777,7 +790,7 @@ class Chat(
                 draft = null,
                 unreachable = false,
                 stopping = false,
-                interactions = emptyList(),
+                interactions = carried(it.interactions),
                 tidying = coach && it.coach?.dueForCompaction == true,
                 unnamed = coach,
                 // As on the computer: the hold a stop put on the queue ends with the owner's next message.
@@ -891,7 +904,7 @@ class Chat(
         val id = state.sessionId ?: return
         if (state.queueHold == null || state.queue.isEmpty() || state.phase != ChatPhase.IDLE) return
         val generation = state.generation
-        change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), queueHold = null, failure = null, interactions = emptyList()) }
+        change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), queueHold = null, failure = null, interactions = carried(it.interactions)) }
         // The answer to this comes only when the first waiting message is done: not waited for.
         launchSide { attempt { api.resumeQueue(id) } }
         launchSide {
@@ -977,7 +990,7 @@ class Chat(
                 sinceMillis = nowMillis(),
                 stopping = false,
                 unreachable = false,
-                interactions = emptyList(),
+                interactions = carried(state.interactions),
             )
         }
         // Its old place in the line is given up (it may be gone already).
@@ -1149,15 +1162,19 @@ class Chat(
         val session = state.sessionId ?: return
         val interaction = state.interactions.firstOrNull { it.id == id } ?: return
         if (!interaction.open(uptimeMillis())) return expire(id)
+        // A skill whose contents are not listed (yet) can be declined, never installed.
+        val approve = result == Interaction.Status.ALLOWED
+        if (approve && !interaction.canApprove) return
         val generation = state.generation
         mark(generation, id) { it.copy(status = Interaction.Status.SENDING, sendFailed = false) }
         scope.launch {
             val outcome = try {
-                api.answerInteraction(session, id, body)
-                result
+                val answered = api.answerInteraction(session, id, body)
+                // A card that waits across runs says what the computer did with the yes.
+                if (interaction.crossRun) Interaction.settled(approve, answered) else result
             } catch (error: ApiException) {
-                // "Not pending": answered, expired or cancelled meanwhile. Anything else: not delivered.
-                if (error.kind == ApiException.Kind.HTTP && error.status == 404) Interaction.Status.GONE else null
+                // A final refusal closes the card; anything else was not delivered and can be given again.
+                Interaction.refusal(error)?.takeIf { it == Interaction.Status.GONE || interaction.crossRun }
             }
             mark(generation, id) {
                 if (outcome != null) it.copy(status = outcome, sendFailed = false) else it.copy(status = Interaction.Status.WAITING, sendFailed = true)
@@ -1168,12 +1185,31 @@ class Chat(
     private fun mark(generation: Int, id: String, transform: (Interaction) -> Interaction) =
         change(generation) { state -> state.copy(interactions = state.interactions.map { if (it.id == id) transform(it) else it }) }
 
-    /** The run ended: what was still waiting is closed (an answer on its way keeps its own result). */
+    /**
+     * What stays when the next message begins: the cards that wait across runs and are not
+     * settled. Everything else belonged to the run before.
+     */
+    private fun carried(interactions: List<Interaction>): List<Interaction> = interactions.filter { it.crossRun && it.pending }
+
+    /** The skill installs a finished answer proposed (#97): cards that wait from now on, and what was refused at once. */
+    private fun proposals(data: JsonObject?): List<Interaction> {
+        val now = uptimeMillis()
+        return (data?.get("skill_installs") as? JsonArray).orEmpty().mapNotNull { item ->
+            val card = try {
+                BridgeJson.decodeFromJsonElement(InteractionData.serializer(), item)
+            } catch (_: Exception) {
+                return@mapNotNull null
+            }
+            if (card.state == "refused" || card.id.isEmpty()) Interaction.refusedInstall(card, keys.incrementAndGet(), now) else Interaction.of(card, now, nowMillis(), fresh = true)
+        }
+    }
+
+    /** The run ended: what was still waiting for it is closed (an answer on its way keeps its own result). */
     private fun closed(interactions: List<Interaction>): List<Interaction> {
         val now = uptimeMillis()
         return interactions.map {
             when {
-                it.status != Interaction.Status.WAITING -> it
+                it.status != Interaction.Status.WAITING || it.crossRun -> it
                 // Its time was up, give or take a moment: the computer counted the silence as "no".
                 now >= it.deadline - EXPIRY_SLACK_MILLIS -> it.copy(status = Interaction.Status.EXPIRED)
                 else -> it.copy(status = Interaction.Status.GONE)
@@ -1238,6 +1274,7 @@ class Chat(
                 val text = data.text("answer")?.takeIf { it.isNotBlank() } ?: visible(streamed)
                 val id = data.text("session_id")?.takeIf(::validId)
                 val files = files(data, id ?: mutable.value.sessionId)
+                val proposed = proposals(data)
                 change(generation) { state ->
                     val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
@@ -1250,7 +1287,7 @@ class Chat(
                         stopping = false,
                         tidying = false,
                         unnamed = false,
-                        interactions = closed(state.interactions),
+                        interactions = closed(state.interactions).let { cards -> cards + proposed.filter { new -> cards.none { it.id == new.id } } },
                     )
                 }
                 return true
@@ -1362,7 +1399,8 @@ class Chat(
 
         /** How long after "Send them" the app first looks whether the line moves. */
         private const val RESUME_LOOK_MILLIS = 3_000L
-        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[file:[^\\n]*]][ \\t]*\\n?")
+        // Also the lines that propose a skill install (#97): the computer turns them into cards.
+        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[(?:file|skill-install):[^\\n]*]][ \\t]*\\n?")
         private val FILE_PATH = Regex("(?m)^[ \\t]*\\[\\[file:([^\\n]*?)]][ \\t]*$")
 
         /** Ids are put into request paths: only the characters a session id can have. */

@@ -76,6 +76,7 @@ import dev.lifeos.app.data.ChatPhase
 import dev.lifeos.app.data.ChatProblem
 import dev.lifeos.app.data.ChatState
 import dev.lifeos.app.data.Interaction
+import dev.lifeos.app.data.SkillInstall
 import dev.lifeos.app.ui.components.ErrorNotice
 import dev.lifeos.app.ui.components.LifeCard
 import dev.lifeos.app.ui.components.MarkdownText
@@ -95,6 +96,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /** How often the app asks about a run it is not receiving, while the conversation is on screen. */
 private const val CHECK_MILLIS = 5_000L
+
+/** How often a card asks whether the skill it shows has been downloaded. */
+private const val CARD_MILLIS = 3_000L
 
 /**
  * One conversation: the messages, the answer as it is written, and the composer. It is the
@@ -164,6 +168,18 @@ internal fun ColumnScope.ConversationPane(
             while (true) {
                 delay(CHECK_MILLIS)
                 chat.check()
+            }
+        }
+    }
+    // A skill that is still being downloaded becomes ready (or fails) without any event: its
+    // card asks while it is on screen (#97).
+    val fetching = state.interactions.any { it.pending && it.install?.state == SkillInstall.State.DOWNLOADING }
+    LaunchedEffect(state.generation, fetching, locked) {
+        if (!fetching || locked) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(CARD_MILLIS)
+                chat.refreshCards()
             }
         }
     }
@@ -338,7 +354,7 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
     }
     // Questions and approvals of the last run. Those that wait for the owner come last, where
     // the eye is; those that are settled stay as a record above the answer that followed them.
-    val (waiting, settled) = state.interactions.partition { it.status == Interaction.Status.WAITING || it.status == Interaction.Status.SENDING }
+    val (waiting, settled) = state.interactions.partition { it.pending }
     val cards: @Composable (List<Interaction>) -> Unit = { list ->
         list.forEach { interaction ->
             key(interaction.id) {
@@ -361,7 +377,8 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
     }
     if (answer == null) cards(settled)
     cards(waiting)
-    val asked = state.interactions.any { it.status == Interaction.Status.WAITING }
+    // "Waiting for you" is about the run: a card that waits across runs does not hold it up.
+    val asked = state.interactions.any { it.status == Interaction.Status.WAITING && !it.crossRun }
     when (state.phase) {
         ChatPhase.SENDING, ChatPhase.ANSWERING -> Working(state.sinceMillis, onStop.takeIf { state.canStop }) {
             when {

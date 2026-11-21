@@ -96,6 +96,12 @@ object Reminders {
 fun SessionEdits.notifyReplies(on: Boolean): JsonObject = buildJsonObject { put("notify_replies", JsonPrimitive(on)) }
 
 /**
+ * `PATCH /sessions/{id}`: whether the session's capable runs may use the skills and commands of
+ * its own folder (#97). Off unless the owner switches it on, per session.
+ */
+fun SessionEdits.skills(on: Boolean): JsonObject = buildJsonObject { put("skills", JsonPrimitive(on)) }
+
+/**
  * Which conversation a notification about a session leads to (#75, #148): the session as the
  * computer lists it now, the coach's own screen, or nothing that can be opened.
  */

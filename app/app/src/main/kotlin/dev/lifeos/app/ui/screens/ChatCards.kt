@@ -88,14 +88,21 @@ internal fun InteractionCard(
         when (interaction.kind) {
             Interaction.Kind.APPROVAL -> Approval(interaction, open, onApprove)
             Interaction.Kind.QUESTION -> Question(interaction, open, onAnswer, onSkip)
+            Interaction.Kind.SKILL_INSTALL -> SkillInstallCard(interaction, open, onApprove)
         }
         if (open) {
             val left = interaction.remainingMillis(now) / 1000
+            // A card that waits across runs has hours; one of a run has minutes.
+            val time = if (left >= 3600) stringResource(R.string.time_hours_minutes, left / 3600, left % 3600 / 60) else "%d:%02d".format(left / 60, left % 60)
             // Not a live region: the time is not read out every second.
             Text(
                 text = stringResource(
-                    if (interaction.kind == Interaction.Kind.QUESTION) R.string.question_time_left else R.string.interaction_time_left,
-                    "%d:%02d".format(left / 60, left % 60),
+                    when (interaction.kind) {
+                        Interaction.Kind.QUESTION -> R.string.question_time_left
+                        Interaction.Kind.SKILL_INSTALL -> R.string.install_time_left
+                        Interaction.Kind.APPROVAL -> R.string.interaction_time_left
+                    },
+                    time,
                 ),
                 style = LifeType.small,
                 color = colors.muted,
@@ -107,19 +114,29 @@ internal fun InteractionCard(
 }
 
 /** What the card says once it is no longer open for an answer. */
-private fun Interaction.Status.resultRes(kind: Interaction.Kind): Int? = when (this) {
-    Interaction.Status.WAITING -> null
-    Interaction.Status.SENDING -> R.string.interaction_sending
-    Interaction.Status.ALLOWED -> R.string.approval_allowed
-    Interaction.Status.REFUSED -> R.string.approval_refused
-    Interaction.Status.ANSWERED -> R.string.question_answered
-    Interaction.Status.SKIPPED -> R.string.question_skipped
-    Interaction.Status.EXPIRED -> if (kind == Interaction.Kind.QUESTION) R.string.question_expired else R.string.interaction_expired
-    Interaction.Status.GONE -> R.string.interaction_gone
+private fun Interaction.Status.resultRes(kind: Interaction.Kind): Int? {
+    val install = kind == Interaction.Kind.SKILL_INSTALL
+    return when (this) {
+        Interaction.Status.WAITING -> null
+        Interaction.Status.SENDING -> R.string.interaction_sending
+        Interaction.Status.ALLOWED -> if (install) R.string.install_installed else R.string.approval_allowed
+        Interaction.Status.REFUSED -> if (install) R.string.install_refused else R.string.approval_refused
+        Interaction.Status.ANSWERED -> R.string.question_answered
+        Interaction.Status.SKIPPED -> R.string.question_skipped
+        Interaction.Status.EXPIRED -> when (kind) {
+            Interaction.Kind.QUESTION -> R.string.question_expired
+            Interaction.Kind.SKILL_INSTALL -> R.string.install_expired
+            Interaction.Kind.APPROVAL -> R.string.interaction_expired
+        }
+        Interaction.Status.GONE -> R.string.interaction_gone
+        Interaction.Status.NOT_DONE -> R.string.install_not_done
+        Interaction.Status.EXISTS -> R.string.install_exists
+        Interaction.Status.UNRECORDED -> R.string.install_unrecorded
+    }
 }
 
 @Composable
-private fun Notice(text: String, alert: Boolean) {
+internal fun Notice(text: String, alert: Boolean) {
     val colors = LifeTheme.colors
     Text(
         text = text,
@@ -130,7 +147,7 @@ private fun Notice(text: String, alert: Boolean) {
 }
 
 @Composable
-private fun CardLabel(text: String, alert: Boolean = false) {
+internal fun CardLabel(text: String, alert: Boolean = false) {
     val colors = LifeTheme.colors
     Text(
         text = text,
@@ -143,7 +160,7 @@ private fun CardLabel(text: String, alert: Boolean = false) {
 
 /** Fixed-width text on a darker ground, shown whole: nothing of a command or path is cut off. */
 @Composable
-private fun Exact(caption: String, text: String) {
+internal fun Exact(caption: String, text: String) {
     val colors = LifeTheme.colors
     Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(text = caption, style = LifeType.small, color = colors.muted)

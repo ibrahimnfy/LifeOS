@@ -145,6 +145,43 @@ internal class SampleChat(private val context: Context) {
         put("morning_usage", periods(1, 6))
     }
 
+    /**
+     * A skill install that waits across runs (#97), as the bridge keeps it for a day: it is
+     * "downloading" for [FETCH_MILLIS], then ready (or failed, for a proposal with "broken").
+     */
+    private class Proposal(val session: String, val source: String, val broken: Boolean, val madeAt: Instant = Instant.now())
+
+    private val proposals = ConcurrentHashMap<String, Proposal>()
+
+    private fun proposalCard(id: String, proposal: Proposal) = buildJsonObject {
+        val fetched = Instant.now().isAfter(proposal.madeAt.plusMillis(FETCH_MILLIS))
+        put("id", JsonPrimitive(id))
+        put("kind", JsonPrimitive("skill_install"))
+        put("session_id", JsonPrimitive(proposal.session))
+        put("folder", JsonPrimitive("/home/owner/project-alpha"))
+        put("source", JsonPrimitive(proposal.source))
+        put("created_at", JsonPrimitive(proposal.madeAt.toString()))
+        put("expires_at", JsonPrimitive(proposal.madeAt.plusSeconds(24 * 3600).toString()))
+        when {
+            !fetched -> put("state", JsonPrimitive("downloading"))
+            proposal.broken -> {
+                put("state", JsonPrimitive("failed"))
+                put("error", JsonPrimitive("there is no SKILL.md at the top"))
+            }
+            else -> {
+                put("state", JsonPrimitive("ready"))
+                put("name", JsonPrimitive("tidy-notes"))
+                put("target", JsonPrimitive("/home/owner/project-alpha/.claude/skills/tidy-notes"))
+                put("description", JsonPrimitive("Tidy the notes of a project: merge duplicates, fix headings, list open questions."))
+                put("warnings", Json.parseToJsonElement("""["shell_lines","has_scripts"]"""))
+                put("files", Json.parseToJsonElement("""[{"path":"SKILL.md","size":1840},{"path":"reference/headings.md","size":612},{"path":"scripts/merge.py","size":2310}]"""))
+                put("total_size", JsonPrimitive(4762))
+            }
+        }
+    }
+
+    private fun proposalCards(session: String) = proposals.filter { it.value.session == session }.toSortedMap().map { (id, proposal) -> proposalCard(id, proposal) }
+
     /** Questions and approvals a sample run waits for, by id. */
     private val waiting = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private var asked = 0
@@ -176,13 +213,28 @@ internal class SampleChat(private val context: Context) {
                             session.exchanges.last().first to if (allowed) "Pushed, as you allowed." else "I left it unpushed."
                         ok { put("answered", JsonPrimitive(true)) }
                     }
+                    // A skill install: the computer takes it out of its list, then acts on a yes.
+                    method == "POST" && rest.startsWith("interactions/") && proposals[rest.removePrefix("interactions/")]?.session == parts[1] -> {
+                        val id = rest.removePrefix("interactions/")
+                        val card = proposalCard(id, proposals.remove(id) ?: return@synchronized error(404, "not_pending"))
+                        val installed = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true" && card["state"]?.jsonPrimitive?.content == "ready"
+                        ok {
+                            put("answered", JsonPrimitive(true))
+                            put("id", JsonPrimitive(id))
+                            put("installed", JsonPrimitive(installed))
+                            if (installed) {
+                                put("name", card.getValue("name"))
+                                put("target", card.getValue("target"))
+                            }
+                        }
+                    }
                     method == "POST" && rest.startsWith("interactions/") -> {
                         val run = waiting.remove(rest.removePrefix("interactions/")) ?: return@synchronized error(404, "not_pending")
                         run.complete(body as? JsonObject ?: JsonObject(emptyMap()))
                         ok { put("answered", JsonPrimitive(true)) }
                     }
                     method == "GET" && rest == "interactions" ->
-                        ok { put("pending", JsonArray(if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList())) }
+                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]))) }
                     // The coach conversation has no thread to read before its first message.
                     method == "GET" && rest == "history" && parts[1].startsWith(COACH) && session.exchanges.isEmpty() -> error(404, "session_not_found")
                     method == "GET" && rest == "history" -> history(session, query["before"])
@@ -286,6 +338,8 @@ internal class SampleChat(private val context: Context) {
         buildJsonObject {
             item.forEach { (name, value) -> put(name, value) }
             put("detected_title", item["title"] ?: JsonNull)
+            // The sample sessions start with their folder's skills switched on.
+            item["id"]?.jsonPrimitive?.content?.let { put("skills", JsonPrimitive(session(it).skills)) }
             changes.forEach { (name, value) ->
                 when {
                     // A cleared title is the detected one again; a group that is gone is no group.
@@ -511,6 +565,7 @@ internal class SampleChat(private val context: Context) {
                         else -> "Thanks. You answered: `" + reply["answers"].toString() + "`"
                     }
                 }
+                "install" in prompt -> "A skill for tidying notes would help here. I have proposed it below; nothing is installed unless you say so."
                 else -> data.getValue("answer").jsonPrimitive.content
             }
             val step = if ("slow" in prompt) 2000L else 90L
@@ -536,6 +591,19 @@ internal class SampleChat(private val context: Context) {
                         if ("file" in prompt) {
                             put("files", Json.parseToJsonElement("""[{"offer":"sample-offer-${++asked}","name":"outline.md","type":"text/markdown","size":20}]"""))
                             put("files_refused", Json.parseToJsonElement("""[{"name":"recordings.zip","reason":"larger than the limit of 50 MB"}]"""))
+                        }
+                        // "install": the answer proposes a skill (#97). With "plain" its source is not
+                        // HTTPS and is refused at once; with "broken" the download fails.
+                        if ("install" in prompt) {
+                            val card = if ("plain" in prompt) {
+                                Json.parseToJsonElement("""{"kind":"skill_install","source":"http://skills.example.org/tidy-notes.zip","state":"refused","error":"only HTTPS sources can be installed"}""")
+                            } else {
+                                val cardId = "samplecard%03d".format(++asked)
+                                val proposal = Proposal(id, "https://skills.example.org/tidy-notes.zip", broken = "broken" in prompt)
+                                proposals[cardId] = proposal
+                                proposalCard(cardId, proposal)
+                            }
+                            put("skill_installs", JsonArray(listOf(card)))
                         }
                     },
                 ),
@@ -633,6 +701,9 @@ internal class SampleChat(private val context: Context) {
         const val PARKED_CARD = "sample-parked-1"
         const val COACH_FULL = 5
         const val PAGE = 4
+
+        /** How long a proposed skill counts as being downloaded. */
+        const val FETCH_MILLIS = 6_000L
         const val QUESTIONS = """[
             {"question": "Which draft should the summary be based on?", "header": "Draft", "multi_select": false, "options": [
                 {"label": "The outline", "description": "notes/alpha/outline.md"},

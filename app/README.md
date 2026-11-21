@@ -320,6 +320,25 @@ with plain HTTPS requests.
     on for the session and usable; otherwise one line says why not (switched
     off, the computer's check has not passed, not one of this folder's,
     needs "Changes allowed").
+  - **The skills switch (#97):** the session's sheet (the dots next to the
+    pills, or a long press on a session) has **Use this folder's skills and
+    commands**, off unless switched on, per session, with what it means in
+    plain words: only in messages with "Changes allowed", only the skills
+    and commands of the folder's own `.claude` folder, never the personal
+    ones, and a skill cannot widen what the assistant may do. Under it the
+    sheet says how many the folder has, and when the computer's check for
+    skills has not passed, that they cannot be used right now.
+  - **Skill installs (#97):** when the assistant proposes a skill, a card
+    shows **where it comes from, what is in it and where it would go**
+    before anything can be approved: the source address, what the skill says
+    about itself, every file with its size, warnings in plain words (shell
+    lines, tools it asks for, files that are not notes) and the target
+    folder. While the computer still downloads it into its quarantine there
+    is no "Install", only "Don't install"; a skill that could not be fetched
+    says why and can only be put away; a source that is not HTTPS is shown as
+    refused. **Nothing is installed without the tap on Install.** The card
+    waits for up to a day, also across messages, runs and restarts, and is
+    shown whenever the conversation is opened.
   - **Read-only or "Changes allowed"** (the pill above the composer): every
     conversation starts read-only. Switched on, its next messages ask the
     computer for the capable mode, in which the assistant may change files
@@ -650,10 +669,27 @@ Nothing on these screens is sample content any more. Not paired, they show
     time left is the computer's waiting time counted on the phone's running
     clock, so the two wall clocks need not agree. `404 not_pending` is shown
     as "no longer waiting"; an answer that could not be sent can be given
-    again. While the app is not receiving the answer (locked, connection
-    lost) it reads `GET /sessions/{id}/interactions` with every look at the
-    run, so a waiting card appears again and can still be answered. Cards
-    are kept in memory only, until the next message.
+    again. **One list for everything that waits** (`GET
+    /sessions/{id}/interactions`): the app reads it whenever a conversation
+    is opened or read again (not only while a run is in progress), so a card
+    of a run it does not hear appears again and can still be answered, and so
+    does a card that waits across runs. Cards are kept in memory only; those
+    of a run until the next message.
+  - **Skill installs** (`kind: "skill_install"` in that list and in
+    `skill_installs` of a capable answer's `done`): they wait up to 24 hours
+    on the computer, so the app neither clears them with the next message nor
+    closes them when a run ends, and counts their time in hours. A card that
+    is still `downloading` is asked about every three seconds while it is on
+    screen. The answer is the same `{"approve": true|false}`; a yes is sent
+    only for a `ready` card, and what the computer answers decides what the
+    card says (`"installed": false`, `409 skill_exists`, `503
+    audit_unavailable`: after these the computer has dropped the card, so
+    there is no "try again"). The bridge describes a failed download with an
+    English sentence; the app maps the known ones to its own texts. The
+    marker line `[[skill-install: …]]` is left out of the text while an
+    answer is written and in earlier answers. The switch is `PATCH
+    /sessions/{id}` with `{"skills": true|false}`; what the folder has and
+    whether it is usable comes from `GET /sessions/{id}/commands`.
 
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
@@ -807,7 +843,10 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   answered, but nothing reaches the phone), `delete` or `push` (the run waits for an
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
-  minutes, to see what running out of time looks like.
+  minutes, to see what running out of time looks like. `install` (the answer
+  proposes a skill: its card is "downloading" for six seconds, then lists
+  three files and two warnings; with `broken` the download fails, with
+  `plain` the source is not HTTPS and is refused at once).
   The session "Milestone summary draft" counts as open on the computer, and
   "Summarise the lecture notes of week 3" waits for an approval from the
   start: `--es lifeos.test.push approval --es lifeos.test.push_ref
@@ -1305,8 +1344,8 @@ minute:
 2. Settings → Models → "Chat sessions" → **Change** sets the default: a
    conversation without its own choice shows it in its header afterwards.
 3. In a session of a folder that has `.claude/skills` or `.claude/commands`,
-   with the folder's skills switched on for the session (`PATCH
-   /sessions/<id>` with `{"skills": true}` until the switch is in the app),
+   with the folder's skills switched on for the session (its sheet → **Use
+   this folder's skills and commands**),
    type "/": the folder's skills and commands are listed. Type two letters:
    the list narrows. Tap one: its name is completed, coloured in the
    composer, and the line says that commands run only with "Changes
@@ -1386,6 +1425,46 @@ switched on by its guardrail check; each step is a short run on the plan):
 9. With "Changes allowed" on and the capable mode switched off on the
    computer, a message is refused with "Making changes is switched off on
    the computer right now…" and **Retry**.
+
+### Skill installs and the skills switch (#97)
+
+On an emulator with the `sample_data` test aid (nothing is installed
+anywhere):
+
+1. Open a session, tap the dots next to the pills: the sheet has **Use this
+   folder's skills and commands** with its explanation and "This folder has
+   3 skills and commands." Switch it off, close the sheet and type "/": the
+   line says that skills are switched off for this session. Switch it on
+   again: "/" lists them.
+2. Send "install a skill": under the answer a card "Skill install" with the
+   source address and "The computer is fetching it…", and only **Don't
+   install**. After a few seconds, without a tap, it shows what the skill
+   says about itself, "Contains 3 files, 4.8 kB" with each file and size,
+   two warnings in amber, "Would be installed into …/.claude/skills/tidy-notes",
+   **Install**, **Don't install** and "It waits 23 h 59 min more."
+3. Send another message without answering: the card is still there, below
+   the new answer. Go back, open another session and return (or lock and
+   unlock): the card is there again.
+4. Tap **Install**: "Installed." Send "install a skill" again and tap
+   **Don't install**: "Not installed."
+5. Send "install broken": after a few seconds the card says that there is
+   no SKILL.md at its top, with **Put away** only. Send "install plain": the
+   card says at once that only an HTTPS address is accepted, without buttons.
+
+With the computer (capable mode on; each step is a short run on the plan):
+
+6. In a session of an allowed folder switch the skills on, switch **Changes
+   allowed** on and send "Propose installing the skill at <an HTTPS address
+   of a SKILL.md> with the install line". The card appears; on the computer
+   `GET /sessions/<id>/interactions` lists it and nothing is in
+   `<folder>/.claude/skills/`. Close the app, open it and the conversation
+   again: the card is back. **Install**: the folder now has
+   `.claude/skills/<name>/SKILL.md`, and the audit log (`tail -n 3
+   ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl`) shows the proposal and
+   `skill_install_approved`. "/" then lists the skill.
+7. Propose the same skill again: the card says that a skill of this name
+   exists in the folder already and that nothing is replaced, with **Put
+   away** only.
 
 ### The warmer design (P2, Courses in P3)
 

@@ -236,17 +236,21 @@ class Api(private val transport: Transport) {
     suspend fun runState(sessionId: String): RunState =
         read(RunState.serializer(), chatCall("GET", "/sessions/$sessionId/queue"))
 
-    /** The questions and approvals a run of the session waits for right now. */
+    /**
+     * What waits for the owner in the session: the questions and approvals of a running turn,
+     * and the cards that wait across runs for up to a day (skill installs).
+     */
     suspend fun interactions(sessionId: String): List<InteractionData> =
         read(PendingInteractions.serializer(), chatCall("GET", "/sessions/$sessionId/interactions")).pending
 
     /**
-     * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours).
-     * `404 not_pending` when the computer no longer waits for it.
+     * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours);
+     * the computer's answer says what it did (`"installed"` for a skill install).
+     * `404 not_pending` when the computer no longer waits for it; for a skill install also
+     * `409 skill_exists` and `503 audit_unavailable` (see [Interaction.refusal]).
      */
-    suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement) {
+    suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement): JsonElement =
         chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)
-    }
 
     /** The skills and commands of the session's folder, and whether the session may use them. */
     suspend fun commands(sessionId: String): CommandList =
