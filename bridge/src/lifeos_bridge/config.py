@@ -106,11 +106,18 @@ class Settings:
         """Folders whose sessions are listed and continued: the allowed roots and the chat root.
 
         The chat root is never an allowed folder (no run may work in the root itself,
-        and one chat never reaches another chat's folder); only its sessions are known.
+        and one chat never reaches another chat's folder). It is added only while it
+        lies where a chat root may lie (``chats.placement_refusal``), and of what is
+        under it only the bridge's own chat folders count (``chats.session_ok``): a
+        chat root set to the home folder or to a folder with other work never makes
+        that work's sessions known.
         """
-        chats = self.chat_root.expanduser().resolve()
+        from .chats import placement_refusal  # local import: chats needs this module
+
         roots = self.allowed_roots
-        return roots if chats in roots else (*roots, chats)
+        if placement_refusal(self) is not None:
+            return roots
+        return (*roots, self.chat_root.expanduser().resolve())
 
     def __repr__(self) -> str:  # never leak the token into logs or tracebacks
         return f"Settings(token=<hidden>, host={self.host!r}, port={self.port!r})"

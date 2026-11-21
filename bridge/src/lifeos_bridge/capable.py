@@ -207,8 +207,9 @@ async def check_available(
         probed = isinstance(version, int) and version >= CHAT_SUITE_VERSIONS[runner]
         if not probed or marker.get("chat_folders") is not True:
             raise unavailable(
-                "the guardrail check has not covered chat folders yet (it reruns by itself "
-                "at the next start of the bridge)"
+                "the guardrail check has not covered chat folders yet; run "
+                "scripts/verify-guardrails (and with --runner sdk) once the chat folder "
+                "can be used"
             )
     elif run_dir is not None and marker.get("scope") != "all_allowed_folders":
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()

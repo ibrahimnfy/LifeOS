@@ -354,6 +354,18 @@ def create_app(settings: Settings) -> FastAPI:
             " If the question tool is available you may use it instead for a choice between a few "
             "options; when it is refused, ask in your reply as described."
         )
+
+    def known_sessions() -> list[sessions.SessionInfo]:
+        """The sessions the bridge lists: in the allowed folders, and the blank chats."""
+        found = sessions.list_sessions(settings.session_roots)
+        return [info for info in found if chats.session_ok(settings, info.folder)]
+
+    def known_session(session_id: object) -> sessions.SessionInfo | None:
+        if not isinstance(session_id, str):
+            return None
+        info = sessions.find_session(session_id, settings.session_roots)
+        return info if info is not None and chats.session_ok(settings, info.folder) else None
+
     # Moving between conversations by asking (#164): where the index is, and the answer.
     phone_instructions += " " + conversations.instructions(settings)
 
@@ -363,7 +375,7 @@ def create_app(settings: Settings) -> FastAPI:
         answer = str(payload.get("answer") or "")
         if "[[switch" not in answer:
             return
-        found = sessions.list_sessions(settings.session_roots)
+        found = known_sessions()
         text, switch = conversations.from_answer(settings, answer, session_id, found)
         payload["answer"] = text
         if switch is not None:
@@ -396,7 +408,7 @@ def create_app(settings: Settings) -> FastAPI:
         Best effort: the answer is not held up by a failure here.
         """
         try:
-            info = sessions.find_session(session_id, settings.session_roots)
+            info = known_session(session_id)
             path = history.transcript_path(info, settings.session_roots) if info else None
             page = history.read_page(path, 1) if path is not None else {"exchanges": []}
             if not page["exchanges"]:
@@ -650,7 +662,7 @@ def create_app(settings: Settings) -> FastAPI:
                 chats.ensure(settings, cwd)
             # The conversation index is written anew before every run (#164) and given
             # to the run as a folder its file tools may read.
-            listed = await asyncio.to_thread(sessions.list_sessions, settings.session_roots)
+            listed = await asyncio.to_thread(known_sessions)
             index = await asyncio.to_thread(conversations.refresh, settings, listed)
             read_only_policy = conversations.with_index(read_only_policy, index)
             # Never write into a conversation that is open somewhere else. The
@@ -1187,7 +1199,7 @@ def create_app(settings: Settings) -> FastAPI:
             )
             exists = claimed == "new" and (
                 (chosen is not None and claude.session_exists(chosen, chosen_id))
-                or sessions.find_session(chosen_id, settings.session_roots) is not None
+                or known_session(chosen_id) is not None
             )
             if claimed == "conflict" or exists:
                 if exists:
@@ -1224,7 +1236,7 @@ def create_app(settings: Settings) -> FastAPI:
             if claude.session_exists(settings.ask_dir, session_id):
                 cwd = settings.ask_dir
             else:
-                info = sessions.find_session(session_id, settings.session_roots)
+                info = known_session(session_id)
                 found = session_folder(info) if info is not None else None
                 if found is None:
                     raise ClaudeError("session_not_found", 404, "unknown session")
@@ -1251,7 +1263,7 @@ def create_app(settings: Settings) -> FastAPI:
         data = await read_json_object(request)
         read_prompt(data)
         read_mode(data)
-        info = sessions.find_session(session_id, settings.session_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         if session_folder(info) is None:
@@ -1312,7 +1324,7 @@ def create_app(settings: Settings) -> FastAPI:
         one), counted over all sessions, not only the listed ones (``folders.py``).
         """
         limit = max(1, min(limit, 200))
-        found = sessions.list_sessions(settings.session_roots)
+        found = known_sessions()
         meta = session_meta.load()
         held = await held_elsewhere()
         known = await asyncio.to_thread(folders.Folders, settings)
@@ -1347,7 +1359,7 @@ def create_app(settings: Settings) -> FastAPI:
     async def read_session(session_id: str):
         """One session as in the list, read fresh: title, folder, model, effort, switches,
         ``running_here``, ``open_elsewhere``, and its waiting messages."""
-        info = sessions.find_session(session_id, settings.session_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         item = session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
@@ -1369,7 +1381,7 @@ def create_app(settings: Settings) -> FastAPI:
         """
         changes = await read_json_object(request)
         read_model_choice(changes)  # refuses unknown models and effort levels
-        info = sessions.find_session(session_id, settings.session_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         session_meta.update_session(info.id, changes)
@@ -1386,11 +1398,7 @@ def create_app(settings: Settings) -> FastAPI:
         """Body: ``{"session_id", "at", "note"?, "repeat"?: none|daily|weekly, "timezone"?}``."""
         data = await read_json_object(request)
         session_id = data.pop("session_id", None)
-        info = (
-            sessions.find_session(session_id, settings.session_roots)
-            if isinstance(session_id, str)
-            else None
-        )
+        info = known_session(session_id) if isinstance(session_id, str) else None
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         return reminders.create(info.id, data)
@@ -1772,7 +1780,7 @@ def create_app(settings: Settings) -> FastAPI:
             return await compact_coach()
 
     def listed_session(session_id: str) -> sessions.SessionInfo:
-        info = sessions.find_session(session_id, settings.session_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         return info

@@ -38,7 +38,7 @@ from pathlib import Path
 from . import capable, claude
 from .claude import ClaudeError
 from .config import Settings
-from .paths import refusal_reason
+from .paths import config_dir_path, refusal_reason, repo_dir
 
 # <date>-<six hex digits>, for example 2027-01-15-3fa9c1.
 NAME = re.compile(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{6}")
@@ -54,7 +54,7 @@ def root(settings: Settings) -> Path:
 def root_refusal(settings: Settings) -> str | None:
     """Why blank chats cannot use the chat root, or ``None`` when they can."""
     folder = root(settings)
-    reason = _placement_refusal(settings)
+    reason = placement_refusal(settings)
     if reason is not None:
         return reason
     resolved = folder.resolve()
@@ -73,18 +73,46 @@ def unusable(reason: str) -> ClaudeError:
     return ClaudeError("chat_root_unusable", 503, f"blank chats are switched off: {reason}")
 
 
-def _placement_refusal(settings: Settings) -> str | None:
-    """The checks that need no folder yet: where the chat root lies."""
+def placement_refusal(settings: Settings) -> str | None:
+    """The checks that need no folder yet: where the chat root lies.
+
+    Also what decides whether sessions under the chat root are known at all
+    (``Settings.session_roots``): a root that is the home folder, hidden, or
+    around other work must never make that work's sessions listable.
+    """
     folder = root(settings)
     if not folder.is_absolute():
         return "the chat folder must be an absolute path"
     resolved, home = folder.resolve(), Path.home().resolve()
     if resolved == home or not resolved.is_relative_to(home):
         return "the chat folder must be a folder inside the home folder"
-    for other in settings.allowed_roots:
+    if any(part.startswith(".") for part in resolved.relative_to(home).parts):
+        return "the chat folder must not be hidden"
+    fixed = [config_dir_path(), *([repo_dir()] if repo_dir() is not None else [])]
+    for other in (*settings.allowed_roots, *fixed):
         if resolved == other or resolved.is_relative_to(other) or other.is_relative_to(resolved):
-            return "the chat folder must be outside the memory folder and every allowed folder"
+            return (
+                "the chat folder must be outside the memory folder, every allowed folder, "
+                "the LifeOS program folder and the private settings folder"
+            )
     return None
+
+
+def session_ok(settings: Settings, folder: Path) -> bool:
+    """Whether a session whose working directory is ``folder`` may be known to the bridge.
+
+    Under the chat root only sessions of the bridge's own chat folders
+    (``<date>-<id>``, and anything inside one) count: whatever else lies under
+    that root is never listed, continued or offered.
+    """
+    try:
+        base, resolved = root(settings).resolve(), folder.resolve()
+    except OSError:
+        return False
+    if resolved != base and not resolved.is_relative_to(base):
+        return True  # not under the chat root: the allowed folders decide
+    parts = resolved.relative_to(base).parts
+    return bool(parts) and bool(NAME.fullmatch(parts[0]))
 
 
 def prepare_root(settings: Settings) -> Path:
@@ -92,7 +120,7 @@ def prepare_root(settings: Settings) -> Path:
     base = root(settings)
     created = False
     if not base.exists():
-        reason = _placement_refusal(settings)  # created only where it may be
+        reason = placement_refusal(settings)  # created only where it may be
         if reason is not None:
             raise unusable(reason)
         try:

@@ -860,7 +860,16 @@ more kind of run folder; nothing is relaxed for it.
   chat-folder probes and all passed: suite version `cli` 5 / `sdk` 6, and
   `"chat_folders": true` in the marker. When the chat root cannot be used
   at the time of the check, the probes are skipped, the marker says
-  `false`, and everything else is unaffected.
+  `false`, and everything else is unaffected. A marker from a check before
+  these probes existed has no such field; the automatic check does not
+  rerun for that by itself (the suite versions did not change again), so
+  the check is run by hand once.
+- **A step the model skipped is "not run", never a failure.** The shell run
+  is asked for a second time when no report came from the chat folder; if
+  it still did not come, and likewise when fewer than three file-tool calls
+  were made, the probe is inconclusive: no marker is written and the
+  automatic check retries (section 9.8), instead of switching the capable
+  mode off for good.
 - **Probes** (three short runs per environment and runner, in a scratch
   chat folder `0000-00-00-<id>` next to a second one that plays "another
   chat"; both are removed afterwards):

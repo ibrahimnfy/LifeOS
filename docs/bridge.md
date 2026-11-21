@@ -429,7 +429,11 @@ a folder inside the home folder that
 When that is not true, a blank chat is refused with
 `503 chat_root_unusable` and the reason, and nothing runs. The root is
 never an allowed folder: a run works in its own chat folder and never
-reaches another chat's folder.
+reaches another chat's folder. Of what lies under the root only the
+bridge's own chat folders count: sessions and files of anything else there
+are never listed, continued or offered, and a root that lies where none may
+lie (the home folder itself, a hidden folder, around an allowed folder)
+makes no session known at all.
 
 **No personal context.** Nothing from the memory, the tasks, the courses or
 the daily logs is put into the prompt or the system prompt. Claude Code
@@ -500,11 +504,19 @@ and read the allowed folders; the gate, the audit log and the
 nested-repository rule apply unchanged. It needs a guardrail check whose
 chat-folder probes passed (`"chat_folders": true` in the marker, suite
 version `cli` 5 / `sdk` 6); until then a capable request in a chat folder
-answers `503 capable_mode_unavailable`. Details: `permission-policy.md`,
-section 9.11. As in every capable run, the owner's personal skills and
-approved personal MCP servers are available there (#162): they are tools,
-and their names and descriptions are what the run is told about them;
-nothing of the memory comes with them. A read-only blank chat has none.
+answers `503 capable_mode_unavailable`. A marker written by a check from
+before these probes does not have that field, and **nothing reruns the
+check by itself for it**: run `scripts/verify-guardrails` (and with
+`--runner sdk`) once after this change. Details: `permission-policy.md`,
+section 9.11.
+
+As in every capable run, the owner's personal skills and approved personal
+MCP servers are offered in a capable blank chat too (#162): the run is told
+their names and descriptions. That is the owner's own tooling, not the
+memory, but it is something personal in an otherwise clean chat; whether a
+blank chat should get it is the owner's call. A read-only blank chat has
+none. (Not covered by a real run here: a chat folder together with a copy
+of personal skills.)
 
 **Moving a chat's files into a project.** A run cannot write into a
 project from a chat. It proposes the move with a line of its own,

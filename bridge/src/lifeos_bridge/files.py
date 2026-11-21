@@ -68,9 +68,11 @@ def release_refusal(settings: Settings, path: Path) -> str | None:
 def refusal(settings: Settings, path: Path) -> str | None:
     """Why this file may not be sent, or None. ``path`` must already be resolved."""
     # The allowed folders, and the blank chats' folders (a chat offers what it made).
+    from . import chats  # local: chats needs what this module needs
+
     roots = settings.session_roots
     root = next((r for r in roots if path == r or path.is_relative_to(r)), None)
-    if root is None:
+    if root is None or not chats.session_ok(settings, path.parent):
         return "outside the allowed folders"
     if any(part.startswith(".") for part in path.relative_to(root).parts):
         return "hidden files and folders are not sent"

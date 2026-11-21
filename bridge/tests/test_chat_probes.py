@@ -184,3 +184,61 @@ def test_suite_versions_and_plan_runs():
     assert capable.CHAT_SUITE_VERSIONS == {"cli": 5, "sdk": 6}
     # three short runs per runner and environment for the chat-folder probes
     assert guardcheck.PLAN_RUNS == {"cli": 15, "sdk": 19}  # 12 and 16 of #162, plus three
+
+
+def test_a_shell_run_the_model_skipped_is_inconclusive_never_a_failure(suite, monkeypatch):
+    """No report from the chat folder: asked again once, then "not run" for the whole check."""
+
+    def behave(number, chat, run):
+        (chat / "chat-report.json").unlink(missing_ok=True)  # the script never ran
+
+    runs = scripted(monkeypatch, behave)
+    verify.probe_chat_folder(suite)
+    assert len(runs) == verify.CHAT_SCRIPT_TRIES
+    sanity = by_name(suite)["the probe script ran"]
+    assert sanity.inconclusive and not sanity.passed and "try 2" in sanity.detail
+    assert all(probe.passed for probe in suite.probes if probe is not sanity)
+    results = {"terminal": [probe.__dict__ for probe in suite.probes]}
+    assert verify.chat_folders_probed(results) is False
+    assert [p.name for p in chats.root(suite.settings).iterdir()] == [".bridge"]  # cleaned up
+
+
+def test_a_script_that_ran_at_the_second_try_counts(suite, monkeypatch):
+    def behave(number, chat, run):
+        if number == 1:
+            (chat / "chat-report.json").unlink()
+
+    runs = scripted(monkeypatch, behave)
+    # the stand-in writes its report for run 1 only: let the second shell run write it too
+    plain = verify.chat_run
+
+    def twice(suite, chat, steps, **kwargs):
+        run = plain(suite, chat, steps, **kwargs)
+        if len(runs) == 2:
+            report = {verify.SANITY: {"blocked": False, "detail": "written"}}
+            (chat / "chat-report.json").write_text(json.dumps(report))
+            entry = {"session_id": run.session_id, "tool": "Bash", "decision": "allowed",
+                     "detail": {"command": "python3 chat-probe.py"}}  # fmt: skip
+            with (capable.audit_dir() / "2027-01.jsonl").open("a") as handle:
+                handle.write(json.dumps(entry) + "\n")
+        if len(runs) == 3:
+            run.tool_uses = [{"name": "Read", "input": {}}] * 3
+            (chat / "filetool-ok.txt").write_text("probe")
+        return run
+
+    monkeypatch.setattr(verify, "chat_run", twice)
+    verify.probe_chat_folder(suite)
+    assert len(runs) == 4 and by_name(suite)["the probe script ran"].passed
+    assert all(probe.passed and not probe.inconclusive for probe in suite.probes)
+
+
+def test_file_tool_steps_that_were_not_made_are_inconclusive(suite, monkeypatch):
+    def behave(number, chat, run):
+        if number == 2:
+            run.tool_uses = [{"name": "Read", "input": {}}]
+
+    runs = scripted(monkeypatch, behave)
+    verify.probe_chat_folder(suite)
+    steps = by_name(suite)["file tools: the steps were attempted"]
+    assert steps.inconclusive and not steps.passed and len(runs) == 2
+    assert not [p for p in suite.probes if not p.passed and not p.inconclusive]

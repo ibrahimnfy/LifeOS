@@ -688,3 +688,63 @@ def test_new_folders_have_the_date_and_a_short_id(settings, root):
     assert chats.in_chat_root(settings, next(iter(made)) / "sub") and not chats.in_chat_root(
         settings, root
     )
+
+
+# ------------------------------------------------------------------ what lies under the chat root
+
+
+@pytest.mark.parametrize("place", ["home", "documents", "hidden"])
+def test_a_chat_root_around_other_work_never_makes_that_work_known(
+    settings, auth, home, write_session, place
+):
+    """Sessions of any other folder are never listed, continued or offered: also when the
+    chat root is set to the home folder, to a folder with other work, or to a hidden one."""
+    root = {"home": home, "documents": home / "Documents", "hidden": home / ".local"}[place]
+    private = root / "private-project"
+    private.mkdir(parents=True)
+    (private / "secret.txt").write_text("not a chat's file\n")
+    other = write_session(private, [user_line(private, "secret work")])
+    chat = root / "2027-01-15-abcdef"
+    chat.mkdir()
+    (chat / "made.txt").write_text("a chat's file\n")
+    mine = write_session(chat, [user_line(chat, "a blank chat")])
+    client = TestClient(create_app(dataclasses.replace(settings, chat_root=root)))
+
+    listed = [s["id"] for s in client.get("/sessions", headers=auth).json()["sessions"]]
+    assert other not in listed
+    assert (mine in listed) == (place == "documents")  # only a root that may be one counts
+    for method, path in [("GET", f"/sessions/{other}"), ("GET", f"/sessions/{other}/history"),
+                         ("PATCH", f"/sessions/{other}"),
+                         ("POST", f"/sessions/{other}/messages")]:  # fmt: skip
+        response = client.request(method, path, headers=auth, json={"prompt": "x", "pinned": True})
+        assert response.status_code == 404, (method, path)
+    resumed = client.post("/ask", headers=auth, json={"prompt": "x", "session_id": other})
+    assert resumed.status_code == 404
+    assert not (private / ".fake-claude-calls.jsonl").exists()
+    # ...and a file there is never offered, while a chat's own file is
+    changed = dataclasses.replace(settings, chat_root=root)
+    from lifeos_bridge import files
+
+    assert files.refusal(changed, private / "secret.txt") == "outside the allowed folders"
+    assert files.refusal(changed, root / "loose.txt") == "outside the allowed folders"
+    if place == "documents":
+        assert files.refusal(changed, chat / "made.txt") is None
+        # the index a run reads names the chat, never the other folder's session
+        assert client.post("/ask", headers=auth, json={"prompt": "hi"}).status_code == 200
+        index = (root / ".bridge" / "conversations.md").read_text()
+        assert mine in index and other not in index
+
+
+def test_where_a_chat_root_may_lie(settings, home, ask_dir, isolated_config):
+    def reason(root):
+        return chats.placement_refusal(dataclasses.replace(settings, chat_root=root))
+
+    assert reason(home / "LifeOS-Chats") is None and reason(home / "a" / "b") is None
+    for root in (home, home.parent, home / ".config" / "chats", ask_dir, ask_dir / "chats",
+                 isolated_config, isolated_config / "chats"):  # fmt: skip
+        assert reason(root) is not None, root
+    assert chats.session_ok(settings, home / "project")  # not under the root: not its business
+    root = home / "LifeOS-Chats"
+    assert chats.session_ok(settings, root / "2027-01-15-abcdef" / "sub")
+    for folder in (root, root / "notes", root / ".bridge", root / "2027-01-15-abcdef-copy"):
+        assert not chats.session_ok(settings, folder), folder
