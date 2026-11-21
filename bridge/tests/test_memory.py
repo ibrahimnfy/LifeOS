@@ -6,6 +6,7 @@ from datetime import date, datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from conftest import added_dirs
 from lifeos_bridge import memory
 from lifeos_bridge.app import create_app
 
@@ -190,7 +191,7 @@ def test_only_the_coach_conversation_starts_with_the_memory(client, auth, brain,
     args = calls()[-1]["args"]
     context = args[args.index("--append-system-prompt") + 1]
     assert "Prefers short answers." not in context and "Visible task" not in context
-    assert "=====" not in context and "--add-dir" not in args
+    assert "=====" not in context and str(brain) not in " ".join(added_dirs(args))
     coach = client.post("/coach/chat/messages", headers=auth, json={"prompt": "hello"})
     assert coach.status_code == 200
     args = calls()[-1]["args"]

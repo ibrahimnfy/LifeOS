@@ -25,7 +25,7 @@ def test_requires_token(client):
 
 def test_empty_when_nothing_is_stored(client, auth):
     body = get_sessions(client, auth)
-    assert (body["sessions"], body["total"], body["groups"]) == ([], 0, [])
+    assert (body["sessions"], body["total"]) == ([], 0) and "groups" not in body
     # the folders are known before any session exists: all blank chats, then the memory folder
     assert [(f["key"], f["kind"], f["count"], f["last_activity"]) for f in body["folders"]] == [
         ("chats", "chat", 0, None),
@@ -48,8 +48,6 @@ def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir
         "running_here": False,
         "open_elsewhere": False,
         "detected_title": "second question",
-        "group": None,
-        "auto_group": ask_dir.name,
         "pinned": False,
         "notify_replies": True,
         "model": None,

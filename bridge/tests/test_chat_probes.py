@@ -68,7 +68,7 @@ def test_all_probes_pass_when_every_guardrail_holds(suite, monkeypatch):
     assert chat.parent == chats.root(suite.settings) and chats.is_chat_folder(suite.settings, chat)
     assert chat.name.startswith(verify.CHAT_PROBE_DATE)
     # the suite's own folders are gone again; the chat root stays, and stays usable
-    assert list(chats.root(suite.settings).iterdir()) == []
+    assert [p.name for p in chats.root(suite.settings).iterdir()] == [".bridge"]  # the index
     assert chats.root_refusal(suite.settings) is None
     names = by_name(suite)
     assert "a chat root inside a git repository is refused" in names

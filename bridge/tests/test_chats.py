@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import user_line
+from conftest import added_dirs, index_dir, user_line
 from lifeos_bridge import approvals, capable, chats, claude, folders, memory, moves
 from lifeos_bridge.app import create_app
 from lifeos_bridge.claude import ClaudeError
@@ -31,6 +31,11 @@ def home(ask_dir):
 @pytest.fixture
 def root(home):
     return home / "LifeOS-Chats"
+
+
+def chat_folders(root):
+    """The chats' folders under the root (the bridge's own index folder is not one)."""
+    return sorted(p for p in root.iterdir() if p.name != ".bridge")
 
 
 @pytest.fixture
@@ -109,9 +114,8 @@ def test_nothing_personal_is_given_to_a_blank_chat(client, auth, ask_dir, chat_c
     assert str(ask_dir) in text and "only when the owner asks" in text
     assert "[[move-files: " in text
     assert len(chats.context(client.app.state.settings)) < 700
-    # the memory folder is in reach of the file tools; nothing else is added
-    assert [a for a in call["args"] if a == "--add-dir"] == ["--add-dir"]
-    assert option(call["args"], "--add-dir") == str(ask_dir)
+    # the memory folder is in reach of the file tools; besides it only the conversation index
+    assert added_dirs(call["args"]) == [str(ask_dir), index_dir(ask_dir)]
     assert option(call["args"], "--tools") == "Read,Glob,Grep" and "--restricted" in call["args"]
     # Claude Code is told to load no memory file of any level, and no auto-memory
     assert call["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
@@ -132,7 +136,8 @@ def test_the_coach_keeps_its_context_and_other_folders_get_none(
         assert ask(world, auth, folder=str(folder)).status_code == 200
         call = json.loads((folder / ".fake-claude-calls.jsonl").read_text().splitlines()[-1])
         assert not any(word in context_of(call) for word in PERSONAL)
-        assert "--add-dir" not in call["args"] and str(ask_dir) not in context_of(call)
+        assert added_dirs(call["args"]) == [index_dir(ask_dir)]  # not the memory folder
+        assert str(ask_dir) not in context_of(call)
 
 
 def test_an_old_conversation_in_the_memory_folder_keeps_working(
@@ -161,7 +166,7 @@ def test_a_root_with_an_instruction_file_is_refused(client, auth, root, chat_cal
         (root / name).write_text("x")
         assert name in refused(client, auth)
         (root / name).unlink()
-    assert chat_calls() == [] and list(root.iterdir()) == []
+    assert chat_calls() == [] and chat_folders(root) == []
     assert ask(client, auth).status_code == 200
 
 
@@ -258,7 +263,7 @@ def test_only_the_bridges_own_chat_folders_are_ever_removed(settings, root, home
 def test_a_chat_without_files_leaves_no_folder_and_can_be_continued(client, auth, root, chat_calls):
     session = ask(client, auth).json()["session_id"]
     folder = Path(chat_calls()[0]["cwd"])
-    assert not folder.exists() and list(root.iterdir()) == []
+    assert not folder.exists() and chat_folders(root) == []
     listed = client.get("/sessions", headers=auth).json()["sessions"]
     assert [(s["id"], s["folder"], s["kind"]) for s in listed] == [(session, str(folder), "chat")]
     # both ways of continuing create the same path again, and resume the same session there
@@ -282,7 +287,7 @@ def test_a_chat_with_files_keeps_its_folder(client, auth, chat_calls):
 def test_a_first_message_that_is_refused_leaves_no_folder(client, auth, root, chat_calls):
     response = ask(client, auth, mode="capable")  # no guardrail marker: refused before it runs
     assert response.status_code == 503 and chat_calls() == []
-    assert list(root.iterdir()) == []
+    assert chat_folders(root) == []
     assert client.app.state.slots.active == set()
 
 
@@ -292,9 +297,9 @@ def test_a_repeated_first_message_makes_no_second_folder(client, auth, root, cha
     assert client.post("/ask", headers=auth, json=body).json()["session_id"] == chosen
     again = client.post("/ask", headers=auth, json=body).json()
     assert again == {"repeat": True, "session_id": chosen, "running": False}
-    assert len(chat_calls()) == 1 and len(list(root.iterdir())) == 1
+    assert len(chat_calls()) == 1 and len(chat_folders(root)) == 1
     other = client.post("/ask", headers=auth, json=body | {"prompt": "something else"})
-    assert other.status_code == 409 and len(list(root.iterdir())) == 1
+    assert other.status_code == 409 and len(chat_folders(root)) == 1
 
 
 def test_a_stream_of_a_blank_chat(client, auth, chat_calls):
@@ -360,11 +365,13 @@ def test_a_capable_run_in_a_chat_folder_has_the_same_guardrails(
     # write scope: the chat's own folder and the memory folder, as in every capable run
     allowed = [rule for rule in granted["permissions"]["allow"] if rule.startswith("Edit(")]
     assert allowed == [f"Edit(/{folder}/**)", f"Edit(/{ask_dir}/**)"]
-    assert option(call["args"], "--add-dir") == str(ask_dir)
-    # reads: the allowed folders; never the chat root, so never another chat
+    index = index_dir(ask_dir)
+    assert added_dirs(call["args"]) == [str(ask_dir), index]
+    # reads: the allowed folders and the conversation index; never the chat root, so never
+    # another chat. The index is never writable.
     readable = sandbox["filesystem"]["allowRead"]
-    assert sorted(readable) == sorted([str(folder), str(ask_dir), str(project)])
-    assert str(root) not in readable
+    assert sorted(readable) == sorted([str(folder), str(ask_dir), str(project), index])
+    assert str(root) not in readable and sandbox["filesystem"]["denyWrite"] == [index]
     assert granted["hooks"]["PreToolUse"][0]["hooks"][0]["command"]  # the gate and the audit log
     assert call["env"]["CLAUDE_CODE_DISABLE_CLAUDE_MDS"] == "1"
     assert "XDG_RUNTIME_DIR" not in call["env"]

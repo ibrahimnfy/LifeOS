@@ -6,7 +6,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from conftest import user_line
+from conftest import added_dirs, index_dir, user_line
 from lifeos_bridge import capable
 from lifeos_bridge.app import create_app
 from lifeos_bridge.claude import ClaudeError, child_env
@@ -34,12 +34,15 @@ def ask(client, auth, prompt, **extra):
     return client.post("/ask", json={"prompt": prompt, "mode": "capable", **extra}, headers=auth)
 
 
-def test_default_mode_is_read_only_even_when_capable_is_enabled(client, auth, calls, enable):
+def test_default_mode_is_read_only_even_when_capable_is_enabled(
+    client, auth, calls, enable, ask_dir
+):
     enable()
     client.post("/ask", json={"prompt": "hello"}, headers=auth)
     args = calls()[0]["args"]
     assert option(args, "--tools") == "Read,Glob,Grep"
-    assert "--settings" not in args and "--add-dir" not in args
+    # nothing is added but the conversation index, which a read-only run can only read
+    assert "--settings" not in args and added_dirs(args) == [index_dir(ask_dir)]
 
 
 def test_invalid_mode(client, auth):
@@ -88,7 +91,9 @@ def test_capable_run_flags_and_single_settings_json(client, auth, calls, enable,
     # Nothing is granted on the command line.
     for flag in ("--allowedTools", "--allowed-tools", "--dangerously-skip-permissions"):
         assert flag not in args
-    assert "bypassPermissions" not in args and "--add-dir" not in args
+    # the only added folder is the conversation index: readable, never writable
+    index = index_dir(ask_dir)
+    assert "bypassPermissions" not in args and added_dirs(args) == [index]
 
     settings = json.loads(option(args, "--settings"))
     sandbox = settings["sandbox"]
@@ -103,10 +108,12 @@ def test_capable_run_flags_and_single_settings_json(client, auth, calls, enable,
     }
     assert "~/" in sandbox["filesystem"]["denyRead"]
     assert "/run/user" in sandbox["filesystem"]["denyRead"]
-    assert sandbox["filesystem"]["allowRead"] == [str(ask_dir)]
+    assert sorted(sandbox["filesystem"]["allowRead"]) == sorted([str(ask_dir), index])
+    assert sandbox["filesystem"]["denyWrite"] == [index]
     assert settings["permissions"]["allow"] == [f"Edit(/{ask_dir}/**)"]
     denied = settings["permissions"]["deny"]
     assert "Read(~/.config/lifeos/**)" in denied and "Read(~/.ssh/**)" in denied
+    assert f"Edit(/{index}/**)" in denied
     hook = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert "lifeos_bridge.gate" in hook and "--audit-dir" in hook
 
@@ -181,11 +188,11 @@ def test_capable_resume_adds_the_memory_folder_and_next_request_is_read_only(
     first, second = [
         json.loads(line) for line in (project / ".fake-claude-calls.jsonl").read_text().splitlines()
     ]
-    assert option(first["args"], "--add-dir") == str(ask_dir)
+    assert added_dirs(first["args"]) == [str(ask_dir), index_dir(ask_dir)]
     granted = json.loads(option(first["args"], "--settings"))
     assert granted["permissions"]["allow"] == [f"Edit(/{project}/**)", f"Edit(/{ask_dir}/**)"]
     assert sorted(granted["sandbox"]["filesystem"]["allowRead"]) == sorted(
-        [str(ask_dir), str(project)]
+        [str(ask_dir), str(project), index_dir(ask_dir)]
     )
     assert option(second["args"], "--tools") == "Read,Glob,Grep"
     assert "--settings" not in second["args"]

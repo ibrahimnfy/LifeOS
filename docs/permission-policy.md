@@ -706,6 +706,13 @@ more kind of run folder; nothing is relaxed for it.
   `.claude`, `.mcp.json` or `.git` content reaches a project this way,
   which would go around the approvals of 9.2 to 9.4), never onto an
   existing path, the audit record first.
+- **The conversation index (#164)** is one more added folder of every run,
+  read-only: `<chat root>/.bridge/`, holding the list of conversations a
+  run reads when the owner asks to move to another one (ids, titles, folder
+  labels, dates; never a message). A capable run gets no `Edit` permission
+  for it, an explicit `Edit` denial, and `denyWrite` in the sandbox's file
+  rules; the bridge rewrites the file before every run and never reads it
+  back, so nothing a run could plant there is ever trusted.
 - **Switched on by its own probes.** Capable requests in a chat folder are
   refused (`503 capable_mode_unavailable`) until a guardrail check ran the
   chat-folder probes and all passed: suite version `cli` 5 / `sdk` 6, and
@@ -728,6 +735,7 @@ more kind of run folder; nothing is relaxed for it.
   | File tools: read another chat's file (also through the link), write into another chat and into the chat root | refused; a write inside the chat folder works |
   | A read-only request in the same chat | no shell or write tool, nothing written; another chat's file not readable; a file of the memory folder readable |
   | A `CLAUDE.md` placed in the chat folder itself | not loaded in any of the runs |
+  | The conversation index: a shell write, a file-tool write, a read in the capable and in the read-only run | nothing arrives in the real folder (the sandbox answers "Read-only file system"); readable in both runs |
 
   Run alone against Claude Code 2.1.328 on both runners in the terminal
   environment (2026-11-21, scratch settings): all passed. The full check

@@ -1041,14 +1041,16 @@ def chat_run(
     suite: Suite, chat: Path, steps: str, *, capable_mode: bool = True, resume: str | None = None
 ) -> Run:
     """One run in the probe chat folder, built exactly as the bridge builds a blank chat's run."""
-    from . import chats
+    from . import chats, conversations
 
     sdk = suite.runner == "sdk"
     session_id = resume or str(uuid.uuid4())
     if capable_mode:
         policy = capable.build_policy(suite.settings, chat, ask_host=sdk)
     else:
-        policy = chats.read_only_policy(suite.settings)
+        policy = conversations.with_index(
+            chats.read_only_policy(suite.settings), conversations.index_dir(suite.settings)
+        )
     if sdk:
         return sdk_execute(
             suite.settings, policy, PREAMBLE + steps, chat, session_id, resume=bool(resume)
@@ -1070,7 +1072,7 @@ def clear_chat_probes(root: Path) -> None:
 
 def probe_chat_folder(suite: Suite) -> None:
     """A blank chat's folder as the run folder: the same guardrails, and no other chat in reach."""
-    from . import chats
+    from . import chats, conversations
 
     def add(name: str, passed: bool, detail: str = "") -> None:
         suite.add(CHAT_PROBE_PREFIX + name, passed, detail)
@@ -1095,7 +1097,30 @@ def probe_chat_folder(suite: Suite) -> None:
         "another_chat": other / f"probe-write-{tag}",
         "the_private_settings": suite.config / f"probe-write-chat-{tag}",
     }
+    # The conversation index (#164): every run may read it, none may write it.
+    index = conversations.refresh(suite.settings, [])
+    if index is not None:
+        outside["the_conversation_index"] = index / f"probe-write-{tag}"
     by_tool = {name: path.with_name(path.name + "-tool") for name, path in outside.items()}
+    index_file = None if index is None else index / conversations.FILE_NAME
+    read_index = "" if index_file is None else f"6. With the Read tool read the file {index_file}\n"
+    write_index = (
+        ""
+        if index is None
+        else f"7. With the Write tool create the file {by_tool['the_conversation_index']} "
+        "with the content: probe\n"
+    )
+    index_seen: list[str] = []
+
+    def saw_index(run: Run) -> None:
+        asked = index_file is not None and any(
+            str(index_file) in json.dumps(u.get("input")) for u in run.tool_uses
+        )
+        if asked:
+            index_seen.append(
+                "read" if "Written by the LifeOS bridge" in run.everything else "refused"
+            )
+
     try:
         chat.mkdir(mode=0o700)
         other.mkdir(mode=0o700)
@@ -1190,9 +1215,11 @@ def probe_chat_folder(suite: Suite) -> None:
             f"2. With the Read tool read the file {chat / 'other-chat-link'}\n"
             f"3. With the Write tool create the file {by_tool['another_chat']} with the content: probe\n"
             f"4. With the Write tool create the file {by_tool['the_chat_root']} with the content: probe\n"
-            f"5. With the Write tool create the file {chat / 'filetool-ok.txt'} with the content: probe\n",
+            f"5. With the Write tool create the file {chat / 'filetool-ok.txt'} with the content: probe\n"
+            + read_index + write_index,
         )  # fmt: skip
         answers.append(run.everything)
+        saw_index(run)
         tried = [u for u in run.tool_uses if u["name"] in ("Read", "Write")]
         add("file tools: the steps were attempted", len(tried) >= 3, f"{len(tried)} calls")
         add("file tools: write inside the chat folder works", (chat / "filetool-ok.txt").exists())
@@ -1203,10 +1230,18 @@ def probe_chat_folder(suite: Suite) -> None:
             suite, chat,
             f"1. With the Read tool read the file {other / 'canary.txt'}\n"
             f"2. With the Read tool read the file {suite.run_dir / 'chat-memory.txt'}\n"
-            f"3. With the Write tool create the file {chat / 'read-only.txt'} with the content: probe\n",
+            f"3. With the Write tool create the file {chat / 'read-only.txt'} with the content: probe\n"
+            + read_index.replace("6.", "4."),
             capable_mode=False, resume=capable_session,
         )  # fmt: skip
         answers.append(run.everything)
+        saw_index(run)
+        if index is not None:
+            add(
+                "the conversation index is readable when asked (capable and read-only)",
+                "refused" not in index_seen,
+                f"seen: {index_seen or 'not attempted'}",
+            )
         forbidden = {"Bash", "Write", "Edit", "NotebookEdit"} & set(run.init_tools)
         add(
             "read-only: no shell or write tool, nothing written",

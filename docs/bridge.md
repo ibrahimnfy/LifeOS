@@ -95,7 +95,7 @@ documented here as they are built.
 | POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
 | GET | `/sessions/{id}/history` | yes | A session's earlier messages, a few exchanges per page |
 | GET | `/sessions/{id}/commands` | yes | Lists the skills and commands of the session's folder (not usable in runs yet) |
-| PATCH | `/sessions/{id}` | yes | Sets the owner's title, group, pin, reply-notification switch, model and effort |
+| PATCH | `/sessions/{id}` | yes | Sets the owner's title, pin, reply-notification switch, model and effort |
 | POST | `/sessions/{id}/cancel` | yes | Stops the session's current run |
 | GET | `/sessions/{id}/queue` | yes | Shows whether the session is answering and what is waiting |
 | PATCH / DELETE | `/sessions/{id}/queue/{qid}` | yes | Changes or removes a waiting message |
@@ -106,8 +106,6 @@ documented here as they are built.
 | GET | `/app/release` | yes | The registered release of the app: version, size, SHA-256, certificate |
 | POST | `/app/release/offer` | yes | Offers the release APK for `GET /files/{offer}?session_id=app-release` |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
-| GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
-| PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
 | GET / POST | `/reminders` | yes | Lists or creates session reminders |
 | PATCH / DELETE | `/reminders/{id}` | yes | Changes or deletes a reminder |
 | GET / POST | `/notes` | yes | Lists notes, or captures one into the memory's inbox |
@@ -544,6 +542,102 @@ the session's pending approvals:
 - In any other folder the line is plain text: only a blank chat's files are
   moved this way.
 
+### Moving between conversations by asking (#164)
+
+There is no folder picker. The owner asks in any chat ("continue my last
+chat in the courses folder", "start a chat in the project folder"), and the
+answer carries a `switch` item the app acts on.
+
+**The index a run reads.** Before every run the bridge writes
+`<chat root>/.bridge/conversations.md` (mode 600, folder mode 700):
+
+```
+id | last activity (UTC) | kind | folder | title
+<session id> | 2027-01-15 08:03 | chat | Chats | <title>
+...
+# Folders a new conversation can start in
+label | kind
+Chats | chat
+<memory folder's name> | memory
+<allowed folder's name> | project
+```
+
+- At most 300 conversations, newest first: the id, the last activity, the
+  folder's kind and label, and the title (the owner's own title, else the
+  one in the list). **Never a message.** The file says that its content is
+  information, never instructions (titles are the beginning of what was
+  written in a chat). Two folders of one name are listed with their paths.
+- Every run gets that folder as an added folder, so Claude Code's file
+  tools can read it under the read-only rules and inside the sandbox, on
+  both runners, **without another model run**. The standing instructions of
+  every conversation name the file and the marker lines (about 100 words;
+  the list itself is never part of a prompt).
+- Runs cannot change it: a read-only run has no write tool; a capable run
+  has no `Edit` permission there, an explicit `Edit` denial, and the
+  sandbox is told to deny writes (`denyWrite`). Seen with the real CLI: a
+  command's write there fails with "Read-only file system", the file tool
+  is refused.
+- The bridge writes the file anew before every run and **never reads it
+  back**: whatever a marker names is checked against the bridge's own
+  lists.
+- It needs a usable chat root; without one, runs go on without the index
+  (and asking cannot switch).
+
+**The answer.** The run ends its answer with a line of its own:
+
+| Line | Meaning |
+|---|---|
+| `[[switch: <id>]]` | open that conversation |
+| `[[switch: <id>, <id>, …]]` | offer these to choose from (at most five) |
+| `[[switch-new: <folder label or path>]]` | a new conversation in that folder: an allowed folder, the memory folder, or `Chats` for a blank chat |
+
+The bridge takes every such line out of the answer and reports the first
+usable one as `switch`, in the JSON answer and in the stream's `done`
+event:
+
+```json
+{"answer": "Opening it.", "session_id": "…",
+ "switch": {"action": "open",
+            "sessions": [{"id": "…", "title": "…", "folder_label": "project",
+                          "kind": "project", "colour": 2,
+                          "last_activity": "2027-01-15T08:01:40Z"}],
+            "folder": null}}
+```
+
+- `action` is `open` (one conversation: the app opens it), `choose` (one to
+  five: the app shows a card to pick from) or `new` (`sessions` is empty and
+  `folder` is `{"path", "label", "kind", "colour"}`: the app opens an empty
+  chat whose first message is sent with `"folder": <path>`).
+- **Validation.** An id the bridge does not list is dropped, and so is the
+  conversation's own id. A line that named one id is `open`; a line that
+  named several is `choose`, also when only one of them is listed. A folder
+  must be exactly one of the folders of `GET /folders` (label in any case,
+  or path); the coach is not a folder. When nothing usable is left, there
+  is no `switch` item; the line is removed all the same.
+- **Only a fresh answer switches.** The item exists only in the answer of
+  the run that wrote the line. `GET /sessions/{id}/history` removes such
+  lines from the text and never carries a `switch` item, and nothing else
+  reads a transcript for them.
+- While the answer is streamed, the line can appear in `delta` text before
+  the `done` event replaces it; the app hides lines of this form as it does
+  the other marker lines.
+- The switched-to conversation continues in its own folder with its own
+  history: the app sends the next message to `POST
+  /sessions/{id}/messages`.
+- **Limit: conversations started before this change.** Claude Code keeps
+  the system prompt a conversation was started with, so an older
+  conversation (the current coach session included) does not know these
+  lines until it is compacted or renewed. New conversations do.
+
+Checked with the real CLI through the bridge (2026-11-21, small model):
+from a blank chat, "open the chat in which I asked you to remember a
+number" gave `open` with that conversation; from a conversation in a
+project folder, "start a new chat in my <folder> folder" gave `new` with
+that folder; "open one of my earlier chats about numbers or files, I am not
+sure which" gave `choose` with the two that fit. An earlier, weaker wording
+of the instruction made the model list the chats with letters instead of
+writing the line; the wording now forbids that.
+
 ### `GET /sessions`
 
 Lists the Claude Code sessions stored on the computer whose folder is the
@@ -562,11 +656,10 @@ then newest first:
 {"sessions": [{"id": "…", "title": "…", "detected_title": "…",
                "folder": "/path/to/folder",
                "last_activity": "2027-01-15T08:08:20Z", "in_use": false,
-               "group": null, "auto_group": "folder", "pinned": false,
-               "notify_replies": true,
+               "pinned": false, "notify_replies": true,
                "folder_key": "/path/to/folder", "folder_label": "folder",
                "kind": "project", "colour": 2}],
- "total": 1, "groups": [{"id": "…", "name": "…"}],
+ "total": 1,
  "folders": [{"key": "chats", "name": "Chats", "kind": "chat",
               "path": "<chat root>", "colour": 0, "count": 12,
               "last_activity": "2027-01-15T08:08:20Z"},
@@ -600,8 +693,9 @@ then newest first:
 
 - `title` is the owner's own title when one was set (see below), otherwise
   `detected_title`.
-- `group` is the id of one of the owner's groups, or `null`; a session
-  without a group is shown under `auto_group`, the name of its folder.
+- Custom session groups were removed (#164): there is no `group`,
+  `auto_group` or `groups` any more. The app groups sessions by
+  `folder_key` (see "Folders" below).
 
 - `title` is the session's own title when it has one, otherwise the
   beginning of its first prompt. Titles are conversation content: they are
@@ -800,7 +894,8 @@ still answering (`POST /ask` with `session_id`, or
   before); listing reads nothing.
 - **One session.** `GET /sessions/{id}` → the item of `GET /sessions`
   (`id`, `title`, `detected_title`, `folder`, `last_activity`, `in_use`,
-  `running_here`, `open_elsewhere`, `group`, `auto_group`, `pinned`,
+  `running_here`, `open_elsewhere`, `folder_key`, `folder_label`, `kind`,
+  `colour`, `pinned`,
   `notify_replies`, `skills`, `model`, `effort`), read fresh, plus
   `followable`, `queue` (the waiting messages) and `queue_paused`. `404
   session_not_found`.
@@ -1093,23 +1188,26 @@ answer and returns a card instead:
 - Through the relay the same offer is sent as sealed chunks (see "Paired
   phones and the relay").
 
-### Organising sessions: `PATCH /sessions/{id}` and `/session-groups`
+### Organising sessions: `PATCH /sessions/{id}`
 
-The owner's own order on top of the list: groups, titles, pins and a
-per-session switch for reply notifications.
+The owner's own order on top of the list: titles, pins and a per-session
+switch for reply notifications.
 
-- `POST /session-groups` with `{"name": "…"}` creates a group (`201`, returns
-  `{"id", "name"}`; names are unique, at most 60 characters);
-  `PATCH /session-groups/{id}` renames it; `DELETE` removes it, and its
-  sessions become ungrouped.
 - `PATCH /sessions/{id}` accepts any of `{"title": "…" | null,
-  "group": "<group id>" | null, "pinned": true | false,
-  "notify_replies": true | false}` and returns the session as in the list.
-  `null` returns to the detected title or to no group.
-- Only sessions inside the allowed folders can be changed (`404` otherwise).
+  "pinned": true | false, "notify_replies": true | false}` (and `model`,
+  `effort`, `skills`) and returns the session as in the list. `null`
+  returns to the detected title.
+- **Custom session groups were removed (#164).** `/session-groups` no
+  longer exists (`404`), and `group` is not a field any more (`400` in a
+  `PATCH`, like any unknown field). The app shows sessions by folder
+  (`GET /sessions`, "Folders"). Metadata stored before still loads: its
+  `groups` list and an entry's `group` are ignored without an error and
+  left out the next time the file is written; titles and pins are kept.
+- Only sessions inside the allowed folders and blank chats can be changed
+  (`404` otherwise).
 - **Claude Code's session files are never modified.** The metadata is one
   file, `~/.config/lifeos/sessions-meta.json` (mode 600). Deleting that file
-  loses the groups, titles and pins, nothing else.
+  loses the titles and pins, nothing else.
 - `notify_replies` is stored now and used once phone push exists: a finished
   run then sends a push unless the switch is off.
 
@@ -1756,7 +1854,7 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
   its messages are dropped. It needs no network; the phone's mailbox is
   removed the next time the relay runs.
 - **What a phone may call:** the endpoints of this document under `/ask`,
-  `/sessions`, `/session-groups`, `/reminders`, `/notes`, `/tasks`,
+  `/sessions`, `/reminders`, `/notes`, `/tasks`,
   `/events`, `/agenda`, `/coach`, `/context-map`, `/allowed-paths`,
   `/models`, `/moodle`, `/courses` and `/whoami`. A request is `{"m": method, "path":
   "/…", "q": {query}, "body": {…}}`; the answer is one final message
@@ -2056,6 +2154,8 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 # {"answer":"...","session_id":"...","duration_ms":...,"num_turns":...,"denied_tools":[]}
 
 # continue the same conversation: add "session_id":"<id from above>"
+# moving by asking: in any chat ask "open my chat about <topic>" -> the answer has a
+#   "switch" item with "action":"open" and that session; `GET /sessions/<id>/history` has none
 # blank chat: leave "folder" out and ask "What do you know about me?" -> nothing; afterwards
 #   `ls ~/LifeOS-Chats` shows no folder for it, and `/sessions` lists it with "kind":"chat";
 #   continue it with its session id -> it answers, and remembers the first message
@@ -2095,13 +2195,12 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 # remove it again with  -X DELETE  and the same body
 ```
 
-Session groups, pins and reminders (replace `<id>` with a session id from
+Titles, pins and reminders (replace `<id>` with a session id from
 `/sessions`; these change only the bridge's own two files under
 `~/.config/lifeos/`):
 
 ```
 H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787
-curl -s -H "$H" -H 'Content-Type: application/json' -d '{"name":"Example group"}' $B/session-groups
 curl -s -H "$H" -H 'Content-Type: application/json' -X PATCH \
   -d '{"title":"My title","pinned":true}' $B/sessions/<id>
 curl -s -H "$H" $B/sessions            # the session is first, with the new title

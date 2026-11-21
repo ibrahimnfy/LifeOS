@@ -136,6 +136,16 @@ def auth():
     return {"Authorization": f"Bearer {TEST_TOKEN}"}
 
 
+def added_dirs(args):
+    """The folders a run was given with ``--add-dir``, in order."""
+    return [args[i + 1] for i, arg in enumerate(args) if arg == "--add-dir"]
+
+
+def index_dir(ask_dir):
+    """The folder of the conversation index every run may read (#164)."""
+    return str(ask_dir.parent / "LifeOS-Chats" / ".bridge")
+
+
 def user_line(cwd, text, **extra):
     return {"type": "user", "cwd": str(cwd), "message": {"role": "user", "content": text}, **extra}
 

@@ -30,6 +30,7 @@ from . import (
     commands,
     consolidation,
     contextmap,
+    conversations,
     files,
     folders,
     guardcheck,
@@ -348,6 +349,20 @@ def create_app(settings: Settings) -> FastAPI:
             " If the question tool is available you may use it instead for a choice between a few "
             "options; when it is refused, ask in your reply as described."
         )
+    # Moving between conversations by asking (#164): where the index is, and the answer.
+    phone_instructions += " " + conversations.instructions(settings)
+
+    def with_switch(payload: dict, session_id: str) -> None:
+        """A fresh answer that asks to open, offer or start a conversation: the ``switch``
+        item. Everything it names is checked against the bridge's own lists."""
+        answer = str(payload.get("answer") or "")
+        if "[[switch" not in answer:
+            return
+        found = sessions.list_sessions(settings.session_roots)
+        text, switch = conversations.from_answer(settings, answer, session_id, found)
+        payload["answer"] = text
+        if switch is not None:
+            payload["switch"] = switch
 
     def with_installs(payload: dict, session_id: str, cwd: Path) -> None:
         """Skill-install proposals of a capable run: cards, then a download into quarantine."""
@@ -628,6 +643,11 @@ def create_app(settings: Settings) -> FastAPI:
                 # is bound to that path).
                 chat_runs[session_id] = cwd
                 chats.ensure(settings, cwd)
+            # The conversation index is written anew before every run (#164) and given
+            # to the run as a folder its file tools may read.
+            listed = await asyncio.to_thread(sessions.list_sessions, settings.session_roots)
+            index = await asyncio.to_thread(conversations.refresh, settings, listed)
+            read_only_policy = conversations.with_index(read_only_policy, index)
             # Never write into a conversation that is open somewhere else. The
             # bridge's own live SDK processes are not "somewhere else".
             own = sdk_pool.pids() if sdk_pool is not None else frozenset()
@@ -707,6 +727,7 @@ def create_app(settings: Settings) -> FastAPI:
                 )
                 if is_chat:
                     with_moves(answer, session_id, cwd)
+                await asyncio.to_thread(with_switch, answer, session_id)
                 return answer
             started = True
         finally:
@@ -764,6 +785,7 @@ def create_app(settings: Settings) -> FastAPI:
                             with_installs(payload, session_id, cwd)
                         if is_chat:
                             with_moves(payload, session_id, cwd)
+                        await asyncio.to_thread(with_switch, payload, session_id)
                         if used_servers:
                             payload["mcp_servers"] = [
                                 {"name": name, "outside_sandbox": True} for name in used_servers
@@ -1263,12 +1285,7 @@ def create_app(settings: Settings) -> FastAPI:
             )
             items.append(item)
         items.sort(key=lambda item: not item["pinned"])  # stable: keeps newest first
-        return {
-            "sessions": items[:limit],
-            "total": len(found),
-            "groups": meta["groups"],
-            "folders": known.summary(found),
-        }
+        return {"sessions": items[:limit], "total": len(found), "folders": known.summary(found)}
 
     held_cache: dict = {"at": -1e9, "held": None}
 
@@ -1304,10 +1321,10 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.patch("/sessions/{session_id}")
     async def update_session(session_id: str, request: Request):
-        """Set the owner's title, group, pin or reply-notification switch for a session.
+        """Set the owner's title, pin or reply-notification switch for a session.
 
-        Body: any of ``{"title": str|null, "group": id|null, "pinned": bool,
-        "notify_replies": bool}``. Only the bridge's own metadata changes.
+        Body: any of ``{"title": str|null, "pinned": bool, "notify_replies": bool,
+        "model", "effort", "skills"}``. Only the bridge's own metadata changes.
         """
         changes = await read_json_object(request)
         read_model_choice(changes)  # refuses unknown models and effort levels
@@ -1317,26 +1334,6 @@ def create_app(settings: Settings) -> FastAPI:
         session_meta.update_session(info.id, changes)
         item = session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
         return item | (await asyncio.to_thread(folders.Folders, settings)).describe(info)
-
-    @app.get("/session-groups")
-    async def list_groups():
-        return {"groups": session_meta.load()["groups"]}
-
-    @app.post("/session-groups", status_code=201)
-    async def create_group(request: Request):
-        """Body: ``{"name": str}``."""
-        return session_meta.create_group((await read_json_object(request)).get("name"))
-
-    @app.patch("/session-groups/{group_id}")
-    async def rename_group(group_id: str, request: Request):
-        """Body: ``{"name": str}``."""
-        return session_meta.rename_group(group_id, (await read_json_object(request)).get("name"))
-
-    @app.delete("/session-groups/{group_id}")
-    async def delete_group(group_id: str):
-        """Sessions of the group become ungrouped; no session is deleted."""
-        session_meta.delete_group(group_id)
-        return {"deleted": True}
 
     @app.get("/reminders")
     async def list_reminders(session_id: str | None = None, state: str | None = None):
@@ -1748,6 +1745,8 @@ def create_app(settings: Settings) -> FastAPI:
         for exchange in page["exchanges"]:
             names = used.get(exchange["id"], [])
             exchange["mcp_servers"] = [{"name": n, "outside_sandbox": True} for n in names]
+            # A switch line of an earlier answer is not shown and never switches (#164).
+            exchange["assistant"] = conversations.strip(exchange["assistant"])
         return page
 
     @app.get("/sessions/{session_id}/commands")

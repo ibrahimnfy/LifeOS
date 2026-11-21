@@ -392,6 +392,12 @@ def build_policy(
         [run_dir] if run_dir == memory or run_dir.is_relative_to(memory) else [run_dir, memory]
     )
     check_repositories(writable, memory)
+    # The conversation index (#164): in reach of the file tools, read-only. It gets no
+    # write permission, and the sandbox is told to deny writes there as well.
+    from . import conversations  # local: it needs chats, which needs this module
+
+    index = conversations.index_dir(settings)
+    shared = [] if index is None else [index]
     settings_json = {
         "sandbox": {
             "enabled": True,
@@ -401,7 +407,8 @@ def build_policy(
             "excludedCommands": [],
             "filesystem": {
                 "denyRead": list(SANDBOX_HIDDEN),
-                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory)}),
+                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *shared)}),
+                "denyWrite": [str(p) for p in shared],
             },
             "network": {
                 "allowedDomains": [],
@@ -419,7 +426,8 @@ def build_policy(
                 f"Edit({_rule_path(folder)}/{name})"
                 for folder in writable
                 for name in (".claude/**", ".mcp.json")
-            ],
+            ]
+            + [f"Edit({_rule_path(folder)}/**)" for folder in shared],
         },
         "hooks": {
             "PreToolUse": [
@@ -444,7 +452,7 @@ def build_policy(
         tools=claude.CAPABLE_TOOLS,
         capable=True,
         settings_json=json.dumps(settings_json),
-        add_dirs=tuple(folder for folder in writable if folder != run_dir),
+        add_dirs=(*(folder for folder in writable if folder != run_dir), *shared),
         skills_dir=skills_dir,
         mcp_config=mcp_config,
         clean=is_chat,  # a blank chat: no memory file of any level is loaded
