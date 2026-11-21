@@ -616,4 +616,26 @@
     <string name="update_failed_damaged">What arrived was not the announced file. Nothing was installed and the file was deleted.</string>
     <string name="update_failed_signer">The file is not signed with this app\'s key. Nothing was installed and the file was deleted.</string>
     <string name="update_failed_install">Android did not install the update (cancelled or refused).</string>
+    <!-- Coach questions, nudges and settings (#76) -->
+    <string name="settings_coach">Coach</string>
+    <string name="coach_frequency_off">No coach notifications</string>
+    <string name="coach_frequency_once">Once a day (the daily note)</string>
+    <string name="coach_frequency_three">Up to three a day</string>
+    <string name="coach_quiet_start">Quiet hours start</string>
+    <string name="coach_quiet_end">Quiet hours end</string>
+    <string name="coach_quiet_none">Start and end are the same: no quiet hours.</string>
+    <string name="coach_questions_switch">Coach questions</string>
+    <string name="coach_questions_note">Short questions about your tasks, one at a time, always skippable.</string>
+    <string name="coach_settings_note">Nothing is sent in quiet hours, and coach notifications are at least two hours apart. Your computer keeps these limits.</string>
+    <string name="coach_settings_waiting">Shown when your computer is connected.</string>
+    <string name="coach_settings_unreachable">The computer could not be reached. Open Settings again later.</string>
+    <string name="coach_settings_not_saved">The change could not be saved; the previous setting stays.</string>
+    <string name="coach_question_hint">Your answer, in your own words</string>
+    <string name="coach_question_send">Send answer</string>
+    <string name="coach_question_sending">Sending… the coach files your answer, which can take a minute or two.</string>
+    <string name="coach_question_failed">Not sent. Try again when the computer is connected.</string>
+    <string name="coach_question_no_answer">Sent, but no reply yet. The computer saves your answer first; pull down later.</string>
+    <string name="coach_question_answered">Answer saved.</string>
+    <string name="coach_question_paused">Skipped. The coach will not ask questions for a while.</string>
+    <string name="coach_question_gone">This question is no longer open.</string>
 </resources>

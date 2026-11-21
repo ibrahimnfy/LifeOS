@@ -614,4 +614,26 @@
     <string name="update_failed_damaged">Gelen dosya duyurulan dosya değildi. Hiçbir şey kurulmadı, dosya silindi.</string>
     <string name="update_failed_signer">Dosya bu uygulamanın anahtarıyla imzalanmamış. Hiçbir şey kurulmadı, dosya silindi.</string>
     <string name="update_failed_install">Android güncellemeyi kurmadı (iptal edildi ya da reddedildi).</string>
+    <!-- Coach questions, nudges and settings (#76) -->
+    <string name="settings_coach">Koç</string>
+    <string name="coach_frequency_off">Koç bildirimi yok</string>
+    <string name="coach_frequency_once">Günde bir (günlük not)</string>
+    <string name="coach_frequency_three">Günde en çok üç</string>
+    <string name="coach_quiet_start">Sessiz saatler başlangıcı</string>
+    <string name="coach_quiet_end">Sessiz saatler bitişi</string>
+    <string name="coach_quiet_none">Başlangıç ve bitiş aynı: sessiz saat yok.</string>
+    <string name="coach_questions_switch">Koç soruları</string>
+    <string name="coach_questions_note">Görevlerin hakkında kısa sorular, her seferinde bir tane, her zaman geçilebilir.</string>
+    <string name="coach_settings_note">Sessiz saatlerde hiçbir şey gönderilmez; koç bildirimleri arasında en az iki saat olur. Bu sınırları bilgisayarın uygular.</string>
+    <string name="coach_settings_waiting">Bilgisayarın bağlıyken gösterilir.</string>
+    <string name="coach_settings_unreachable">Bilgisayara ulaşılamadı. Ayarları daha sonra yeniden aç.</string>
+    <string name="coach_settings_not_saved">Değişiklik kaydedilemedi; önceki ayar geçerli.</string>
+    <string name="coach_question_hint">Cevabın, kendi sözlerinle</string>
+    <string name="coach_question_send">Cevabı gönder</string>
+    <string name="coach_question_sending">Gönderiliyor… koç cevabını dosyalıyor, bu bir iki dakika sürebilir.</string>
+    <string name="coach_question_failed">Gönderilemedi. Bilgisayar bağlıyken tekrar dene.</string>
+    <string name="coach_question_no_answer">Gönderildi ama henüz yanıt yok. Bilgisayar cevabını önce kaydeder; sonra aşağı çekerek yenile.</string>
+    <string name="coach_question_answered">Cevap kaydedildi.</string>
+    <string name="coach_question_paused">Geçildi. Koç bir süre soru sormayacak.</string>
+    <string name="coach_question_gone">Bu soru artık açık değil.</string>
 </resources>

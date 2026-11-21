@@ -160,6 +160,11 @@ fun SettingsScreen(
                 NotificationsSection()
             }
 
+            // ---- coach notifications and questions (#76)
+            SettingsGroup(stringResource(R.string.settings_coach)) {
+                CoachSettingsSection(core)
+            }
+
             // ---- courses sign-in (#100)
             SettingsGroup(stringResource(R.string.settings_courses_signin)) {
                 MoodleSignInCard(core, expired = false)

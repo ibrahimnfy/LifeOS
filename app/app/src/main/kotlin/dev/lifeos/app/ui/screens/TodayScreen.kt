@@ -100,8 +100,15 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                 // Without a plan (or one without messages) the card still offers the run.
                 if (plan != null && (!plan.exists || plan.messages.isEmpty())) NoPlanCard(rerun, onRerun = core::rerunCoach)
                 if (plan != null && plan.exists) {
-                    val message by produceState<CoachMessage?>(null, plan.messages.map { it.id }) { value = core.coachMessage(plan) }
+                    // The open question has its own card below (#76); the rotation shows the other messages.
+                    val notes = plan.messages.filter { it.kind != "question" }
+                    val shown by core.coachShown.collectAsStateWithLifecycle()
+                    val message by produceState<CoachMessage?>(null, notes.map { it.id }, shown) { value = core.coachMessage(plan.copy(messages = notes)) }
                     message?.let { CoachCard(it, plan, rerun, onRerun = core::rerunCoach, onClick = onOpenCoach) }
+                    val handled by core.coachQuestionsHandled.collectAsStateWithLifecycle()
+                    plan.messages.firstOrNull { it.kind == "question" && it.id !in handled }?.let { question ->
+                        CoachQuestionCard(core, question, onDone = refresh)
+                    }
                     val picks = plan.topThree.filter { top -> TaskLists.open(listOf(top.task), outbox, ticked).isNotEmpty() }
                     if (picks.isNotEmpty()) {
                         val looks = LocalLooks.current
@@ -320,7 +327,7 @@ private fun CoachCard(message: CoachMessage, plan: CoachPlan, rerun: CoachRerun.
 
 /** The "Coach" label: a pill with a thin gradient ring. */
 @Composable
-private fun CoachTag() {
+internal fun CoachTag() {
     val colors = LifeTheme.colors
     Text(
         text = stringResource(R.string.coach_tag),

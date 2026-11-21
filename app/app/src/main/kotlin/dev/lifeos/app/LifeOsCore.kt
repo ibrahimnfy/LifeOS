@@ -649,6 +649,28 @@ class LifeOsCore(private val app: Application) {
     private var coachPick: String? = null
 
     /** One message per app start, by the rotation rule; the same one while the app stays open. */
+    // ---- coach questions and nudges (#76)
+
+    private val coachShownState = MutableStateFlow<String?>(null)
+
+    /** The message a tapped nudge named: the coach card shows it (the push carries its id in `r`). */
+    val coachShown: StateFlow<String?> = coachShownState
+
+    fun showCoachMessage(id: String?) {
+        if (id.isNullOrEmpty()) return
+        coachPick = id
+        coachShownState.value = id
+    }
+
+    private val coachQuestionsDone = MutableStateFlow<Set<String>>(emptySet())
+
+    /** Questions answered or skipped on this phone: hidden at once, before the plan says so. */
+    val coachQuestionsHandled: StateFlow<Set<String>> = coachQuestionsDone
+
+    fun coachQuestionHandled(id: String) {
+        coachQuestionsDone.value += id
+    }
+
     suspend fun coachMessage(plan: CoachPlan): CoachMessage? {
         plan.messages.firstOrNull { it.id == coachPick }?.let { return it }
         val ids = plan.messages.map { it.id }
@@ -1067,6 +1089,8 @@ class LifeOsCore(private val app: Application) {
         tickTimers.clear()
         tickedState.value = emptySet()
         coachPick = null
+        coachShownState.value = null
+        coachQuestionsDone.value = emptySet()
         vaultFor(current.vault)?.destroy()
         record = null
         hiddenAt = null

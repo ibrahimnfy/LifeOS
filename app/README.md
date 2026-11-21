@@ -246,6 +246,13 @@ with plain HTTPS requests.
   computer for a new plan (a model run of a few minutes there); the card
   shows the progress and, when a plan was made in the last ten minutes, the
   computer's refusal. Without a plan the card offers **Prepare a plan**.
+  The coach's open question (#76) has its own card under it, marked
+  "Coach · Question": the owner answers in their own words (**Send
+  answer**; the computer logs it, then files it in a run of a minute or
+  two) or **Skip**s it (three skips in a row pause questions for a while).
+  The question is left out of the rotating card. Tapping a coach
+  notification (the daily note or a nudge) opens Today with the message it
+  named on the coach card.
 - **Tasks:** with a plan, "Most important" (the first five of the coach's
   order) and "Show all (n)", which opens the whole ordered list with filters
   (overdue, today, upcoming, no date). Without a plan, the open tasks by
@@ -345,8 +352,10 @@ with plain HTTPS requests.
 - **More:** Projects is a placeholder screen.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
-  (immediately / 1 minute / 5 minutes), **Models** (see below), app
-  version.
+  (immediately / 1 minute / 5 minutes), **Models** (see below),
+  **Coach** (#76, kept on the computer: no coach notifications / once a day
+  / up to three a day, quiet hours start and end, coach questions on or
+  off), app version and, while there is one, the "Update ready" prompt.
 - **Settings → Models** (`GET /models/routing`): each model job of the
   computer (chat sessions, coach run and conversation, consolidation, course
   resources, summaries, context map) with its model, effort and advisor and
@@ -814,6 +823,30 @@ Needs a paired phone, the computer running, and the course site set up.
 4. Start again and come back without signing in, or wait more than ten
    minutes: "This sign-in attempt has run out". Nothing changed on the
    computer.
+
+### Coach questions, nudges and settings (#76)
+
+Needs a paired phone and the computer running, with a coach plan.
+
+1. Settings → **Coach** shows the computer's settings (by default "Once a
+   day", 22:00–08:00, questions on). Choose **Up to three a day**, set quiet
+   hours, switch questions off and on: each change is saved at once; on the
+   computer `GET /coach/settings` (or the next nudge) follows it. With the
+   computer off, the group says it is shown when the computer is connected.
+2. When the morning plan has a question, Today shows the card "Coach ·
+   Question" under the coach card. Write an answer and tap **Send answer**:
+   "Sending…", then "Answer saved." and the card disappears; the answer is
+   in the coach log in the memory folder.
+3. On another day, tap **Skip** instead: "Skipped." (after three skips in a
+   row: "The coach will not ask questions for a while").
+4. With frequency "Up to three a day", wait for a nudge (at least two hours
+   after the daily note, never in quiet hours): a notification "The coach
+   has something for you"; tap it: Today opens with that message on the
+   coach card.
+
+On an emulator, the `sample_data` test aid shows a sample question and
+keeps settings changes in memory until the app closes;
+`--es lifeos.test.push coach --es lifeos.test.push_ref m-1` shows a nudge.
 
 ### Updating the app from the computer (#138)
 

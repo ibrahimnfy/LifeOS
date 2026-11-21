@@ -91,7 +91,7 @@ class PushHintsTest {
             "approval" to (PushChannel.CHAT to Destination.Chat("s1")),
             "courses" to (PushChannel.COURSES to Destination.Courses),
             "signin" to (PushChannel.COURSES to Destination.CourseSignIn),
-            "coach" to (PushChannel.COACH to Destination.Coach),
+            "coach" to (PushChannel.COACH to Destination.Coach("s1")),
             "reminder" to (PushChannel.REMINDERS to Destination.Reminder("s1")),
             "notice" to (PushChannel.REMINDERS to Destination.Notice),
             "update" to (PushChannel.REMINDERS to Destination.AppUpdate),
@@ -117,6 +117,9 @@ class PushHintsTest {
         assertEquals(Destination.CourseSignIn, PushHints.destinationOf(Hint("signin", opens = "moodle_signin")))
         assertEquals(Destination.AppUpdate, PushHints.destinationOf(Hint("update", "42", channel = "reminders", opens = "app_update")))
         assertEquals(Destination.AppUpdate, Destination.decode(Destination.AppUpdate.encode()))
+        // A nudge names its message; the daily note may name none.
+        assertEquals(Destination.Coach("m-2"), PushHints.destinationOf(Hint("coach", "m-2", channel = "coach", opens = "coach")))
+        assertEquals(Destination.Coach(), PushHints.destinationOf(Hint("coach")))
         assertEquals(Destination.Chat("abc"), PushHints.destinationOf(Hint("answer", "abc", channel = "chat", opens = "session")))
         // An unknown channel falls back to the event's; an unknown screen to Today.
         assertEquals(PushChannel.COACH, PushHints.channelOf(Hint("coach", channel = "elsewhere")))
@@ -153,7 +156,7 @@ class PushHintsTest {
     @Test
     fun `destinations survive the way through a notification`() {
         val all = listOf(
-            Destination.Chat("session-1"), Destination.Course(12), Destination.Reminder("r-1"), Destination.Coach, Destination.Courses,
+            Destination.Chat("session-1"), Destination.Course(12), Destination.Reminder("r-1"), Destination.Coach(), Destination.Coach("m-2"), Destination.Courses,
             Destination.CourseSignIn, Destination.Sessions, Destination.Today, Destination.Notice, Destination.Sleep,
         )
         for (destination in all) {
