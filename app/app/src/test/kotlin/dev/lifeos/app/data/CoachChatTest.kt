@@ -217,9 +217,30 @@ class CoachChatTest {
         transport.answer("GET /sessions/c-1/queue", 200, """{"running":true,"paused":null,"queue":[{"id":"q-1","prompt":"And now?"}]}""")
         coach.send("And now?")
         advanceUntilIdle()
+        assertEquals("c-1", coach.state.value.sessionId)
         assertEquals(listOf("q-1" to "And now?"), coach.state.value.queue.map { it.id to it.prompt })
         assertEquals(listOf("me:Earlier", "it:Answer"), texts(coach))
         assertEquals(ChatPhase.ELSEWHERE, coach.state.value.phase)
+        assertFalse(coach.state.value.tidying)
+    }
+
+    @Test
+    fun `a message put in line says in its answer when the conversation was tidied up first`() = runTest {
+        val coach = coach()
+        view("c-1", bytes = 400_000)
+        running("c-1", false)
+        history("c-1", "Earlier" to "Answer")
+        coach.load()
+        advanceUntilIdle()
+        // One answer, not a stream (#157): put in line, in the session that continues after the tidying up.
+        transport.events = { flow { emit(AnswerEvent.Done(RelayResponse(202, json("""{"queued":true,"queue_id":"q-1","position":1,"compacted":{"facts":["profile/work.md"],"summary":true,"session_id":"c-2"}}""")))) } }
+        view("c-2", bytes = 2_000, compactions = 1)
+        transport.answer("GET /sessions/c-2/queue", 200, """{"running":true,"paused":null,"queue":[{"id":"q-1","prompt":"And now?"}]}""")
+        coach.send("And now?")
+        advanceUntilIdle()
+        assertEquals("c-2", coach.state.value.sessionId)
+        assertEquals(listOf("profile/work.md"), coach.state.value.tidied?.facts)
+        assertEquals(listOf("q-1"), coach.state.value.queue.map { it.id })
         assertFalse(coach.state.value.tidying)
     }
 

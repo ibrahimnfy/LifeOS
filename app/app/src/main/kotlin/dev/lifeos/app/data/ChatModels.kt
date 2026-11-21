@@ -87,6 +87,8 @@ data class Exchange(
     val assistant: String = "",
     val complete: Boolean = true,
     val truncated: Boolean = false,
+    /** The MCP servers this answer used (#157); they ran outside the sandbox. */
+    @SerialName("mcp_servers") val mcpServers: List<UsedServer> = emptyList(),
 )
 
 /** `POST /sessions/{id}/cancel`. */

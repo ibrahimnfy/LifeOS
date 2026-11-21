@@ -437,7 +437,8 @@ with plain HTTPS requests.
     notification after a finished run (`notify_replies`, on unless switched
     off); questions and approvals are announced either way. In a
     conversation the same sheet opens from the dots next to the pills above
-    the composer.
+    the composer. The coach conversation's session has neither the skills
+    switch nor the MCP servers in its sheet (it is always read-only).
 - **Capture:** a note or a task with an optional due date. Also reachable
   from the home-screen shortcut (long-press on the app icon) and from other
   apps' "share" (text or a link).
@@ -725,10 +726,11 @@ Nothing on these screens is sample content any more. Not paired, they show
     counts the silence as "no"), and a tap after that sends nothing. The
     time left is the computer's waiting time counted on the phone's running
     clock, so the two wall clocks need not agree. (A card that is read from
-    the computer's list, or that arrives through a followed run, where it may
-    be a replay, has only its end time: its time left is that against the
-    phone's wall clock, so a clock that is off shortens or lengthens what the
-    card shows. The computer alone decides when the time is over, and a card
+    the computer's list, or that is part of a followed run's replay (before
+    `replay_end`, #157), has only its end time: its time left is that against
+    the phone's wall clock, so a clock that is off shortens or lengthens what
+    the card shows. A card that arrives after `replay_end` is new and has its
+    whole wait. The computer alone decides when the time is over, and a card
     it still lists stays answerable.) `404 not_pending` is shown
     as "no longer waiting"; an answer that could not be sent can be given
     again. **One list for everything that waits** (`GET
@@ -744,10 +746,14 @@ Nothing on these screens is sample content any more. Not paired, they show
     is still `downloading` is asked about every three seconds while it is on
     screen. The answer is the same `{"approve": true|false}`; a yes is sent
     only for a `ready` card, and what the computer answers decides what the
-    card says (`"installed": false`, `409 skill_exists`, `503
-    audit_unavailable`: after these the computer has dropped the card, so
-    there is no "try again"). The bridge describes a failed download with an
-    English sentence; the app maps the known ones to its own texts. The
+    card says. **A yes the computer refuses leaves the card waiting** (#157:
+    `409 still_downloading`, `409 skill_exists`, `503 audit_unavailable`,
+    `500 install_failed`): the card stays open with its files, says why in
+    the app's words, looks at the computer's list again, and can be answered
+    again; a no is always taken. `404 not_pending` closes it. A failed or
+    refused proposal carries `error_code`, which the app maps to its own
+    EN/TR texts (the bridge's English sentence is not read; an unknown word
+    gets a general text). The
     marker line `[[skill-install: …]]` is left out of the text while an
     answer is written and in earlier answers. The switch is `PATCH
     /sessions/{id}` with `{"skills": true|false}`; what the folder has and
@@ -755,15 +761,18 @@ Nothing on these screens is sample content any more. Not paired, they show
   - **MCP servers** (`data/McpServers.kt`): the list is `GET
     /sessions/{id}/mcp-servers`, read each time the sheet's page is opened
     and after every change, never kept. "Review and approve" is `POST
-    …/mcp-servers/{name}/approval`, unless a card for the same definition
-    (same `hash`) already waits in the session's interactions; the card
+    …/mcp-servers/{name}/approval` (the computer keeps one card per
+    definition and answers with the one that waits, `"already_waiting":
+    true`, #157); the card
     (`kind: "mcp_server"`) is answered with `{"approve": true|false}` like
     every approval, from the sheet or from the conversation, and the
     computer's `"approved"` decides what is shown (`false` after a yes: the
-    definition changed meanwhile). Revoking is `DELETE
+    definition changed meanwhile; `503 audit_unavailable`: nothing was
+    approved and the card can be answered again). Revoking is `DELETE
     …/mcp-servers/{name}`. `mcp_servers` of a finished answer becomes the
-    line under it (it is not part of the conversation the computer keeps, so
-    an answer read again later does not have it). A message refused with
+    line under it, and each exchange of `GET /sessions/{id}/history` carries
+    it too (#157), so an answer read again later says the same. A message
+    refused with
     `503 mcp_unavailable` or `503 audit_unavailable` says why in the app's
     own words and can be retried. The app uses its own EN/TR warning text,
     not the bridge's English `note`.
@@ -773,6 +782,22 @@ editing topic notes or moving notes, reopening or deleting a task, deleting
 an event, and listing finished tasks (no "done" filter).
 
 ## Connection to the computer
+
+**Streams the app stops reading (#157).** A stream (a chat answer, a followed
+run) holds one of the relay's four workers on the computer while it runs.
+`RelayClient` therefore tells the bridge whenever a stream's reader stops
+before the stream has said its end (`done`, `error`, `queued`, or its last
+message): `POST /relay/detach` with `{"r": "<request id>"}`, sent like any
+request, once, best effort. That covers another conversation or a new chat,
+a stream that gave no sign in time, and a followed run that broke off. **On a
+lock** the secret is forgotten at once, so the detach messages for every
+open stream are sealed first (`detachAll`) and written right after; if a
+request is being written at that very moment nothing is sent, and the bridge
+lets the stream go by itself after about 80 seconds. A chat message's run is
+never cut by this: it goes on, and the app attaches to it again with `GET
+/sessions/{id}/live` after the unlock. `stream_abandoned` (the relay's last
+word for a stream it let go by itself) is not a failure: the run is asked
+about and followed again.
 
 Design and threat model: [`docs/security.md`](../docs/security.md). The
 phone side mirrors the bridge's `e2e.py`, `devices.py`, `mailbox.py` and
@@ -923,7 +948,9 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   minutes, to see what running out of time looks like. `install` (the answer
   proposes a skill: its card is "downloading" for six seconds, then lists
   three files and two warnings; with `broken` the download fails, with
-  `plain` the source is not HTTPS and is refused at once). `mcp` (the answer
+  `plain` the source is not HTTPS and is refused at once; with `taken` a
+  tap on Install is refused because a skill of that name exists, and the
+  card stays). `mcp` (the answer
   names the approved MCP servers it used), `mcp unchecked` (the message is
   refused because the computer has not checked the folder's approved
   servers). Every sample session's folder declares three MCP servers, one of
@@ -1434,6 +1461,12 @@ minute:
    goes on being written, with **Stop**. Switch flight mode on for a few
    seconds during another count: after "The computer is still working on
    this…" the answer continues where it was.
+8. With the computer (#157): start a long answer ("Count slowly from 1 to
+   120, one number per line"), then lock and unlock the phone five times
+   during the same run. Each time the count is on screen once and goes on;
+   the other screens (Today, Notes) still load at once, and the whole answer
+   is there at the end (without the detach the relay's four workers would
+   be taken after the fourth lock, until the run ends).
 
 ### Model, effort and "/" commands
 
@@ -1551,8 +1584,11 @@ anywhere):
 4. Tap **Install**: "Installed." Send "install a skill" again and tap
    **Don't install**: "Not installed."
 5. Send "install broken": after a few seconds the card says that there is
-   no SKILL.md at its top, with **Put away** only. Send "install plain": the
+   not a usable skill, with **Put away** only. Send "install plain": the
    card says at once that only an HTTPS address is accepted, without buttons.
+   Send "install taken", wait for the contents and tap **Install**: "Not
+   installed: a skill of this name is in the folder by now…", and the card
+   is still there with its files; **Don't install** puts it away.
 
 With the computer (capable mode on; each step is a short run on the plan):
 

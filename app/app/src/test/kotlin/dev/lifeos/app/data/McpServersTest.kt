@@ -75,40 +75,37 @@ class McpServersTest {
     }
 
     @Test
-    fun `asking for an approval makes a card, and a card that already waits is not asked for twice`() = runTest {
+    fun `asking for an approval is one request, also when the card already waits`() = runTest {
         val server = BridgeJson.decodeFromString(McpServer.serializer(), tools)
-        pending()
-        transport.answer("POST /sessions/s-1/mcp-servers/tools/approval", 200, card())
+        transport.answer("POST /sessions/s-1/mcp-servers/tools/approval", 200, card().dropLast(1) + ""","already_waiting":false}""")
         val made = McpApprovals.card(api, "s-1", server)
         assertEquals("a1b2c3d4e5f6", made.id)
         assertEquals("npx -y some-server", made.server?.commandLine)
-        assertEquals(1, transport.calls.count { it.method == "POST" })
-
-        pending(card())
+        // The computer keeps one card per definition: asked again, the same one comes back.
+        transport.answer("POST /sessions/s-1/mcp-servers/tools/approval", 200, card().dropLast(1) + ""","already_waiting":true}""")
         assertEquals("a1b2c3d4e5f6", McpApprovals.card(api, "s-1", server).id)
-        assertEquals(1, transport.calls.count { it.method == "POST" })
-
-        // The folder's file changed since that card: it shows another definition, so a new one is asked for.
-        McpApprovals.card(api, "s-1", server.copy(hash = "h9"))
-        assertEquals(2, transport.calls.count { it.method == "POST" })
+        assertEquals(listOf("POST", "POST"), transport.calls.map { it.method })
     }
 
     @Test
     fun `the answer says what the computer did with the yes`() = runTest {
         val path = "POST /sessions/s-1/interactions/a1b2c3d4e5f6"
         transport.answer(path, 200, """{"answered":true,"id":"a1b2c3d4e5f6","approved":true,"name":"tools"}""")
-        assertEquals(Interaction.Status.ALLOWED, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true))
+        assertEquals(Interaction.Status.ALLOWED, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true).status)
         assertEquals("""{"approve":true}""", transport.calls.last().body.toString())
         // The definition changed between the card and the answer: nothing was approved.
         transport.answer(path, 200, """{"answered":true,"id":"a1b2c3d4e5f6","approved":false,"reason":"the definition changed"}""")
-        assertEquals(Interaction.Status.NOT_DONE, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true))
+        assertEquals(Interaction.Status.NOT_DONE, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true).status)
         transport.answer(path, 200, """{"answered":true,"id":"a1b2c3d4e5f6","approved":false,"reason":null}""")
-        assertEquals(Interaction.Status.REFUSED, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = false))
+        assertEquals(Interaction.Status.REFUSED, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = false).status)
         assertEquals("""{"approve":false}""", transport.calls.last().body.toString())
+        // The audit log could not be written: nothing approved, and the card still waits to be answered again.
         transport.answer(path, 503, """{"error":"audit_unavailable"}""")
-        assertEquals(Interaction.Status.UNRECORDED, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true))
+        val refused = McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true)
+        assertNull(refused.status)
+        assertEquals(Interaction.Refusal.UNRECORDED, refused.refusal)
         transport.answer(path, 404, """{"error":"not_pending"}""")
-        assertEquals(Interaction.Status.GONE, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true))
+        assertEquals(Interaction.Status.GONE, McpApprovals.answer(api, "s-1", "a1b2c3d4e5f6", approve = true).status)
         // Not delivered: the caller may try again.
         transport.fail(path, ApiException(ApiException.Kind.NOT_SENT))
         try {

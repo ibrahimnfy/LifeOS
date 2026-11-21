@@ -328,4 +328,82 @@ class RelayClientTest {
             assertFalse(word, word in everything)
         }
     }
+
+    // ------------------------------------------------------------------ streams that are no longer read (#157)
+
+    /** A bridge whose `/live` stream goes on, whose other streams say `done`, and which answers a detach. */
+    private fun Setup.streaming() {
+        bridge.answer = { request ->
+            when (request.jsonObject.getValue("path").jsonPrimitive.content) {
+                RelayClient.DETACH_PATH -> listOf(Kind.END to json("""{"status":200,"body":{"detached":true}}"""))
+                "/sessions/s-1/live" -> listOf(Kind.CHUNK to json("""{"event":"delta","data":{"text":"a"}}"""))
+                else -> listOf(Kind.CHUNK to json("""{"event":"done","data":{"answer":"a"}}"""), Kind.END to json("""{"status":200,"stream":true}"""))
+            }
+        }
+    }
+
+    private fun Setup.paths() = bridge.requests.map { it.payload.jsonObject.getValue("path").jsonPrimitive.content }
+
+    @Test
+    fun `a stream that is no longer read is let go on the bridge`() = runTest {
+        val s = setup()
+        s.streaming()
+        // One event is read, then the reader stops: the stream would keep a relay worker.
+        val reader = launch { s.client.stream("GET", "/sessions/s-1/live").collect { } }
+        advanceTimeBy(100)
+        reader.cancel()
+        advanceTimeBy(1_000)
+        val (stream, detach) = s.bridge.requests
+        assertEquals(json("""{"m":"POST","path":"/relay/detach","q":{},"body":{"r":"${stream.requestId}"}}"""), detach.payload)
+        // Once, and its own answer is taken out of the mailbox like any other.
+        assertEquals(2, s.bridge.requests.size)
+        assertEquals(emptyList<MailboxEntry>(), box.children(MailboxKeys.toPhone(s.bridge.deviceHex)))
+    }
+
+    @Test
+    fun `a stream that gave no sign in time is let go too`() = runTest {
+        val s = setup()
+        s.bridge.answer = { request -> if (request.jsonObject.getValue("path").jsonPrimitive.content == RelayClient.DETACH_PATH) listOf(Kind.END to json("""{"status":200,"body":{"detached":false}}""")) else emptyList() }
+        assertEquals(RelayException.Reason.TIMEOUT, failure { s.client.stream("POST", "/ask", idleTimeoutMillis = 5_000).collect { } })
+        advanceTimeBy(1_000)
+        assertEquals(listOf("/ask", RelayClient.DETACH_PATH), s.paths())
+    }
+
+    @Test
+    fun `a stream that said its end, or a plain request, needs no detach`() = runTest {
+        val s = setup()
+        s.streaming()
+        // Read to the end.
+        assertEquals(2, s.client.stream("POST", "/ask").toList().size)
+        // The reader stops at `done`, before the end of the stream arrives: the bridge closes it by itself.
+        var seen = 0
+        val reader = launch { s.client.stream("POST", "/ask").collect { if (++seen == 1) throw kotlinx.coroutines.CancellationException("enough") } }
+        advanceTimeBy(1_000)
+        assertTrue(reader.isCancelled)
+        // A request without an answer in time is not a stream.
+        s.bridge.answer = { emptyList() }
+        assertEquals(RelayException.Reason.TIMEOUT, failure { s.client.request("POST", "/notes", timeoutMillis = 5_000) })
+        advanceTimeBy(1_000)
+        assertEquals(listOf("/ask", "/ask", "/notes"), s.paths())
+    }
+
+    @Test
+    fun `before the secret is forgotten every open stream is let go, sealed at once and written afterwards`() = runTest {
+        val s = setup()
+        s.streaming()
+        val reader = launch { s.client.stream("GET", "/sessions/s-1/live").collect { } }
+        advanceTimeBy(100)
+        // The app is locked: the messages are sealed now, the channel is closed, the reader ends.
+        s.client.detachAll(backgroundScope)
+        s.channel.close()
+        reader.cancel()
+        advanceTimeBy(1_000)
+        val (stream, detach) = s.bridge.requests
+        assertEquals(RelayClient.DETACH_PATH, detach.payload.jsonObject.getValue("path").jsonPrimitive.content)
+        assertEquals(stream.requestId, detach.payload.jsonObject.getValue("body").jsonObject.getValue("r").jsonPrimitive.content)
+        // The cancelled reader does not ask a second time (it could not seal anything any more).
+        assertEquals(2, s.bridge.requests.size)
+        // The counters went up in order: the bridge took both.
+        assertEquals(toBridgeCounters().sorted(), toBridgeCounters())
+    }
 }

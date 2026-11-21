@@ -862,6 +862,9 @@ class LifeOsCore(private val app: Application) {
         synchronized(lock) {
             val current = record ?: return
             if (!needsLock(current)) return
+            // The streams that are being read (an answer, a followed run) are let go first (#157):
+            // each would keep one of the relay's few workers on the computer until its run ends.
+            session?.client?.detachAll(scope)
             stopSession()
             lockedState.value = true
             connectionState.value = ConnectionState.CONNECTING

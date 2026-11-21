@@ -43,6 +43,8 @@ data class InteractionData(
     val source: String = "",
     val state: String = "",
     val error: String? = null,
+    /** Why a skill could not be prepared, as a stable word (#157); the sentence in [error] is the bridge's own English. */
+    @SerialName("error_code") val errorCode: String? = null,
     val name: String = "",
     val target: String = "",
     val description: String = "",
@@ -88,7 +90,29 @@ data class SkillInstall(
         REFUSED,
     }
 
-    enum class Problem { NOT_HTTPS, TOO_LARGE, UNSAFE, NO_SKILL_FILE, TOO_MANY, NO_NAME, EXISTS, UNRECORDED, DOWNLOAD }
+    enum class Problem {
+        /** The source is not an HTTPS address. */
+        NOT_HTTPS,
+
+        /** The computer could not write its audit log, so it did not take the proposal. */
+        UNRECORDED,
+
+        /** Not a usable skill: links or paths that lead outside it, no SKILL.md at the top, no usable name, too many files. */
+        SOURCE_REFUSED,
+        TOO_LARGE,
+
+        /** The archive is damaged. */
+        UNREADABLE,
+
+        /** A skill of this name is in the folder already; nothing is replaced. */
+        EXISTS,
+
+        /** The address did not answer, or answered with an error. */
+        DOWNLOAD,
+
+        /** A reason this app does not know yet. */
+        OTHER,
+    }
 
     companion object {
         fun of(data: InteractionData): SkillInstall {
@@ -107,21 +131,20 @@ data class SkillInstall(
                 warnings = data.warnings,
                 files = data.files.filter { it.path.isNotBlank() },
                 totalSize = data.totalSize,
-                problem = if (state == State.FAILED || state == State.REFUSED) problem(data.error.orEmpty()) else null,
+                problem = if (state == State.FAILED || state == State.REFUSED) problem(data.errorCode) else null,
             )
         }
 
-        /** The bridge's sentence (skill_installs.py) as what the card says; it has no word for it. */
-        fun problem(error: String): Problem = when {
-            "HTTPS" in error -> Problem.NOT_HTTPS
-            "larger than" in error -> Problem.TOO_LARGE
-            "unsafe entry" in error -> Problem.UNSAFE
-            "no SKILL.md" in error -> Problem.NO_SKILL_FILE
-            "too many files" in error -> Problem.TOO_MANY
-            "no usable name" in error -> Problem.NO_NAME
-            "already installed" in error -> Problem.EXISTS
-            "audit log" in error -> Problem.UNRECORDED
-            else -> Problem.DOWNLOAD
+        /** The bridge's word for why a skill cannot be installed (`error_code`, #157) as what the card says. */
+        fun problem(code: String?): Problem = when (code) {
+            "source_not_https" -> Problem.NOT_HTTPS
+            "audit_unavailable" -> Problem.UNRECORDED
+            "source_refused" -> Problem.SOURCE_REFUSED
+            "source_too_large" -> Problem.TOO_LARGE
+            "source_unreadable" -> Problem.UNREADABLE
+            "skill_exists" -> Problem.EXISTS
+            "download_failed" -> Problem.DOWNLOAD
+            else -> Problem.OTHER
         }
     }
 }
@@ -154,7 +177,27 @@ data class Interaction(
     val install: SkillInstall? = null,
     /** MCP server: exactly the definition that would be approved. */
     val server: McpServer? = null,
+    /** The computer did not act on the last yes, and the card still waits there (#157): why. */
+    val refusal: Refusal? = null,
 ) {
+    /**
+     * Why a yes was not acted on. The card stays on the computer with everything it had, so the
+     * owner can answer again (or say no, which is always taken).
+     */
+    enum class Refusal {
+        /** The skill is still being downloaded. */
+        STILL_DOWNLOADING,
+
+        /** A skill of this name appeared in the folder meanwhile; nothing is replaced. */
+        EXISTS,
+
+        /** The audit log could not be written, so nothing was done. */
+        UNRECORDED,
+
+        /** The skill's files could not be written; nothing was installed. */
+        WRITE_FAILED,
+    }
+
     enum class Kind { APPROVAL, QUESTION, SKILL_INSTALL, MCP_SERVER }
 
     enum class Status {
@@ -180,12 +223,6 @@ data class Interaction(
 
         /** The owner said yes, but the computer did not do it (what was shown is no longer what is there). */
         NOT_DONE,
-
-        /** A skill of this name was installed meanwhile: nothing was replaced. */
-        EXISTS,
-
-        /** The computer could not write its audit log, so it did nothing. */
-        UNRECORDED,
     }
 
     val isDeletion: Boolean get() = category == DELETION
@@ -274,18 +311,23 @@ data class Interaction(
             return if (undone) Status.NOT_DONE else Status.ALLOWED
         }
 
+        /** "Not pending": answered, out of time, or taken by another answer meanwhile. Nothing is left to answer. */
+        fun gone(error: ApiException): Boolean = error.kind == ApiException.Kind.HTTP && error.status == 404
+
         /**
-         * What a refused answer means, or null when the answer simply did not get through (it
-         * can be given again). The computer takes a card that waits across runs out of its list
-         * before it acts, so after these refusals there is nothing left to answer.
+         * Why the computer refused a yes while the card stays there (#157), or null when the
+         * answer simply did not get through. Either way the owner can answer again.
          */
-        fun refusal(error: ApiException): Status? = when {
-            error.kind != ApiException.Kind.HTTP -> null
-            // "Not pending": answered, expired or cancelled meanwhile.
-            error.status == 404 -> Status.GONE
-            error.code == "skill_exists" -> Status.EXISTS
-            error.code == "audit_unavailable" -> Status.UNRECORDED
-            else -> null
+        fun refusal(error: ApiException): Refusal? = if (error.kind != ApiException.Kind.HTTP) {
+            null
+        } else {
+            when (error.code) {
+                "still_downloading" -> Refusal.STILL_DOWNLOADING
+                "skill_exists" -> Refusal.EXISTS
+                "audit_unavailable" -> Refusal.UNRECORDED
+                "install_failed" -> Refusal.WRITE_FAILED
+                else -> null
+            }
         }
 
         private fun moment(iso: String?): Long? = try {

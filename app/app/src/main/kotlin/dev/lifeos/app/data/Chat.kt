@@ -72,7 +72,7 @@ data class ChatMessage(
     val text: String,
     val incomplete: Boolean = false,
     val files: List<OfferedFile> = emptyList(),
-    /** The MCP servers this answer used (#153): they ran outside the sandbox. Known only for an answer received here. */
+    /** The MCP servers this answer used (#153): they ran outside the sandbox. */
     val servers: List<String> = emptyList(),
 )
 
@@ -770,7 +770,8 @@ class Chat(
             // The conversation on the computer still has the lines that offered files; the offers themselves are gone.
             val text = visible(exchange.assistant)
             val files = offeredNames(exchange.assistant).map { OfferedFile(it) }
-            if (text.isNotBlank() || files.isNotEmpty()) add(ChatMessage(keys.incrementAndGet(), false, text, incomplete = !exchange.complete, files = files))
+            val servers = exchange.mcpServers.map { it.name }.filter { it.isNotBlank() }
+            if (text.isNotBlank() || files.isNotEmpty()) add(ChatMessage(keys.incrementAndGet(), false, text, incomplete = !exchange.complete, files = files, servers = servers))
         }
     }
 
@@ -870,25 +871,33 @@ class Chat(
         var ended = false
         var known = false
         var prompt: String? = null
+        // Until the computer says that the replay is over (#157), what arrives was said earlier.
+        var caughtUp = false
         try {
             api.live(id).firstOrNull { event ->
                 when (event) {
+                    // Also when the relay let the stream go (`stream_abandoned`): it is asked about below.
                     is AnswerEvent.Done -> true
                     is AnswerEvent.Stream -> when {
                         event.event == "live" -> {
                             val data = event.data as? JsonObject
-                            // Nothing that can be followed (a run without events, or none at all).
-                            if ((data?.get("followable") as? JsonPrimitive)?.content != "true") return@firstOrNull true
-                            attached = true
-                            val asked = attach(generation, data.text("queue_id"))
-                            prompt = asked.first
-                            known = asked.second
+                            // Without a run that can be followed the stream ends by itself at once: it is read to its end.
+                            if ((data?.get("followable") as? JsonPrimitive)?.content == "true") {
+                                attached = true
+                                val asked = attach(generation, data.text("queue_id"))
+                                prompt = asked.first
+                                known = asked.second
+                            }
+                            false
+                        }
+                        event.event == "replay_end" -> {
+                            caughtUp = true
                             false
                         }
                         // The final answer carries the whole text, whatever of the replay was left out.
                         !attached || event.event == "replay_truncated" -> false
-                        // What comes first may be a replay: a card's time is its end time, not a fresh wait.
-                        else -> onEvent(generation, event, prompt, answer, streamed, fresh = false).also { ended = it }
+                        // A replayed card has only its end time; a new one has its whole wait ahead.
+                        else -> onEvent(generation, event, prompt, answer, streamed, fresh = caughtUp).also { ended = it }
                     }
                     else -> false
                 }
@@ -1198,6 +1207,8 @@ class Chat(
         val answer = keys.incrementAndGet()
         val streamed = StringBuilder()
         var started = !queued
+        // The relay let this stream go because its messages stayed unread (#157); the run goes on.
+        var abandoned = false
         if (!queued) awaiting = prompt to key
         try {
             val folder = before.folder?.takeIf { !it.memory }?.path?.takeIf { it.isNotEmpty() }
@@ -1216,14 +1227,19 @@ class Chat(
                         onEvent(generation, event, prompt, answer, streamed)
                     }
                     is AnswerEvent.Done -> {
-                        if (started) onRefusal(generation, event, prompt, key) else onQueueAnswer(generation, event, prompt, key)
+                        when {
+                            event.response.error == STREAM_ABANDONED -> abandoned = true
+                            started -> onRefusal(generation, event, prompt, key)
+                            else -> onQueueAnswer(generation, event, prompt, key)
+                        }
                         true
                     }
                     else -> false
                 }
             }
-            // The stream ended without saying how the run ended.
-            if (ended == null && started) lost(generation)
+            // The stream ended without saying how the run ended: the computer is asked, and the run followed again.
+            if ((ended == null || abandoned) && started) lost(generation)
+            if (abandoned && !started) notQueued(generation, prompt, key, uncertain = true)
             if (started) afterRun(generation)
             if (started && coach) refreshCoach(generation)
         } catch (error: CancellationException) {
@@ -1263,6 +1279,7 @@ class Chat(
             return if (done.response.ok) notQueued(generation, prompt, key, uncertain = true) else refusedForQueue(generation, done.response, prompt, key)
         }
         val position = (body?.get("position") as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
+        renewedBy(generation, body)
         change(generation) { state ->
             // A look at the computer's list may have shown the new entry already.
             val others = state.queue.filter { it.key != key && it.id != queueId }
@@ -1394,19 +1411,24 @@ class Chat(
         val approve = result == Interaction.Status.ALLOWED
         if (approve && !interaction.canApprove) return
         val generation = state.generation
-        mark(generation, id) { it.copy(status = Interaction.Status.SENDING, sendFailed = false) }
+        mark(generation, id) { it.copy(status = Interaction.Status.SENDING, sendFailed = false, refusal = null) }
         scope.launch {
+            var refusal: Interaction.Refusal? = null
             val outcome = try {
                 val answered = api.answerInteraction(session, id, body)
                 // A card that waits across runs says what the computer did with the yes.
                 if (interaction.crossRun) Interaction.settled(approve, answered) else result
             } catch (error: ApiException) {
-                // A final refusal closes the card; anything else was not delivered and can be given again.
-                Interaction.refusal(error)?.takeIf { it == Interaction.Status.GONE || interaction.crossRun }
+                // "No longer waiting" closes the card. A yes the computer refused leaves it waiting
+                // there (#157), and one that was not delivered too: both can be answered again.
+                refusal = Interaction.refusal(error).takeIf { interaction.crossRun }
+                Interaction.Status.GONE.takeIf { Interaction.gone(error) }
             }
             mark(generation, id) {
-                if (outcome != null) it.copy(status = outcome, sendFailed = false) else it.copy(status = Interaction.Status.WAITING, sendFailed = true)
+                if (outcome != null) it.copy(status = outcome, sendFailed = false) else it.copy(status = Interaction.Status.WAITING, sendFailed = refusal == null, refusal = refusal)
             }
+            // What the card shows may be behind (downloaded meanwhile, or failed): look again.
+            if (refusal != null) pending(generation, session)
         }
     }
 
@@ -1445,6 +1467,26 @@ class Chat(
         }
     }
 
+    /** Coach: the conversation was tidied up before the message that is awaited; a new session continues. */
+    private fun renewed(state: ChatState, result: CoachCompacted): ChatState = state.copy(
+        sessionId = result.sessionId.takeIf(::validId) ?: state.sessionId,
+        tidying = false,
+        olderCursor = null,
+        renewedAt = awaiting?.second ?: state.renewedAt,
+        tidied = result,
+    )
+
+    /** Coach (#157): a message that was put in line says in its answer when the conversation was tidied up first. */
+    private fun renewedBy(generation: Int, body: JsonObject?) {
+        if (!coach) return
+        val result = try {
+            BridgeJson.decodeFromJsonElement(CoachCompacted.serializer(), body?.get("compacted") as? JsonObject ?: return)
+        } catch (_: Exception) {
+            return
+        }
+        change(generation) { renewed(it, result) }
+    }
+
     /** True when the event ends the answer. */
     private fun onEvent(generation: Int, event: AnswerEvent.Stream, prompt: String?, answer: Long, streamed: StringBuilder, fresh: Boolean = true): Boolean {
         val data = event.data as? JsonObject
@@ -1469,15 +1511,7 @@ class Chat(
                 } catch (_: Exception) {
                     CoachCompacted()
                 }
-                change(generation) { state ->
-                    state.copy(
-                        sessionId = result.sessionId.takeIf(::validId) ?: state.sessionId,
-                        tidying = false,
-                        olderCursor = null,
-                        renewedAt = awaiting?.second ?: state.renewedAt,
-                        tidied = result,
-                    )
-                }
+                change(generation) { renewed(it, result) }
             }
             "delta" -> {
                 streamed.append(data.text("text").orEmpty())
@@ -1557,6 +1591,7 @@ class Chat(
         val queueId = body.text("queue_id")?.takeIf(::validId)
         if (response.status == 202 && queueId != null) {
             // A run is going on there (started elsewhere): this message waits in line behind it.
+            renewedBy(generation, body)
             awaiting = null
             change(generation) { state ->
                 state.copy(
@@ -1636,6 +1671,9 @@ class Chat(
 
         /** The computer's word for "the coach conversation is being tidied up: that run is not stopped". */
         const val COMPACTION_RUNNING = "compaction_running"
+
+        /** The relay's last word for a stream it let go because nobody read it. */
+        const val STREAM_ABANDONED = "stream_abandoned"
 
         /** The hold a stop puts on the queue; it ends with the owner's next message. */
         const val HOLD_CANCEL = "cancel"

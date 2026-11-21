@@ -49,6 +49,7 @@ import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.CommandList
 import dev.lifeos.app.data.skills
 import androidx.compose.runtime.produceState
@@ -154,11 +155,14 @@ internal fun SessionSheetHost(core: LifeOsCore, sessionId: String?, change: Sess
         }
     }
     val session = fresh ?: list?.sessions?.firstOrNull { it.id == sessionId }
+    // The coach conversation is read-only and has no folder of its own to configure (#157).
+    val coachId = core.coach.state.collectAsStateWithLifecycle().value.sessionId
+        ?: (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
     val known = (reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty()
     LaunchedEffect(sessionId) { reminders.refresh() }
     // Sheets are windows of their own: none may be open above the lock screen.
     if (session == null || locked) return
-    SessionSheet(core, session, list?.groups.orEmpty(), Reminders.scheduled(known, session.id), change, onDismiss)
+    SessionSheet(core, session, list?.groups.orEmpty(), Reminders.scheduled(known, session.id), change, onDismiss, coach = session.id == coachId)
 }
 
 /**
@@ -173,6 +177,8 @@ internal fun SessionSheet(
     reminders: List<Reminder>,
     change: SessionChange,
     onDismiss: () -> Unit,
+    /** The coach conversation's session: always read-only, so neither skills nor MCP servers apply. */
+    coach: Boolean = false,
 ) {
     var page by rememberSaveable { mutableStateOf(SessionSheetPage.MENU) }
     // The reminder that is being changed; null on the reminder page: a new one.
@@ -204,10 +210,12 @@ internal fun SessionSheet(
                     }
                 }
             }
-            // The folder's own skills and commands, for this session only (#97).
-            SkillsSwitch(core, session, change)
-            // The MCP servers the folder declares (#153): listed, approved one by one, revoked.
-            SheetAction(LifeIcons.Chip, stringResource(R.string.mcp_action), note = stringResource(R.string.mcp_action_note)) { page = SessionSheetPage.MCP }
+            if (!coach) {
+                // The folder's own skills and commands, for this session only (#97).
+                SkillsSwitch(core, session, change)
+                // The MCP servers the folder declares (#153): listed, approved one by one, revoked.
+                SheetAction(LifeIcons.Chip, stringResource(R.string.mcp_action), note = stringResource(R.string.mcp_action_note)) { page = SessionSheetPage.MCP }
+            }
         }
         SessionSheetPage.MCP -> McpSheet(core, session, onDismiss)
         SessionSheetPage.REMINDERS -> RemindersSheet(

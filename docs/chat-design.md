@@ -374,9 +374,10 @@ Three gaps the chat screen found, closed in the bridge:
   during one long run never exhausts the workers.
 - **Live follow, caught up.** `GET /sessions/{id}/live` sends
   `replay_end {"events": n}` after what the run said so far. Until then
-  the app shows the replay as one block ("catching up"); after it, the text
-  streams as usual. Without a followable run the stream is `live`,
-  `replay_end`, end.
+  what arrives is the replay: one block of text that takes the place of the
+  unfinished answer on screen, and cards whose time is what is left of it;
+  after it, the text streams as usual and a card is new. Without a
+  followable run the stream is `live`, `replay_end`, end.
 - **Approval cards stay until the answer took effect.** A refused answer
   leaves the card waiting, with its files: `409 still_downloading` (the
   skill is still being fetched: keep the card, enable "Install" when its
@@ -394,6 +395,37 @@ Three gaps the chat screen found, closed in the bridge:
   streamed coach message sends `compacted` before `session` whenever its
   conversation was compacted first, including when that was decided only
   after the message was sent.
+
+### 7.4 In the app: session sheet, cards, live follow
+
+How the app uses sections 3, 6 and 7.1 to 7.3 (details and manual checks:
+`app/README.md`).
+
+- **Session sheet** (the dots next to the pills above the composer, or a
+  long press on a session): rename, pin, group, reminders, the reply
+  notification switch, then **Use this folder's skills and commands** (off
+  unless switched on; with what it means, how many the folder has, and a
+  line when the computer's check for skills has not passed) and **MCP
+  servers** (list with state and what would start, the outside-the-sandbox
+  warning first, "Review and approve", "Revoke approval"). The session is
+  read fresh (`GET /sessions/{id}`). The coach conversation's sheet has
+  neither the skills switch nor the MCP page.
+- **Cards** live in the conversation. Those of a run (question, approval)
+  end with the run and the next message. Those that wait across runs (skill
+  install, MCP approval) are read whenever a conversation is opened or read
+  again, stay through messages and runs for up to a day, and count their
+  time in hours. A skill card offers "Install" only once its contents are
+  listed. A yes the computer refuses keeps the card open with the reason; a
+  failed proposal is worded from its `error_code`.
+- **Live follow.** The app has one stream per conversation at most: its own
+  message's answer, or `GET /sessions/{id}/live` when the computer runs
+  without one (a waiting message, an answer lost to a lock or a dropped
+  connection). Where a run cannot be followed, the app asks every five
+  seconds as before. A stream it stops reading is detached (7.3); on a lock
+  the detach is sealed before the secret is forgotten.
+- **Answers read again** keep their file cards for the time that is left of
+  an offer (`GET /sessions/{id}/files`) and the line that names the MCP
+  servers they used (history).
 
 ## 8. Build issues
 

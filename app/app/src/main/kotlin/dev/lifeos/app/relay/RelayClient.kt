@@ -63,6 +63,13 @@ class RelayClient(
     private val toBridge = MailboxKeys.toBridge(deviceHex)
     private val toPhone = MailboxKeys.toPhone(deviceHex)
     private val waiting = ConcurrentHashMap<String, Queue<Message>>()
+
+    /**
+     * The streams this phone is reading, by request id. A stream holds one of the relay's few
+     * workers on the computer for as long as it runs, so one that is no longer read is told to
+     * the bridge ([letGo], [detachAll]) unless it has said its own end.
+     */
+    private val reading = ConcurrentHashMap.newKeySet<String>()
     private val taking = ConcurrentHashMap.newKeySet<String>()
     private val linkState = MutableStateFlow(Link.UNKNOWN)
     private var listener: Job? = null
@@ -133,7 +140,7 @@ class RelayClient(
             tries++
             try {
                 val done = withTimeoutOrNull(timeoutMillis) {
-                    exchange(method, path, query, body, timeoutMillis).first { it is AnswerEvent.Done }
+                    exchange(method, path, query, body, timeoutMillis, streamed = false).first { it is AnswerEvent.Done }
                 } ?: throw RelayException(RelayException.Reason.TIMEOUT)
                 return (done as AnswerEvent.Done).response
             } catch (error: RelayException) {
@@ -148,6 +155,11 @@ class RelayClient(
      * [idleTimeoutMillis]. A started stream is never retried here. [firstTimeoutMillis] is how
      * long the first message may take: the computer answers a request within seconds even when
      * the rest of the answer (a model run) then stays quiet for minutes.
+     *
+     * When the collector stops before the stream has ended (cancelled, timed out, or simply not
+     * read further), the bridge is told with `POST /relay/detach` (#157): a followed run's
+     * stream is closed there at once; a chat message's run goes on unseen and can be followed
+     * again. A stream that has said `done`, `error` or `queued` ends by itself.
      */
     fun stream(
         method: String,
@@ -156,7 +168,61 @@ class RelayClient(
         body: JsonElement? = null,
         idleTimeoutMillis: Long = DEFAULT_IDLE_MILLIS,
         firstTimeoutMillis: Long = idleTimeoutMillis,
-    ): Flow<AnswerEvent> = exchange(method, path, query, body, idleTimeoutMillis, firstTimeoutMillis)
+    ): Flow<AnswerEvent> = exchange(method, path, query, body, idleTimeoutMillis, firstTimeoutMillis, streamed = true)
+
+    private fun payload(method: String, path: String, query: Map<String, String>, body: JsonElement?): JsonObject = buildJsonObject {
+        put("m", JsonPrimitive(method))
+        put("path", JsonPrimitive(path))
+        put("q", JsonObject(query.mapValues { JsonPrimitive(it.value) }))
+        put("body", body ?: JsonNull)
+    }
+
+    private fun newRequestId(): String = random(8).joinToString("") { "%02x".format(it) }
+
+    private fun detachBody(requestId: String): JsonObject = buildJsonObject { put("r", JsonPrimitive(requestId)) }
+
+    /** Tell the bridge that the stream [requestId] is no longer read. Best effort: without it the bridge lets go by itself, later. */
+    private suspend fun letGo(requestId: String) {
+        try {
+            request("POST", DETACH_PATH, body = detachBody(requestId), timeoutMillis = DETACH_TIMEOUT_MILLIS)
+        } catch (_: RelayException) {
+            // Not reached: nothing more to do from here.
+        }
+    }
+
+    /**
+     * The app is about to forget the secret (it is being locked): every stream it still reads
+     * is let go now. The messages are sealed here, at once, because nothing can be sealed
+     * afterwards; they are written by [writer], which outlives this client. If a request is
+     * being written at this very moment nothing is sent, and the bridge lets the streams go
+     * by itself when their messages stay unread.
+     */
+    fun detachAll(writer: CoroutineScope) {
+        val open = reading.toList()
+        reading.clear()
+        if (open.isEmpty() || !sendMutex.tryLock()) return
+        val sealed = try {
+            open.map { requestId ->
+                val blob = channel.seal(Kind.REQUEST, newRequestId(), payload("POST", DETACH_PATH, emptyMap(), detachBody(requestId)))
+                lastKeyMillis = maxOf(nowMillis(), lastKeyMillis + 1)
+                "$toBridge/${MailboxKeys.newKey(lastKeyMillis, random(4))}" to MailboxKeys.encode(blob)
+            }
+        } catch (_: Exception) {
+            // The counters could not be stored: nothing was sealed.
+            emptyList()
+        } finally {
+            sendMutex.unlock()
+        }
+        writer.launch {
+            for ((key, value) in sealed) {
+                try {
+                    mailbox.put(key, value)
+                } catch (_: MailboxException) {
+                    return@launch
+                }
+            }
+        }
+    }
 
     private fun exchange(
         method: String,
@@ -165,17 +231,13 @@ class RelayClient(
         body: JsonElement?,
         idleTimeoutMillis: Long,
         firstTimeoutMillis: Long = idleTimeoutMillis,
+        streamed: Boolean,
     ): Flow<AnswerEvent> = flow {
-        val requestId = random(8).joinToString("") { "%02x".format(it) }
+        val requestId = newRequestId()
         val inbox = Queue<Message>(UNLIMITED)
         waiting[requestId] = inbox
         try {
-            val payload = buildJsonObject {
-                put("m", JsonPrimitive(method))
-                put("path", JsonPrimitive(path))
-                put("q", JsonObject(query.mapValues { JsonPrimitive(it.value) }))
-                put("body", body ?: JsonNull)
-            }
+            val payload = payload(method, path, query, body)
             // A new counter and a new blob for every try; see the retry policy above.
             // Sealing and writing happen one request at a time, with rising key times, so the
             // bridge meets the counters in rising order and never takes a later request first.
@@ -194,6 +256,8 @@ class RelayClient(
                     )
                 }
             }
+            // From here on the bridge may be working on it.
+            if (streamed) reading.add(requestId)
             val assembler = AnswerAssembler()
             var limit = firstTimeoutMillis
             while (true) {
@@ -201,12 +265,16 @@ class RelayClient(
                     ?: throw RelayException(RelayException.Reason.TIMEOUT)
                 limit = idleTimeoutMillis
                 for (event in assembler.feed(message)) {
+                    // It has said its own end: the bridge closes it by itself.
+                    if (event is AnswerEvent.Done || (event is AnswerEvent.Stream && event.event in LAST_EVENTS)) reading.remove(requestId)
                     emit(event)
                     if (event is AnswerEvent.Done) return@flow
                 }
             }
         } finally {
             waiting.remove(requestId)
+            // Still running on the bridge and no longer read here: say so, or it keeps a relay worker.
+            if (reading.remove(requestId)) scope.launch { letGo(requestId) }
         }
     }
 
@@ -214,6 +282,13 @@ class RelayClient(
         const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         const val DEFAULT_IDLE_MILLIS = 300_000L
         const val MAX_TRIES = 2
+
+        /** "I stopped reading this stream" (the bridge's relay answers it itself, also when all its workers are busy). */
+        const val DETACH_PATH = "/relay/detach"
+        const val DETACH_TIMEOUT_MILLIS = 15_000L
+
+        /** After one of these events a stream ends by itself on the bridge. */
+        private val LAST_EVENTS = setOf("done", "error", "queued")
 
         /** The one retry rule. */
         fun retryable(reason: RelayException.Reason, method: String): Boolean = when (reason) {
