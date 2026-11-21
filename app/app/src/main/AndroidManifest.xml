@@ -19,6 +19,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- The "update ready" prompt (#138): hands a verified release of this same app to Android's
+         installer. Android asks the owner to allow it ("install unknown apps") the first time;
+         every install is confirmed on the system's own screen. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- App names for screen time: only apps with an icon on the home screen, and the home screen itself. -->
     <queries>
         <intent>
@@ -102,6 +107,12 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- The installer's answers to an update (#138). Not exported: reached only through the
+             app's own PendingIntent. -->
+        <receiver
+            android:name=".update.InstallResultReceiver"
+            android:exported="false" />
 
         <!-- Lets AppCompat remember the chosen app language on Android 12 and older. -->
         <service

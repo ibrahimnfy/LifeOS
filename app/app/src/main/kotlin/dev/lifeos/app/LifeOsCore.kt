@@ -19,6 +19,7 @@ import dev.lifeos.app.push.PushKeyStore
 import dev.lifeos.app.push.PushNotifier
 import dev.lifeos.app.push.PushSetup
 import kotlinx.serialization.json.buildJsonObject
+import dev.lifeos.app.data.AppRelease
 import dev.lifeos.app.data.Api
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.CoachMessage
@@ -79,6 +80,7 @@ import dev.lifeos.app.relay.RelayException
 import dev.lifeos.app.relay.RtdbMailbox
 import dev.lifeos.app.relay.TokenSource
 import dev.lifeos.app.settings.SettingsStore
+import dev.lifeos.app.update.AppUpdater
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -258,6 +260,7 @@ class LifeOsCore(private val app: Application) {
             syncActivity()
             registerPush()
             sendMoodleSignIn()
+            checkUpdate()
         }
     }
 
@@ -460,6 +463,24 @@ class LifeOsCore(private val app: Application) {
         pairingState.value = PairingSummary(app.getString(R.string.pair_label_default), System.currentTimeMillis())
         connectionState.value = ConnectionState.CONNECTED
         reloadState.value++
+        checkUpdate()
+    }
+
+    // ---- self-update (#138)
+
+    /** The "update ready" prompt: a newer release build registered on the computer. */
+    val updater = AppUpdater(app, api).also { it.cleanUp() } // a file left by a run that died is removed
+
+    /** Ask for a newer release: on every new connection (the app was opened) and on an "update" push. */
+    fun checkUpdate() {
+        scope.launch {
+            if (connectionState.value == ConnectionState.CONNECTED) updater.check()
+        }
+    }
+
+    /** One tap: download, verify and hand the release to the installer; runs on even when the screen closes. */
+    fun installUpdate(release: AppRelease) {
+        scope.launch { updater.install(release) }
     }
 
     /** Ask the computer; a good answer becomes the new saved copy. Throws [ApiException]. */
@@ -769,6 +790,7 @@ class LifeOsCore(private val app: Application) {
     /** The app is visible again: lock if it was away for longer than the chosen time. */
     suspend fun onShown() {
         lockTimer?.cancel()
+        checkUpdate() // opening the app asks for a newer release, also when the connection stayed up
         val away = hiddenAt
         hiddenAt = null
         val current = record ?: return

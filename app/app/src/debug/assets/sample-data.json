@@ -112,6 +112,7 @@
     {"id": 13, "name": "Linear Algebra", "overall": "90", "items": [{"name": "Quiz 0", "grade": "9", "range": "0–10"}]}
   ]},
   "GET /activity": {"days": []},
+  "GET /app/release": {"version_code": 999999, "version_name": "0.1.999999", "size": 31457280, "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "cert_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "registered_at": "2026-01-01T08:00:00+00:00"},
   "GET /models": {"models": ["opus", "sonnet", "haiku", "fable"], "efforts": ["low", "medium", "high", "xhigh", "max"], "default_model": "opus", "default_effort": "high"},
   "GET /models/routing": {
     "jobs": [

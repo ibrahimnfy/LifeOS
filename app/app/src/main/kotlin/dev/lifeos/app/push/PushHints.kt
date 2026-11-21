@@ -50,6 +50,9 @@ sealed interface Destination {
     data object Notice : Destination
     data object Sleep : Destination
 
+    /** The "update ready" prompt (#138). */
+    data object AppUpdate : Destination
+
     fun encode(): String = when (this) {
         is Chat -> "chat:$sessionId"
         is Course -> "course:$courseId"
@@ -61,6 +64,7 @@ sealed interface Destination {
         Today -> "today"
         Notice -> "notice"
         Sleep -> "sleep"
+        AppUpdate -> "app_update"
     }
 
     companion object {
@@ -76,6 +80,7 @@ sealed interface Destination {
             text == "today" -> Today
             text == "notice" -> Notice
             text == "sleep" -> Sleep
+            text == "app_update" -> AppUpdate
             else -> null
         }
 
@@ -89,7 +94,7 @@ data class PushOpen(val destination: Destination, val noticeTitle: String? = nul
 object PushHints {
     private const val MAX_FIELD = 300
     private const val MAX_COUNT = 9999
-    val EVENTS = setOf("answer", "reminder", "coach", "courses", "signin", "notice", "approval", "question")
+    val EVENTS = setOf("answer", "reminder", "coach", "courses", "signin", "notice", "approval", "question", "update")
 
     /**
      * Open the `h` field of a push with the push key (sub-key 3 of the pairing), or null.
@@ -153,6 +158,7 @@ object PushHints {
             "signin" -> "moodle_signin"
             "coach" -> "coach"
             "reminder" -> "reminder"
+            "update" -> "app_update"
             else -> "notice"
         }
         return when (opens) {
@@ -163,6 +169,7 @@ object PushHints {
             "coach" -> Destination.Coach
             "reminder" -> if (hint.ref.isNotEmpty()) Destination.Reminder(hint.ref) else Destination.Today
             "notice" -> Destination.Notice
+            "app_update" -> Destination.AppUpdate
             else -> Destination.Today
         }
     }
@@ -175,7 +182,8 @@ object PushHints {
         PushChannel.CHAT -> "chat:${hint.ref}"
         PushChannel.COURSES -> "courses"
         PushChannel.COACH -> "coach"
-        PushChannel.REMINDERS -> "${hint.event}:${hint.ref}"
+        // A newer release replaces the notice of an older one.
+        PushChannel.REMINDERS -> if (hint.event == "update") "update" else "${hint.event}:${hint.ref}"
     }
 
     /**

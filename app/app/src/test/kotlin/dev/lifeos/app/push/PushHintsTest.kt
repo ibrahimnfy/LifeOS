@@ -94,6 +94,7 @@ class PushHintsTest {
             "coach" to (PushChannel.COACH to Destination.Coach),
             "reminder" to (PushChannel.REMINDERS to Destination.Reminder("s1")),
             "notice" to (PushChannel.REMINDERS to Destination.Notice),
+            "update" to (PushChannel.REMINDERS to Destination.AppUpdate),
         )
         assertEquals(PushHints.EVENTS, expected.keys)
         for ((event, pair) in expected) {
@@ -114,6 +115,8 @@ class PushHintsTest {
         // Several courses changed: the Courses screen.
         assertEquals(Destination.Courses, PushHints.destinationOf(Hint("courses", channel = "courses", opens = "courses")))
         assertEquals(Destination.CourseSignIn, PushHints.destinationOf(Hint("signin", opens = "moodle_signin")))
+        assertEquals(Destination.AppUpdate, PushHints.destinationOf(Hint("update", "42", channel = "reminders", opens = "app_update")))
+        assertEquals(Destination.AppUpdate, Destination.decode(Destination.AppUpdate.encode()))
         assertEquals(Destination.Chat("abc"), PushHints.destinationOf(Hint("answer", "abc", channel = "chat", opens = "session")))
         // An unknown channel falls back to the event's; an unknown screen to Today.
         assertEquals(PushChannel.COACH, PushHints.channelOf(Hint("coach", channel = "elsewhere")))
@@ -127,6 +130,8 @@ class PushHintsTest {
         assertEquals(PushHints.notificationKey(Hint("courses", "1")), PushHints.notificationKey(Hint("courses", "2")))
         assertEquals(PushHints.notificationKey(Hint("courses")), PushHints.notificationKey(Hint("signin")))
         assertEquals(false, PushHints.notificationKey(Hint("reminder", "r1")) == PushHints.notificationKey(Hint("reminder", "r2")))
+        // A newer release replaces the notice of an older one.
+        assertEquals(PushHints.notificationKey(Hint("update", "41")), PushHints.notificationKey(Hint("update", "42")))
     }
 
     @Test

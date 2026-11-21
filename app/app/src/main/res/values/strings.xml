@@ -598,4 +598,22 @@
     <string name="question_skip">Skip</string>
     <string name="question_answered">Answered.</string>
     <string name="question_skipped">Skipped.</string>
+    <!-- Self-update (#138) -->
+    <string name="push_update">An app update is ready</string>
+    <string name="update_title">Update ready</string>
+    <string name="update_version">Version %1$s · %2$s</string>
+    <string name="update_explain">A newer LifeOS was built on your computer. It comes over the encrypted connection, is checked, and Android asks you to confirm the install.</string>
+    <string name="update_install">Download and install</string>
+    <string name="update_later">Later</string>
+    <string name="update_try_again">Try again</string>
+    <string name="update_downloading">Downloading… %1$s of %2$s</string>
+    <string name="update_installing">Checked. Confirm the install on Android\'s screen.</string>
+    <string name="update_open_installer">Open the installer</string>
+    <string name="update_permission_explain">Android lets an app install updates only after you allow it once: turn on \"Allow from this source\" for LifeOS, then come back and tap install. LifeOS installs nothing but its own updates from your computer.</string>
+    <string name="update_permission_open">Open the setting</string>
+    <string name="update_not_this_build">This build cannot update itself: it is signed with a different key (a debug build). Install the release build once by cable; from then on updates come here.</string>
+    <string name="update_failed_unreachable">The computer did not send the update. Try again when it is connected.</string>
+    <string name="update_failed_damaged">What arrived was not the announced file. Nothing was installed and the file was deleted.</string>
+    <string name="update_failed_signer">The file is not signed with this app\'s key. Nothing was installed and the file was deleted.</string>
+    <string name="update_failed_install">Android did not install the update (cancelled or refused).</string>
 </resources>

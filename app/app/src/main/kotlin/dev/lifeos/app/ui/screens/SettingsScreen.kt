@@ -182,6 +182,7 @@ fun SettingsScreen(
                     Text(text = BuildConfig.VERSION_NAME, style = LifeType.body, color = colors.muted)
                 }
             }
+            UpdateCard(core) // #138: the same prompt as on Today, while there is one
         }
     }
 }

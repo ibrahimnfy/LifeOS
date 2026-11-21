@@ -40,7 +40,9 @@ class PushService : FirebaseMessagingService() {
         } finally {
             key.fill(0)
         }
-        if (hint != null) PushNotifier.show(this, hint)
+        if (hint == null) return
+        if (hint.event == "update") app.runningCore()?.checkUpdate()
+        PushNotifier.show(this, hint)
     }
 
     /** The push address changed: hand the new one to the computer (inside the sealed channel). */
@@ -108,6 +110,7 @@ object PushNotifier {
         "signin" -> R.string.push_signin
         "coach" -> R.string.push_coach
         "reminder" -> R.string.push_reminder
+        "update" -> R.string.push_update
         else -> R.string.push_notice
     }
 

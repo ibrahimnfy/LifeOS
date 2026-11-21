@@ -105,6 +105,22 @@ install the release build and pair again (on the computer
 `lifeos-bridge devices revoke <id>`, the id shown by `lifeos-bridge devices`). After that, updates install over each other and
 keep the pairing.
 
+**Later updates come to the phone (#138):** on the computer
+`uv run lifeos-bridge release --build` (in `bridge/`) builds, signs and
+registers the next release and wakes the phone. The app asks for the newest
+release whenever it connects and when that push arrives; Today (and
+Settings) then show **Update ready** with version and size. One tap fetches
+the file through the encrypted file transfer into the app's cache folder,
+checks its size and SHA-256 and that it is signed with the certificate the
+computer announced and with this app's own, and only then hands it to
+Android's installer (a PackageInstaller session; Android shows its own
+confirmation). The file is deleted as soon as the installer has it, and any
+leftover at the next start. Android asks once to allow LifeOS to install
+apps ("Install unknown apps"); the card explains why and opens that setting.
+A debug build, signed with another key, says "This build cannot update
+itself" instead of downloading anything; so do phones older than Android 9,
+which cannot read the signer of the file.
+
 Check that a build has no test aids: the strings of the debug twin
 (`lifeos.test.*`) must not occur in the APK's code, and the manifest must not
 be debuggable:
@@ -798,6 +814,35 @@ Needs a paired phone, the computer running, and the course site set up.
 4. Start again and come back without signing in, or wait more than ten
    minutes: "This sign-in attempt has run out". Nothing changed on the
    computer.
+
+### Updating the app from the computer (#138)
+
+Needs the release build on the phone (see "Release build"), paired, and the
+computer running.
+
+1. Make a change (or just a new commit) and run
+   `uv run lifeos-bridge release --build` in `bridge/`. It reports the
+   version and that the phone was told.
+2. Within seconds the notification "An app update is ready" appears
+   (Reminders channel). Tap it: Today opens with **Update ready**, "Version
+   0.1.N · size". Without the push, opening the app shows the same card.
+3. Tap **Download and install**. The first time, the card explains the
+   permission and **Open the setting** goes to "Install unknown apps" for
+   LifeOS; allow it, come back, tap **Download and install** again.
+4. "Downloading… x of y", then Android's own screen asks to update LifeOS;
+   confirm. The app restarts as the new version (Settings → About → App
+   version) and stays paired.
+5. No copy remains: Android's Settings → Apps → LifeOS → Storage shows a
+   cache far smaller than the update (the file is deleted as soon as the
+   installer has it, and any leftover at the next start).
+6. Cancel Android's screen once: the card says Android did not install it
+   and offers **Try again**.
+7. With a debug build installed, steps 1–2 show the card with "This build
+   cannot update itself" and no download button.
+
+On an emulator without a computer, the `sample_data` test aid shows that
+debug-build card on Today (its sample release has a newer version and
+another key); `--es lifeos.test.push update` shows the notification.
 
 ### Push notifications (app closed, phone idle)
 

@@ -94,6 +94,7 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                 val planCopy = (planState as? UiState.Content<CoachPlan>)?.takeIf { it.fromCache && !it.refreshing }
                 val agendaCopy = (agendaState as? UiState.Content<Agenda>)?.takeIf { it.fromCache && !it.refreshing }
                 (planCopy?.savedAtMillis ?: agendaCopy?.savedAtMillis)?.let { SavedCopyLine(it) }
+                UpdateCard(core) // #138: only while a newer release is waiting
 
                 if (planState is UiState.Loading) SkeletonCard(1)
                 // Without a plan (or one without messages) the card still offers the run.
