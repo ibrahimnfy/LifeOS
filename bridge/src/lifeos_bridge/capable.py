@@ -40,7 +40,12 @@ KEY_FILE_NAME = "guardrail-key"
 # on, but not what needed the newer probes; the automatic check reruns it.
 # 2: the skill probes (#91). 3: a run cannot add skills to its folder (#92).
 # 4: unapproved or changed MCP servers are never passed to a run (#108).
-SUITE_VERSION = 4
+# 5 (SDK runner only): its approval probes tell a scenario that did not happen
+# (recorded as inconclusive, the check counts as not run) from a guardrail that
+# held or broke; the escape probe targets a file outside the sandbox (#106).
+# Each runner reruns only when its own suite changed.
+SUITE_VERSIONS = {"cli": 4, "sdk": 5}
+SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
 SDK_PACKAGE = "claude-agent-sdk"
@@ -263,6 +268,10 @@ def skills_unavailable() -> ClaudeError:
     )
 
 
+def suite_version(runner: str) -> int:
+    return SUITE_VERSIONS.get(runner, SUITE_VERSION)
+
+
 def suite_outdated(runner: str) -> bool:
     """True when the runner's marker comes from an older probe suite."""
     try:
@@ -270,7 +279,7 @@ def suite_outdated(runner: str) -> bool:
     except (OSError, ValueError):
         return False
     version = marker.get("suite_version") if isinstance(marker, dict) else None
-    return not isinstance(version, int) or version < SUITE_VERSION
+    return not isinstance(version, int) or version < suite_version(runner)
 
 
 def _rule_path(folder: Path) -> str:

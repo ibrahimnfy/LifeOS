@@ -104,7 +104,7 @@ async def version_key(settings: Settings, runner: str) -> str:
         await capable.claude_version(settings)
         + " | sdk "
         + capable.installed_sdk_version()
-        + f" | suite {capable.SUITE_VERSION}"
+        + f" | suite {capable.suite_version(runner)}"
         + f" | personal probe {'on' if settings.guard_personal_skill_probe else 'off'}"
     )
 
@@ -119,7 +119,9 @@ def probe_failed(runner: str, check_id: str) -> bool:
             str(probe.get("name"))
             for probes in report.get("probes", {}).values()
             for probe in probes
-            if not probe.get("passed")
+            # An inconclusive probe (its scenario did not happen) is not a failure:
+            # the check counts as not run and is retried.
+            if not probe.get("passed") and not probe.get("inconclusive")
         ]
     except (OSError, ValueError, AttributeError):
         return False
