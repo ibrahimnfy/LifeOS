@@ -335,6 +335,27 @@ Three gaps the chat screen found, closed in the bridge:
   `open_elsewhere` (a terminal or the desktop app holds it; `null` when
   unknown) tell the two kinds of "busy" apart.
 
+### 7.2 Queue and file cards (#154)
+
+- **Send now in one request:** a waiting message's "Send now" calls
+  `POST /sessions/{id}/queue/{qid}/send-now`; the current run is interrupted
+  as with `"when": "now"`, and nothing is sent twice or deleted.
+- **Resume does not wait:** `POST …/queue/resume` answers at once; the
+  queued messages go out in the background.
+- **Answers to waiting messages, live:** the app attaches to
+  `GET /sessions/{id}/live` whenever the session is running and it has no
+  stream of its own (after sending a queued message, after reopening the
+  conversation, after a lost connection). It first receives what the run
+  said so far, then the rest live, with question and approval cards when the
+  message was sent from a client that shows them. Following never starts or
+  resumes a run, so it can never be a second writer.
+- **File cards after a re-read:** `GET /sessions/{id}/files` lists the
+  session's offers that have not expired, so a card rebuilt from the history
+  keeps its download for the rest of its 15 minutes.
+- **Fresh session read:** `GET /sessions/{id}` gives one session's model,
+  effort, switches (skills, reply notifications, pinned, group), whether it
+  runs here or is open elsewhere, and its waiting messages.
+
 ## 8. Build issues
 
 | Part | Bridge | App |

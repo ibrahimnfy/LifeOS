@@ -110,9 +110,11 @@ def test_messages_for_a_busy_session_wait_and_can_be_edited_or_removed(running, 
     assert state["running"] is False and state["paused"] == "cancel"
     assert [e["prompt"] for e in state["queue"]] == ["changed"]
 
-    # Resume: the waiting message is sent in the background, exactly once.
-    assert running.post(f"/sessions/{session}/queue/resume", headers=auth).json()["queue"] == []
+    # Resume: answers at once; the waiting message is sent in the background, exactly once.
+    resumed = running.post(f"/sessions/{session}/queue/resume", headers=auth).json()
+    assert resumed["resumed"] is True
     wait_for(lambda: queue(running, auth, session)["last"] is not None)
+    assert queue(running, auth, session)["queue"] == []
     assert queue(running, auth, session)["last"]["state"] == "done"
     assert prompts(running.app.state.settings.ask_dir).count("changed") == 1
 
