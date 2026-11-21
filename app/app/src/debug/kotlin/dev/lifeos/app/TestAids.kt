@@ -118,6 +118,8 @@ object TestAids {
 
         /** The sample data: GETs from the file (dates made relative to today), every write simply accepted. */
         private fun sample(method: String, path: String): RelayResponse {
+            // A routing change answers the (unchanged) sample overview.
+            if (method == "PUT" && path == "/models/routing") return RelayResponse(200, relative(data.getValue("GET /models/routing")))
             if (method != "GET") return RelayResponse(200, buildJsonObject { put("saved", JsonPrimitive(true)) })
             val key = "GET " + path.replace(Regex("^/courses/\\d+/"), "/courses/ID/").replace(Regex("/assignments/\\d+$"), "/assignments/ID").replace(Regex("^/notes/[^/]+$"), "/notes/ID")
             val body = data[key] ?: return RelayResponse(404, Json.parseToJsonElement("""{"error":"not_found"}"""))

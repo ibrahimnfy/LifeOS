@@ -128,6 +128,12 @@ class Api(private val transport: Transport) {
         call("PATCH", "/events/$id", body = draft.updateBody(), timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }
 
+    // ---- model routing (#124): a setting, sent directly (not through the outbox)
+
+    /** Change one job's routing; [body] from [RoutingEdit]. Answers the new overview. */
+    suspend fun changeRouting(body: JsonElement): ModelRouting =
+        read(ModelRouting.serializer(), call("PUT", "/models/routing", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS))
+
     // ---- coach and courses
 
     /** A model run on the computer: slow, and limited to one in ten minutes there. */

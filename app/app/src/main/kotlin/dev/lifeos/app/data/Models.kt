@@ -370,7 +370,70 @@ data class ModelJob(
     val source: String = "default",
     @SerialName("per_session") val perSession: Boolean = false,
     val usage: JobUsagePeriods = JobUsagePeriods(),
+    /** What the job uses without the owner's choice in the app (for "back to the default"). */
+    @SerialName("default") val defaults: JobDefault? = null,
 )
+
+@Serializable
+data class JobDefault(val model: String? = null, val effort: String? = null, val advisor: String? = null, val source: String = "default")
+
+/** `GET /models`: the models and effort levels the app may offer. */
+@Serializable
+data class ModelChoices(
+    val models: List<String> = emptyList(),
+    val efforts: List<String> = emptyList(),
+    @SerialName("default_model") val defaultModel: String? = null,
+    @SerialName("default_effort") val defaultEffort: String? = null,
+)
+
+/**
+ * One field of a job's routing as the owner sets it in the app: the default underneath
+ * ([Default]), a value, or for the advisor [Off].
+ */
+sealed interface RoutingChoice {
+    data object Default : RoutingChoice
+    data object Off : RoutingChoice
+    data class Value(val name: String) : RoutingChoice
+}
+
+/** Changing a job's routing (`PUT /models/routing`). */
+object RoutingEdit {
+    /**
+     * Where the editor starts: the job's current values where the app chose them (its source is
+     * "app" and the value differs from the default underneath), else "Default".
+     */
+    fun initial(job: ModelJob): Triple<RoutingChoice, RoutingChoice, RoutingChoice> {
+        if (job.source != "app") return Triple(RoutingChoice.Default, RoutingChoice.Default, RoutingChoice.Default)
+        val base = job.defaults
+        fun pick(value: String?, underneath: String?): RoutingChoice =
+            if (value == null || value == underneath) RoutingChoice.Default else RoutingChoice.Value(value)
+        val advisor = when {
+            job.advisor == null && base?.advisor != null -> RoutingChoice.Off
+            else -> pick(job.advisor, base?.advisor)
+        }
+        return Triple(pick(job.model, base?.model), pick(job.effort, base?.effort), advisor)
+    }
+
+    /** The request body: every field given (`null` = back to the default, `"none"` = no advisor). */
+    fun body(job: String, model: RoutingChoice, effort: RoutingChoice, advisor: RoutingChoice): kotlinx.serialization.json.JsonObject =
+        kotlinx.serialization.json.buildJsonObject {
+            put("job", kotlinx.serialization.json.JsonPrimitive(job))
+            put("model", model.json())
+            put("effort", effort.json())
+            put("advisor", advisor.json())
+        }
+
+    fun reset(job: String): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {
+        put("job", kotlinx.serialization.json.JsonPrimitive(job))
+        put("reset", kotlinx.serialization.json.JsonPrimitive(true))
+    }
+
+    private fun RoutingChoice.json(): JsonElement = when (this) {
+        RoutingChoice.Default -> JsonNull
+        RoutingChoice.Off -> JsonPrimitive("none")
+        is RoutingChoice.Value -> JsonPrimitive(name)
+    }
+}
 
 @Serializable
 data class ModelRouting(
@@ -417,8 +480,11 @@ object Endpoints {
     val courses = Endpoint("courses", "/courses", serializer = CourseList.serializer())
     val allGrades = Endpoint("courses-grades", "/courses/grades", serializer = AllGrades.serializer())
 
-    /** Each model job and its plan usage (#124); read-only. */
+    /** Each model job and its plan usage (#124); changed with `PUT /models/routing` ([Api.changeRouting]). */
     val modelRouting = Endpoint("models-routing", "/models/routing", serializer = ModelRouting.serializer())
+
+    /** The models and effort levels the app may offer. */
+    val modelChoices = Endpoint("models", "/models", serializer = ModelChoices.serializer())
 
     /** All notes; this one has a saved copy. */
     val notes = Endpoint("notes", "/notes", serializer = NoteList.serializer())

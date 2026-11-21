@@ -301,9 +301,14 @@ with plain HTTPS requests.
   where that comes from (the job's default, the routing setting, the
   background model; chat sessions can choose per session), and the plan
   usage of its runs today and this week (runs, tokens with cache, Claude
-  Code's cost estimate); then what uses no model at all. **Read-only:** the
-  bridge has no endpoint to change the routing yet, so it is changed on the
-  computer (`LIFEOS_MODEL_ROUTING`).
+  Code's cost estimate); then what uses no model at all. **Change** opens a
+  sheet with the job's model, effort and advisor (the choices of
+  `GET /models`; "Default" returns a field to what lies underneath, the
+  advisor can be switched off); **Back to the default** appears when the
+  app chose something. A change is a setting, sent directly with
+  `PUT /models/routing` (not through the outbox): without a connection
+  nothing changes and the screen says so; a refusal or an audit log that
+  cannot be written is reported too. It applies from the job's next run.
 - **First run:** one welcome screen that leads to pairing or is skipped.
 
 Nothing on these screens is sample content any more. Not paired, they show
@@ -690,8 +695,12 @@ Settings → **Models and plan usage**: one card per job with its model
 chat or rerun the coach on the computer, pull down: the numbers of that job
 grow. Set `LIFEOS_MODEL_ROUTING` on the computer (for example
 `summaries=haiku`), restart the bridge, pull down: the job shows the new
-model and "Set in the computer's routing setting". The screen has no way to
-change it from the phone yet.
+model and "Set in the computer's routing setting". Tap **Change** on
+"Summaries", pick another model and effort, Save: "Saved. Used from the next
+run."; the card shows the new model and "Chosen in the app", and the
+computer's audit log has a `ModelRouting` entry. **Back to the default**:
+the card shows what the computer is set up with again. In flight mode,
+Save says the computer cannot be reached and nothing changes.
 
 ### The warmer design (P2, Courses in P3)
 
