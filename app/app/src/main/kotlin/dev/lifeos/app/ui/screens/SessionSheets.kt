@@ -127,7 +127,7 @@ internal fun RefreshOnSessionChange(core: LifeOsCore, model: LoadModel<*>) {
     }
 }
 
-private enum class SessionSheetPage { MENU, RENAME, GROUP, REMINDERS, REMINDER }
+private enum class SessionSheetPage { MENU, RENAME, GROUP, REMINDERS, REMINDER, MCP }
 
 /**
  * The sheet of the session [sessionId] (null: none is open), with what it needs from the
@@ -197,7 +197,10 @@ internal fun SessionSheet(
             }
             // The folder's own skills and commands, for this session only (#97).
             SkillsSwitch(core, session, change)
+            // The MCP servers the folder declares (#153): listed, approved one by one, revoked.
+            SheetAction(LifeIcons.Chip, stringResource(R.string.mcp_action), note = stringResource(R.string.mcp_action_note)) { page = SessionSheetPage.MCP }
         }
+        SessionSheetPage.MCP -> McpSheet(core, session, onDismiss)
         SessionSheetPage.REMINDERS -> RemindersSheet(
             reminders = reminders,
             onDismiss = onDismiss,

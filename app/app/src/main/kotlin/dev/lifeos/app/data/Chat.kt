@@ -72,6 +72,8 @@ data class ChatMessage(
     val text: String,
     val incomplete: Boolean = false,
     val files: List<OfferedFile> = emptyList(),
+    /** The MCP servers this answer used (#153): they ran outside the sandbox. Known only for an answer received here. */
+    val servers: List<String> = emptyList(),
 )
 
 /**
@@ -171,6 +173,12 @@ enum class ChatProblem {
 
     /** The folder's skills cannot be used right now (the computer's check for them has not passed). */
     SKILLS_OFF,
+
+    /** The folder has approved MCP servers, and the computer's check for them has not passed: nothing ran. */
+    MCP_OFF,
+
+    /** The computer could not write its audit log, so it ran nothing. */
+    UNRECORDED,
 
     /** A setting of the session (its model) could not be changed on the computer. */
     SETTING_FAILED,
@@ -673,7 +681,7 @@ class Chat(
                     data == null -> it.copy(status = Interaction.Status.GONE)
                     // The computer still waits, whatever the two clocks say: answerable until the next look.
                     // What a card that waits across runs shows may have changed (downloaded, or failed).
-                    else -> it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS), install = if (it.install != null) SkillInstall.of(data) else null)
+                    else -> it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS), install = if (it.install != null) SkillInstall.of(data) else null, server = data.server ?: it.server)
                 }
             }
             val added = list.filter { it.id !in known }.mapNotNull { data ->
@@ -1275,8 +1283,9 @@ class Chat(
                 val id = data.text("session_id")?.takeIf(::validId)
                 val files = files(data, id ?: mutable.value.sessionId)
                 val proposed = proposals(data)
+                val servers = (data?.get("mcp_servers") as? JsonArray).orEmpty().mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
                 change(generation) { state ->
-                    val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files))
+                    val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files, servers = servers))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
                     state.copy(
                         messages = messages,
@@ -1457,6 +1466,8 @@ class Chat(
             "prompt_too_large", "too_large" -> ChatProblem.TOO_LARGE
             "command_not_allowed" -> ChatProblem.COMMAND_UNKNOWN
             "skills_unavailable" -> ChatProblem.SKILLS_OFF
+            "mcp_unavailable" -> ChatProblem.MCP_OFF
+            "audit_unavailable" -> ChatProblem.UNRECORDED
             else -> if (status == 503) ChatProblem.NOT_SET_UP else ChatProblem.FAILED
         }
     }

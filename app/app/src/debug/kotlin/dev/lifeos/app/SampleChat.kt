@@ -182,6 +182,53 @@ internal class SampleChat(private val context: Context) {
 
     private fun proposalCards(session: String) = proposals.filter { it.value.session == session }.toSortedMap().map { (id, proposal) -> proposalCard(id, proposal) }
 
+    // ---- the MCP servers of a folder (#153): what its .mcp.json declares, and the owner's approvals
+    private val mcpState = ConcurrentHashMap(mapOf("notes-index" to "not_approved", "calendar" to "approved", "issue-tracker" to "changed"))
+
+    private fun mcpServer(name: String) = buildJsonObject {
+        put("name", JsonPrimitive(name))
+        when (name) {
+            "calendar" -> {
+                put("type", JsonPrimitive("http"))
+                put("command", JsonNull)
+                put("args", JsonArray(emptyList()))
+                put("url", JsonPrimitive("https://calendar.example.org/mcp"))
+                put("env_names", JsonArray(emptyList()))
+                put("header_names", Json.parseToJsonElement("""["Authorization"]"""))
+            }
+            else -> {
+                put("type", JsonPrimitive("stdio"))
+                put("command", JsonPrimitive(if (name == "notes-index") "npx" else "python3"))
+                put("args", Json.parseToJsonElement(if (name == "notes-index") """["-y","notes-index-server","--root","notes"]""" else """["tools/issue_tracker.py","--read-only"]"""))
+                put("url", JsonNull)
+                put("env_names", Json.parseToJsonElement(if (name == "notes-index") """["NOTES_TOKEN"]""" else "[]"))
+                put("header_names", JsonArray(emptyList()))
+            }
+        }
+        put("hash", JsonPrimitive("samplehash-$name"))
+        put("outside_sandbox", JsonPrimitive(true))
+        put("state", JsonPrimitive(mcpState[name] ?: "not_approved"))
+        put("approved_at", if (mcpState[name] == "not_approved") JsonNull else JsonPrimitive(Instant.now().minusSeconds(86_400).toString()))
+    }
+
+    /** An approval card for one server: it waits for a day, like a skill install. */
+    private class McpCard(val session: String, val name: String, val madeAt: Instant = Instant.now())
+
+    private val mcpCards = ConcurrentHashMap<String, McpCard>()
+
+    private fun mcpCard(id: String, card: McpCard) = buildJsonObject {
+        put("id", JsonPrimitive(id))
+        put("kind", JsonPrimitive("mcp_server"))
+        put("session_id", JsonPrimitive(card.session))
+        put("folder", JsonPrimitive("/home/owner/project-alpha"))
+        put("server", mcpServer(card.name))
+        put("warning", JsonPrimitive("An approved MCP server runs outside the sandbox."))
+        put("created_at", JsonPrimitive(card.madeAt.toString()))
+        put("expires_at", JsonPrimitive(card.madeAt.plusSeconds(24 * 3600).toString()))
+    }
+
+    private fun mcpCards(session: String) = mcpCards.filter { it.value.session == session }.toSortedMap().map { (id, card) -> mcpCard(id, card) }
+
     /** Questions and approvals a sample run waits for, by id. */
     private val waiting = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private var asked = 0
@@ -213,6 +260,37 @@ internal class SampleChat(private val context: Context) {
                             session.exchanges.last().first to if (allowed) "Pushed, as you allowed." else "I left it unpushed."
                         ok { put("answered", JsonPrimitive(true)) }
                     }
+                    method == "GET" && rest == "mcp-servers" -> ok {
+                        put("capable_only", JsonPrimitive(true))
+                        put("note", JsonPrimitive("An approved MCP server runs outside the sandbox."))
+                        put("servers", buildJsonArray { mcpState.keys.sorted().forEach { add(mcpServer(it)) } })
+                    }
+                    method == "POST" && rest.startsWith("mcp-servers/") && rest.endsWith("/approval") -> {
+                        val name = rest.removePrefix("mcp-servers/").removeSuffix("/approval")
+                        if (!mcpState.containsKey(name)) return@synchronized error(404, "mcp_server_not_found")
+                        val cardId = "samplemcp%03d".format(++asked)
+                        val card = McpCard(parts[1], name)
+                        mcpCards[cardId] = card
+                        RelayResponse(200, mcpCard(cardId, card))
+                    }
+                    method == "DELETE" && rest.startsWith("mcp-servers/") -> {
+                        val name = rest.removePrefix("mcp-servers/")
+                        val had = mcpState[name].let { it != null && it != "not_approved" }
+                        if (had) mcpState[name] = "not_approved"
+                        ok { put("revoked", JsonPrimitive(had)) }
+                    }
+                    method == "POST" && rest.startsWith("interactions/") && mcpCards[rest.removePrefix("interactions/")]?.session == parts[1] -> {
+                        val id = rest.removePrefix("interactions/")
+                        val card = mcpCards.remove(id) ?: return@synchronized error(404, "not_pending")
+                        val approved = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true"
+                        if (approved) mcpState[card.name] = "approved"
+                        ok {
+                            put("answered", JsonPrimitive(true))
+                            put("id", JsonPrimitive(id))
+                            put("approved", JsonPrimitive(approved))
+                            if (approved) put("name", JsonPrimitive(card.name))
+                        }
+                    }
                     // A skill install: the computer takes it out of its list, then acts on a yes.
                     method == "POST" && rest.startsWith("interactions/") && proposals[rest.removePrefix("interactions/")]?.session == parts[1] -> {
                         val id = rest.removePrefix("interactions/")
@@ -234,7 +312,7 @@ internal class SampleChat(private val context: Context) {
                         ok { put("answered", JsonPrimitive(true)) }
                     }
                     method == "GET" && rest == "interactions" ->
-                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]))) }
+                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]) + mcpCards(parts[1]))) }
                     // The coach conversation has no thread to read before its first message.
                     method == "GET" && rest == "history" && parts[1].startsWith(COACH) && session.exchanges.isEmpty() -> error(404, "session_not_found")
                     method == "GET" && rest == "history" -> history(session, query["before"])
@@ -488,6 +566,11 @@ internal class SampleChat(private val context: Context) {
             emit(AnswerEvent.Done(error(409, "session_in_use")))
             return@flow
         }
+        // "mcp unchecked": the folder has approved MCP servers the computer has not checked yet (#153).
+        if ("mcp" in prompt && "unchecked" in prompt) {
+            emit(AnswerEvent.Done(error(503, "mcp_unavailable")))
+            return@flow
+        }
         // A run is going on: the message waits in line, or goes first and interrupts ("send now").
         val place = synchronized(session) {
             if (!session.running) {
@@ -591,6 +674,12 @@ internal class SampleChat(private val context: Context) {
                         if ("file" in prompt) {
                             put("files", Json.parseToJsonElement("""[{"offer":"sample-offer-${++asked}","name":"outline.md","type":"text/markdown","size":20}]"""))
                             put("files_refused", Json.parseToJsonElement("""[{"name":"recordings.zip","reason":"larger than the limit of 50 MB"}]"""))
+                        }
+                        // "mcp": the answer used the approved MCP servers of the folder (#153).
+                        val used = mcpState.filterValues { it == "approved" }.keys.sorted()
+                        if ("mcp" in prompt && used.isNotEmpty()) {
+                            put("mcp_servers", buildJsonArray { used.forEach { add(buildJsonObject { put("name", JsonPrimitive(it)); put("outside_sandbox", JsonPrimitive(true)) }) } })
+                            put("mcp_note", JsonPrimitive("An approved MCP server runs outside the sandbox."))
                         }
                         // "install": the answer proposes a skill (#97). With "plain" its source is not
                         // HTTPS and is refused at once; with "broken" the download fails.

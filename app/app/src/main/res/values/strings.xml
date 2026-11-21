@@ -677,6 +677,46 @@
     <string name="interaction_send_failed">Your answer could not be sent. Try again.</string>
     <string name="interaction_expired">Not answered in time: it was counted as “no”.</string>
     <string name="interaction_gone">This is no longer waiting for an answer.</string>
+    <!-- A session folder's MCP servers (#153) -->
+    <string name="mcp_action">MCP servers</string>
+    <string name="mcp_action_note">Programs this folder declares for the assistant. None is used without your approval.</string>
+    <string name="mcp_title">MCP servers of this folder</string>
+    <string name="mcp_warning">An approved MCP server runs outside the sandbox. It is an ordinary program on your computer with your rights: it can use the network and read and change files anywhere in your home folder. Approve only a server you trust.</string>
+    <string name="mcp_note">The folder’s .mcp.json declares them. Only messages sent with “Changes allowed” use approved servers. An approval is for exactly the definition shown: after any change the server is not used until you approve it again. Values of environment variables and headers are never shown, only their names.</string>
+    <string name="mcp_none">This folder declares no MCP servers.</string>
+    <string name="mcp_load_failed">The servers could not be read from the computer.</string>
+    <string name="mcp_state_not_approved">Not approved: not used</string>
+    <string name="mcp_state_approved">Approved: runs outside the sandbox</string>
+    <string name="mcp_state_changed">Changed since you approved it: not used</string>
+    <string name="mcp_starts">Would start</string>
+    <string name="mcp_connects">Would connect to</string>
+    <string name="mcp_env">Environment variables (names only)</string>
+    <string name="mcp_headers">Headers (names only)</string>
+    <string name="mcp_review">Review and approve</string>
+    <string name="mcp_revoke">Revoke approval</string>
+    <string name="mcp_revoked">The approval was revoked.</string>
+    <string name="mcp_revoke_none">This server had no approval.</string>
+    <string name="mcp_request_failed">That did not get through to the computer. Nothing has changed.</string>
+    <string name="mcp_request_gone">This folder no longer declares that server.</string>
+    <string name="mcp_card_label">MCP server approval</string>
+    <string name="mcp_card_title">Approve the MCP server “%1$s” for this folder?</string>
+    <string name="mcp_card_folder">For runs in this folder</string>
+    <string name="mcp_approve">Approve</string>
+    <string name="mcp_deny">Don’t approve</string>
+    <string name="mcp_card_note">The approval is for exactly this definition. You can revoke it at any time in the session’s menu.</string>
+    <string name="mcp_time_left">Without an answer it is not approved. It waits %1$s more.</string>
+    <string name="mcp_approved">Approved. Messages with “Changes allowed” in this folder can now use it.</string>
+    <string name="mcp_refused">Not approved.</string>
+    <string name="mcp_expired">Not answered in time: not approved.</string>
+    <string name="mcp_not_done">Not approved: its definition changed after this card was made. Review it again to see what it is now.</string>
+    <string name="mcp_unrecorded">Not approved: the computer could not write its audit log, so it did nothing.</string>
+    <string name="mcp_back">Back to the servers</string>
+    <plurals name="mcp_used">
+        <item quantity="one">This answer used the MCP server %2$s, which runs outside the sandbox.</item>
+        <item quantity="other">This answer used %1$d MCP servers, which run outside the sandbox: %2$s.</item>
+    </plurals>
+    <string name="chat_fail_mcp_off">Not run: this folder has approved MCP servers, and the computer uses them only after its own check for them has passed (it runs by itself when the bridge next starts). To work without them, revoke their approval in the session’s menu.</string>
+    <string name="chat_fail_unrecorded">Not run: the computer could not write its audit log, so it did nothing.</string>
     <!-- Skill installs and the per-session skills switch (#97) -->
     <string name="time_hours_minutes">%1$d h %2$02d min</string>
     <string name="install_label">Skill install</string>

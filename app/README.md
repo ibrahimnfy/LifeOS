@@ -339,6 +339,20 @@ with plain HTTPS requests.
     refused. **Nothing is installed without the tap on Install.** The card
     waits for up to a day, also across messages, runs and restarts, and is
     shown whenever the conversation is opened.
+  - **MCP servers (#153):** the session's sheet has **MCP servers**: the
+    servers the folder's `.mcp.json` declares, each with its state (not
+    approved, approved, changed since the approval) and what would start:
+    the command with its arguments or the address, and only the *names* of
+    environment variables and headers. **The warning that an approved server
+    runs outside the sandbox** (an ordinary program with the network and the
+    whole home folder) stands first, in an amber frame, in the list and on
+    every approval card; an approved server has the amber frame too.
+    **Review and approve** asks the computer for the approval card of exactly
+    that definition and shows it at once (**Approve**, **Don't approve**);
+    left unanswered, the card waits for a day in the conversation like a
+    skill install. **Revoke approval** takes an approval back. An answer that
+    used servers says which under its text, and that they run outside the
+    sandbox.
   - **Read-only or "Changes allowed"** (the pill above the composer): every
     conversation starts read-only. Switched on, its next messages ask the
     computer for the capable mode, in which the assistant may change files
@@ -690,6 +704,21 @@ Nothing on these screens is sample content any more. Not paired, they show
     answer is written and in earlier answers. The switch is `PATCH
     /sessions/{id}` with `{"skills": true|false}`; what the folder has and
     whether it is usable comes from `GET /sessions/{id}/commands`.
+  - **MCP servers** (`data/McpServers.kt`): the list is `GET
+    /sessions/{id}/mcp-servers`, read each time the sheet's page is opened
+    and after every change, never kept. "Review and approve" is `POST
+    …/mcp-servers/{name}/approval`, unless a card for the same definition
+    (same `hash`) already waits in the session's interactions; the card
+    (`kind: "mcp_server"`) is answered with `{"approve": true|false}` like
+    every approval, from the sheet or from the conversation, and the
+    computer's `"approved"` decides what is shown (`false` after a yes: the
+    definition changed meanwhile). Revoking is `DELETE
+    …/mcp-servers/{name}`. `mcp_servers` of a finished answer becomes the
+    line under it (it is not part of the conversation the computer keeps, so
+    an answer read again later does not have it). A message refused with
+    `503 mcp_unavailable` or `503 audit_unavailable` says why in the app's
+    own words and can be retried. The app uses its own EN/TR warning text,
+    not the bridge's English `note`.
 
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
@@ -846,7 +875,11 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   minutes, to see what running out of time looks like. `install` (the answer
   proposes a skill: its card is "downloading" for six seconds, then lists
   three files and two warnings; with `broken` the download fails, with
-  `plain` the source is not HTTPS and is refused at once).
+  `plain` the source is not HTTPS and is refused at once). `mcp` (the answer
+  names the approved MCP servers it used), `mcp unchecked` (the message is
+  refused because the computer has not checked the folder's approved
+  servers). Every sample session's folder declares three MCP servers, one of
+  each state; approvals and revocations are kept until the app is closed.
   The session "Milestone summary draft" counts as open on the computer, and
   "Summarise the lecture notes of week 3" waits for an approval from the
   start: `--es lifeos.test.push approval --es lifeos.test.push_ref
@@ -1465,6 +1498,47 @@ With the computer (capable mode on; each step is a short run on the plan):
 7. Propose the same skill again: the card says that a skill of this name
    exists in the folder already and that nothing is replaced, with **Put
    away** only.
+
+### A session's MCP servers (#153)
+
+On an emulator with the `sample_data` test aid (nothing is started
+anywhere):
+
+1. Open a session → the dots next to the pills → **MCP servers**. The
+   warning in the amber frame stands first; below it three servers:
+   "calendar" (approved, amber frame, an address and the header name
+   `Authorization`), "issue-tracker" (changed since the approval) and
+   "notes-index" (not approved, `npx -y notes-index-server --root notes`,
+   the variable name `NOTES_TOKEN`). No value of a variable or header is
+   shown anywhere.
+2. **Review and approve** on "issue-tracker": the approval card with the
+   same warning, the command and the folder. **Approve**: "Approved.
+   Messages with “Changes allowed”…"; **Back to the servers**: it is listed
+   as approved, with the amber frame.
+3. **Revoke approval** on "calendar": "The approval was revoked." and it is
+   listed as not approved.
+4. **Review and approve** on "notes-index", then close the sheet without
+   answering: the same card waits in the conversation ("It waits 23 h 59 min
+   more."), also after another message and after reopening the conversation.
+   Answer it there with **Don't approve**: "Not approved."
+5. Send "mcp please": under the answer, "This answer used the MCP server
+   issue-tracker, which runs outside the sandbox." Send "mcp unchecked":
+   "Not run: this folder has approved MCP servers…" with **Retry**.
+
+With the computer (capable mode on; an allowed folder with a `.mcp.json`
+that declares a harmless server, for example `{"mcpServers": {"clock":
+{"command": "python3", "args": ["tools/clock_server.py"]}}}`):
+
+6. The sheet lists "clock" as not approved, and `GET
+   /sessions/<id>/mcp-servers` on the computer shows the same. **Review and
+   approve** → **Approve**: the list shows it approved; `tail -n 2
+   ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl` has the request and
+   `mcp_server_approved`.
+7. Send a message with **Changes allowed** that needs the server: the answer
+   names it under its text, and the audit log has `mcp_servers_used`.
+8. Change an argument in `.mcp.json` on the computer and open the sheet
+   again: "Changed since you approved it: not used". **Revoke approval**: it
+   is not approved, and the log has `mcp_server_revoked`.
 
 ### The warmer design (P2, Courses in P3)
 

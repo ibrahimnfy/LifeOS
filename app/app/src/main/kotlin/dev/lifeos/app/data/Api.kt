@@ -238,7 +238,7 @@ class Api(private val transport: Transport) {
 
     /**
      * What waits for the owner in the session: the questions and approvals of a running turn,
-     * and the cards that wait across runs for up to a day (skill installs).
+     * and the cards that wait across runs for up to a day (skill installs, MCP servers).
      */
     suspend fun interactions(sessionId: String): List<InteractionData> =
         read(PendingInteractions.serializer(), chatCall("GET", "/sessions/$sessionId/interactions")).pending
@@ -247,10 +247,28 @@ class Api(private val transport: Transport) {
      * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours);
      * the computer's answer says what it did (`"installed"` for a skill install).
      * `404 not_pending` when the computer no longer waits for it; for a skill install also
-     * `409 skill_exists` and `503 audit_unavailable` (see [Interaction.refusal]).
+     * `409 skill_exists`, and for it and an MCP server `503 audit_unavailable` (see [Interaction.refusal]).
      */
     suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement): JsonElement =
         chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)
+
+    // ---- a session folder's MCP servers (#153)
+
+    /** The MCP servers the session's folder declares, each with its approval. Starts nothing. */
+    suspend fun mcpServers(sessionId: String): List<McpServer> =
+        read(McpServerList.serializer(), chatCall("GET", "/sessions/$sessionId/mcp-servers")).servers
+
+    /**
+     * Ask for the approval card of one server: exactly its definition as it is now. The card
+     * waits in the session's interactions and is answered like any approval. `404
+     * mcp_server_not_found`, `503 audit_unavailable`.
+     */
+    suspend fun requestMcpApproval(sessionId: String, name: String): InteractionData =
+        read(InteractionData.serializer(), chatCall("POST", "/sessions/$sessionId/mcp-servers/$name/approval"))
+
+    /** Take a server's approval back; false when it had none. */
+    suspend fun revokeMcp(sessionId: String, name: String): Boolean =
+        read(McpRevoked.serializer(), chatCall("DELETE", "/sessions/$sessionId/mcp-servers/$name")).revoked
 
     /** The skills and commands of the session's folder, and whether the session may use them. */
     suspend fun commands(sessionId: String): CommandList =

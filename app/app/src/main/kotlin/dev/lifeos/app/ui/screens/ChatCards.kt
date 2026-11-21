@@ -75,13 +75,15 @@ internal fun InteractionCard(
     LaunchedEffect(waiting, open) { if (waiting && !open) onExpire() }
 
     val warning = interaction.kind == Interaction.Kind.APPROVAL && interaction.isDeletion
+    // Approving an MCP server lets a program run outside the sandbox: the card stands out in amber.
+    val outside = interaction.kind == Interaction.Kind.MCP_SERVER
     val shape = RoundedCornerShape(20.dp)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(colors.surface)
-            .border(if (warning) 2.dp else LifeDimens.hairline, if (warning) colors.badge else colors.divider, shape)
+            .border(if (warning || outside) 2.dp else LifeDimens.hairline, if (warning) colors.badge else if (outside) colors.warn else colors.divider, shape)
             .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -89,6 +91,7 @@ internal fun InteractionCard(
             Interaction.Kind.APPROVAL -> Approval(interaction, open, onApprove)
             Interaction.Kind.QUESTION -> Question(interaction, open, onAnswer, onSkip)
             Interaction.Kind.SKILL_INSTALL -> SkillInstallCard(interaction, open, onApprove)
+            Interaction.Kind.MCP_SERVER -> McpApprovalCard(interaction, open, onApprove)
         }
         if (open) {
             val left = interaction.remainingMillis(now) / 1000
@@ -100,6 +103,7 @@ internal fun InteractionCard(
                     when (interaction.kind) {
                         Interaction.Kind.QUESTION -> R.string.question_time_left
                         Interaction.Kind.SKILL_INSTALL -> R.string.install_time_left
+                        Interaction.Kind.MCP_SERVER -> R.string.mcp_time_left
                         Interaction.Kind.APPROVAL -> R.string.interaction_time_left
                     },
                     time,
@@ -116,6 +120,7 @@ internal fun InteractionCard(
 /** What the card says once it is no longer open for an answer. */
 private fun Interaction.Status.resultRes(kind: Interaction.Kind): Int? {
     val install = kind == Interaction.Kind.SKILL_INSTALL
+    if (kind == Interaction.Kind.MCP_SERVER) return mcpResultRes()
     return when (this) {
         Interaction.Status.WAITING -> null
         Interaction.Status.SENDING -> R.string.interaction_sending
@@ -126,7 +131,7 @@ private fun Interaction.Status.resultRes(kind: Interaction.Kind): Int? {
         Interaction.Status.EXPIRED -> when (kind) {
             Interaction.Kind.QUESTION -> R.string.question_expired
             Interaction.Kind.SKILL_INSTALL -> R.string.install_expired
-            Interaction.Kind.APPROVAL -> R.string.interaction_expired
+            Interaction.Kind.APPROVAL, Interaction.Kind.MCP_SERVER -> R.string.interaction_expired
         }
         Interaction.Status.GONE -> R.string.interaction_gone
         Interaction.Status.NOT_DONE -> R.string.install_not_done

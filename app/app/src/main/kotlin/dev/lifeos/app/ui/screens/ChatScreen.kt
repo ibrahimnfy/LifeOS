@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -525,6 +526,15 @@ private fun AssistantBubble(message: ChatMessage, cutOff: Boolean) {
 @Composable
 private fun AnswerWithFiles(core: LifeOsCore, message: ChatMessage, cutOff: Boolean) {
     if (message.text.isNotBlank() || cutOff) AssistantBubble(message, cutOff)
+    // MCP servers this answer used (#153): they ran outside the sandbox, and the answer says so.
+    if (message.servers.isNotEmpty()) {
+        Text(
+            text = pluralStringResource(R.plurals.mcp_used, message.servers.size, message.servers.size, message.servers.joinToString(", ")),
+            style = LifeType.small,
+            color = LifeTheme.colors.warn,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
     message.files.forEach { FileCard(core, it) }
 }
 
@@ -610,6 +620,8 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.QUEUE_FAILED -> R.string.chat_fail_queue_failed
     ChatProblem.COMMAND_UNKNOWN -> R.string.chat_fail_command_unknown
     ChatProblem.SKILLS_OFF -> R.string.chat_fail_skills_off
+    ChatProblem.MCP_OFF -> R.string.chat_fail_mcp_off
+    ChatProblem.UNRECORDED -> R.string.chat_fail_unrecorded
     ChatProblem.SETTING_FAILED -> R.string.chat_fail_setting_failed
     ChatProblem.TOO_LARGE -> R.string.chat_fail_too_large
     ChatProblem.TIDY_FAILED -> R.string.coach_tidy_failed

@@ -675,6 +675,46 @@
     <string name="interaction_send_failed">Cevabın gönderilemedi. Yeniden dene.</string>
     <string name="interaction_expired">Zamanında cevaplanmadı: “hayır” sayıldı.</string>
     <string name="interaction_gone">Bu artık bir cevap beklemiyor.</string>
+    <!-- A session folder's MCP servers (#153) -->
+    <string name="mcp_action">MCP sunucuları</string>
+    <string name="mcp_action_note">Bu klasörün asistan için tanımladığı programlar. Sen onaylamadan hiçbiri kullanılmaz.</string>
+    <string name="mcp_title">Bu klasörün MCP sunucuları</string>
+    <string name="mcp_warning">Onaylanan bir MCP sunucusu korumalı alanın (sandbox) dışında çalışır. Bilgisayarında senin yetkilerinle çalışan sıradan bir programdır: ağı kullanabilir, ev klasöründeki her dosyayı okuyabilir ve değiştirebilir. Yalnızca güvendiğin bir sunucuyu onayla.</string>
+    <string name="mcp_note">Bunları klasörün .mcp.json dosyası tanımlar. Onaylı sunucuları yalnızca “Değişikliğe izin var” ile gönderilen mesajlar kullanır. Onay tam olarak gösterilen tanım içindir: herhangi bir değişiklikten sonra sunucu, yeniden onaylayana kadar kullanılmaz. Ortam değişkenlerinin ve başlıkların değerleri hiç gösterilmez, yalnızca adları gösterilir.</string>
+    <string name="mcp_none">Bu klasör hiç MCP sunucusu tanımlamıyor.</string>
+    <string name="mcp_load_failed">Sunucular bilgisayardan okunamadı.</string>
+    <string name="mcp_state_not_approved">Onaylı değil: kullanılmıyor</string>
+    <string name="mcp_state_approved">Onaylı: korumalı alanın dışında çalışır</string>
+    <string name="mcp_state_changed">Onayından sonra değişti: kullanılmıyor</string>
+    <string name="mcp_starts">Başlatılacak komut</string>
+    <string name="mcp_connects">Bağlanılacak adres</string>
+    <string name="mcp_env">Ortam değişkenleri (yalnızca adları)</string>
+    <string name="mcp_headers">Başlıklar (yalnızca adları)</string>
+    <string name="mcp_review">İncele ve onayla</string>
+    <string name="mcp_revoke">Onayı geri al</string>
+    <string name="mcp_revoked">Onay geri alındı.</string>
+    <string name="mcp_revoke_none">Bu sunucunun onayı yoktu.</string>
+    <string name="mcp_request_failed">Bu, bilgisayara ulaşmadı. Hiçbir şey değişmedi.</string>
+    <string name="mcp_request_gone">Bu klasör artık o sunucuyu tanımlamıyor.</string>
+    <string name="mcp_card_label">MCP sunucusu onayı</string>
+    <string name="mcp_card_title">“%1$s” MCP sunucusu bu klasör için onaylansın mı?</string>
+    <string name="mcp_card_folder">Bu klasördeki çalışmalar için</string>
+    <string name="mcp_approve">Onayla</string>
+    <string name="mcp_deny">Onaylama</string>
+    <string name="mcp_card_note">Onay tam olarak bu tanım içindir. Oturumun menüsünden istediğin zaman geri alabilirsin.</string>
+    <string name="mcp_time_left">Cevap gelmezse onaylanmaz. %1$s daha bekler.</string>
+    <string name="mcp_approved">Onaylandı. Bu klasörde “Değişikliğe izin var” ile gönderilen mesajlar artık onu kullanabilir.</string>
+    <string name="mcp_refused">Onaylanmadı.</string>
+    <string name="mcp_expired">Zamanında cevaplanmadı: onaylanmadı.</string>
+    <string name="mcp_not_done">Onaylanmadı: tanımı bu kart oluşturulduktan sonra değişti. Şimdiki halini görmek için yeniden incele.</string>
+    <string name="mcp_unrecorded">Onaylanmadı: bilgisayar denetim kaydını yazamadığı için hiçbir şey yapmadı.</string>
+    <string name="mcp_back">Sunuculara dön</string>
+    <plurals name="mcp_used">
+        <item quantity="one">Bu yanıt, korumalı alanın dışında çalışan %2$s MCP sunucusunu kullandı.</item>
+        <item quantity="other">Bu yanıt, korumalı alanın dışında çalışan %1$d MCP sunucusunu kullandı: %2$s.</item>
+    </plurals>
+    <string name="chat_fail_mcp_off">Çalıştırılmadı: bu klasörde onaylı MCP sunucuları var ve bilgisayar bunları ancak kendi denetimi geçtikten sonra kullanır (köprü bir sonraki açılışında kendiliğinden çalışır). Onlarsız çalışmak için oturumun menüsünden onaylarını geri al.</string>
+    <string name="chat_fail_unrecorded">Çalıştırılmadı: bilgisayar denetim kaydını yazamadığı için hiçbir şey yapmadı.</string>
     <!-- Skill installs and the per-session skills switch (#97) -->
     <string name="time_hours_minutes">%1$d sa %2$02d dk</string>
     <string name="install_label">Beceri kurulumu</string>

@@ -49,6 +49,8 @@ data class InteractionData(
     val warnings: List<String> = emptyList(),
     val files: List<InstallFile> = emptyList(),
     @SerialName("total_size") val totalSize: Long = 0,
+    // ---- an MCP server that waits for the owner's approval (#153)
+    val server: McpServer? = null,
 )
 
 /** One file of a skill that waits in the computer's quarantine. */
@@ -150,8 +152,10 @@ data class Interaction(
     val answers: Map<String, List<String>> = emptyMap(),
     /** Skill install: what would be installed, from where and where to. */
     val install: SkillInstall? = null,
+    /** MCP server: exactly the definition that would be approved. */
+    val server: McpServer? = null,
 ) {
-    enum class Kind { APPROVAL, QUESTION, SKILL_INSTALL }
+    enum class Kind { APPROVAL, QUESTION, SKILL_INSTALL, MCP_SERVER }
 
     enum class Status {
         /** The computer waits for the owner. */
@@ -187,11 +191,11 @@ data class Interaction(
     val isDeletion: Boolean get() = category == DELETION
 
     /**
-     * It waits for the owner whether or not a run is in progress (a skill install): for up to
-     * a day, across runs, messages and restarts of the computer. Only an answer, its own end
+     * It waits for the owner whether or not a run is in progress (a skill install, the
+     * approval of an MCP server): for up to a day, across runs, messages and restarts of the computer. Only an answer, its own end
      * time or the computer's list closes it; the end of a run or the next message does not.
      */
-    val crossRun: Boolean get() = kind == Kind.SKILL_INSTALL
+    val crossRun: Boolean get() = kind == Kind.SKILL_INSTALL || kind == Kind.MCP_SERVER
 
     /** A yes is possible: an install only once its contents are listed. */
     val canApprove: Boolean get() = install == null || install.state == SkillInstall.State.READY
@@ -229,6 +233,8 @@ data class Interaction(
             return when (data.kind) {
                 SKILL_INSTALL ->
                     if (data.source.isBlank()) null else Interaction(data.id, Kind.SKILL_INSTALL, folder = data.folder, deadline = deadline, install = SkillInstall.of(data))
+                MCP_SERVER ->
+                    if (data.server?.usable != true) null else Interaction(data.id, Kind.MCP_SERVER, folder = data.folder, deadline = deadline, server = data.server)
                 "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline)
                 "question" -> {
                     val questions = data.questions.filter { it.question.isNotBlank() }
@@ -244,7 +250,8 @@ data class Interaction(
         /** A card that waits across runs is kept for a day on the computer. */
         private const val MAX_CARD_MILLIS = 25 * 3_600_000L
         const val SKILL_INSTALL = "skill_install"
-        private val CROSS_RUN = setOf(SKILL_INSTALL)
+        const val MCP_SERVER = "mcp_server"
+        private val CROSS_RUN = setOf(SKILL_INSTALL, MCP_SERVER)
 
         /**
          * A proposal the computer refused at once (it is only in the answer's own list and
@@ -258,7 +265,7 @@ data class Interaction(
 
         /**
          * What the computer's answer to a yes or no means. A yes it did not act on
-         * (`"installed": false`) is [Status.NOT_DONE]; everything else is what was tapped.
+         * (`"installed": false`, `"approved": false`) is [Status.NOT_DONE]; everything else is what was tapped.
          */
         fun settled(approve: Boolean, answer: JsonElement?): Status {
             if (!approve) return Status.REFUSED
