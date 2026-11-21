@@ -91,7 +91,8 @@ def test_a_question_waits_for_the_owner_and_the_answer_reaches_the_assistant(sdk
         return events
 
     events = asyncio.run(scenario())
-    assert [e for e, _ in events] == ["interaction", "done"]
+    assert [e for e, _ in events] == ["interaction", "interaction_closed", "done"]
+    assert events[1][1]["reason"] == "answered"  # the stream says it closed, and why
     sent = decision(events[-1][1]["answer"])
     assert sent["behavior"] == "allow"
     assert sent["updatedInput"] == {**QUESTION, "answers": {"Which format?": "Short"}}

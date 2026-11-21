@@ -162,6 +162,7 @@ Request body (JSON):
 |---|---|---|
 | `prompt` | string, required | The prompt, at most 100 000 characters |
 | `session_id` | string, optional | Continue an earlier `/ask` conversation |
+| `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. Follow-ups go to `POST /sessions/{id}/messages` as usual |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
 | `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
 
@@ -382,7 +383,12 @@ then newest first:
   beginning of its first prompt. Titles are conversation content: they are
   sent to the authenticated client only and never logged.
 - `in_use` is true while the bridge itself is running a prompt in that
-  session.
+  session; `running_here` is the same, named for what it means.
+  `open_elsewhere` is true when another Claude Code process on the computer
+  holds the session (a terminal, the desktop app), from `claude agents
+  --json` (the bridge's own processes left out, reused for 10 seconds), and
+  `null` when that could not be checked. A message to a session open
+  elsewhere answers `409 session_in_use`.
 - Claude Code deletes old sessions by itself (after 30 days by default), so
   a listed session can disappear later.
 - Session files are an internal format of Claude Code; files the bridge
@@ -593,9 +599,15 @@ How it reaches the owner:
   "header", "multi_select", "options": [{"label", "description"}]}]`; an
   approval carries `tool`, `command`, `folder`, `category` and `reason`.
   Paired phones also get a sealed push hint (`question` or `approval`).
-  While the owner is being asked, the stream sends an SSE comment
-  (`: keep-alive`) every 30 seconds, so the relay's read does not time
-  out.
+  When the interaction is over, the stream sends `interaction_closed
+  {"id", "reason": "answered" | "timed_out" | "run_ended"}` (answered from
+  any client, the time ran out, or the run ended or was stopped first).
+- **Keep-alives:** a streamed run that sends nothing for 20 seconds (a long
+  tool call; also on `claude -p`) and a run that waits for the owner (every
+  30 seconds) send the event `keepalive {}`. The relay forwards it as a
+  small sealed chunk `{"event": "keepalive", "data": {}}`, so the phone can
+  tell a working run from a dead connection. (Before #147 this was an SSE
+  comment the relay dropped.)
 - `GET /sessions/{id}/interactions` → `{"pending": [...]}` (same objects).
 - `POST /sessions/{id}/interactions/{iid}` answers:
   - question: `{"answers": {"<question>": "<label or own text>"}}` (a list
