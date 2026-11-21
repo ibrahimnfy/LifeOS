@@ -146,7 +146,9 @@ def test_a_run_may_read_its_copies_and_never_write_them(settings):
     assert "--add-dir" not in read_only and "--plugin-dir" not in read_only
 
 
-@pytest.mark.parametrize("place", ["private", "inside private", "memory", "allowed", "around"])
+@pytest.mark.parametrize(
+    "place", ["private", "inside private", "memory", "allowed", "around", "repository"]
+)
 def test_copies_in_a_wrong_place_are_refused(settings, tmp_path, place):
     project = tmp_path / "home" / "projects" / "alpha"
     project.mkdir(parents=True)
@@ -157,8 +159,13 @@ def test_copies_in_a_wrong_place_are_refused(settings, tmp_path, place):
         "memory": settings.ask_dir / "copies" / "x",
         "allowed": project / "copies",
         "around": tmp_path / "home",  # the memory folder would lie inside the copy
+        # The sandbox opens the root of a repository that holds a folder of the run.
+        "repository": tmp_path / "home" / "checkout" / "copies" / "x",
     }[place]
     copy.mkdir(parents=True, exist_ok=True)
+    if place == "repository":
+        (tmp_path / "home" / "checkout" / ".git").mkdir()
+        (tmp_path / "home" / "checkout" / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
     with pytest.raises(ClaudeError) as caught:
         capable.build_policy(settings, settings.ask_dir, personal_skills_dir=copy)
     assert caught.value.code == "skills_unavailable" and caught.value.status == 503
@@ -210,7 +217,7 @@ def suite(settings):
 
 def stand_in(
     suite, monkeypatch, *, report=True, reads=True, changed=(), readable=(), effect=None,
-    shell_reads=True,
+    shell_reads=True, writes=True,
 ):  # fmt: skip
     """A capable run that did the copy steps, as far as the arguments say."""
     suite.tries = 0
@@ -246,6 +253,9 @@ def stand_in(
                     {"name": "Read", "input": {"file_path": f"{copy}/skills/x/reference.txt"}}
                 )
                 results.append(suite.copy_marks[kind])
+        if writes:  # tried, and refused
+            for copy in suite.copies_of_run.values():
+                uses.append({"name": "Write", "input": {"file_path": f"{copy}/skills/x/added"}})
         folder = capable.audit_dir()
         folder.mkdir(parents=True, exist_ok=True)
         entry = {"session_id": "s", "tool": "Bash", "decision": "allowed",
@@ -264,6 +274,7 @@ BY_TOOL = "skill copies: the file tools read the supporting files of the run's s
 OWN_ONLY = "skill copies: nothing else became readable (private settings, another copy)"
 SHELL_KEPT = "skill copies: a sandboxed command cannot change a copy"
 UNCHANGED = "skill copies: no copy a probe run was given has changed (file tools or commands)"
+TOOL_KEPT = "skill copies: the file tools cannot change a copy"
 OUTSIDE = "skill copies: they lie outside the private settings folder"
 
 
@@ -276,7 +287,7 @@ def test_the_copy_probes_pass_when_reading_works_and_nothing_changed(suite, monk
     suite.probe_no_self_install()  # the run that carries the copy steps, switch on
     suite.probe_skill_copies(suite.copy_steps_run)
     assert list(results(suite))[1:] == [
-        BY_COMMAND, AS_COMMAND, OWN_ONLY, SHELL_KEPT, BY_TOOL, UNCHANGED, OUTSIDE,
+        BY_COMMAND, AS_COMMAND, OWN_ONLY, SHELL_KEPT, BY_TOOL, TOOL_KEPT, UNCHANGED, OUTSIDE,
     ]  # fmt: skip
     assert all(results(suite).values()) and suite.tries == 1
     # Both kinds of copy were given to that run, with a supporting file each.
@@ -302,8 +313,8 @@ def test_the_copy_probes_catch_each_failure(suite, monkeypatch, settings):
     cases = {
         SHELL_KEPT: {"changed": ["append to a file"]},
         OWN_ONLY: {"readable": ["private settings"]},
-        UNCHANGED: {"effect": tool_wrote},
         BY_COMMAND: {"shell_reads": False},
+        UNCHANGED: {"effect": tool_wrote},  # last: the written file stays in the copy
     }
     for name, arguments in cases.items():
         stand_in(suite, monkeypatch, **arguments)
@@ -314,6 +325,8 @@ def test_the_copy_probes_catch_each_failure(suite, monkeypatch, settings):
         assert name in failed, name
         if name != UNCHANGED:
             assert failed == [name]
+        else:  # a file the file tool wrote into a copy fails both probes about it
+            assert failed == [TOOL_KEPT, UNCHANGED]
     stand_in(suite, monkeypatch, readable=["a copy the run was not given"])
     suite.probes.clear()
     suite.probe_skill_copies()
@@ -331,6 +344,7 @@ def test_copy_steps_the_model_did_not_do_are_asked_again_then_inconclusive(suite
     assert suite.tries == verify.SCENARIO_TRIES
     unclear = {p.name for p in suite.probes if p.inconclusive}
     assert unclear == {BY_COMMAND, AS_COMMAND, OWN_ONLY, SHELL_KEPT, BY_TOOL}
+    assert results(suite)[TOOL_KEPT] is True  # the writes were tried, and nothing was written
     assert not any(p.passed for p in suite.probes if p.inconclusive)
     # What does not need the model's steps is judged all the same.
     assert results(suite)[UNCHANGED] is True and results(suite)[OUTSIDE] is True
@@ -345,6 +359,13 @@ def test_copy_steps_the_model_did_not_do_are_asked_again_then_inconclusive(suite
     stand_in(suite, monkeypatch, reads=False)
     suite.probe_skill_copies()
     assert {p.name for p in suite.probes if p.inconclusive} == {BY_TOOL}
+    # No write by a file tool was tried: asked again, and an unchanged copy is no pass.
+    suite.probes.clear()
+    stand_in(suite, monkeypatch, writes=False)
+    suite.probe_skill_copies()
+    assert suite.tries == verify.SCENARIO_TRIES
+    assert {p.name for p in suite.probes if p.inconclusive} == {TOOL_KEPT}
+    assert results(suite)[UNCHANGED] is True
 
 
 def test_the_script_of_the_probe_reports_what_it_could_read_and_change(tmp_path):

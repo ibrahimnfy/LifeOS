@@ -341,12 +341,15 @@ def check_copies(copies: list[Path], open_folders: list[Path]) -> None:
         for folder in open_folders:
             folder = folder.resolve()
             misplaced = misplaced or copy.is_relative_to(folder) or folder.is_relative_to(copy)
-        if misplaced:
+        # The sandbox lets commands write in the root of a git repository that holds a
+        # folder the run works in (section 9.9); a copy is an added folder of the run.
+        if misplaced or repository_root(copy) is not None:
             raise ClaudeError(
                 "skills_unavailable",
                 503,
                 "the folder for the copies of skills (LIFEOS_SKILL_COPIES_DIR) must lie outside "
-                "the private settings folder, the allowed folders and the memory folder",
+                "the private settings folder, the allowed folders, the memory folder and every "
+                "git repository",
             )
 
 

@@ -544,7 +544,7 @@ user the bridge runs as); it runs nothing and uses no model.
   dropped, and shell lines do not run. The copies lie in the bridge's
   folder for copies (`LIFEOS_SKILL_COPIES_DIR`, by default
   `~/.local/share/lifeos/skill-copies`; never inside the private settings
-  folder, an allowed folder or the memory folder, else
+  folder, an allowed folder, the memory folder or a git repository, else
   `503 skills_unavailable`). A run can read the supporting files of its
   skills there (reference files, scripts), with the file tools and from its
   sandboxed commands, and can never change them (#171; section 9.2).
