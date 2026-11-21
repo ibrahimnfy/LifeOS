@@ -596,6 +596,7 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.SETTING_FAILED -> R.string.chat_fail_setting_failed
     ChatProblem.TOO_LARGE -> R.string.chat_fail_too_large
     ChatProblem.TIDY_FAILED -> R.string.coach_tidy_failed
+    ChatProblem.FIRST_LOST -> R.string.chat_fail_first_lost
     ChatProblem.NOT_PAIRED -> R.string.chat_fail_not_paired
     ChatProblem.FAILED -> R.string.chat_fail_failed
 }

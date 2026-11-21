@@ -588,6 +588,11 @@
     <string name="session_edit_refused">Bilgisayar bunu kabul etmedi. En fazla 50 grup ve 200 hatırlatıcı tutar.</string>
     <string name="session_edit_failed">Bu, bilgisayarda değiştirilemedi.</string>
 
+    <!-- Chat: keep-alives, the phone's own session id, notifications that open the conversation (#148) -->
+    <string name="chat_fail_first_lost">İlk mesajın ulaşmadı: bilgisayar yanıt vermeden uygulama kilitlendi. Lütfen yeniden gönder.</string>
+    <string name="sessions_open_elsewhere">Bilgisayarda açık</string>
+    <string name="push_session_lost">Bu bildirimin sohbeti açılamadı. Artık listelenmiyor olabilir ya da bilgisayara ulaşılamıyor.</string>
+
     <!-- Session reminders and reply notifications (#75) -->
     <string name="reminder_action">Bana hatırlat</string>
     <string name="reminder_title">Bu oturumun hatırlatıcıları</string>

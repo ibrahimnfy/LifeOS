@@ -11,8 +11,8 @@
     "sessions": [
       {"id": "sample-session-1", "title": "Weekly planning", "folder": "/home/owner/brain", "ago_minutes": 12, "in_use": true, "auto_group": "brain", "pinned": true},
       {"id": "sample-session-2", "title": "What is still open for Project Alpha this week?", "folder": "/home/owner/project-alpha", "ago_minutes": 120, "in_use": false, "auto_group": "project-alpha", "pinned": false},
-      {"id": "sample-session-3", "title": "Milestone summary draft", "folder": "/home/owner/project-alpha", "ago_minutes": 1500, "in_use": false, "auto_group": "project-alpha", "pinned": false},
-      {"id": "sample-session-4", "title": "Summarise the lecture notes of week 3", "folder": "/home/owner/course-notes", "ago_minutes": 4400, "in_use": false, "auto_group": "course-notes", "pinned": false},
+      {"id": "sample-session-3", "title": "Milestone summary draft", "folder": "/home/owner/project-alpha", "ago_minutes": 1500, "in_use": false, "running_here": false, "open_elsewhere": true, "auto_group": "project-alpha", "pinned": false},
+      {"id": "sample-session-4", "title": "Summarise the lecture notes of week 3", "folder": "/home/owner/course-notes", "ago_minutes": 4400, "in_use": true, "running_here": true, "open_elsewhere": false, "auto_group": "course-notes", "pinned": false},
       {"id": "sample-session-5", "title": "Which tasks are overdue?", "folder": "/home/owner/brain", "ago_minutes": 9000, "in_use": false, "auto_group": "brain", "pinned": false}
     ],
     "total": 5,

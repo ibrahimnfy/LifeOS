@@ -229,7 +229,7 @@ class Api(private val transport: Transport) {
      * count every use as "the computer did not answer") and no place in chat's lane.
      */
     suspend fun resumeQueue(sessionId: String) {
-        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, CHAT_IDLE_MILLIS)
+        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, RESUME_TIMEOUT_MILLIS)
     }
 
     /** Whether the computer is working on the session right now, and what waits behind that. */
@@ -307,10 +307,14 @@ class Api(private val transport: Transport) {
     companion object {
         /**
          * How long a chat answer may stay quiet before the app stops listening and asks the
-         * computer instead (the run itself goes on there). Longer than the computer's default
-         * limits for one run (5 minutes) and for one question to the owner (10 minutes).
+         * computer instead (the run itself goes on there). A run that has nothing to say sends
+         * a keep-alive after 20 seconds, and every 30 seconds while it waits for the owner
+         * (#148): three of them missed, and the stream counts as lost.
          */
-        const val CHAT_IDLE_MILLIS = 11 * 60_000L
+        const val CHAT_IDLE_MILLIS = 75_000L
+
+        /** The answer to "let the queue go on" comes when the first waiting message is done: as long as a run. */
+        const val RESUME_TIMEOUT_MILLIS = 11 * 60_000L
 
         /** Where a message to the coach goes (#114); its first answer may take as long as a run. */
         const val COACH_MESSAGES = "/coach/chat/messages"

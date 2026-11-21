@@ -319,6 +319,16 @@ internal fun SessionRow(
                 Box(Modifier.size(6.dp).background(colors.ok, CircleShape))
                 Text(stringResource(R.string.sessions_working), style = LifeType.label, color = colors.text)
             }
+        } else if (session.openElsewhere == true) {
+            // Open in a terminal or the desktop app on the computer (#148): it cannot be continued from here now.
+            Text(
+                text = stringResource(R.string.sessions_open_elsewhere),
+                style = LifeType.label,
+                color = colors.muted,
+                modifier = Modifier
+                    .border(1.dp, colors.divider, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            )
         }
         // With the dots at the end, the ring around the letter is the pin mark (the title needs the room).
         if (session.pinned && onMenu == null) {

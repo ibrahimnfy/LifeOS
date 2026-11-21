@@ -46,6 +46,11 @@ data class SessionSummary(
     val group: String? = null,
     /** What the computer found as the title, whatever the owner named the session. */
     @SerialName("detected_title") val detectedTitle: String = "",
+    /**
+     * Another Claude Code on the computer has this session open (a terminal, the desktop app):
+     * a message from the phone would be refused. Null: the computer could not tell (#148).
+     */
+    @SerialName("open_elsewhere") val openElsewhere: Boolean? = null,
     /** A finished answer of this session is announced with a notification (#75); on unless switched off. */
     @SerialName("notify_replies") val notifyReplies: Boolean = true,
 ) {

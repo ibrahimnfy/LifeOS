@@ -35,7 +35,7 @@ class InteractionsTest {
     private val wall = 1_900_000_000_000L
     private val memory = Folder("/home/owner/brain", "brain", "memory", default = true)
 
-    private fun TestScope.chat() = Chat(api, store, this, { wall }, { true }, { uptime })
+    private fun TestScope.chat() = Chat(api, store, this, { wall }, { true }, { uptime }, newId = { "00000000-0000-4000-8000-000000000001" })
 
     private fun json(text: String): JsonElement = Json.parseToJsonElement(text)
     private fun event(name: String, data: String) = AnswerEvent.Stream(name, json(data))
@@ -67,7 +67,7 @@ class InteractionsTest {
         transport.events = { flow { emit(event("session", """{"session_id":"s-1"}""")); emit(event("done", """{"answer":"ok"}""")) } }
         chat.send("Hi")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true}"""), transport.calls.last().body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
 
         chat.setCapable(true)
         chat.send("Tidy up")

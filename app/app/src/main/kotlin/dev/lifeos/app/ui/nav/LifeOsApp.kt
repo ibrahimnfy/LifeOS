@@ -169,13 +169,27 @@ fun LifeOsApp(
     // ---- a tapped push notification (#38): its screen, once the app is unlocked
     val context = androidx.compose.ui.platform.LocalContext.current
     val reminderLost = stringResource(R.string.reminder_lost)
+    val sessionLost = stringResource(R.string.push_session_lost)
     val reminderNote = stringResource(R.string.reminder_note_shown)
     LaunchedEffect(openPush, locked) {
         val push = openPush ?: return@LaunchedEffect
         if (locked) return@LaunchedEffect
         when (val destination = push.destination) {
-            // Chat and the sessions screens come with #33; until then the Chat tab opens.
-            is Destination.Chat, Destination.Sessions -> navController.openTab(Tab.CHAT)
+            // An answer, a question or an approval of a session (#148): that conversation, read
+            // afresh, so that what waits for the owner is on screen at once.
+            is Destination.Chat -> when (val found = SessionLookup.find(core.api, destination.sessionId)) {
+                is SessionLookup.Found.Session -> {
+                    core.chat.open(found.session, found.memory, fresh = true)
+                    openChat()
+                }
+                SessionLookup.Found.Coach -> openCoach()
+                else -> {
+                    navController.openTab(Tab.CHAT)
+                    navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true }
+                    showMessage(sessionLost)
+                }
+            }
+            Destination.Sessions -> navController.openTab(Tab.CHAT)
             is Destination.Course -> {
                 navController.openTab(Tab.MORE)
                 navController.navigate(Routes.COURSES) { launchSingleTop = true }

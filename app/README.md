@@ -244,12 +244,26 @@ with plain HTTPS requests.
   memory folder (the default) or one of the allowed folders, as the computer
   lists them. A conversation shows the owner's messages on the right and the
   assistant's answers on the left (paragraphs, headings, lists, code blocks,
-  bold and inline code are rendered; the text can be selected), "Working…"
+  bold, italic, inline code and web links are rendered by the app's one
+  Markdown reader, which also shows assignment descriptions; the text can be
+  selected), "Working…"
   with the time since the message was sent, and the answer as it is written.
   **The same conversation is continued until New chat** (or until another
   session is opened), also after the app was closed: the Chat tab then opens
   it directly, once per start, with its last few messages read from the
   computer. The folder is in the header.
+  - **A silent run and a lost answer (#148):** a run that says nothing for a
+    while sends keep-alives, so the app listens only 75 seconds without any
+    sign before it asks the computer instead (the run goes on there). A new
+    conversation goes out under an id the app chose (`new_session_id`): when
+    the first answer is lost, the app asks under that id whether the message
+    arrived, follows the run if it did, and otherwise offers **Retry**, which
+    the computer recognises as the same start and never runs twice. A card
+    closes when the computer says that it no longer waits for it (answered
+    on another device, out of time, run ended).
+  - **Notifications:** a notification about a session (answer ready,
+    question, approval) opens that conversation, read afresh, so a waiting
+    card is on screen at once; the coach's session opens the coach's screen.
   - **Earlier messages:** a conversation opens with its last few exchanges.
     Scrolling to the top (or tapping "Earlier messages") reads the page
     before, and so on; the screen keeps its place.
@@ -326,9 +340,11 @@ with plain HTTPS requests.
 - **Sessions** (the clock in Chat, or under More): a field that filters by
   title and folder, pinned sessions, then every folder with its sessions,
   newest first; "Working" marks a session the computer is answering right
-  now. Tapping one opens it in Chat; the next message continues it in its own
-  folder. A session that is open in a terminal on the computer is refused
-  there when the message is sent, and the app says so and offers **Retry**.
+  now, "Open on the computer" one that a terminal or the desktop app holds
+  there (`running_here` and `open_elsewhere` of `GET /sessions`). Tapping
+  one opens it in Chat; the next message continues it in its own folder. A
+  session that is open on the computer is refused there when the message is
+  sent, and the app says so and offers **Retry**.
   - **Groups, titles and pins (#74):** between the pinned sessions and the
     folders the screen lists the owner's own **groups**, each with its
     sessions (an empty group is listed too); a session in a group is not
@@ -747,10 +763,17 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   too large), `slow` (the answer takes half a
   minute: time to send more messages, which wait in line, to send one now
   and to stop), `offline` (nothing is sent, the text comes back), `silent` (the answer stops arriving and the message is
-  not found on the computer), `delete` or `push` (the run waits for an
+  not found on the computer), `lost` as a first message (it arrives and is
+  answered, but nothing reaches the phone), `delete` or `push` (the run waits for an
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
   minutes, to see what running out of time looks like.
+  The session "Milestone summary draft" counts as open on the computer, and
+  "Summarise the lecture notes of week 3" waits for an approval from the
+  start: `--es lifeos.test.push approval --es lifeos.test.push_ref
+  sample-session-4` shows the notification whose tap opens that
+  conversation with the card. A `slow` answer sends keep-alives, and a new
+  conversation runs under the id the app chose.
   **Reminders** are kept while the app runs; one has fired already, so
   `--es lifeos.test.push reminder --es lifeos.test.push_ref sample-reminder-1`
   shows a reminder notification whose tap opens its session.
@@ -1078,6 +1101,42 @@ with the `sample_data` test aid (see "Test aids" for its notification):
    next answer is announced. Another session is not affected.
 6. In a conversation, the dots at the right of the pills above the composer
    open the same sheet for that session.
+
+### A silent run, a lost first answer, and notifications that open the conversation
+
+On an emulator with the `sample_data` test aid:
+
+1. New chat → Start → send "lost hello" (in the sample mode the message
+   arrives but no answer reaches the phone): after a moment "The computer is
+   still working on this…", and a few seconds later the answer. The app
+   found the conversation under the id it had chosen; nothing was sent
+   twice.
+2. Send "slow count": the answer arrives over half a minute with
+   keep-alives in between; "Working…" keeps counting and nothing breaks off.
+3. Send "push it" with **Changes allowed** on: the approval card waits.
+   Tap **Allow**: the card says "You allowed this." and stays so when the
+   computer's own "closed" arrives.
+4. Sessions: "Milestone summary draft" is marked **Open on the computer**,
+   "Summarise the lecture notes of week 3" **Working**.
+5. `adb shell am start -n dev.lifeos.app/.MainActivity --es lifeos.test.push
+   approval --es lifeos.test.push_ref sample-session-4`, then tap the
+   notification: the conversation of "Summarise the lecture notes of week
+   3" opens with the approval card (`git push origin main`) waiting. Answer
+   it: the run ends and the answer appears.
+
+With the computer (each step is a short run on the plan):
+
+6. Send a message, close the app, wait for the "answer ready"
+   notification, tap it and unlock: that conversation opens with the
+   answer. With "Changes allowed" on, ask for a deletion, lock the phone,
+   tap the "approval" notification: the conversation opens with the card.
+7. Start a new chat and switch flight mode on right after tapping send
+   (before "Working…" counts up); switch it off after a minute: the app
+   says whether the message arrived (the run is followed) or offers
+   **Retry**; on the computer the conversation exists once at most.
+8. Ask for something that takes a minute without output ("run `sleep 70`
+   and say done" with "Changes allowed"): the answer arrives as usual, with
+   no "The computer is still working on this…" in between.
 
 ### Earlier messages, waiting messages, send now and stop
 

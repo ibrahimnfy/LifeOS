@@ -46,6 +46,12 @@ import java.util.concurrent.ConcurrentHashMap
  * (the run waits for an answer to two questions). With "hurry" the wait lasts 20 seconds
  * instead of ten minutes.
  *
+ * As the bridge since #147: a new conversation runs under the id the phone chose (the same
+ * first message again is answered as a repeat), a slow answer sends keep-alives, and a card
+ * is closed by an event. One listed session ("Summarise the lecture notes of week 3") waits
+ * for an approval from the start, to see what a notification about it opens. A first message
+ * that contains "lost" arrives and is answered, but nothing of it reaches the phone.
+ *
  * The coach conversation (#114) is one more session, empty at first. It counts as long after
  * five messages, or at once when a message contains "tidy": the next answer then starts only
  * after six seconds, in a new session, as when the computer tidies the conversation up.
@@ -57,7 +63,7 @@ internal class SampleChat(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** One conversation as the bridge would hold it. */
-    private inner class Session(seeded: Boolean) {
+    private inner class Session(seeded: Boolean, val parkedHere: Boolean = false) {
         val exchanges = mutableListOf<Pair<String, String>>()
         val queue = mutableListOf<Pair<String, String>>()
         var running = false
@@ -71,11 +77,28 @@ internal class SampleChat(private val context: Context) {
                     exchanges += item.jsonObject.getValue("user").jsonPrimitive.content to item.jsonObject.getValue("assistant").jsonPrimitive.content
                 }
             }
+            if (parkedHere) exchanges += "Push the milestone summary to the remote." to ""
         }
     }
 
     private val sessions = ConcurrentHashMap<String, Session>()
-    private fun session(id: String) = sessions.getOrPut(id) { Session(seeded = id != NEW && !id.startsWith(COACH)) }
+    private fun session(id: String) = sessions.getOrPut(id) { Session(seeded = id.startsWith("sample-session-") && id != NEW, parkedHere = id == PARKED) }
+
+    /** The session [PARKED] waits for an approval until it is answered (once per start of the app). */
+    private var parked = true
+
+    private fun parkedCard() = buildJsonObject {
+        val now = Instant.now()
+        put("id", JsonPrimitive(PARKED_CARD))
+        put("session_id", JsonPrimitive(PARKED))
+        put("kind", JsonPrimitive("approval"))
+        put("tool", JsonPrimitive("Bash"))
+        put("command", JsonPrimitive("git push origin main"))
+        put("folder", JsonPrimitive("/home/owner/course-notes"))
+        put("category", JsonPrimitive("push"))
+        put("created_at", JsonPrimitive(now.minusSeconds(60).toString()))
+        put("expires_at", JsonPrimitive(now.plusSeconds(540).toString()))
+    }
 
     // ---- the coach conversation (#114)
     private var coachRound = 1
@@ -146,12 +169,20 @@ internal class SampleChat(private val context: Context) {
             val rest = parts[2]
             return synchronized(session) {
                 when {
+                    method == "POST" && rest == "interactions/$PARKED_CARD" && parts[1] == PARKED && parked -> {
+                        parked = false
+                        val allowed = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true"
+                        session.exchanges[session.exchanges.lastIndex] =
+                            session.exchanges.last().first to if (allowed) "Pushed, as you allowed." else "I left it unpushed."
+                        ok { put("answered", JsonPrimitive(true)) }
+                    }
                     method == "POST" && rest.startsWith("interactions/") -> {
                         val run = waiting.remove(rest.removePrefix("interactions/")) ?: return@synchronized error(404, "not_pending")
                         run.complete(body as? JsonObject ?: JsonObject(emptyMap()))
                         ok { put("answered", JsonPrimitive(true)) }
                     }
-                    method == "GET" && rest == "interactions" -> ok { put("pending", JsonArray(emptyList())) }
+                    method == "GET" && rest == "interactions" ->
+                        ok { put("pending", JsonArray(if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList())) }
                     // The coach conversation has no thread to read before its first message.
                     method == "GET" && rest == "history" && parts[1].startsWith(COACH) && session.exchanges.isEmpty() -> error(404, "session_not_found")
                     method == "GET" && rest == "history" -> history(session, query["before"])
@@ -165,7 +196,7 @@ internal class SampleChat(private val context: Context) {
                         put("commands", data.getValue("commands"))
                     }
                     method == "GET" && rest == "queue" -> ok {
-                        put("running", JsonPrimitive(session.running))
+                        put("running", JsonPrimitive(session.running || (parts[1] == PARKED && parked)))
                         put("paused", session.paused?.let(::JsonPrimitive) ?: JsonNull)
                         put("queue", buildJsonArray { session.queue.forEach { (id, prompt) -> add(buildJsonObject { put("id", JsonPrimitive(id)); put("prompt", JsonPrimitive(prompt)) }) } })
                     }
@@ -372,8 +403,23 @@ internal class SampleChat(private val context: Context) {
         val text = (request?.get("prompt") as? JsonPrimitive)?.content.orEmpty()
         val prompt = text.lowercase()
         val toCoach = path == "/coach/chat/messages"
-        var id = Regex("^/sessions/([^/]+)/").find(path)?.groupValues?.get(1) ?: if (toCoach) coachId else NEW
+        // A new conversation runs under the id the phone chose (#148).
+        val chosen = (request?.get("new_session_id") as? JsonPrimitive)?.content
+        var id = Regex("^/sessions/([^/]+)/").find(path)?.groupValues?.get(1) ?: if (toCoach) coachId else chosen ?: NEW
         if ("offline" in prompt) throw ApiException(ApiException.Kind.NOT_SENT)
+        if (chosen != null && sessions[chosen]?.exchanges?.firstOrNull()?.first == text) {
+            // The same first message again: nothing is run a second time.
+            emit(
+                AnswerEvent.Done(
+                    ok {
+                        put("repeat", JsonPrimitive(true))
+                        put("session_id", JsonPrimitive(chosen))
+                        put("running", JsonPrimitive(session(chosen).running))
+                    },
+                ),
+            )
+            return@flow
+        }
         if (toCoach) {
             if (!session(id).running && session(id).exchanges.isNotEmpty() && (coachDue() || "tidy" in prompt)) {
                 // The conversation had grown long: one run without any sign, then a new session.
@@ -423,6 +469,18 @@ internal class SampleChat(private val context: Context) {
             )
             return@flow
         }
+        if ("lost" in prompt && chosen != null) {
+            // The first message arrives and is answered, but nothing of it reaches the phone.
+            scope.launch {
+                delay(8000)
+                synchronized(session) {
+                    session.exchanges[session.exchanges.lastIndex] = text to "This answer was written while the phone heard nothing."
+                    session.running = false
+                    drain(session)
+                }
+            }
+            throw ApiException(ApiException.Kind.UNCERTAIN)
+        }
         var written = ""
         try {
             emit(AnswerEvent.Stream("session", buildJsonObject { put("session_id", JsonPrimitive(id)) }))
@@ -457,6 +515,8 @@ internal class SampleChat(private val context: Context) {
             }
             val step = if ("slow" in prompt) 2000L else 90L
             for ((index, piece) in answer.chunked(18).withIndex()) {
+                // A run that says nothing for a while sends a sign of life.
+                if ("slow" in prompt) emit(AnswerEvent.Stream("keepalive", JsonObject(emptyMap())))
                 if (pause(session, step)) return@flow stopped()
                 written += piece
                 emit(AnswerEvent.Stream("delta", buildJsonObject { put("text", JsonPrimitive(piece)) }))
@@ -533,11 +593,22 @@ internal class SampleChat(private val context: Context) {
                 },
             ),
         )
-        return try {
+        val reply = try {
             withTimeoutOrNull(waitSeconds * 1000) { answer.await() }
         } finally {
             waiting.remove(id)
         }
+        // The computer no longer waits for the card.
+        emit(
+            AnswerEvent.Stream(
+                "interaction_closed",
+                buildJsonObject {
+                    put("id", JsonPrimitive(id))
+                    put("reason", JsonPrimitive(if (reply == null) "timed_out" else "answered"))
+                },
+            ),
+        )
+        return reply
     }
 
     /** `ago_minutes` becomes `last_activity`, counted back from now. */
@@ -558,6 +629,8 @@ internal class SampleChat(private val context: Context) {
     private companion object {
         const val NEW = "sample-session-new"
         const val COACH = "sample-coach"
+        const val PARKED = "sample-session-4"
+        const val PARKED_CARD = "sample-parked-1"
         const val COACH_FULL = 5
         const val PAGE = 4
         const val QUESTIONS = """[

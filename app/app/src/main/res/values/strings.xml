@@ -590,6 +590,11 @@
     <string name="session_edit_refused">The computer did not accept this. It keeps at most 50 groups and 200 reminders.</string>
     <string name="session_edit_failed">That could not be changed on the computer.</string>
 
+    <!-- Chat: keep-alives, the phone's own session id, notifications that open the conversation (#148) -->
+    <string name="chat_fail_first_lost">Your first message did not arrive: the app was locked before the computer had answered. Please send it again.</string>
+    <string name="sessions_open_elsewhere">Open on the computer</string>
+    <string name="push_session_lost">The conversation of this notification could not be opened. It may no longer be listed, or the computer cannot be reached.</string>
+
     <!-- Session reminders and reply notifications (#75) -->
     <string name="reminder_action">Remind me</string>
     <string name="reminder_title">Reminders for this session</string>
