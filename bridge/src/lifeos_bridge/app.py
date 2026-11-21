@@ -24,6 +24,7 @@ from . import (
     coach,
     coach_chat,
     commands,
+    consolidation,
     contextmap,
     files,
     guardcheck,
@@ -189,6 +190,8 @@ def create_app(settings: Settings) -> FastAPI:
                     await course_sync_tick()
                 with contextlib.suppress(Exception):  # resources of a new syllabus, one at a time
                     await resources_tick()
+                with contextlib.suppress(Exception):  # the nightly consolidation proposal
+                    await consolidation_tick()
                 await asyncio.sleep(reminders.CHECK_INTERVAL_SECONDS)
 
         coach_runs: set[asyncio.Task] = set()
@@ -221,6 +224,19 @@ def create_app(settings: Settings) -> FastAPI:
                 resource_runs.add(run)
                 run.add_done_callback(resource_runs.discard)
 
+        consolidation_runs: set[asyncio.Task] = set()
+
+        async def consolidation_tick() -> None:
+            """Nightly: a proposal to tidy the memory; nothing is applied by itself."""
+            if not consolidation_runs and await asyncio.to_thread(consolidation.due, settings):
+                start_consolidation()
+
+        def start_consolidation() -> None:
+            run = asyncio.create_task(consolidation.run(settings))
+            consolidation_runs.add(run)
+            run.add_done_callback(consolidation_runs.discard)
+
+        _app.state.start_consolidation = start_consolidation
         task = asyncio.create_task(watch_reminders())
         # SDK runner: live sessions close after a while without messages.
         reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
@@ -241,7 +257,7 @@ def create_app(settings: Settings) -> FastAPI:
             if phone_relay is not None:
                 phone_relay.close()
             moodle_sync.cancel()  # a running course sync starts no further download
-            running = (task, *coach_runs, *course_syncs, *resource_runs)
+            running = (task, *coach_runs, *course_syncs, *resource_runs, *consolidation_runs)
             for pending in (*running, *([reaper] if reaper else [])):
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -1077,6 +1093,40 @@ def create_app(settings: Settings) -> FastAPI:
         if first > last or (last - first).days > 400:
             raise ClaudeError("bad_request", 400, "`start` and `end` must span at most 400 days")
         return {"days": await asyncio.to_thread(activity.read, brain, first, last)}
+
+    # ---- memory consolidation: propose, then approve (memory-design.md §6) --------
+
+    @app.get("/memory/consolidation")
+    async def consolidation_view():
+        """The waiting proposal and its operations. Never starts a run."""
+        return await asyncio.to_thread(consolidation.view)
+
+    @app.post("/memory/consolidation/approve")
+    async def consolidation_approve(request: Request):
+        """Body: ``{"operations": ["op1", ...]}`` or ``{"all": true}``: applied in one commit."""
+        body = await read_json_object(request)
+        return await asyncio.to_thread(consolidation.approve, settings, body)
+
+    @app.post("/memory/consolidation/reject")
+    async def consolidation_reject(request: Request):
+        """Body as for approve. Rejected operations are not proposed again unchanged."""
+        return await asyncio.to_thread(consolidation.reject, await read_json_object(request))
+
+    @app.post("/memory/consolidation/run")
+    async def consolidation_run(request: Request):
+        """Prepare a proposal now (one run, in the background); 409 while one waits."""
+        outcome = await asyncio.to_thread(consolidation.request)
+        if outcome != "ok":
+            status = {"waiting": 409, "running": 409, "too_soon": 429}[outcome]
+            return JSONResponse({"started": False, "reason": outcome}, status_code=status)
+        starter = getattr(request.app.state, "start_consolidation", None)
+        if starter is None:  # the bridge's loop is not running (a test client without lifespan)
+            run = asyncio.create_task(consolidation.run(settings))
+            background.add(run)
+            run.add_done_callback(background.discard)
+        else:
+            starter()
+        return JSONResponse({"started": True}, status_code=202)
 
     @app.get("/agenda")
     async def agenda(day: str | None = None, days: int = 7):
