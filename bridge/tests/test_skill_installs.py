@@ -254,7 +254,7 @@ def test_install_records_never_count_as_a_runs_tool_calls(ask_dir, isolated_conf
 def capable_marker():
     data = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
-            "suite_version": capable.SUITE_VERSION, "skills_verified": True}  # fmt: skip
+            "suite_version": capable.SUITE_VERSION}  # fmt: skip
     capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
 
 

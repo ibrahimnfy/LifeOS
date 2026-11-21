@@ -3,6 +3,7 @@
 import dataclasses
 import json
 import os
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -174,7 +175,11 @@ def test_only_capable_runs_get_exactly_the_approved_servers(settings, ask_dir):
     servers = mcp_servers.for_run(ask_dir)
     policy = capable.build_policy(settings, ask_dir, mcp=servers)
     flags = claude.run_flags(settings, session_id="s", resume=False, policy=policy)
-    assert json.loads(flags[flags.index("--mcp-config") + 1]) == {"mcpServers": {"tools": SERVER}}
+    # Passed as a file in the private settings folder, never on the command line (#162).
+    config = Path(flags[flags.index("--mcp-config") + 1])
+    assert config.is_relative_to(capable.config_dir()) and config.stat().st_mode & 0o777 == 0o600
+    assert json.loads(config.read_text()) == {"mcpServers": {"tools": SERVER}}
+    assert "secret-value" not in " ".join(flags)
     assert "--strict-mcp-config" in flags
     allow = json.loads(policy.settings_json)["permissions"]["allow"]
     assert "mcp__tools__*" in allow and not any("other" in rule for rule in allow)
@@ -189,7 +194,7 @@ def test_only_capable_runs_get_exactly_the_approved_servers(settings, ask_dir):
 def marker(suite):
     data = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
-            "suite_version": suite, "skills_verified": True}  # fmt: skip
+            "suite_version": suite}  # fmt: skip
     capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
 
 
@@ -226,7 +231,7 @@ def test_api_from_listing_to_a_run(
 
         messages = f"/sessions/{session_id}/messages"
         ran = client.post(messages, headers=auth, json={"prompt": "x", "mode": "capable"}).json()
-        assert ran["mcp_servers"] == [{"name": "tools", "outside_sandbox": True}]
+        assert ran["mcp_servers"] == [{"name": "tools", "scope": "folder", "outside_sandbox": True}]
         assert "outside the sandbox" in ran["mcp_note"]
         assert "--mcp-config" in calls(ask_dir)[-1]["args"]
         read_only = client.post(messages, headers=auth, json={"prompt": "y"}).json()
@@ -271,3 +276,321 @@ def test_the_check_has_probes_for_it(settings):
         ("mcp: a changed server is never passed to a run", True),
     ]
     assert mcp_servers.for_run(suite.run_dir) == {}  # its approval was removed again
+
+
+# ------------------------------------------------------- personal (user-scope) servers (#162)
+
+REMOTE = {"type": "http", "url": "https://example.org/mcp",
+          "headers": {"Authorization": "Bearer header-secret"}}  # fmt: skip
+PERSONAL = {"type": "stdio", "command": "npx", "args": ["-y", "own-server"],
+            "env": {"TOKEN": "env-secret"}}  # fmt: skip
+
+
+def define_personal(settings, servers, **more):
+    """A file shaped like Claude Code's own: user scope at the top, other things beside it."""
+    local = {"/some/project": {"mcpServers": {"local-only": PERSONAL}, "history": ["x"]}}
+    data = {"userID": "u", "mcpServers": servers, "projects": local, **more}
+    settings.personal_mcp_file.write_text(json.dumps(data))
+    return settings.personal_mcp_file
+
+
+def approve_personal(folder, source, name="mine", session_id="s1"):
+    card = mcp_servers.request(session_id, folder, name, "personal", source)
+    return mcp_servers.answer(approvals.take(session_id, card["id"]), True, source)
+
+
+def test_only_the_user_scope_servers_of_the_personal_file_are_read(settings, ask_dir, tmp_path):
+    assert mcp_servers.personal_definitions(settings.personal_mcp_file) == {}  # no file
+    source = define_personal(settings, {"mine": PERSONAL, "remote": REMOTE, "bad name": PERSONAL})
+    assert sorted(mcp_servers.personal_definitions(source)) == ["mine", "remote"]
+    listed = mcp_servers.listing(ask_dir, source)
+    assert [(s["name"], s["scope"], s["state"]) for s in listed] == [
+        ("mine", "personal", "not_approved"),
+        ("remote", "personal", "not_approved"),
+    ]  # nothing of another scope ("local-only"), ever
+    assert mcp_servers.listing(ask_dir) == []  # without the file: the folder's own only
+    # Larger than the folder file's limit is fine: the file also holds Claude Code's state.
+    define_personal(settings, {"mine": PERSONAL}, padding="x" * (mcp_servers.MAX_BYTES * 2))
+    assert list(mcp_servers.personal_definitions(source)) == ["mine"]
+    for broken in ("not json", "[]", '{"mcpServers": []}'):
+        source.write_text(broken)
+        assert mcp_servers.personal_definitions(source) == {}
+    target = tmp_path / "elsewhere.json"
+    target.write_text(json.dumps({"mcpServers": {"mine": PERSONAL}}))
+    source.unlink()
+    source.symlink_to(target)
+    assert mcp_servers.personal_definitions(source) == {}  # a link is never followed
+
+
+def test_secret_values_of_personal_servers_are_never_shown_or_logged(
+    settings, ask_dir, isolated_config
+):
+    source = define_personal(settings, {"mine": PERSONAL, "remote": REMOTE})
+    listed = mcp_servers.listing(ask_dir, source)
+    assert listed[0]["env_names"] == ["TOKEN"] and listed[1]["header_names"] == ["Authorization"]
+    card = mcp_servers.request("s1", ask_dir, "remote", "personal", source)
+    assert card["scope"] == "personal" and card["server"]["scope"] == "personal"
+    assert card["server"]["url"] == "https://example.org/mcp"
+    done = mcp_servers.answer(approvals.take("s1", card["id"]), True, source)
+    assert done == {"approved": True, "name": "remote"}
+    approve_personal(ask_dir, source)
+    servers = mcp_servers.for_run(ask_dir, source)
+    policy = capable.build_policy(settings, ask_dir, mcp=servers)
+    flags = claude.run_flags(settings, session_id="s", resume=False, policy=policy)
+    stored = (isolated_config / mcp_servers.FILE_NAME).read_text()
+    logged = json.dumps(records(isolated_config))
+    for text in (json.dumps(listed), json.dumps(card), " ".join(flags), stored, logged):
+        assert "env-secret" not in text and "header-secret" not in text
+    # The run still gets the complete definitions, in a private file.
+    config = Path(flags[flags.index("--mcp-config") + 1])
+    assert json.loads(config.read_text()) == {"mcpServers": {"mine": PERSONAL, "remote": REMOTE}}
+    assert config.stat().st_mode & 0o777 == 0o600
+    assert config.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_a_personal_server_needs_its_own_approval_and_a_new_one_after_a_change(settings, ask_dir):
+    source = define_personal(settings, {"mine": PERSONAL})
+    assert mcp_servers.for_run(ask_dir, source) == {}
+    assert approve_personal(ask_dir, source) == {"approved": True, "name": "mine"}
+    assert mcp_servers.listing(ask_dir, source)[0]["state"] == "approved"
+    assert mcp_servers.for_run(ask_dir, source) == {"mine": PERSONAL}
+    # Approved once, for every folder; without the file given (an older check), never.
+    assert mcp_servers.for_run(ask_dir.parent, source) == {"mine": PERSONAL}
+    assert mcp_servers.for_run(ask_dir) == {}
+    define_personal(settings, {"mine": dict(PERSONAL, args=["-y", "other-server"])})
+    assert mcp_servers.listing(ask_dir, source)[0]["state"] == "changed"
+    assert mcp_servers.for_run(ask_dir, source) == {}
+    define_personal(settings, {"mine": dict(PERSONAL, env={"TOKEN": "another"})})
+    assert mcp_servers.for_run(ask_dir, source) == {}  # a changed value counts as well
+    define_personal(settings, {"mine": PERSONAL})
+    assert mcp_servers.for_run(ask_dir, source) == {"mine": PERSONAL}
+    assert mcp_servers.revoke(ask_dir, "mine", "s1", "personal", source) is True
+    assert mcp_servers.for_run(ask_dir, source) == {}
+    assert mcp_servers.revoke(ask_dir, "mine", "s1", "personal", source) is False
+
+
+def test_a_change_between_card_and_answer_approves_nothing(settings, ask_dir):
+    source = define_personal(settings, {"mine": PERSONAL})
+    card = mcp_servers.request("s1", ask_dir, "mine", "personal", source)
+    define_personal(settings, {"mine": dict(PERSONAL, command="sh")})
+    done = mcp_servers.answer(approvals.take("s1", card["id"]), True, source)
+    assert done["approved"] is False and mcp_servers.for_run(ask_dir, source) == {}
+    with pytest.raises(ClaudeError) as caught:
+        mcp_servers.request("s1", ask_dir, "missing", "personal", source)
+    assert caught.value.code == "mcp_server_not_found"
+
+
+def test_the_two_scopes_never_stand_in_for_each_other(settings, ask_dir):
+    """The same name in the folder and in the personal file: two servers, two approvals."""
+    source = define_personal(settings, {"tools": PERSONAL})
+    define(ask_dir, {"tools": SERVER})
+    assert [(s["scope"], s["state"]) for s in mcp_servers.listing(ask_dir, source)] == [
+        ("folder", "not_approved"),
+        ("personal", "not_approved"),
+    ]
+    approve(ask_dir)  # the folder's own
+    assert [s["state"] for s in mcp_servers.listing(ask_dir, source)] == [
+        "approved", "not_approved",
+    ]  # fmt: skip
+    assert mcp_servers.for_run(ask_dir, source) == {"tools": SERVER}
+    assert mcp_servers.for_run(ask_dir.parent, source) == {}  # not the personal one elsewhere
+    assert mcp_servers.revoke(ask_dir, "tools", "s1") is True
+    approve_personal(ask_dir, source, "tools")
+    assert [s["state"] for s in mcp_servers.listing(ask_dir, source)] == [
+        "not_approved", "approved",
+    ]  # fmt: skip
+    assert mcp_servers.for_run(ask_dir, source) == {"tools": PERSONAL}  # never the folder's
+    approve(ask_dir)
+    servers = mcp_servers.for_run(ask_dir, source)
+    assert servers == {"tools": SERVER}  # both approved: the folder's own wins the name
+    assert mcp_servers.scopes_for_run(ask_dir, servers) == {"tools": "folder"}
+    # A folder approval's hash never approves a personal definition of that name.
+    define_personal(settings, {"tools": SERVER})
+    mcp_servers.revoke(ask_dir, "tools", "s1", "personal", source)
+    assert mcp_servers.for_run(ask_dir.parent, source) == {}
+    # A card of one scope and a card of the other are two cards.
+    first = mcp_servers.request("s1", ask_dir, "tools", "folder", source)
+    second = mcp_servers.request("s1", ask_dir, "tools", "personal", source)
+    assert first["id"] != second["id"] and second["already_waiting"] is False
+    assert mcp_servers.request("s1", ask_dir, "tools", "personal", source)["id"] == second["id"]
+
+
+def test_approvals_belong_to_the_personal_file_they_were_given_for(settings, ask_dir, tmp_path):
+    """The scratch file of the guardrail check can never approve or revoke a real server."""
+    source = define_personal(settings, {"mine": PERSONAL})
+    approve_personal(ask_dir, source)
+    scratch = tmp_path / "scratch.json"
+    scratch.write_text(json.dumps({"mcpServers": {"mine": PERSONAL}}))
+    assert mcp_servers.for_run(ask_dir, scratch) == {}
+    assert mcp_servers.revoke(ask_dir, "mine", "s1", "personal", scratch) is False
+    assert mcp_servers.for_run(ask_dir, source) == {"mine": PERSONAL}
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        dict(REMOTE, headersHelper="/usr/local/bin/make-headers"),  # a command the card hides
+        dict(REMOTE, oauth={"clientId": "x"}),
+        {"type": "sse", "url": "https://example.org/sse"},
+        {"type": "ws", "url": "wss://example.org/ws"},
+        {"url": "https://example.org/mcp"},  # no type: Claude Code reads it as stdio
+        {"type": "http", "url": "file:///etc/passwd"},
+        {"type": "stdio", "command": "npx", "args": "not-a-list"},
+        {"type": "stdio", "command": "npx", "env": {"TOKEN": 5}},
+        {"type": "stdio", "command": ""},
+        {"type": "stdio", "command": "npx", "url": "https://example.org"},
+    ],
+)
+def test_only_plain_stdio_and_http_definitions_can_be_approved(settings, ask_dir, spec):
+    assert mcp_servers.plain(PERSONAL) and mcp_servers.plain(REMOTE)
+    assert mcp_servers.plain({"command": "npx", "timeout": 600000})
+    assert not mcp_servers.plain(spec)
+    source = define_personal(settings, {"odd": spec})
+    assert mcp_servers.listing(ask_dir, source)[0]["state"] == "unsupported"
+    with pytest.raises(ClaudeError) as caught:
+        mcp_servers.request("s1", ask_dir, "odd", "personal", source)
+    assert caught.value.code == "mcp_server_unsupported" and caught.value.status == 409
+    # Even an approval that exists (the definition was plain once) passes nothing on.
+    data = {mcp_servers._personal_key(source): {"odd": {"hash": mcp_servers.definition_hash(spec)}}}
+    (capable.config_dir() / mcp_servers.FILE_NAME).write_text(json.dumps(data))
+    assert mcp_servers.for_run(ask_dir, source) == {}
+
+
+def test_run_files_not_used_for_a_day_are_removed(settings, ask_dir):
+    first = mcp_servers.run_config_file({"a": PERSONAL})
+    assert mcp_servers.run_config_file({"a": PERSONAL}) == first  # one file per content
+    old = 1_000_000_000
+    os.utime(first, (old, old))
+    second = mcp_servers.run_config_file({"b": PERSONAL})
+    assert second.is_file() and not first.exists()
+
+
+def test_api_for_personal_servers(settings, ask_dir, auth, write_session, isolated_config):
+    marker(capable.SUITE_VERSION)
+    source = define_personal(settings, {"mine": PERSONAL, "tools": REMOTE})
+    define(ask_dir, {"tools": SERVER})
+    session_id = write_session(ask_dir, [user_line(ask_dir, "first")])
+    with TestClient(create_app(settings)) as client:
+        base = f"/sessions/{session_id}/mcp-servers"
+        listed = client.get(base, headers=auth).json()["servers"]
+        assert [(s["name"], s["scope"]) for s in listed] == [
+            ("tools", "folder"), ("mine", "personal"), ("tools", "personal"),
+        ]  # fmt: skip
+        assert "secret" not in json.dumps(listed)
+
+        def approve_card(card):
+            url = f"/sessions/{session_id}/interactions/{card['id']}"
+            return client.post(url, headers=auth, json={"approve": True}).json()
+
+        # Without a scope: the folder's own server of that name, else the personal one.
+        own = client.post(f"{base}/tools/approval", headers=auth).json()
+        assert own["scope"] == "folder" and own["server"]["command"] == "npx"
+        mine = client.post(f"{base}/mine/approval", headers=auth).json()
+        assert mine["scope"] == "personal" and "secret" not in json.dumps(mine)
+        remote = client.post(f"{base}/tools/approval?scope=personal", headers=auth).json()
+        assert remote["scope"] == "personal" and remote["server"]["type"] == "http"
+        assert client.post(f"{base}/tools/approval?scope=other", headers=auth).status_code == 400
+        assert client.post(f"{base}/mine/approval?scope=folder", headers=auth).status_code == 404
+        assert approve_card(mine)["approved"] is True
+        assert approve_card(remote)["approved"] is True
+        states = [s["state"] for s in client.get(base, headers=auth).json()["servers"]]
+        assert states == ["not_approved", "approved", "approved"]
+
+        messages = f"/sessions/{session_id}/messages"
+        ran = client.post(messages, headers=auth, json={"prompt": "x", "mode": "capable"}).json()
+        assert ran["mcp_servers"] == [
+            {"name": "mine", "scope": "personal", "outside_sandbox": True},
+            {"name": "tools", "scope": "personal", "outside_sandbox": True},
+        ]
+        args = calls(ask_dir)[-1]["args"]
+        config = Path(args[args.index("--mcp-config") + 1])
+        assert json.loads(config.read_text())["mcpServers"] == {"mine": PERSONAL, "tools": REMOTE}
+        assert "secret" not in " ".join(args) and "--strict-mcp-config" in args
+        allow = json.loads(args[args.index("--settings") + 1])["permissions"]["allow"]
+        assert "mcp__mine__*" in allow and "mcp__tools__*" in allow
+        read_only = client.post(messages, headers=auth, json={"prompt": "y"}).json()
+        assert "mcp_servers" not in read_only
+        assert "--mcp-config" not in calls(ask_dir)[-1]["args"]
+
+        # Once the folder's own "tools" is approved too, it is the one a run gets.
+        assert approve_card(own)["approved"] is True
+        ran = client.post(messages, headers=auth, json={"prompt": "z", "mode": "capable"}).json()
+        assert {"name": "tools", "scope": "folder", "outside_sandbox": True} in ran["mcp_servers"]
+        # Revoking without a scope takes the folder's approval first, then the personal one.
+        assert client.delete(f"{base}/tools", headers=auth).json() == {"revoked": True}
+        assert mcp_servers.for_run(ask_dir, source) == {"mine": PERSONAL, "tools": REMOTE}
+        assert client.delete(f"{base}/tools", headers=auth).json() == {"revoked": True}
+        assert client.delete(f"{base}/tools", headers=auth).json() == {"revoked": False}
+        assert client.delete(f"{base}/mine?scope=folder", headers=auth).json() == {"revoked": False}
+        assert client.delete(f"{base}/mine?scope=other", headers=auth).status_code == 400
+        assert client.delete(f"{base}/mine?scope=personal", headers=auth).json() == {
+            "revoked": True
+        }
+        again = client.post(messages, headers=auth, json={"prompt": "w", "mode": "capable"})
+        assert "mcp_servers" not in again.json()
+    used = [r for r in records(isolated_config) if r["tool"] == "mcp_servers_used"]
+    assert used[0]["detail"]["scopes"] == {"mine": "personal", "tools": "personal"}
+    assert "secret" not in json.dumps(records(isolated_config))
+
+
+def test_an_older_check_passes_no_personal_server(settings, ask_dir, auth, write_session):
+    marker(capable.PERSONAL_SUITE_VERSIONS["cli"] - 1)
+    source = define_personal(settings, {"mine": PERSONAL})
+    approve_personal(ask_dir, source)
+    session_id = write_session(ask_dir, [user_line(ask_dir, "first")])
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            f"/sessions/{session_id}/messages", headers=auth,
+            json={"prompt": "x", "mode": "capable"},
+        )  # fmt: skip
+    assert response.status_code == 200 and "mcp_servers" not in response.json()
+    assert "--mcp-config" not in calls(ask_dir)[-1]["args"]
+
+
+def test_the_check_has_probes_for_personal_servers(settings):
+    real = settings.personal_mcp_file
+    suite = verify.Suite(settings)
+    suite.run_dir.mkdir()
+    suite.probe_personal_mcp_servers()
+    assert [(p.name, p.passed) for p in suite.probes] == [
+        ("mcp: an unapproved personal server is never passed to a run", True),
+        ("mcp: an approved personal server is passed, and only that one (sanity)", True),
+        ("mcp: a changed personal server is never passed to a run", True),
+        ("mcp: the values of a personal server's variables are neither shown nor put on "
+         "the command line", True),
+    ]  # fmt: skip
+    source = suite.settings.personal_mcp_file
+    assert source != real and not real.exists()  # the owner's own file is never written
+    assert mcp_servers.for_run(suite.run_dir, source) == {}  # its approval was removed again
+    assert json.loads((capable.config_dir() / mcp_servers.FILE_NAME).read_text()) == {}
+    suite.clean_outside()
+    assert not source.exists() and not list((capable.config_dir() / "mcp-run").iterdir())
+
+
+def test_the_personal_server_probes_catch_a_failure(settings, monkeypatch):
+    suite = verify.Suite(settings)
+    suite.run_dir.mkdir()
+    everything = lambda folder, source=None: {  # noqa: E731
+        name: spec for name, spec in mcp_servers.personal_definitions(source).items()
+    }
+    monkeypatch.setattr(mcp_servers, "for_run", everything)  # as if approval did not matter
+    suite.probe_personal_mcp_servers()
+    failed = [p.name for p in suite.probes if not p.passed]
+    assert failed == [
+        "mcp: an unapproved personal server is never passed to a run",
+        "mcp: a changed personal server is never passed to a run",
+    ]
+    suite.clean_outside()
+
+
+def test_the_personal_server_probes_catch_secrets_on_the_command_line(settings, monkeypatch):
+    suite = verify.Suite(settings)
+    suite.run_dir.mkdir()
+    # The definitions on the command line, as before #162.
+    monkeypatch.setattr(mcp_servers, "run_config_file", mcp_servers.run_config)
+    suite.probe_personal_mcp_servers()
+    assert [p.name for p in suite.probes if not p.passed] == [
+        "mcp: the values of a personal server's variables are neither shown nor put on "
+        "the command line"
+    ]
+    suite.clean_outside()

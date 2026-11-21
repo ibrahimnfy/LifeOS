@@ -138,7 +138,7 @@ def test_each_runner_has_its_own_suite_version(settings):
     assert capable.suite_version("sdk") > capable.suite_version("cli")
     report = {"runner": "sdk", "claude_version": "fake-claude 1.0", "all_passed": True,
               "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
-              "suite_version": capable.suite_version("cli"), "skills_verified": True}  # fmt: skip
+              "suite_version": capable.suite_version("cli")}  # fmt: skip
     capable.marker_path("sdk").write_text(json.dumps(capable.sign_marker(report)))
     capable.marker_path("cli").write_text(
         json.dumps(capable.sign_marker(report | {"runner": "cli"}))
