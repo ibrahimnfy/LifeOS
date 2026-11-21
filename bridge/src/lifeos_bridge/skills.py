@@ -12,13 +12,24 @@
 How they reach Claude Code without loosening anything else: runs keep
 ``--restricted``, which ignores every settings file (user, project, local)
 and so also every personal, project and plugin skill. The bridge copies the
-two ``skills`` and ``commands`` folders into snapshots in the private
-settings folder and passes each with ``--plugin-dir``: plugins that hold
-nothing but those files. No hooks, MCP servers, agents or settings ever go
-into them. The snapshots sit where sandboxed commands can neither read nor
-write, so a run cannot change the plugins it was started with. The settings
-JSON of such a run also switches off shell lines in skills and Claude Code's
+two ``skills`` and ``commands`` folders into copies of its own and passes
+each with ``--plugin-dir``: plugins that hold nothing but those files. No
+hooks, MCP servers, agents or settings ever go into them. The settings JSON
+of such a run also switches off shell lines in skills and Claude Code's
 bundled skills.
+
+**Where the copies are (#171).** In a folder of the bridge's own
+(``Settings.skill_copies_dir``, by default ``~/.local/share/lifeos/skill-copies``),
+outside the private settings folder, every allowed folder and the memory
+folder. A run may read its own copies, so a skill's supporting files
+(reference files, scripts) work: with the file tools (the copies are passed
+with ``--add-dir``) and from sandboxed commands (``allowRead``). It can
+never write there: the sandbox denies writes (``denyWrite``), the file tools
+are denied by rule, and the files are read-only. So a run cannot change the
+plugins it was started with, and nothing of the private settings folder
+becomes readable. The bridge executes nothing of a copy; a script in it
+runs only when the run starts it as an ordinary sandboxed command, through
+the gate and the audit log (``capable.build_policy``).
 
 **The copy is not byte for byte.** A skill's or command's frontmatter can
 ask Claude Code for more than text: ``hooks`` (programs that Claude Code
@@ -48,11 +59,11 @@ from pathlib import Path
 
 from . import commands
 from .claude import ClaudeError
-from .config import Settings, config_dir
+from .config import Settings, config_dir, default_skill_copies_dir
 
 PLUGIN = "folder"
 PERSONAL = "personal"
-SNAPSHOT_DIR = "skill-snapshots"
+LEGACY_DIR = "skill-snapshots"  # in the private settings folder, before #171
 PERSONAL_SNAPSHOTS = "personal"  # sub-folder: one copy per content, shared by all sessions
 PERSONAL_KEEP_SECONDS = 24 * 3600  # an unused older personal copy is removed after this
 MAX_FILE_BYTES = 1024 * 1024
@@ -60,7 +71,7 @@ MAX_TOTAL_BYTES = 20 * 1024 * 1024
 MAX_FILES = 500
 # Part of every snapshot's name: copies made before the frontmatter was rewritten are
 # never reused.
-FORMAT = b"sanitised-1"
+FORMAT = b"sanitised-2"
 # Settings of a run with skills (merged into the capable settings JSON).
 SETTINGS = {"disableSkillShellExecution": True, "disableBundledSkills": True}
 DESCRIPTIONS = {
@@ -137,13 +148,17 @@ def _files(base: Path) -> list[tuple[str, Path]]:
     return found
 
 
-def _contents(base: Path) -> list[tuple[str, bytes]]:
-    """What a snapshot of ``base`` holds: the files within the limits, frontmatter rewritten."""
+def _contents(base: Path) -> list[tuple[str, bytes, bool]]:
+    """What a snapshot of ``base`` holds: the files within the limits, frontmatter rewritten.
+
+    ``(relative path, content, whether the owner may execute the source)``.
+    """
     total = 0
-    contents: list[tuple[str, bytes]] = []
+    contents: list[tuple[str, bytes, bool]] = []
     for relative, source in _files(base):
         try:
             data = source.read_bytes()
+            executable = bool(source.stat().st_mode & 0o100)
         except OSError:
             continue
         if len(data) > MAX_FILE_BYTES:
@@ -155,28 +170,36 @@ def _contents(base: Path) -> list[tuple[str, bytes]]:
             parts = relative.split("/")
             is_skill = parts[0] == "skills" and len(parts) == 3 and parts[2] == "SKILL.md"
             data = sanitise(data, parts[1] if is_skill else None)
-        contents.append((relative, data))
+            executable = False
+        contents.append((relative, data, executable))
     return contents
 
 
-def _digest(contents: list[tuple[str, bytes]]) -> str:
+def _digest(contents: list[tuple[str, bytes, bool]]) -> str:
     digest = hashlib.sha256(FORMAT)
-    for relative, data in contents:
+    for relative, data, executable in contents:
         digest.update(relative.encode() + b"\0" + hashlib.sha256(data).digest())
+        digest.update(b"x" if executable else b"-")
     return digest.hexdigest()[:16]
 
 
-def _build(target: Path, plugin: str, contents: list[tuple[str, bytes]]) -> None:
+def _build(target: Path, plugin: str, contents: list[tuple[str, bytes, bool]]) -> None:
+    """Write one copy: folders for the owner only, files read-only (a script keeps its
+    execute bit, so the run can start it the way the skill says)."""
     target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     building = target.parent / f".{target.name}.{os.getpid()}"
     shutil.rmtree(building, ignore_errors=True)
     (building / ".claude-plugin").mkdir(parents=True, mode=0o700)
     manifest = {"name": plugin, "description": DESCRIPTIONS[plugin]}
     (building / ".claude-plugin" / "plugin.json").write_text(json.dumps(manifest))
-    for relative, data in contents:
+    (building / ".claude-plugin" / "plugin.json").chmod(0o400)
+    for relative, data, executable in contents:
         path = building / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
+        path.chmod(0o500 if executable else 0o400)
+    for folder in (building, *(p for p in building.rglob("*") if p.is_dir())):
+        folder.chmod(0o700)  # every folder, also the ones made on the way to a file
     try:
         os.replace(building, target)
     except OSError:
@@ -223,11 +246,20 @@ def check_prompt(prompt: str, offered: dict[str, set[str]]) -> str:
     )
 
 
-def snapshot(folder: Path, session_id: str, personal: Path | None = None) -> Path:
+def copies_root(root: Path | None = None) -> Path:
+    """The folder of the copies. Copies of an older bridge, which lay in the private
+    settings folder, are removed: they are never used again."""
+    shutil.rmtree(config_dir() / LEGACY_DIR, ignore_errors=True)
+    return default_skill_copies_dir() if root is None else root
+
+
+def snapshot(
+    folder: Path, session_id: str, personal: Path | None = None, root: Path | None = None
+) -> Path:
     """The plugin copy of the folder's skills for one session (reused while unchanged)."""
     base = _folder_base(folder, personal)
     contents = _contents(base) if base is not None else []
-    root = config_dir() / SNAPSHOT_DIR
+    root = copies_root(root)
     target = root / f"{session_id}-{_digest(contents)}"
     if target.is_dir():
         return target
@@ -238,7 +270,7 @@ def snapshot(folder: Path, session_id: str, personal: Path | None = None) -> Pat
     return target
 
 
-def personal_snapshot(base: Path) -> Path | None:
+def personal_snapshot(base: Path, root: Path | None = None) -> Path | None:
     """The plugin copy of the owner's personal skills; ``None`` when there is none.
 
     One copy per content, shared by all sessions. Older copies stay for a day
@@ -250,7 +282,7 @@ def personal_snapshot(base: Path) -> Path | None:
         return None
     if not contents:
         return None
-    root = config_dir() / SNAPSHOT_DIR / PERSONAL_SNAPSHOTS
+    root = copies_root(root) / PERSONAL_SNAPSHOTS
     target = root / _digest(contents)
     if not target.is_dir():
         _build(target, PERSONAL, contents)
@@ -288,12 +320,14 @@ def for_run(
     folder_dir = personal_dir = None
     names: dict[str, set[str]] = {}
     if folder_skills:
-        folder_dir = snapshot(folder, session_id, settings.personal_claude_dir)
+        folder_dir = snapshot(
+            folder, session_id, settings.personal_claude_dir, settings.skill_copies_dir
+        )
         names[PLUGIN] = {
             entry["name"] for entry in commands.list_commands(folder, settings.personal_claude_dir)
         }
     if personal:
-        personal_dir = personal_snapshot(settings.personal_claude_dir)
+        personal_dir = personal_snapshot(settings.personal_claude_dir, settings.skill_copies_dir)
         if personal_dir is not None:
             names[PERSONAL] = personal_names(settings.personal_claude_dir)
     return Offer(folder_dir, personal_dir, names)

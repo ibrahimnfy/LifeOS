@@ -81,7 +81,7 @@ def test_the_snapshot_holds_only_the_folders_skills_and_commands(settings, tmp_p
     outside.write_text("secret")
     os.symlink(outside, folder / ".claude" / "commands" / "linked.md")
     plugin = skills.snapshot(folder, "session-1")
-    assert plugin.is_relative_to(capable.config_dir())
+    assert plugin.is_relative_to(settings.skill_copies_dir)  # its own folder (#171)
     files = sorted(p.relative_to(plugin).as_posix() for p in plugin.rglob("*") if p.is_file())
     assert files == [
         ".claude-plugin/plugin.json",

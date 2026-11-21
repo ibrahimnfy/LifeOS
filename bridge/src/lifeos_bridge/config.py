@@ -30,6 +30,10 @@ DEFAULT_SDK_IDLE_MINUTES = 15
 DEFAULT_SDK_MAX_LIVE = 3
 
 
+def default_skill_copies_dir() -> Path:
+    return Path.home() / ".local" / "share" / "lifeos" / "skill-copies"
+
+
 class ConfigError(Exception):
     """The configuration is missing, unsafe or invalid."""
 
@@ -75,6 +79,10 @@ class Settings:
     # own, so it never writes into the real ones.
     personal_claude_dir: Path = field(default_factory=lambda: Path.home() / ".claude")
     personal_mcp_file: Path = field(default_factory=lambda: Path.home() / ".claude.json")
+    # Where the bridge keeps the copies of skills that capable runs are started with
+    # (#171): a folder of its own that a run may read and never write. Never inside
+    # the private settings folder, an allowed folder or the memory folder.
+    skill_copies_dir: Path = field(default_factory=lambda: default_skill_copies_dir())
     # Extra folders the owner allowed. The file is re-read on every use, so
     # changes made through the bridge apply without a restart.
     allowed_paths: tuple[Path, ...] = ()
@@ -200,6 +208,13 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             f"LIFEOS_ASK_DIR must be an absolute path or start with ~, got {raw_ask_dir!r}"
         )
 
+    raw_copies = values.get("LIFEOS_SKILL_COPIES_DIR") or ""
+    copies = Path(raw_copies).expanduser() if raw_copies else default_skill_copies_dir()
+    if not copies.is_absolute():
+        raise ConfigError(
+            f"LIFEOS_SKILL_COPIES_DIR must be an absolute path or start with ~, got {raw_copies!r}"
+        )
+
     runner = (values.get("LIFEOS_RUNNER") or "cli").strip().lower()
     if runner not in RUNNERS:
         raise ConfigError(f"LIFEOS_RUNNER must be one of: {', '.join(RUNNERS)}")
@@ -239,6 +254,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         ),
         max_file_mb=_int_setting(values, "LIFEOS_MAX_FILE_MB", 50, 1, 200),
         allowed_paths_file=config_dir(environ) / ALLOWED_PATHS_FILE_NAME,
+        skill_copies_dir=copies,
     )
 
 
