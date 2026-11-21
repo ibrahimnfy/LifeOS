@@ -190,3 +190,89 @@ def test_the_coach_on_the_sdk_runner_is_counted_apart(settings, brain, auth, mon
     jobs = {j["job"]: j for j in routing.overview(sdk)["jobs"]}
     assert jobs["chat"]["usage"]["today"]["runs"] == 0
     assert memory.now_local()  # the memory was not touched
+
+
+# ---- #155: streamed compaction, keep-alives, protected compaction -------------------
+
+
+@pytest.fixture
+def slow_compaction(monkeypatch):
+    """The compaction turn takes a moment (the stand-in claude itself is quick)."""
+    import asyncio
+
+    from lifeos_bridge import claude
+
+    real = claude.run
+    started = {"compacting": False}
+
+    async def run(settings, prompt, **kwargs):
+        if "about to be compacted" in prompt:
+            started["compacting"] = True
+            await asyncio.sleep(0.6)
+        return await real(settings, prompt, **kwargs)
+
+    monkeypatch.setattr(claude, "run", run)
+    return started
+
+
+def events_of(text):
+    found, event = [], None
+    for line in text.splitlines():
+        if line.startswith("event: "):
+            event = line[7:]
+        elif line.startswith("data: "):
+            found.append((event, json.loads(line[6:])))
+    return found
+
+
+def test_a_streamed_message_reports_the_compaction_with_keepalives_first(
+    coach_client, auth, answers, monkeypatch, slow_compaction
+):
+    from lifeos_bridge import app as app_module
+
+    monkeypatch.setattr(app_module, "KEEPALIVE_SECONDS", 0.1)
+    monkeypatch.setattr(coach_chat, "LIMIT_BYTES", 10)
+    say(coach_client, auth, "first")
+    answers(LEARNED)
+    response = say(coach_client, auth, "next", stream=True)
+    events = events_of(response.text)
+    names = [event for event, _ in events]
+    assert names.count("keepalive") >= 2 and names.index("keepalive") < names.index("compacted")
+    compacted = dict(events)["compacted"]
+    assert (
+        compacted["facts"] == ["courses/example-course.md", "profile.md"] and compacted["summary"]
+    )
+    assert compacted["session_id"] == coach_chat.state()["session_id"]
+    assert names.index("compacted") < names.index("session") < names.index("done")
+    assert dict(events)["session"]["session_id"] == compacted["session_id"]
+
+
+def test_a_cancel_never_stops_the_compaction(
+    coach_client, auth, brain, answers, monkeypatch, slow_compaction
+):
+    import threading
+    import time
+
+    monkeypatch.setattr(coach_chat, "LIMIT_BYTES", 10)
+    say(coach_client, auth, "first")
+    old = coach_chat.state()["session_id"]
+    answers(LEARNED)
+    results = {}
+    worker = threading.Thread(
+        target=lambda: results.setdefault("reply", say(coach_client, auth, "x"))
+    )
+    worker.start()
+    deadline = time.time() + 5
+    while not slow_compaction["compacting"] and time.time() < deadline:
+        time.sleep(0.02)
+    time.sleep(0.1)
+    refused = coach_client.post(f"/sessions/{old}/cancel", headers=auth)
+    assert refused.status_code == 409 and refused.json()["error"] == "compaction_running"
+    now = coach_client.post(f"/sessions/{old}/messages", headers=auth,
+                            json={"prompt": "urgent", "when": "now"})  # fmt: skip
+    assert now.status_code == 202 and now.json()["interrupted_current_run"] is False
+    worker.join(10)
+    compacted = results["reply"].json()["compacted"]
+    assert compacted["summary"] is True and compacted["facts"]  # completed, not cut short
+    assert coach_chat.state()["last_compaction"]["result"] == "ok"
+    assert "Talked about mornings" in (brain / "coach" / "conversation.md").read_text()
