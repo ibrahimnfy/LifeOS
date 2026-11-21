@@ -1478,18 +1478,65 @@ loop runs one **course-resources job** (Sonnet with the Opus advisor, see
 "Model routing per job"), one course at a time. The run's permissions are
 the profile in [`permission-policy.md`](permission-policy.md) section 9.10:
 it sees only a copy of the syllabus, may read and search the web, writes
-nothing, and proposes a list. **The bridge downloads** by its own rules:
-HTTPS, hosts on the allow-list of open-access publishers plus
-`LIFEOS_RESOURCE_HOSTS`, no private addresses, PDF or EPUB only, the size
-limit of course files, at most ten per run. Paid books, web pages and other
-hosts are listed only; piracy sources are dropped. A downloaded address,
-or one listed for a final reason, is never fetched again; items listed
-because of the per-run limit, a failed or too-large download, an
-unreachable host or a host not (yet) on the list are tried again at the
-next run. A run that failed counts the syllabus as read (no loop); ask
-again from the app. `"last_result"` is `ok`, `web_denied` (the web tools
-were refused; nothing stored), `folder_not_allowed`, `folder_missing`, or
-a run error code.
+nothing, and proposes a list. **The bridge downloads** by its own rules
+(#160; there is no host allow-list any more):
+
+- **Any public HTTPS host.** No plain HTTP, no proxy; private and local
+  addresses are refused (the name is resolved first, and the address
+  actually connected to is checked again); every redirect hop passes the
+  same checks. Piracy sources are dropped, not even listed. Paid books
+  (and items of kind `other`) are listed only.
+- **PDF or EPUB, decided by the file's first bytes**, never by its name or
+  the server's content type: a PDF starts with `%PDF-`; an EPUB is a zip
+  whose first entry is `mimetype`, stored uncompressed, holding
+  `application/epub+zip` (as the EPUB container format requires). Anything
+  else is discarded and listed as `not_a_document`. The extension of the
+  saved file comes from that check.
+- **A size limit per file**, `LIFEOS_RESOURCE_MAX_FILE_MB` in
+  `~/.config/lifeos/env` (default 200, 1 to 2000), enforced while
+  streaming: a larger reported size stops before the body, a missing or
+  wrong one changes nothing; a partial file is removed. At most ten fetches
+  per run.
+- **Plain files**: written as `<title>.pdf|.epub` with mode 600 (never
+  executable, never through a link) and never opened, parsed or run by the
+  bridge afterwards.
+- **The owner's existing resource folders are checked first.** Their paths
+  are in `~/.config/lifeos/resource_folders`, one per line (absolute or
+  starting with `~`; `#` comments and empty lines skipped; relative lines
+  ignored). **Until that file exists nothing is downloaded** (items are
+  listed as `folders_not_named`, and the view's `"folders_named"` is
+  false); an empty file means "there are none". When the file appears, one
+  more run (without the model) tries the waiting items. The bridge only
+  reads names and sizes there, never opens or writes a file.
+- **Matching rule for "already present"** (listed as `already_present`,
+  final): the owner's folders and the course's own folder are walked (no
+  links followed, hidden entries skipped, at most 20 000 entries) and the
+  PDF and EPUB files in them are compared after normalising names (lower
+  case, accents and Turkish dotless i folded, punctuation and `_`/`-` turned
+  into single spaces, extension dropped). An item is present when (1) its
+  title equals a file's name, or one contains the other as whole words and
+  the shorter has at least three words; or (2) the file name in its address
+  equals a file's name, unless that name is generic (`download`, `document`
+  …), shorter than six characters or digits only; or (3) the server reports
+  a size (Content-Length) of at least 64 KB that equals a local file's size
+  exactly (checked after connecting, before any of the body is read). (1)
+  and (2) need no request at all. A book downloaded in the run counts for
+  later items of the same run.
+- **One summary notification per day at most**: when no run is going or
+  waiting, the bridge's loop sends "LifeOS: course resources" / "N course
+  resources were downloaded." (fixed text, a count only) through the
+  notification script and as a "courses" push (the count sealed, the phone
+  shows its own fixed text). Downloads after that day's summary are in the
+  next day's. No approval step.
+
+A downloaded address, or one listed for a final reason, is never fetched
+again; items listed because of the per-run limit, a failed or too-large
+download, an unreachable host, folders not named yet (or a host that was not
+on the old allow-list) are tried again at the next run. A run that failed
+counts the syllabus as read (no loop); ask again from the app.
+`"last_result"` is `ok`, `web_denied` (the web tools were refused; nothing
+stored), `folder_not_allowed`, `folder_missing`, `no_syllabus`, or a run
+error code. `LIFEOS_RESOURCE_HOSTS` is no longer read.
 
 - In the course folder: `resources/` with the downloaded files and
   `resources/sources.md` (per item: title, link, kind, licence, why it is
@@ -1498,10 +1545,12 @@ a run error code.
   null, "items": [{"title", "url", "kind": "open_access_book" |
   "vendor_documentation" | "public_material" | "paid" | "other",
   "licence", "why_legal", "reference", "status": "downloaded" | "listed",
-  "file", "reason": null | "paid" | "other" | "host_not_allowed" |
-  "not_https" | "private_address" | "not_a_document" | "too_large" |
-  "download_failed" | "later" | …}], "running", "pending", "last_run",
-  "last_result"}`. Never starts a run.
+  "file", "reason": null | "paid" | "other" | "folders_not_named" |
+  "already_present" | "not_https" | "private_address" | "not_a_document" |
+  "too_large" | "download_failed" | "unreachable" | "later" | …}],
+  "running", "pending", "folders_named", "last_run", "last_result"}`.
+  Never starts a run. Local paths and file names from the owner's folders
+  never appear here, in `sources.md` or in the audit log.
 - `POST /courses/{id}/resources/refresh` → `202` with `"reason": "queued"`
   and the view above; `429 "too_soon"` within ten minutes of the last run;
   `409 no_syllabus`; `404 course_not_found`.
@@ -2027,6 +2076,11 @@ curl -s -H "$H" $B/courses/<id>/resources        # "syllabus": {"name"}; "pendin
 curl -s -H "$H" $B/courses/<id>/resources        # "items": downloaded or listed, "last_result": "ok"
 ls "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources     # sources.md and the downloaded PDFs/EPUBs
 grep -c 'Listed only' "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources/sources.md
+# before ~/.config/lifeos/resource_folders exists: "folders_named": false, nothing downloaded
+grep -o 'folders not named\|already present' "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources/sources.md | sort | uniq -c
+ls -l "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources/*.pdf   # -rw------- : never executable
+file "$MOODLE_DOWNLOAD_DIR"/<course folder>/resources/*        # PDF or EPUB documents; sources.md is text
+# after a day with downloads: one "LifeOS: course resources" notification, counts only
 curl -s -X POST -H "$H" $B/courses/<id>/resources/refresh   # 429 "too_soon" within ten minutes of a run
 curl -s -H "$H" $B/models/routing | grep -o '"course_resources"[^}]*'   # model sonnet, advisor opus; runs today 1
 ```
