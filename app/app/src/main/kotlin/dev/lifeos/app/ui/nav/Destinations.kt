@@ -30,6 +30,14 @@ object Routes {
 
     fun course(id: Long): String = "more/course/$id"
 
+    // ---- memory consolidation (#151) and projects (#152)
+    const val CONSOLIDATION = "today/consolidation"
+    const val PROJECTS = "more/projects"
+    const val PROJECT = "more/project/{project}"
+    const val PROJECT_ARG = "project"
+
+    fun project(id: String): String = "more/project/${android.net.Uri.encode(id)}"
+
     // ---- assignment detail (#129): by its id, or (id 0) by a deadline's name and due time
     const val ASSIGNMENT = "more/course/{course}/assignment/{assignment}?name={name}&due={due}"
     const val ASSIGNMENT_ARG = "assignment"
@@ -51,6 +59,7 @@ object Routes {
         MoreSection.CALENDAR -> CALENDAR
         MoreSection.COURSES -> COURSES
         MoreSection.ACTIVITY -> ACTIVITY
+        MoreSection.PROJECTS -> PROJECTS
         else -> "more/section/${section.id}"
     }
 }

@@ -103,6 +103,9 @@ class Looks private constructor(private val byCourse: Map<Long, Look>, private v
         return task.project?.takeIf { it.isNotBlank() }?.let { named(it, project = true) }
     }
 
+    /** A project's look (#152): the same as on its tasks (`project` field), always with the folder icon. */
+    fun project(name: String): Look = named(name, project = true)
+
     /**
      * The course a task's `course` field names: its course folder (`ex-101-5`, the bridge's
      * short name plus course id), its id, short name or name, ignoring case and spaces.

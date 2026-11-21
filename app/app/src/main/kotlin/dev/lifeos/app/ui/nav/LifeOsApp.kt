@@ -45,6 +45,11 @@ import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
 import dev.lifeos.app.ui.screens.ChatListScreen
 import dev.lifeos.app.ui.screens.NewChatSheet
+import dev.lifeos.app.ui.screens.ConsolidationScreen
+import dev.lifeos.app.ui.screens.ProjectScreen
+import dev.lifeos.app.ui.screens.ProjectsScreen
+import dev.lifeos.app.data.Folder
+import dev.lifeos.app.data.SessionSummary
 import dev.lifeos.app.ui.screens.SessionsScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
 import dev.lifeos.app.ui.screens.AllGradesScreen
@@ -185,6 +190,11 @@ fun LifeOsApp(
             }
             Destination.Sleep -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
             // A new release (#138): its prompt sits at the top of Today; ask again in case the app was closed.
+            // A consolidation proposal waits (#151): its screen, below Today.
+            is Destination.Consolidation -> {
+                navController.openTab(Tab.TODAY)
+                navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true }
+            }
             Destination.AppUpdate -> {
                 core.checkUpdate()
                 navController.openTab(Tab.TODAY)
@@ -225,6 +235,7 @@ fun LifeOsApp(
                     onPair = openPair,
                     onConnectionClick = openSettings,
                     onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
+                    onOpenConsolidation = { navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true } },
                 )
             }
             composable(Routes.COACH) {
@@ -298,6 +309,42 @@ fun LifeOsApp(
                     onBack = { navController.popBackStack() },
                     onConnectionClick = openSettings,
                     onPair = openPair,
+                )
+            }
+            // ---- memory consolidation (#151) and projects (#152)
+            composable(Routes.CONSOLIDATION) {
+                ConsolidationScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
+            }
+            composable(Routes.PROJECTS) {
+                ProjectsScreen(
+                    core = core,
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                    onOpenProject = { navController.navigate(Routes.project(it)) { launchSingleTop = true } },
+                )
+            }
+            composable(
+                route = Routes.PROJECT,
+                arguments = listOf(navArgument(Routes.PROJECT_ARG) { type = NavType.StringType }),
+            ) { entry ->
+                ProjectScreen(
+                    core = core,
+                    projectId = entry.arguments?.getString(Routes.PROJECT_ARG).orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                    // "Ask about this project": a new chat in its folder, through the chat's own entry point.
+                    onAsk = { project ->
+                        project.folder?.let { folder ->
+                            core.chat.newChat(Folder(folder, project.label))
+                            openChat()
+                        }
+                    },
+                    onOpenSession = { project, session ->
+                        core.chat.open(SessionSummary(session.id, session.title, folder = project.folder.orEmpty(), lastActivity = session.lastActivity))
+                        openChat()
+                    },
                 )
             }
             composable(Routes.ACTIVITY) {

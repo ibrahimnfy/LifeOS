@@ -697,4 +697,59 @@
     <string name="chat_fail_command_unknown">Not sent on: a message that starts with “/” must name one of this folder\'s skills or commands.</string>
     <string name="chat_fail_skills_off">This folder\'s skills cannot be used right now: the computer\'s check for them has not passed. Switch them off for this session, or try again later.</string>
     <string name="chat_fail_setting_failed">That could not be changed on the computer.</string>
+    <!-- Memory consolidation review (#151) -->
+    <string name="memory_review_title">Memory changes to review</string>
+    <plurals name="memory_review_waiting">
+        <item quantity="one">The nightly review proposes %d change to your memory. Nothing is written until you approve it.</item>
+        <item quantity="other">The nightly review proposes %d changes to your memory. Nothing is written until you approve them.</item>
+    </plurals>
+    <string name="memory_review_open">Review</string>
+    <string name="memory_review_screen">Memory review</string>
+    <string name="memory_review_explain">Proposed by the nightly review on your computer. Approved changes are written to the memory in one commit; rejected ones are not proposed again unchanged.</string>
+    <string name="memory_review_prepared">Prepared: %1$s</string>
+    <string name="memory_review_none">Nothing waits for your approval.</string>
+    <string name="memory_approve_all">Approve all (%1$d)</string>
+    <string name="memory_reject_all">Reject all</string>
+    <string name="memory_approve">Approve</string>
+    <string name="memory_reject">Reject</string>
+    <string name="memory_op_file_capture">File a capture</string>
+    <string name="memory_op_merge_facts">Merge two facts</string>
+    <string name="memory_op_add_fact">Add a fact</string>
+    <string name="memory_op_other">Change</string>
+    <string name="memory_captured_at">Captured %1$s</string>
+    <string name="memory_keep">Keep</string>
+    <string name="memory_drop">Remove</string>
+    <string name="memory_status_applied">Applied</string>
+    <string name="memory_status_rejected">Rejected</string>
+    <string name="memory_status_failed">Could not be applied</string>
+    <string name="memory_status_failed_because">Could not be applied: %1$s</string>
+    <string name="memory_review_partly_failed">Some changes could not be applied; the others were written.</string>
+    <string name="memory_review_changed">The memory changed on the computer meanwhile, so nothing was written. Look at the current proposal again.</string>
+    <string name="memory_review_gone">This proposal is no longer open.</string>
+    <string name="memory_review_failed">Not sent. Try again when the computer is connected.</string>
+    <string name="memory_run_now">Look for changes now</string>
+    <string name="memory_run_running">The computer is preparing a proposal.</string>
+    <string name="memory_last_run">Last review: %1$s</string>
+    <string name="memory_run_started">The computer is preparing a proposal; you will be notified when it is ready.</string>
+    <string name="memory_run_waiting">A proposal is already waiting or being prepared.</string>
+    <string name="memory_run_too_soon">A review ran a short while ago. Try again later.</string>
+
+    <!-- Projects (#152) -->
+    <string name="projects_empty">No projects yet. They come from the project files in the memory and the allowed folders.</string>
+    <plurals name="projects_open_tasks">
+        <item quantity="one">%d open task</item>
+        <item quantity="other">%d open tasks</item>
+    </plurals>
+    <string name="projects_activity_line">%1$s · %2$s</string>
+    <string name="project_status_active">Active</string>
+    <string name="project_status_paused">Paused</string>
+    <string name="project_status_done">Done</string>
+    <string name="project_ask">Ask about this project</string>
+    <string name="project_no_folder">This project has no folder on the computer, so a chat cannot start in it.</string>
+    <string name="project_folder_missing">The project\'s folder is not on the computer any more.</string>
+    <string name="project_state">State</string>
+    <string name="project_tasks">Open tasks</string>
+    <string name="project_no_tasks">No open tasks.</string>
+    <string name="project_sessions">Recent chats</string>
+    <string name="project_session_untitled">Untitled chat</string>
 </resources>

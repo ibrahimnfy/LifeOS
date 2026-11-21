@@ -60,7 +60,7 @@ private const val VISIBLE_TODAY_ROWS = 3
  * computer for a new plan (a model run).
  */
 @Composable
-fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: () -> Unit, onPair: () -> Unit) {
+fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: () -> Unit, onPair: () -> Unit, onOpenConsolidation: () -> Unit = {}) {
     val planModel = rememberLoad(core, Endpoints.plan) { false }
     val agendaModel = rememberLoad(core, Endpoints.agenda) { false }
     val planState by planModel.state.collectAsStateWithLifecycle()
@@ -95,6 +95,7 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                 val agendaCopy = (agendaState as? UiState.Content<Agenda>)?.takeIf { it.fromCache && !it.refreshing }
                 (planCopy?.savedAtMillis ?: agendaCopy?.savedAtMillis)?.let { SavedCopyLine(it) }
                 UpdateCard(core) // #138: only while a newer release is waiting
+                ConsolidationCard(core, onOpen = onOpenConsolidation) // #151: only while a proposal waits
 
                 if (planState is UiState.Loading) SkeletonCard(1)
                 // Without a plan (or one without messages) the card still offers the run.

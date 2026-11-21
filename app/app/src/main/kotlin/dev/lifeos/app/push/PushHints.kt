@@ -55,6 +55,9 @@ sealed interface Destination {
     /** The "update ready" prompt (#138). */
     data object AppUpdate : Destination
 
+    /** A memory consolidation proposal waits for approval (#151). */
+    data class Consolidation(val proposalId: String? = null) : Destination
+
     fun encode(): String = when (this) {
         is Chat -> "chat:$sessionId"
         is Course -> "course:$courseId"
@@ -67,6 +70,7 @@ sealed interface Destination {
         Notice -> "notice"
         Sleep -> "sleep"
         AppUpdate -> "app_update"
+        is Consolidation -> if (proposalId.isNullOrEmpty()) "consolidation" else "consolidation:$proposalId"
     }
 
     companion object {
@@ -84,6 +88,8 @@ sealed interface Destination {
             text == "notice" -> Notice
             text == "sleep" -> Sleep
             text == "app_update" -> AppUpdate
+            text == "consolidation" -> Consolidation()
+            text.startsWith("consolidation:") -> Consolidation(text.removePrefix("consolidation:").take(MAX_REF).ifEmpty { null })
             else -> null
         }
 
@@ -173,6 +179,7 @@ object PushHints {
             "reminder" -> if (hint.ref.isNotEmpty()) Destination.Reminder(hint.ref) else Destination.Today
             "notice" -> Destination.Notice
             "app_update" -> Destination.AppUpdate
+            "consolidation" -> Destination.Consolidation(hint.ref.ifEmpty { null })
             else -> Destination.Today
         }
     }

@@ -17,7 +17,7 @@ writes made offline. **Activity** shows the phone's screen time (usage
 access) and sends it to the computer once a day. **Chat** sends a message
 to the assistant on the computer and shows the answer as it is written, and
 **Sessions** lists the Claude Code sessions there and continues one. The
-coach conversation and Projects are still placeholders.
+coach conversation is still a placeholder.
 
 ## Requirements
 
@@ -388,7 +388,22 @@ with plain HTTPS requests.
     LifeOS left out) as bars.
   - Below both: the switch "Send screen time and sleep once a day" with the
     state of sending and "Send now".
-- **More:** Projects is a placeholder screen.
+- **More → Projects** (#152, `GET /projects`): the projects from the
+  memory's project files and the allowed folders, newest activity first.
+  Each has its own colour, folder icon and ornament (the same look as its
+  tasks), its status (active / paused / done), a short summary, the number
+  of open tasks and its last activity. A project's page shows its state,
+  open tasks and recent chats; **Ask about this project** starts a new chat
+  in the project's folder (through the chat's "New chat" entry point), and
+  a recent chat continues where it left off. A project without an existing
+  folder says why it cannot start a chat.
+- **Memory review** (#151, `GET /memory/consolidation`): when the nightly
+  consolidation proposes changes, Today shows "Memory changes to review";
+  its screen lists each change (file a capture, merge two facts, add a fact)
+  with the file, the text and why, and **Approve** / **Reject** per change
+  or for all. Approved changes are written in one commit on the computer.
+  With nothing waiting, **Look for changes now** asks for a proposal. The
+  proposal's push (Coach channel) opens this screen.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
   (immediately / 1 minute / 5 minutes), **Models** (see below),
@@ -746,8 +761,8 @@ The pairing text is the key. Never put it into a file, a log or a report.
 ## What is not in it yet
 
 - Chat: tables in answers (shown as text). Sessions: groups,
-  renaming, pinning and reminders. The coach conversation and Projects are
-  placeholders.
+  renaming, pinning and reminders. The coach conversation is a
+  placeholder.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course".
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -893,6 +908,43 @@ Needs a paired phone, the computer running, and the course site set up.
 4. Start again and come back without signing in, or wait more than ten
    minutes: "This sign-in attempt has run out". Nothing changed on the
    computer.
+
+### Memory review (#151)
+
+Needs a paired phone and the computer running.
+
+1. Wait for the nightly consolidation, or start one on the computer
+   (`POST /memory/consolidation/run`; after a decided proposal, the review
+   screen's **Look for changes now** does the same). When a proposal is
+   ready, a Coach notification appears; tap it: "Memory review" opens.
+   Today shows "Memory changes to review" with the count.
+2. Reject one change: it shows "Rejected". Approve one: "Applied"; the
+   memory folder has one new commit with that change.
+3. **Approve all (n)** applies the rest in one commit; the Today card
+   disappears.
+4. Edit the named topic file on the computer between the proposal and the
+   approval: the screen says the memory changed meanwhile and nothing was
+   written.
+
+On an emulator, the `sample_data` test aid shows a sample proposal with
+three changes; approving and rejecting change it in memory until the app
+closes.
+
+### Projects (#152)
+
+Needs a paired phone, the computer running, and project files or allowed
+folders.
+
+1. More → **Projects**: every project with its colour and folder icon,
+   status, summary, open tasks and last activity, newest first; a task of
+   the project on the Tasks screen has the same colour.
+2. Open a project with a folder: state, open tasks, recent chats. Tap
+   **Ask about this project**: the Chat tab opens a new chat whose folder
+   is the project's; ask "What is the state of this project?" and the
+   answer reads that folder.
+3. Tap a recent chat: it continues in its folder.
+4. A project with only a memory file (no folder) says it has no folder on
+   the computer and offers no chat.
 
 ### Coach questions, nudges and settings (#76)
 
