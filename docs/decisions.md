@@ -275,6 +275,28 @@ a new entry is added that says what changed and why.
 - **Use:** capable runs of that folder only, exactly the approved unchanged servers via `--mcp-config` with `--strict-mcp-config`, allow rule `mcp__<name>__*`, every run with servers audited.
 - **Stricter (security, owner may relax):** approved servers wait for the check with the MCP probes (suite version 4); until then capable requests in that folder are refused (`503 mcp_unavailable`) instead of running without them. Project hooks and project settings stay off.
 
+### The SDK approval probe that failed (agent, 2026-11-21, #106 follow-up)
+- **A probe defect, not a broken guardrail.** "A confirmation never lets a command out of the sandbox" deleted a file **inside the run folder**. A plain, confirmed `rm` may legitimately delete there inside the sandbox, for example when the model retries without the request to leave the sandbox after the bridge refused it. It also passed when the model made no call at all. Observed with the real CLI on the SDK path (7 short runs): the bridge refused every call that asked to leave the sandbox; in one of the old-scenario runs the model made no deletion call at all (a false pass).
+- **Fix:** the target is now a file outside the sandbox, so only a real escape can remove it. The SDK approval probes run until the needed call was made (at most 3 tries); otherwise they are inconclusive, the check counts as not run, and it is retried. Details always say what was observed. Suite versions are per runner (`cli` 4, `sdk` 5), so only the SDK suite reruns.
+
 ### Implementation choices for the consolidation proposal (agent, #150 and #83, 2026-11-21; cheap to change)
 - **Three kinds of operation**: file an inbox capture into an existing topic file (as the owner's words; the original kept in `.trash/inbox-filed.md`), merge duplicate facts (the dropped one is marked superseded, never erased; an owner fact never yields to an inferred one), add an inferred fact through `facts.py`. Creating new topic files is not proposed yet.
 - **Nightly from 02:00, once a day, only when the inbox has captures or the memory changed since the last run, never while a proposal waits**; the proposal stays in the private config; approved operations go into one commit by `lifeos-consolidation`; rejections are remembered by fingerprint. This completes the remaining criterion of #83 (inferred facts as part of the approved proposal); the earlier entry "The consolidation run (trigger B) is not built" is superseded.
+
+### Implementation choices for history, queue, send now and stop in the app (agent, #94; cheap to change)
+- **Earlier messages** load when the conversation is scrolled to its top (and by a tap on "Earlier messages"), one page of the bridge's default size at a time; they are held in memory only while that conversation is shown, and a fresh read of the conversation (after a run the app did not receive) starts again from the last page.
+- **A message sent during a run uses the ordinary message request** and is shown under "Waiting to be sent" once the bridge answered with its place in the line. If the bridge answers it at once instead (the run had just ended), it simply becomes the current message.
+- **"Send now" acts on a waiting message** as the design says, although the bridge only knows `when: now` for a new message: the app sends the text again with it and then removes the old entry. The message is never lost that way; at worst it is listed twice and one can be removed.
+- **Stop and send now ask first** with the sentence the owner asked for ("changes it has already made to files are kept"); a run the owner stopped ends with that note instead of a failure with "Retry".
+- **After the current answer the waiting messages are followed by asking** (every five seconds while the conversation is on screen): the bridge answers them in the background, so their answers appear whole and without approval or question cards.
+
+### Implementation choices for files in chat (agent, #96; cheap to change)
+- **File cards sit under the answer that offered them** and use the existing relay download of course files (`RelayDownload` into the Downloads collection) and the same "Open"; no second download path was written.
+- **A card stops offering the download a minute before the bridge's 15 minutes are over** and then asks to request the file again; a refused file gets a card with the reason in the app's language (too large, outside the allowed folders, hidden, too many in one answer, other).
+- **Answers read from the conversation later show the file's name only**: the bridge keeps offers in memory and the conversation only has the marker line.
+
+### Implementation choices for "/" commands and the model picker in the app (agent, #95; cheap to change)
+- **The model control is a pill above the composer** (next to the read-only pill); the header shows folder, model and effort but is not itself the control: the shared top bar has no room for a third action next to Sessions and New chat.
+- **"The default model setting" is the existing Settings → Models screen** (#124), whose "Chat sessions" job is that default; no second setting was added. The conversation's sheet names it.
+- **Commands are asked for only when a message starts with "/"** and are never cached on the phone. The list and the colouring need the skills switch of the session to be on and the bridge's check to have passed (`enabled`); in every other case one line says why. The app does not rewrite the message: the bridge adds its own prefix.
+- **A conversation restored after a start learns its model from the session list** (there is no request for a single session).

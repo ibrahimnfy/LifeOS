@@ -5,18 +5,25 @@ import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.relay.AnswerEvent
 import dev.lifeos.app.relay.RelayResponse
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -25,13 +32,16 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * DEBUG builds only, part of the `sample_data` test aid (see [TestAids]): Chat and Sessions
- * without a computer. Folders, sessions and a conversation come from
- * `src/debug/assets/sample-chat.json`; a sent message is answered piece by piece with the
- * invented answer there. Nothing is sent anywhere.
+ * without a computer. Folders and sessions come from `src/debug/assets/sample-chat.json`;
+ * conversations are kept in memory while the app runs and behave like the bridge's: a sent
+ * message is answered piece by piece with the invented answer, a message sent during a run
+ * waits in line, a run can be stopped. Nothing is sent anywhere.
  *
  * A message that contains one of these words shows another state instead:
  * "in use" (the session is open on the computer), "fail" (the run breaks off after a few
  * words), "offline" (nothing leaves the phone), "silent" (the answer stops arriving),
+ * "slow" (the answer takes half a minute, time enough to queue and stop),
+ * "file" (the answer offers a small file for download and names one that is too large),
  * "delete" and "push" (the run waits for an approval; the first is a deletion), "choose"
  * (the run waits for an answer to two questions). With "hurry" the wait lasts 20 seconds
  * instead of ten minutes.
@@ -40,90 +50,272 @@ internal class SampleChat(private val context: Context) {
     private val data: JsonObject by lazy {
         Json.parseToJsonElement(context.assets.open("sample-chat.json").use { it.readBytes().decodeToString() }).jsonObject
     }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** One conversation as the bridge would hold it. */
+    private inner class Session(seeded: Boolean) {
+        val exchanges = mutableListOf<Pair<String, String>>()
+        val queue = mutableListOf<Pair<String, String>>()
+        var running = false
+        var skills = true
+        var paused: String? = null
+        var stop = CompletableDeferred<Unit>()
+
+        init {
+            if (seeded) {
+                for (item in data.getValue("history").jsonArray) {
+                    exchanges += item.jsonObject.getValue("user").jsonPrimitive.content to item.jsonObject.getValue("assistant").jsonPrimitive.content
+                }
+            }
+        }
+    }
+
+    private val sessions = ConcurrentHashMap<String, Session>()
+    private fun session(id: String) = sessions.getOrPut(id) { Session(seeded = id != NEW) }
 
     /** Questions and approvals a sample run waits for, by id. */
     private val waiting = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private var asked = 0
+    private var queued = 0
 
     /** The answer to a plain request, or null when it is not one of Chat's. */
-    fun request(method: String, path: String, body: JsonElement?): RelayResponse? {
-        val interaction = Regex("^/sessions/[^/]+/interactions/([^/]+)$").find(path)?.groupValues?.get(1)
-        if (method == "POST" && interaction != null) {
-            val run = waiting.remove(interaction)
-                ?: return RelayResponse(404, buildJsonObject { put("error", JsonPrimitive("not_pending")) })
-            run.complete(body as? JsonObject ?: JsonObject(emptyMap()))
-            return RelayResponse(200, buildJsonObject { put("answered", JsonPrimitive(true)) })
+    fun request(method: String, path: String, query: Map<String, String>, body: JsonElement?): RelayResponse? {
+        val parts = Regex("^/sessions/([^/]+)/(.+)$").find(path)?.groupValues
+        if (parts != null) {
+            val session = session(parts[1])
+            val rest = parts[2]
+            return synchronized(session) {
+                when {
+                    method == "POST" && rest.startsWith("interactions/") -> {
+                        val run = waiting.remove(rest.removePrefix("interactions/")) ?: return@synchronized error(404, "not_pending")
+                        run.complete(body as? JsonObject ?: JsonObject(emptyMap()))
+                        ok { put("answered", JsonPrimitive(true)) }
+                    }
+                    method == "GET" && rest == "interactions" -> ok { put("pending", JsonArray(emptyList())) }
+                    method == "GET" && rest == "history" -> history(session, query["before"])
+                    // The folder's skills and commands; switched on per session (PATCH below).
+                    method == "GET" && rest == "commands" -> ok {
+                        put("enabled", JsonPrimitive(session.skills))
+                        put("switched_on", JsonPrimitive(session.skills))
+                        put("reason", if (session.skills) JsonNull else JsonPrimitive("skills are switched off for this session"))
+                        put("capable_only", JsonPrimitive(true))
+                        put("prefix", JsonPrimitive("folder:"))
+                        put("commands", data.getValue("commands"))
+                    }
+                    method == "GET" && rest == "queue" -> ok {
+                        put("running", JsonPrimitive(session.running))
+                        put("paused", session.paused?.let(::JsonPrimitive) ?: JsonNull)
+                        put("queue", buildJsonArray { session.queue.forEach { (id, prompt) -> add(buildJsonObject { put("id", JsonPrimitive(id)); put("prompt", JsonPrimitive(prompt)) }) } })
+                    }
+                    method == "POST" && rest == "cancel" -> {
+                        val stopped = session.running
+                        if (stopped) {
+                            session.stop.complete(Unit)
+                            session.paused = "cancel"
+                        }
+                        ok {
+                            put("cancelled", JsonPrimitive(stopped))
+                            put("queue_paused", JsonPrimitive(session.paused != null))
+                        }
+                    }
+                    method == "POST" && rest == "queue/resume" -> {
+                        session.paused = null
+                        drain(session)
+                        ok { put("resumed", JsonPrimitive(true)) }
+                    }
+                    rest.startsWith("queue/") -> {
+                        val index = session.queue.indexOfFirst { it.first == rest.removePrefix("queue/") }
+                        if (index < 0) return@synchronized error(404, "not_queued")
+                        if (method == "DELETE") {
+                            session.queue.removeAt(index)
+                        } else {
+                            session.queue[index] = session.queue[index].first to ((body as? JsonObject)?.get("prompt") as? JsonPrimitive)?.content.orEmpty()
+                        }
+                        ok { put("removed", JsonPrimitive(method == "DELETE")) }
+                    }
+                    else -> null
+                }
+            }
         }
-        if (method == "GET" && path.endsWith("/interactions")) return RelayResponse(200, buildJsonObject { put("pending", JsonArray(emptyList())) })
-        val key = "$method " + path.replace(Regex("^/sessions/[^/]+/"), "/sessions/ID/")
-        return data[key]?.let { RelayResponse(200, relative(it)) }
+        // What the computer keeps about a session (model, effort, title, pin, switches): taken as sent.
+        val patched = Regex("^/sessions/([^/]+)$").find(path)?.groupValues?.get(1)
+        if (method == "PATCH" && patched != null) {
+            val changes = body as? JsonObject ?: JsonObject(emptyMap())
+            (changes["skills"] as? JsonPrimitive)?.let { session(patched).skills = it.content == "true" }
+            return ok {
+                put("id", JsonPrimitive(patched))
+                changes.forEach { (name, value) -> put(name, value) }
+            }
+        }
+        return data["$method $path"]?.let { RelayResponse(200, relative(it)) }
+    }
+
+    private fun ok(fields: JsonObjectBuilder.() -> Unit) = RelayResponse(200, buildJsonObject(fields))
+    private fun error(status: Int, code: String) = RelayResponse(status, buildJsonObject { put("error", JsonPrimitive(code)) })
+
+    /** Four exchanges a page, as the bridge; the cursor is the place of the page's first one. */
+    private fun history(session: Session, before: String?): RelayResponse {
+        val end = before?.removePrefix("p")?.toIntOrNull()?.coerceIn(0, session.exchanges.size) ?: session.exchanges.size
+        val start = (end - PAGE).coerceAtLeast(0)
+        return ok {
+            put(
+                "exchanges",
+                buildJsonArray {
+                    for ((user, assistant) in session.exchanges.subList(start, end)) {
+                        add(
+                            buildJsonObject {
+                                put("user", JsonPrimitive(user))
+                                put("assistant", JsonPrimitive(assistant))
+                                put("complete", JsonPrimitive(assistant.isNotEmpty() || !session.running))
+                            },
+                        )
+                    }
+                },
+            )
+            put("older", if (start > 0) JsonPrimitive("p$start") else JsonNull)
+        }
     }
 
     fun events(path: String, body: JsonElement?): Flow<AnswerEvent> = flow {
-        val prompt = ((body as? JsonObject)?.get("prompt") as? JsonPrimitive)?.content.orEmpty().lowercase()
-        val session = Regex("^/sessions/([^/]+)/").find(path)?.groupValues?.get(1) ?: "sample-session-new"
+        val request = body as? JsonObject
+        val text = (request?.get("prompt") as? JsonPrimitive)?.content.orEmpty()
+        val prompt = text.lowercase()
+        val id = Regex("^/sessions/([^/]+)/").find(path)?.groupValues?.get(1) ?: NEW
+        val session = session(id)
         if ("offline" in prompt) throw ApiException(ApiException.Kind.NOT_SENT)
         if ("in use" in prompt) {
-            emit(AnswerEvent.Done(RelayResponse(409, buildJsonObject { put("error", JsonPrimitive("session_in_use")) })))
+            emit(AnswerEvent.Done(error(409, "session_in_use")))
             return@flow
         }
-        emit(AnswerEvent.Stream("session", buildJsonObject { put("session_id", JsonPrimitive(session)) }))
-        delay(1200)
-        if ("silent" in prompt) throw ApiException(ApiException.Kind.UNCERTAIN)
-        val wait = if ("hurry" in prompt) 20L else 600L
-        val answer = when {
-            "delete" in prompt || "push" in prompt -> {
-                val deletion = "delete" in prompt
-                val reply = ask(session, wait) {
-                    put("kind", JsonPrimitive("approval"))
-                    put("tool", JsonPrimitive("Bash"))
-                    put("command", JsonPrimitive(if (deletion) "rm -r notes/drafts/plan-old.md notes/drafts/outline-v1.md notes/drafts/scratch.md" else "git push origin main"))
-                    put("folder", JsonPrimitive("/home/owner/project-alpha"))
-                    put("category", JsonPrimitive(if (deletion) "deletion" else "push"))
-                    put("reason", JsonPrimitive(if (deletion) "permanently deleting files" else "pushing to a remote repository"))
-                }
-                if ((reply?.get("approve") as? JsonPrimitive)?.content == "true") "Done, as you allowed." else "I left everything as it is."
+        // A run is going on: the message waits in line, or goes first and interrupts ("send now").
+        val place = synchronized(session) {
+            if (!session.running) {
+                session.running = true
+                session.stop = CompletableDeferred()
+                if (session.paused == "cancel") session.paused = null
+                session.exchanges += text to ""
+                return@synchronized null
             }
-            "choose" in prompt -> {
-                val reply = ask(session, wait) {
-                    put("kind", JsonPrimitive("question"))
-                    put("questions", Json.parseToJsonElement(QUESTIONS))
-                }
-                when {
-                    reply == null -> "No answer came in time, so I went on without it."
-                    "decline" in reply -> "Fine, I will go on without that."
-                    else -> "Thanks. You answered: `" + reply["answers"].toString() + "`"
-                }
+            val now = (request?.get("when") as? JsonPrimitive)?.content == "now"
+            val entry = "sampleq%03d".format(++queued) to text
+            if (now) {
+                session.queue.add(0, entry)
+                session.paused = null
+                session.stop.complete(Unit)
+            } else {
+                session.queue += entry
             }
-            else -> data.getValue("answer").jsonPrimitive.content
+            entry.first to if (now) 1 else session.queue.size
         }
-        for ((index, piece) in answer.chunked(18).withIndex()) {
-            delay(90)
-            emit(AnswerEvent.Stream("delta", buildJsonObject { put("text", JsonPrimitive(piece)) }))
-            if (index == 2 && "fail" in prompt) {
-                emit(AnswerEvent.Stream("error", buildJsonObject { put("error", JsonPrimitive("claude_failed")) }))
-                emit(AnswerEvent.Done(RelayResponse(200, null)))
-                return@flow
+        if (place != null) {
+            emit(
+                AnswerEvent.Done(
+                    RelayResponse(
+                        202,
+                        buildJsonObject {
+                            put("queued", JsonPrimitive(true))
+                            put("queue_id", JsonPrimitive(place.first))
+                            put("position", JsonPrimitive(place.second))
+                        },
+                    ),
+                ),
+            )
+            return@flow
+        }
+        var written = ""
+        try {
+            emit(AnswerEvent.Stream("session", buildJsonObject { put("session_id", JsonPrimitive(id)) }))
+            if (pause(session, 1200)) return@flow stopped()
+            if ("silent" in prompt) throw ApiException(ApiException.Kind.UNCERTAIN)
+            val wait = if ("hurry" in prompt) 20L else 600L
+            val answer = when {
+                "delete" in prompt || "push" in prompt -> {
+                    val deletion = "delete" in prompt
+                    val reply = ask(id, wait) {
+                        put("kind", JsonPrimitive("approval"))
+                        put("tool", JsonPrimitive("Bash"))
+                        put("command", JsonPrimitive(if (deletion) "rm -r notes/drafts/plan-old.md notes/drafts/outline-v1.md notes/drafts/scratch.md" else "git push origin main"))
+                        put("folder", JsonPrimitive("/home/owner/project-alpha"))
+                        put("category", JsonPrimitive(if (deletion) "deletion" else "push"))
+                        put("reason", JsonPrimitive(if (deletion) "permanently deleting files" else "pushing to a remote repository"))
+                    }
+                    if ((reply?.get("approve") as? JsonPrimitive)?.content == "true") "Done, as you allowed." else "I left everything as it is."
+                }
+                "choose" in prompt -> {
+                    val reply = ask(id, wait) {
+                        put("kind", JsonPrimitive("question"))
+                        put("questions", Json.parseToJsonElement(QUESTIONS))
+                    }
+                    when {
+                        reply == null -> "No answer came in time, so I went on without it."
+                        "decline" in reply -> "Fine, I will go on without that."
+                        else -> "Thanks. You answered: `" + reply["answers"].toString() + "`"
+                    }
+                }
+                else -> data.getValue("answer").jsonPrimitive.content
+            }
+            val step = if ("slow" in prompt) 2000L else 90L
+            for ((index, piece) in answer.chunked(18).withIndex()) {
+                if (pause(session, step)) return@flow stopped()
+                written += piece
+                emit(AnswerEvent.Stream("delta", buildJsonObject { put("text", JsonPrimitive(piece)) }))
+                if (index == 2 && "fail" in prompt) {
+                    emit(AnswerEvent.Stream("error", buildJsonObject { put("error", JsonPrimitive("claude_failed")) }))
+                    emit(AnswerEvent.Done(RelayResponse(200, null)))
+                    return@flow
+                }
+            }
+            emit(
+                AnswerEvent.Stream(
+                    "done",
+                    buildJsonObject {
+                        put("answer", JsonPrimitive(answer))
+                        put("session_id", JsonPrimitive(id))
+                        // "file": one file is offered (the 20-byte sample file) and one is refused.
+                        if ("file" in prompt) {
+                            put("files", Json.parseToJsonElement("""[{"offer":"sample-offer-${++asked}","name":"outline.md","type":"text/markdown","size":20}]"""))
+                            put("files_refused", Json.parseToJsonElement("""[{"name":"recordings.zip","reason":"larger than the limit of 50 MB"}]"""))
+                        }
+                    },
+                ),
+            )
+            emit(AnswerEvent.Done(RelayResponse(200, null)))
+        } finally {
+            synchronized(session) {
+                session.exchanges[session.exchanges.lastIndex] = text to written
+                session.running = false
+                drain(session)
             }
         }
-        emit(
-            AnswerEvent.Stream(
-                "done",
-                buildJsonObject {
-                    put("answer", JsonPrimitive(answer))
-                    put("session_id", JsonPrimitive(session))
-                },
-            ),
-        )
+    }
+
+    private suspend fun FlowCollector<AnswerEvent>.stopped() {
+        emit(AnswerEvent.Stream("error", buildJsonObject { put("error", JsonPrimitive("cancelled")) }))
         emit(AnswerEvent.Done(RelayResponse(200, null)))
     }
 
+    /** Wait [millis]; true when the run was stopped meanwhile. */
+    private suspend fun pause(session: Session, millis: Long): Boolean = withTimeoutOrNull(millis) { session.stop.await() } != null
+
+    /** The next waiting message, answered in the background as the bridge does (not streamed). */
+    private fun drain(session: Session) {
+        if (session.running || session.paused != null || session.queue.isEmpty()) return
+        val (_, text) = session.queue.removeAt(0)
+        session.running = true
+        session.stop = CompletableDeferred()
+        session.exchanges += text to ""
+        scope.launch {
+            val stopped = pause(session, 6000)
+            synchronized(session) {
+                session.exchanges[session.exchanges.lastIndex] = text to if (stopped) "" else "Answer to the waiting message “$text”."
+                session.running = false
+                drain(session)
+            }
+        }
+    }
+
     /** Show the owner a question or an approval and wait as the computer would; null when no answer came. */
-    private suspend fun FlowCollector<AnswerEvent>.ask(
-        session: String,
-        waitSeconds: Long,
-        fields: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit,
-    ): JsonObject? {
+    private suspend fun FlowCollector<AnswerEvent>.ask(session: String, waitSeconds: Long, fields: JsonObjectBuilder.() -> Unit): JsonObject? {
         val id = "sample%04d".format(++asked)
         val answer = CompletableDeferred<JsonObject>()
         waiting[id] = answer
@@ -163,6 +355,8 @@ internal class SampleChat(private val context: Context) {
     }
 
     private companion object {
+        const val NEW = "sample-session-new"
+        const val PAGE = 4
         const val QUESTIONS = """[
             {"question": "Which draft should the summary be based on?", "header": "Draft", "multi_select": false, "options": [
                 {"label": "The outline", "description": "notes/alpha/outline.md"},

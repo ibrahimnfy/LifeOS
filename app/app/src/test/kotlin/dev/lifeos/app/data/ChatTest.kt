@@ -145,7 +145,6 @@ class ChatTest {
         assertEquals(ChatPhase.ANSWERING, chat.state.value.phase)
         assertEquals("it:Here is the file.\nAnything else?", texts(chat).last())
         assertFalse(chat.state.value.canSend)
-        assertFalse(chat.send("too early"))
         gate.complete(Unit)
         advanceUntilIdle()
         assertEquals(listOf("me:Send me the plan", "it:Here is the file.\nAnything else?"), texts(chat))
@@ -399,11 +398,13 @@ class ChatTest {
         chat.load()
         advanceUntilIdle()
 
+        running(true, queue = """[{"id":"q1","prompt":"One more thing"}]""")
         answers(done(202, """{"queued":true,"queue_id":"q1","position":1,"interrupted_current_run":false}"""))
         chat.send("One more thing")
         advanceUntilIdle()
         assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
-        assertTrue(chat.state.value.queued)
+        assertEquals(listOf("q1" to "One more thing"), chat.state.value.queue.map { it.id to it.prompt })
+        assertEquals(listOf("me:Earlier", "it:Answer"), texts(chat))
         assertNull(chat.state.value.failure)
 
         // Between two runs nothing is "running", but the message still waits: not over yet.
@@ -415,7 +416,7 @@ class ChatTest {
         history("Earlier" to "Answer", "One more thing" to "Noted")
         chat.check()
         assertEquals(ChatPhase.IDLE, chat.state.value.phase)
-        assertFalse(chat.state.value.queued)
+        assertTrue(chat.state.value.queue.isEmpty())
         assertEquals("it:Noted", texts(chat).last())
     }
 
@@ -651,9 +652,9 @@ class ChatTest {
         assertEquals("p12", page.older)
         assertEquals(Exchange("2027-01-15T08:00:00.000Z", "Q", "A"), page.exchanges.single())
         assertTrue(RunState(running = true).busy)
-        assertTrue(RunState(queue = listOf(json("{}"))).busy)
+        assertTrue(RunState(queue = listOf(QueuedData("q1", "m"))).busy)
         // A queue that is held (after a cancel or an error) does not move by itself.
-        assertFalse(RunState(queue = listOf(json("{}")), paused = "cancel").busy)
+        assertFalse(RunState(queue = listOf(QueuedData("q1", "m")), paused = "cancel").busy)
         assertFalse(RunState().busy)
     }
 

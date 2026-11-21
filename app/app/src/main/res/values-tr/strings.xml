@@ -535,10 +535,8 @@
     <string name="chat_you">Sen</string>
     <string name="chat_working">Çalışıyor… %1$s</string>
     <string name="chat_elsewhere">Bilgisayar bunun üzerinde hâlâ çalışıyor. Cevap hazır olunca burada görünecek. %1$s</string>
-    <string name="chat_elsewhere_queued">Mesajın, önündeki çalışma bitene kadar bilgisayarda bekliyor. %1$s</string>
     <string name="chat_elsewhere_unreachable">Bilgisayar şu an cevap vermiyor. Uygulama sormaya devam ediyor; başlamış bir çalışma orada sürer.</string>
     <string name="chat_incomplete">Bu cevap yarıda kesildi.</string>
-    <string name="chat_older">Daha eski mesajlar bilgisayarda.</string>
     <string name="chat_open_sessions">Oturumları aç</string>
     <string name="chat_dismiss">Kapat</string>
     <string name="chat_fail_not_reached">Gönderilmedi: bilgisayara şu an ulaşılamıyor. Mesajın aşağıdaki kutuya geri kondu; bağlantı gelince gönder.</string>
@@ -636,4 +634,65 @@
     <string name="coach_question_answered">Cevap kaydedildi.</string>
     <string name="coach_question_paused">Geçildi. Koç bir süre soru sormayacak.</string>
     <string name="coach_question_gone">Bu soru artık açık değil.</string>
+
+    <!-- Chat: earlier messages, the queue, send now and stop (#94) -->
+    <string name="chat_older_load">Daha eski mesajlar</string>
+    <string name="chat_older_loading">Daha eski mesajlar yükleniyor…</string>
+    <string name="chat_stop">Durdur</string>
+    <string name="chat_stop_title">Asistan durdurulsun mu?</string>
+    <string name="chat_stop_text">Asistanı durdurur. Dosyalarda yaptığı değişiklikler kalır.</string>
+    <string name="chat_stopping">Durduruluyor…</string>
+    <string name="chat_send_now">Şimdi gönder</string>
+    <string name="chat_send_now_title">Bu mesaj şimdi gönderilsin mi?</string>
+    <string name="chat_send_now_text">Asistan yarıda kesilir ve bu mesaj hemen gönderilir. Asistanın dosyalarda yaptığı değişiklikler kalır.</string>
+    <string name="chat_queue_add">Bekleyen mesajlara ekle</string>
+    <string name="chat_queue_title">Gönderilmeyi bekliyor · %1$d</string>
+    <string name="chat_queue_note">Şimdiki cevap bitince sırayla gönderilir.</string>
+    <string name="chat_queue_hold_cancel">Çalışma durdurulduğu için bekletiliyor. Bir sonraki mesajın ya da “Gönder” devam ettirir.</string>
+    <string name="chat_queue_hold_error">Bekletiliyor: bekleyen bir mesaj cevaplanamadı.</string>
+    <string name="chat_queue_hold_restart">Bekletiliyor: bilgisayardaki köprü yeniden başlatıldı.</string>
+    <string name="chat_queue_resume">Gönder</string>
+    <string name="chat_queue_remove">Kaldır</string>
+    <string name="chat_queue_busy">Yolda…</string>
+    <string name="chat_queue_edit_title">Mesajı düzenle</string>
+    <string name="chat_fail_stopped_here">Durduruldu. Asistanın dosyalarda yaptığı değişiklikler kalır.</string>
+    <string name="chat_fail_stop_failed">Durdurma isteği bilgisayara ulaşmadı. Çalışma sürüyor.</string>
+    <string name="chat_fail_queue_failed">Bu ulaşmadı. Liste bilgisayardaki durumu gösteriyor.</string>
+
+    <!-- Chat: files the assistant offers (#96) -->
+    <string name="chat_file_past">Önceki bir cevapta sunuldu. İndirmek için bu dosyayı yeniden iste.</string>
+    <string name="chat_file_expired">Bu teklifin süresi doldu (15 dakika). Dosyayı yeniden iste.</string>
+    <string name="chat_file_failed_gone">Bilgisayar bu dosyayı artık göndermiyor: teklifin süresi doldu ya da dosya değişti. Yeniden iste.</string>
+    <string name="chat_file_refused_large">Gönderilmedi: bilgisayarda ayarlı boyut sınırından büyük.</string>
+    <string name="chat_file_refused_outside">Gönderilmedi: izin verilen klasörlerin dışında.</string>
+    <string name="chat_file_refused_hidden">Gönderilmedi: gizli dosya ve klasörler hiç gönderilmez.</string>
+    <string name="chat_file_refused_many">Sunulmadı: tek cevapta çok fazla dosya var. Bunu yeniden iste.</string>
+    <string name="chat_file_refused_other">Bilgisayar bu dosyayı göndermiyor.</string>
+
+    <!-- Chat: option cards for questions of the assistant (#98) -->
+    <string name="question_time_left">Cevap gelmezse asistan %1$s sonra devam eder</string>
+    <string name="question_expired">Zamanında cevaplanmadı: asistan cevapsız devam etti.</string>
+    <string name="question_your_answer">Cevabın: %1$s</string>
+
+    <!-- Chat: "/" commands and the model of a conversation (#95) -->
+    <string name="chat_model_default">Varsayılan model</string>
+    <string name="chat_model_label">Model ve efor: %1$s. Değiştir</string>
+    <string name="chat_model_title">Bu konuşmanın modeli</string>
+    <string name="chat_model_note">Bu konuşmanın bir sonraki mesajından itibaren kullanılır. Tüm sohbet oturumlarının varsayılanı Ayarlar → Modeller altında.</string>
+    <string name="chat_commands_title">Bu klasörün becerileri ve komutları</string>
+    <string name="chat_commands_none">Bu klasörde beceri ya da komut yok.</string>
+    <string name="chat_commands_no_match">Bu klasörde böyle başlayan bir beceri ya da komut yok.</string>
+    <string name="chat_commands_off">Beceriler ve komutlar bu oturum için kapalı; “/” ile başlayan mesaj düz metin olarak gönderilir.</string>
+    <string name="chat_commands_unavailable">Beceriler ve komutlar şu an burada kullanılamıyor: bilgisayarın onlar için yaptığı denetim geçmedi.</string>
+    <string name="chat_commands_new">Klasörün becerileri ve komutları, konuşmanın ilk mesajından sonra listelenebilir.</string>
+    <string name="chat_commands_capable">Beceriler ve komutlar yalnızca “Değişikliğe izin var” açıkken çalışır.</string>
+    <string name="chat_commands_unknown">Bu, bu klasörün becerilerinden ya da komutlarından biri değil.</string>
+    <string name="chat_command_skill">Beceri</string>
+    <string name="chat_command_command">Komut</string>
+    <string name="chat_command_warn_shell">kabuk satırları içeriyor (çalıştırılmaz)</string>
+    <string name="chat_command_warn_tools">kendine araç istiyor (verilmez)</string>
+    <string name="chat_command_warn_scripts">betiklerle geliyor</string>
+    <string name="chat_fail_command_unknown">İletilmedi: “/” ile başlayan bir mesaj bu klasörün becerilerinden ya da komutlarından birini adlandırmalı.</string>
+    <string name="chat_fail_skills_off">Bu klasörün becerileri şu an kullanılamıyor: bilgisayarın onlar için yaptığı denetim geçmedi. Bu oturum için kapat ya da daha sonra yeniden dene.</string>
+    <string name="chat_fail_setting_failed">Bu, bilgisayarda değiştirilemedi.</string>
 </resources>
