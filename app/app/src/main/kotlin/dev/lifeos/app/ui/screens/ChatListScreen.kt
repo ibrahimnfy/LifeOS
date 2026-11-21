@@ -3,6 +3,7 @@ package dev.lifeos.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +39,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -87,6 +90,14 @@ fun ChatListScreen(
     val state by sessions.state.collectAsStateWithLifecycle()
     val folders = rememberLoad(core, ChatEndpoints.folders) { it.folders.isEmpty() }
     val folderState by folders.state.collectAsStateWithLifecycle()
+    RefreshOnSessionChange(core, sessions)
+    // What can be done with a session (#74): the same sheet as on the Sessions screen.
+    val change = rememberSessionChange(core)
+    var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
+    (state as? UiState.Content)?.data?.let { list ->
+        val session = list.sessions.firstOrNull { it.id == menuFor }
+        if (session != null && !locked) SessionSheet(core, session, list.groups, change, onDismiss = { menuFor = null })
+    }
 
     // "The chat continues the same conversation": after a start the tab opens it directly.
     LaunchedEffect(locked, chat.sessionId) {
@@ -120,7 +131,7 @@ fun ChatListScreen(
                         val recent = SessionLists.newestFirst(list.sessions).take(RECENT)
                         recent.forEachIndexed { index, session ->
                             if (index > 0) RowDivider()
-                            SessionRow(session) {
+                            SessionRow(session, onMenu = { menuFor = session.id }) {
                                 core.chat.open(session, memory = isMemory(folderState, session))
                                 onOpenChat()
                             }
@@ -235,16 +246,20 @@ internal fun Thumb(featured: Boolean = false, content: @Composable () -> Unit) {
  * "Working" while the computer is answering a message of it.
  */
 @Composable
-internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onClick: () -> Unit) {
+internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onMenu: (() -> Unit)? = null, onClick: () -> Unit) {
     val colors = LifeTheme.colors
+    val menuLabel = stringResource(R.string.session_menu)
+    val pinnedLabel = stringResource(R.string.chat_pinned)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 60.dp)
-            .clickable(role = Role.Button, onClick = onClick)
+            // What can be done with the session (#74): a long press, or the dots at the end of the row.
+            .combinedClickable(role = Role.Button, onLongClickLabel = menuLabel.takeIf { onMenu != null }, onLongClick = onMenu, onClick = onClick)
+            .semantics { if (session.pinned && onMenu != null) stateDescription = pinnedLabel }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (onMenu != null) 10.dp else 14.dp),
     ) {
         Thumb(featured = session.pinned) {
             Text(session.folderLabel.take(1).uppercase(), style = LifeType.rowTitle, color = colors.text)
@@ -290,8 +305,22 @@ internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onC
                 Text(stringResource(R.string.sessions_working), style = LifeType.label, color = colors.text)
             }
         }
-        if (session.pinned) {
-            Icon(LifeIcons.Pin, contentDescription = stringResource(R.string.chat_pinned), tint = colors.muted, modifier = Modifier.size(18.dp))
+        // With the dots at the end, the ring around the letter is the pin mark (the title needs the room).
+        if (session.pinned && onMenu == null) {
+            Icon(LifeIcons.Pin, contentDescription = pinnedLabel, tint = colors.muted, modifier = Modifier.size(18.dp))
+        }
+        if (onMenu != null) {
+            Box(
+                modifier = Modifier
+                    .offset(x = 10.dp)
+                    .size(LifeDimens.minTouch)
+                    .clip(CircleShape)
+                    .clickable(onClickLabel = menuLabel, role = Role.Button, onClick = onMenu)
+                    .semantics { contentDescription = menuLabel },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LifeIcons.More, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

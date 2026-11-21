@@ -142,12 +142,78 @@ internal class SampleChat(private val context: Context) {
         if (method == "PATCH" && patched != null) {
             val changes = body as? JsonObject ?: JsonObject(emptyMap())
             (changes["skills"] as? JsonPrimitive)?.let { session(patched).skills = it.content == "true" }
+            synchronized(meta) {
+                val group = (changes["group"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (group != null && groups.none { it.first == group }) return error(404, "group_not_found")
+                meta[patched] = JsonObject(meta[patched].orEmpty() + changes)
+            }
+            val listed = listedSessions().firstOrNull { it["id"]?.jsonPrimitive?.content == patched }
+            return RelayResponse(200, described(listed ?: buildJsonObject { put("id", JsonPrimitive(patched)) }))
+        }
+        // The session list with what the owner changed, and the owner's groups (#74).
+        if (method == "GET" && path == "/sessions") {
             return ok {
-                put("id", JsonPrimitive(patched))
-                changes.forEach { (name, value) -> put(name, value) }
+                put("sessions", buildJsonArray { listedSessions().forEach { add(described(it)) } })
+                put("total", JsonPrimitive(listedSessions().size))
+                put("groups", groupList())
             }
         }
+        groupRequest(method, path, body)?.let { return it }
         return data["$method $path"]?.let { RelayResponse(200, relative(it)) }
+    }
+
+    /** What the owner changed about sessions (title, pin, group, switches), by session, and the groups. */
+    private val meta = HashMap<String, JsonObject>()
+    private val groups = mutableListOf<Pair<String, String>>()
+
+    private fun listedSessions(): List<JsonObject> =
+        relative(data.getValue("GET /sessions")).jsonObject.getValue("sessions").jsonArray.map { it.jsonObject }
+
+    private fun groupList() = synchronized(meta) {
+        buildJsonArray { groups.forEach { (id, name) -> add(buildJsonObject { put("id", JsonPrimitive(id)); put("name", JsonPrimitive(name)) }) } }
+    }
+
+    /** A session as the bridge describes it: the listed facts with the owner's changes on top. */
+    private fun described(item: JsonObject): JsonObject = synchronized(meta) {
+        val changes = meta[item["id"]?.jsonPrimitive?.content].orEmpty()
+        buildJsonObject {
+            item.forEach { (name, value) -> put(name, value) }
+            put("detected_title", item["title"] ?: JsonNull)
+            changes.forEach { (name, value) ->
+                when {
+                    // A cleared title is the detected one again; a group that is gone is no group.
+                    name == "title" && value is JsonNull -> Unit
+                    name == "group" && groups.none { it.first == (value as? JsonPrimitive)?.content } -> put(name, JsonNull)
+                    else -> put(name, value)
+                }
+            }
+        }
+    }
+
+    /** `/session-groups`: create, rename, delete; a name can be used once. */
+    private fun groupRequest(method: String, path: String, body: JsonElement?): RelayResponse? {
+        if (!path.startsWith("/session-groups")) return null
+        val name = ((body as? JsonObject)?.get("name") as? JsonPrimitive)?.content?.trim().orEmpty()
+        val id = path.removePrefix("/session-groups").trim('/')
+        return synchronized(meta) {
+            val index = groups.indexOfFirst { it.first == id }
+            when {
+                method == "GET" && id.isEmpty() -> ok { put("groups", groupList()) }
+                method == "DELETE" && index >= 0 -> {
+                    groups.removeAt(index)
+                    ok { put("deleted", JsonPrimitive(true)) }
+                }
+                method != "POST" && method != "PATCH" -> null
+                method == "PATCH" && index < 0 -> error(404, "group_not_found")
+                name.isEmpty() -> error(400, "bad_request")
+                groups.any { it.second.equals(name, ignoreCase = true) && it.first != id } -> error(409, "group_exists")
+                else -> {
+                    val group = (if (method == "POST") "samplegroup%02d".format(++asked) else id) to name
+                    if (method == "POST") groups += group else groups[index] = group
+                    RelayResponse(if (method == "POST") 201 else 200, buildJsonObject { put("id", JsonPrimitive(group.first)); put("name", JsonPrimitive(name)) })
+                }
+            }
+        }
     }
 
     private fun ok(fields: JsonObjectBuilder.() -> Unit) = RelayResponse(200, buildJsonObject(fields))

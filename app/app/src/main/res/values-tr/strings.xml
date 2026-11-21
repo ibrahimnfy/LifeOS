@@ -561,6 +561,33 @@
     <string name="sessions_working">Çalışıyor</string>
     <string name="sessions_untitled">Adsız oturum</string>
 
+    <!-- Sessions: groups, rename and pin (#74) -->
+    <string name="session_menu">Bu oturumla ilgili diğer işlemler</string>
+    <string name="session_rename">Yeniden adlandır</string>
+    <string name="session_rename_field">Başlık</string>
+    <string name="session_rename_reset">Bilgisayarın bulduğu başlığı kullan</string>
+    <string name="session_pin">Sabitle</string>
+    <string name="session_unpin">Sabitlemeyi kaldır</string>
+    <string name="session_move">Bir gruba taşı</string>
+    <string name="session_move_none">Grup yok</string>
+    <string name="session_move_none_note">Klasörünün altında listelenir</string>
+    <string name="sessions_groups">Gruplar</string>
+    <string name="sessions_groups_none">Henüz grup yok. Birbirine ait oturumları bir arada tutmak için bir grup oluştur.</string>
+    <string name="sessions_group_empty">Bu grupta henüz oturum yok. Bir oturumda “Bir gruba taşı”yı kullan.</string>
+    <string name="group_new">Yeni grup</string>
+    <string name="group_name_field">Grubun adı</string>
+    <string name="group_menu">%1$s grubuyla ilgili diğer işlemler</string>
+    <string name="group_rename">Grubu yeniden adlandır</string>
+    <string name="group_delete">Grubu sil</string>
+    <string name="group_delete_title">“%1$s” silinsin mi?</string>
+    <string name="group_delete_text">Yalnızca grup silinir. Oturumları kalır ve yeniden klasörlerinin altında listelenir.</string>
+    <string name="session_edit_not_reached">Değiştirilmedi: bilgisayara şu an ulaşılamıyor.</string>
+    <string name="session_edit_uncertain">Bilgisayar yanıt vermedi; bunun değişip değişmediği bilinmiyor. Liste bilgisayardakini gösterir.</string>
+    <string name="session_edit_group_exists">Bu adda bir grup zaten var.</string>
+    <string name="session_edit_gone">Değiştirilmedi: bilgisayarda artık yok. Listeyi yeniden okumak için aşağı çek.</string>
+    <string name="session_edit_too_many">Bilgisayar şu ankinden fazla grup tutmuyor. Önce birini sil.</string>
+    <string name="session_edit_failed">Bu, bilgisayarda değiştirilemedi.</string>
+
     <!-- Approvals and questions in chat (#53) -->
     <string name="chat_mode_read_only">Salt okunur</string>
     <string name="chat_mode_capable">Değişikliğe izin var</string>

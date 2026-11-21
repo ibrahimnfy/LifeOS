@@ -723,6 +723,17 @@ class LifeOsCore(private val app: Application) {
         uptimeMillis = SystemClock::elapsedRealtime,
     )
 
+    // ---- sessions: what the owner changed from this phone (#74)
+
+    private val sessionsVersionState = MutableStateFlow(0)
+
+    /** Counts the changes to sessions and groups made from this phone; screens that list sessions read them again. */
+    val sessionsVersion: StateFlow<Int> = sessionsVersionState
+
+    fun sessionsChanged() {
+        sessionsVersionState.value++
+    }
+
     private val lock = Any()
     private var record: PairingRecord? = null
     private var session: Session? = null

@@ -311,6 +311,19 @@ with plain HTTPS requests.
   now. Tapping one opens it in Chat; the next message continues it in its own
   folder. A session that is open in a terminal on the computer is refused
   there when the message is sent, and the app says so and offers **Retry**.
+  - **Groups, titles and pins (#74):** between the pinned sessions and the
+    folders the screen lists the owner's own **groups**, each with its
+    sessions (an empty group is listed too); a session in a group is not
+    repeated under its folder, a pinned one is only under "Pinned". A long
+    press on a session, or the dots at the end of its row (also on the Chat
+    tab's recent sessions), opens what can be done with it: **Rename** (and
+    back to the title the computer found), **Pin / Unpin**, **Move to a
+    group** (one of the groups, a new one, or none). **New group** and the
+    dots next to a group's name make, rename and delete groups; deleting a
+    group never deletes a session. All of it is kept on the computer
+    (`PATCH /sessions/{id}`, `/session-groups`); Claude Code's own session
+    files are not touched. A change is sent directly: without a connection
+    nothing changes and a line says so.
 - **Capture:** a note or a task with an optional due date. Also reachable
   from the home-screen shortcut (long-press on the app icon) and from other
   apps' "share" (text or a link).
@@ -720,9 +733,8 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- Chat: tables in answers (shown as text). Sessions: groups,
-  renaming, pinning and reminders. The coach conversation and Projects are
-  placeholders.
+- Chat: tables in answers (shown as text). Sessions: reminders. The coach
+  conversation and Projects are placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course".
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -948,6 +960,33 @@ aid shows the same screens with invented answers.
    working on this…", and a little later the whole answer, once.
 8. Settings → Language → **Türkçe** and Appearance → **Dark**: the Chat
    list, a conversation and Sessions are fully in Turkish and readable.
+
+### Session groups, rename and pin
+
+Paired (no model run is started by any step), or on an emulator with the
+`sample_data` test aid, where the changes are kept until the app is closed:
+
+1. Sessions → long-press a session (or tap the dots at the end of its row)
+   → **Rename**, type a title, **Save**: the row shows it at once, also
+   under "Recent" on the Chat tab. On the computer, `GET /sessions` shows
+   the new `title` and the old one as `detected_title`; the session's own
+   file is unchanged. Rename again → **Use the title the computer found**:
+   the old title is back.
+2. The same sheet → **Pin**: the session moves to "Pinned" with the
+   coloured ring around its letter; **Unpin** puts it back.
+3. **New group** (next to "Groups") → a name → Save: the group is listed,
+   empty. A session's sheet → **Move to a group** → choose it: the session
+   is under that group and no longer under its folder. **Move to a group**
+   → **New group** makes a group and moves the session in one step; **No
+   group** puts it back under its folder.
+4. **New group** with a name that exists: "A group with this name exists
+   already." and nothing changes.
+5. The dots next to a group's name → **Rename the group**, then **Delete
+   the group** → confirm: the group is gone, its sessions are under their
+   folders again.
+6. Type into the search field: only groups with a matching session remain.
+7. Flight mode, then **Pin**: "Not changed: the computer cannot be reached
+   right now." and the list is as before.
 
 ### Earlier messages, waiting messages, send now and stop
 

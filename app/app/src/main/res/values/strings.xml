@@ -563,6 +563,33 @@
     <string name="sessions_working">Working</string>
     <string name="sessions_untitled">Untitled session</string>
 
+    <!-- Sessions: groups, rename and pin (#74) -->
+    <string name="session_menu">More about this session</string>
+    <string name="session_rename">Rename</string>
+    <string name="session_rename_field">Title</string>
+    <string name="session_rename_reset">Use the title the computer found</string>
+    <string name="session_pin">Pin</string>
+    <string name="session_unpin">Unpin</string>
+    <string name="session_move">Move to a group</string>
+    <string name="session_move_none">No group</string>
+    <string name="session_move_none_note">Listed under its folder</string>
+    <string name="sessions_groups">Groups</string>
+    <string name="sessions_groups_none">No groups yet. Make one to keep sessions together that belong together.</string>
+    <string name="sessions_group_empty">No sessions in this group yet. Use “Move to a group” on a session.</string>
+    <string name="group_new">New group</string>
+    <string name="group_name_field">Name of the group</string>
+    <string name="group_menu">More about the group %1$s</string>
+    <string name="group_rename">Rename the group</string>
+    <string name="group_delete">Delete the group</string>
+    <string name="group_delete_title">Delete “%1$s”?</string>
+    <string name="group_delete_text">Only the group goes. Its sessions stay and are listed under their folders again.</string>
+    <string name="session_edit_not_reached">Not changed: the computer cannot be reached right now.</string>
+    <string name="session_edit_uncertain">The computer did not answer, so it is not known whether this was changed. The list shows what the computer has.</string>
+    <string name="session_edit_group_exists">A group with this name exists already.</string>
+    <string name="session_edit_gone">Not changed: the computer no longer has it. Pull down to read the list again.</string>
+    <string name="session_edit_too_many">The computer keeps no more groups than it has now. Delete one first.</string>
+    <string name="session_edit_failed">That could not be changed on the computer.</string>
+
     <!-- Approvals and questions in chat (#53) -->
     <string name="chat_mode_read_only">Read-only</string>
     <string name="chat_mode_capable">Changes allowed</string>

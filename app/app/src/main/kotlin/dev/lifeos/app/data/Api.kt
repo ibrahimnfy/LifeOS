@@ -252,6 +252,20 @@ class Api(private val transport: Transport) {
     suspend fun patchSession(sessionId: String, changes: JsonElement): SessionSummary =
         read(SessionSummary.serializer(), chatCall("PATCH", "/sessions/$sessionId", changes))
 
+    // ---- session groups (#74): the owner's own organisation, kept on the computer
+
+    /** A new group; `409 group_exists` when one has this name. */
+    suspend fun createGroup(name: String): SessionGroup =
+        read(SessionGroup.serializer(), chatCall("POST", "/session-groups", SessionEdits.name(name)))
+
+    suspend fun renameGroup(groupId: String, name: String): SessionGroup =
+        read(SessionGroup.serializer(), chatCall("PATCH", "/session-groups/$groupId", SessionEdits.name(name)))
+
+    /** The group goes; its sessions stay and are shown under their folders again. */
+    suspend fun deleteGroup(groupId: String) {
+        chatCall("DELETE", "/session-groups/$groupId")
+    }
+
     /** Chat's own lane: its small requests wait neither for the screens' loaders nor the other way round. */
     private suspend fun chatCall(method: String, path: String, body: JsonElement? = null, query: Map<String, String> = emptyMap()): JsonElement =
         chatLane.withLock { exchange(method, path, query, body, READ_TIMEOUT_MILLIS) }
