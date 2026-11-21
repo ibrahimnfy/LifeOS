@@ -12,14 +12,15 @@ sealed interface MdBlock {
     data class Code(val text: String) : MdBlock
 }
 
-/** A run of text inside a block. */
-data class MdSpan(val text: String, val bold: Boolean = false, val code: Boolean = false)
+/** A run of text inside a block. [link]: a web address the text leads to. */
+data class MdSpan(val text: String, val bold: Boolean = false, val code: Boolean = false, val italic: Boolean = false, val link: String? = null)
 
 /**
- * The small part of Markdown the assistant's answers use most: paragraphs, headings, lists,
- * fenced code, and bold and inline code inside a line. Everything else (tables, links,
+ * The one Markdown reader of the app, for the assistant's answers and for the descriptions
+ * the computer writes for assignments: paragraphs, headings, lists, fenced code, and inside a
+ * line bold, italic, inline code and links to web addresses. Everything else (tables,
  * quotes) is shown as the text it is. It never fails: an answer that is still being written,
- * with an open fence or an open `**`, is shown as far as it goes.
+ * with an open fence, an open `**` or half a link, is shown as far as it goes.
  */
 object Markdown {
     private val FENCE = Regex("^\\s*(```|~~~).*$")
@@ -28,7 +29,11 @@ object Markdown {
     private val NUMBERED = Regex("^(\\s*)(\\d{1,4})[.)]\\s+(.*)$")
     private const val MAX_LEVEL = 3
 
-    fun blocks(text: String): List<MdBlock> {
+    /**
+     * [joinLines]: the lines of a paragraph are one flowing text (a description converted from
+     * a web page); otherwise they stay lines, as the assistant wrote them.
+     */
+    fun blocks(text: String, joinLines: Boolean = false): List<MdBlock> {
         val blocks = mutableListOf<MdBlock>()
         val paragraph = StringBuilder()
         var code: StringBuilder? = null
@@ -87,8 +92,8 @@ object Markdown {
                 }
                 else -> {
                     inItem = false
-                    if (paragraph.isNotEmpty()) paragraph.append('\n')
-                    paragraph.append(line.trimEnd())
+                    if (paragraph.isNotEmpty()) paragraph.append(if (joinLines) ' ' else '\n')
+                    paragraph.append(if (joinLines) line.trim() else line.trimEnd())
                 }
             }
         }
@@ -100,15 +105,20 @@ object Markdown {
 
     private fun level(indent: String): Int = (indent.replace("\t", "  ").length / 2).coerceAtMost(MAX_LEVEL)
 
-    /** `**bold**` and `` `code` `` inside one block; unmatched marks stay as they are. */
-    fun spans(text: String): List<MdSpan> {
-        val spans = mutableListOf<MdSpan>()
+    /**
+     * `**bold**`, `*italic*`, `` `code` `` and `[links](https://…)` inside one block; marks
+     * without their other half stay as they are. Underscores are left alone (file and variable
+     * names), a `*` counts only where it hugs a word (`a * b`, `*.kt` and `2*3` stay text),
+     * and only web addresses become links (the text of any other link is shown without one).
+     */
+    fun spans(text: String): List<MdSpan> = buildList { scan(text, bold = false, italic = false, link = null, out = this) }
+
+    private fun scan(text: String, bold: Boolean, italic: Boolean, link: String?, out: MutableList<MdSpan>) {
         val plain = StringBuilder()
-        var bold = false
         var index = 0
 
         fun flush() {
-            if (plain.isNotEmpty()) spans += MdSpan(plain.toString(), bold = bold)
+            if (plain.isNotEmpty()) out += MdSpan(plain.toString(), bold = bold, italic = italic, link = link)
             plain.setLength(0)
         }
 
@@ -118,16 +128,43 @@ object Markdown {
                 val end = text.indexOf('`', index + 1)
                 if (end > index + 1) {
                     flush()
-                    spans += MdSpan(text.substring(index + 1, end), bold = bold, code = true)
+                    out += MdSpan(text.substring(index + 1, end), bold = bold, code = true, italic = italic, link = link)
                     index = end + 1
                     continue
                 }
             } else if (char == '*' && text.startsWith("**", index)) {
-                // Opens only when it also closes; closes whenever it is open.
-                if (bold || text.indexOf("**", index + 2) > index + 2) {
+                // Opens only when it also closes.
+                val end = if (bold) -1 else text.indexOf("**", index + 2)
+                if (end > index + 2) {
                     flush()
-                    bold = !bold
+                    scan(text.substring(index + 2, end), bold = true, italic = italic, link = link, out = out)
+                    index = end + 2
+                } else {
+                    plain.append("**")
                     index += 2
+                }
+                continue
+            } else if (char == '*' && !italic) {
+                val end = italicEnd(text, index)
+                if (end > 0) {
+                    flush()
+                    scan(text.substring(index + 1, end), bold = bold, italic = true, link = link, out = out)
+                    index = end + 1
+                    continue
+                }
+            } else if (char == '[' && link == null) {
+                val middle = text.indexOf("](", index + 1)
+                val end = if (middle > index + 1) text.indexOf(')', middle + 2) else -1
+                val label = if (end > middle + 2) text.substring(index + 1, middle) else ""
+                val address = if (end > middle + 2) text.substring(middle + 2, end) else ""
+                if (label.isNotEmpty() && '[' !in label && '\n' !in label && address.none { it.isWhitespace() }) {
+                    flush()
+                    val web = address.takeIf { it.startsWith("https://") || it.startsWith("http://") }
+                    // Not a web address: its text, without a link.
+                    val before = out.size
+                    scan(label, bold = bold, italic = italic, link = web, out = out)
+                    if (web == null && out.size == before) out += MdSpan(label, bold = bold, italic = italic)
+                    index = end + 1
                     continue
                 }
             }
@@ -135,6 +172,24 @@ object Markdown {
             index++
         }
         flush()
-        return spans
+    }
+
+    /** Where the italic that opens at [start] closes, or -1 when the `*` there is just a star. */
+    private fun italicEnd(text: String, start: Int): Int {
+        val next = text.getOrNull(start + 1) ?: return -1
+        if (next.isWhitespace() || next == '*') return -1
+        if (start > 0 && (text[start - 1].isLetterOrDigit() || text[start - 1] == '*')) return -1
+        var index = start + 2
+        while (index < text.length) {
+            val char = text[index]
+            if (char == '\n') return -1
+            if (char == '*' && !text[index - 1].isWhitespace() && text[index - 1] != '*' && text.getOrNull(index + 1) != '*' &&
+                text.getOrNull(index + 1)?.isLetterOrDigit() != true
+            ) {
+                return index
+            }
+            index++
+        }
+        return -1
     }
 }

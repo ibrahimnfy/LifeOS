@@ -37,7 +37,7 @@ import dev.lifeos.app.data.AssignmentDetail
 import dev.lifeos.app.data.AssignmentMatch
 import dev.lifeos.app.data.Dates
 import dev.lifeos.app.data.Endpoints
-import dev.lifeos.app.data.SiteMarkdown
+import dev.lifeos.app.ui.components.MarkdownText
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
 import dev.lifeos.app.ui.icons.LifeIcons
@@ -125,7 +125,7 @@ fun AssignmentScreen(
                     if (item.description.isNotBlank()) {
                         LifeCard {
                             SectionHeader(title = stringResource(R.string.assignment_instructions), icon = LifeIcons.Notes)
-                            MarkdownText(item.description, Modifier.padding(top = 4.dp, bottom = 8.dp))
+                            MarkdownText(item.description, Modifier.padding(top = 4.dp, bottom = 8.dp), site = true)
                         }
                     }
                     if (item.files.isNotEmpty()) {
@@ -252,42 +252,6 @@ private fun SubmissionCard(item: AssignmentDetail) {
                 title = stringResource(R.string.assignment_in_tasks),
                 subtitle = stringResource(R.string.assignment_in_tasks_text),
             ) { IconMark(LifeIcons.Tasks) }
-        }
-    }
-}
-
-/** An assignment's description: headings, lists, paragraphs, bold, italic and web links. */
-@Composable
-fun MarkdownText(text: String, modifier: Modifier = Modifier) {
-    val colors = LifeTheme.colors
-    val linkStyle = TextLinkStyles(SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline))
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (block in SiteMarkdown.blocks(text)) {
-            val body = buildAnnotatedString { appendSpans(block.spans, linkStyle) }
-            when (block.kind) {
-                SiteMarkdown.Kind.HEADING -> Text(body, style = LifeType.rowTitle, color = colors.text)
-                SiteMarkdown.Kind.PARAGRAPH -> Text(body, style = LifeType.body, color = colors.text)
-                SiteMarkdown.Kind.BULLET, SiteMarkdown.Kind.NUMBERED -> Row {
-                    Text(block.marker ?: "•", style = LifeType.body, color = colors.muted, modifier = Modifier.width(22.dp))
-                    Text(body, style = LifeType.body, color = colors.text)
-                }
-            }
-        }
-    }
-}
-
-private fun AnnotatedString.Builder.appendSpans(spans: List<SiteMarkdown.Span>, linkStyle: TextLinkStyles) {
-    for (span in spans) {
-        val style = SpanStyle(
-            fontWeight = if (span.bold) FontWeight.Bold else null,
-            fontStyle = if (span.italic) FontStyle.Italic else null,
-        )
-        val link = span.link
-        if (link != null) {
-            // Opened in the browser by the system, never inside the app.
-            withLink(LinkAnnotation.Url(link, linkStyle)) { append(span.text) }
-        } else {
-            withStyle(style) { append(span.text) }
         }
     }
 }

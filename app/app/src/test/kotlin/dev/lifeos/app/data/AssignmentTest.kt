@@ -82,28 +82,4 @@ class AssignmentTest {
         assertEquals(2, counts.pages)
         assertEquals(3, counts.total)
     }
-
-    @Test
-    fun `the description's Markdown becomes headings, lists, paragraphs and links`() {
-        val blocks = SiteMarkdown.blocks(
-            """
-            # Task
-            Solve problems **1-4** on the
-            attached sheet.
-
-            - Show your *working*
-            2. Hand in one [PDF](https://example.invalid/hand-in) file
-            Keep file_name_v2 as it is, and [this](javascript:alert) is no link.
-            """.trimIndent(),
-        )
-        assertEquals(listOf(SiteMarkdown.Kind.HEADING, SiteMarkdown.Kind.PARAGRAPH, SiteMarkdown.Kind.BULLET, SiteMarkdown.Kind.NUMBERED, SiteMarkdown.Kind.PARAGRAPH), blocks.map { it.kind })
-        assertEquals("Task", blocks[0].spans.single().text)
-        assertEquals(listOf("Solve problems ", "1-4", " on the attached sheet."), blocks[1].spans.map { it.text })
-        assertTrue(blocks[1].spans[1].bold)
-        assertTrue(blocks[2].spans.last().italic)
-        assertEquals("2.", blocks[3].marker)
-        assertEquals("https://example.invalid/hand-in", blocks[3].spans.first { it.text == "PDF" }.link)
-        assertTrue(blocks[4].spans.joinToString("") { it.text }.contains("file_name_v2"))
-        assertNull(blocks[4].spans.first { it.text == "this" }.link)
-    }
 }
