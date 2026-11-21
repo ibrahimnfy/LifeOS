@@ -1459,7 +1459,7 @@ with the `sample_data` test aid (see "Test aids" for its notification):
 
 On an emulator with the `sample_data` test aid:
 
-1. New chat → Start → send "lost hello" (in the sample mode the message
+1. New chat → send "lost hello" (in the sample mode the message
    arrives but no answer reaches the phone): after a moment "The computer is
    still working on this…", and a few seconds later the answer. The app
    found the conversation under the id it had chosen; nothing was sent
@@ -1557,7 +1557,9 @@ minute:
 
 ### Files in chat
 
-1. In a conversation in a folder with a small text file, send "Give me the
+1. In a conversation in a folder with a small text file (there is no folder
+   picker since #166: open a session of that folder from Sessions, or use
+   **Ask about this project**), send "Give me the
    file notes.md" (name a file that exists). The answer is followed by a card
    with the file's name, kind and size. On the computer, nothing was read
    yet: the audit log (`tail -n 2 ~/.config/lifeos/audit/$(date -u
@@ -1584,7 +1586,7 @@ On an emulator with `sample_data`, "file" in a message gives an answer with a
 
 On an emulator with the `sample_data` test aid (no computer, nothing runs):
 
-1. Chat → **New chat** → Start. Tap the pill **Read-only**: it becomes
+1. Chat → **New chat**. Tap the pill **Read-only**: it becomes
    **Changes allowed** with a line of explanation.
 2. Send "delete the old drafts": a card with a red frame, "The assistant
    wants to delete files permanently", the warning, the whole `rm` command,
@@ -1604,7 +1606,8 @@ On an emulator with the `sample_data` test aid (no computer, nothing runs):
 With the computer (the bridge with `LIFEOS_RUNNER=sdk` and the capable mode
 switched on by its guardrail check; each step is a short run on the plan):
 
-5. In a conversation in the memory folder switch **Changes allowed** on and
+5. In a conversation in the memory folder (an existing session of that
+   folder, opened from Sessions) switch **Changes allowed** on and
    send "Create the file approval-test.txt here with one line of text, then
    delete it again with rm". The card shows the `rm` command and the memory
    folder. **Don't allow**: the assistant says it was not allowed, the file
