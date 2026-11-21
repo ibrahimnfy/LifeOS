@@ -17,7 +17,7 @@ writes made offline. **Activity** shows the phone's screen time (usage
 access) and sends it to the computer once a day. **Chat** sends a message
 to the assistant on the computer and shows the answer as it is written, and
 **Sessions** lists the Claude Code sessions there and continues one. The
-coach conversation and Projects are still placeholders.
+coach conversation is still a placeholder.
 
 ## Requirements
 
@@ -388,7 +388,15 @@ with plain HTTPS requests.
     LifeOS left out) as bars.
   - Below both: the switch "Send screen time and sleep once a day" with the
     state of sending and "Send now".
-- **More:** Projects is a placeholder screen.
+- **More → Projects** (#152, `GET /projects`): the projects from the
+  memory's project files and the allowed folders, newest activity first.
+  Each has its own colour, folder icon and ornament (the same look as its
+  tasks), its status (active / paused / done), a short summary, the number
+  of open tasks and its last activity. A project's page shows its state,
+  open tasks and recent chats; **Ask about this project** starts a new chat
+  in the project's folder (through the chat's "New chat" entry point), and
+  a recent chat continues where it left off. A project without an existing
+  folder says why it cannot start a chat.
 - **Memory review** (#151, `GET /memory/consolidation`): when the nightly
   consolidation proposes changes, Today shows "Memory changes to review";
   its screen lists each change (file a capture, merge two facts, add a fact)
@@ -753,8 +761,8 @@ The pairing text is the key. Never put it into a file, a log or a report.
 ## What is not in it yet
 
 - Chat: tables in answers (shown as text). Sessions: groups,
-  renaming, pinning and reminders. The coach conversation and Projects are
-  placeholders.
+  renaming, pinning and reminders. The coach conversation is a
+  placeholder.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course".
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -921,6 +929,22 @@ Needs a paired phone and the computer running.
 On an emulator, the `sample_data` test aid shows a sample proposal with
 three changes; approving and rejecting change it in memory until the app
 closes.
+
+### Projects (#152)
+
+Needs a paired phone, the computer running, and project files or allowed
+folders.
+
+1. More → **Projects**: every project with its colour and folder icon,
+   status, summary, open tasks and last activity, newest first; a task of
+   the project on the Tasks screen has the same colour.
+2. Open a project with a folder: state, open tasks, recent chats. Tap
+   **Ask about this project**: the Chat tab opens a new chat whose folder
+   is the project's; ask "What is the state of this project?" and the
+   answer reads that folder.
+3. Tap a recent chat: it continues in its folder.
+4. A project with only a memory file (no folder) says it has no folder on
+   the computer and offers no chat.
 
 ### Coach questions, nudges and settings (#76)
 

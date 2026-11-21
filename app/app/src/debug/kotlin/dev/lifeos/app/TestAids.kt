@@ -132,7 +132,8 @@ object TestAids {
             }
             if (path.startsWith("/memory/consolidation")) return sampleConsolidation(method, path, body)
             if (method != "GET") return RelayResponse(200, buildJsonObject { put("saved", JsonPrimitive(true)) })
-            val key = "GET " + path.replace(Regex("^/courses/\\d+/"), "/courses/ID/").replace(Regex("/assignments/\\d+$"), "/assignments/ID").replace(Regex("^/notes/[^/]+$"), "/notes/ID")
+            val key = "GET " + path.replace(Regex("^/courses/\\d+/"), "/courses/ID/").replace(Regex("/assignments/\\d+$"), "/assignments/ID")
+                .replace(Regex("^/notes/[^/]+$"), "/notes/ID").replace(Regex("^/projects/[^/]+$"), "/projects/ID")
             val body = data[key] ?: return RelayResponse(404, Json.parseToJsonElement("""{"error":"not_found"}"""))
             return RelayResponse(200, relative(body))
         }

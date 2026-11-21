@@ -734,4 +734,22 @@
     <string name="memory_run_waiting">A proposal is already waiting or being prepared.</string>
     <string name="memory_run_too_soon">A review ran a short while ago. Try again later.</string>
 
+    <!-- Projects (#152) -->
+    <string name="projects_empty">No projects yet. They come from the project files in the memory and the allowed folders.</string>
+    <plurals name="projects_open_tasks">
+        <item quantity="one">%d open task</item>
+        <item quantity="other">%d open tasks</item>
+    </plurals>
+    <string name="projects_activity_line">%1$s · %2$s</string>
+    <string name="project_status_active">Active</string>
+    <string name="project_status_paused">Paused</string>
+    <string name="project_status_done">Done</string>
+    <string name="project_ask">Ask about this project</string>
+    <string name="project_no_folder">This project has no folder on the computer, so a chat cannot start in it.</string>
+    <string name="project_folder_missing">The project\'s folder is not on the computer any more.</string>
+    <string name="project_state">State</string>
+    <string name="project_tasks">Open tasks</string>
+    <string name="project_no_tasks">No open tasks.</string>
+    <string name="project_sessions">Recent chats</string>
+    <string name="project_session_untitled">Untitled chat</string>
 </resources>

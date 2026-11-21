@@ -732,4 +732,22 @@
     <string name="memory_run_waiting">Zaten bekleyen ya da hazırlanan bir öneri var.</string>
     <string name="memory_run_too_soon">Kısa süre önce bir inceleme yapıldı. Daha sonra tekrar dene.</string>
 
+    <!-- Projects (#152) -->
+    <string name="projects_empty">Henüz proje yok. Projeler hafızadaki proje dosyalarından ve izin verilen klasörlerden gelir.</string>
+    <plurals name="projects_open_tasks">
+        <item quantity="one">%d açık görev</item>
+        <item quantity="other">%d açık görev</item>
+    </plurals>
+    <string name="projects_activity_line">%1$s · %2$s</string>
+    <string name="project_status_active">Etkin</string>
+    <string name="project_status_paused">Duraklatıldı</string>
+    <string name="project_status_done">Bitti</string>
+    <string name="project_ask">Bu projeyi sor</string>
+    <string name="project_no_folder">Bu projenin bilgisayarda bir klasörü yok, bu yüzden içinde sohbet başlatılamaz.</string>
+    <string name="project_folder_missing">Projenin klasörü artık bilgisayarda yok.</string>
+    <string name="project_state">Durum</string>
+    <string name="project_tasks">Açık görevler</string>
+    <string name="project_no_tasks">Açık görev yok.</string>
+    <string name="project_sessions">Son sohbetler</string>
+    <string name="project_session_untitled">Başlıksız sohbet</string>
 </resources>
