@@ -27,12 +27,13 @@ import os
 import shutil
 import struct
 import subprocess
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import audit, notifications, store
+from . import audit, store
 from .claude import ClaudeError
-from .config import config_dir
+from .config import ConfigError, config_dir, load_settings
 from .paths import repo_dir
 
 STATE_FILE = "app-release.json"
@@ -196,11 +197,29 @@ def register(
     for old in folder.glob("lifeos-*.apk"):  # only the current release is kept
         if old.name != name:
             old.unlink(missing_ok=True)
-    notifications.send(
-        "LifeOS: update ready", "A new version of the LifeOS app is ready.", "", None,
-        event="update", ref=str(version_code),
-    )  # fmt: skip
+    release["phones_reached"] = wake_phones(version_code)
     return release
+
+
+def wake_phones(version_code: int) -> int | None:
+    """Ask the running bridge to send the sealed ``update`` hint; None when it is not running.
+
+    Never sent from this process: a push advances the phone's counter in its
+    device record, which only the running bridge may write while it answers
+    the phone. Without a running bridge the app finds the release when it opens.
+    """
+    try:
+        settings = load_settings()
+        body = json.dumps({"event": "update", "ref": str(version_code)}).encode()
+        request = urllib.request.Request(
+            f"http://{settings.host}:{settings.port}/push/notify", data=body, method="POST",
+            headers={"Authorization": f"Bearer {settings.token}",
+                     "Content-Type": "application/json"},
+        )  # fmt: skip
+        with urllib.request.urlopen(request, timeout=10) as response:  # noqa: S310
+            return int(json.loads(response.read() or b"{}").get("phones_reached") or 0)
+    except (ConfigError, OSError, ValueError):
+        return None
 
 
 def public(release: dict) -> dict:
@@ -253,9 +272,15 @@ def command(args: list[str]) -> int:
     except (ReleaseError, OSError, subprocess.SubprocessError) as error:
         print(f"lifeos-bridge release: {error}")
         return 1
+    reached = release.get("phones_reached")
+    told = (
+        "the bridge is not running: the app finds it when it opens"
+        if reached is None
+        else f"{reached} paired phone(s) were told"
+    )
     print(
         f"Registered release {release['version_name']} (code {release['version_code']}), "
         f"{release['size']} bytes, sha256 {release['sha256'][:16]}…, "
-        f"certificate {release['cert_sha256'][:16]}…; the paired phones were told."
+        f"certificate {release['cert_sha256'][:16]}…; {told}."
     )
     return 0

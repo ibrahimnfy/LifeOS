@@ -63,9 +63,25 @@ def output(tmp_path, monkeypatch):
 
 @pytest.fixture
 def hints(monkeypatch):
+    """The update hints the command asks the running bridge for; it never pushes itself."""
     sent = []
-    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: sent.append((event, ref)))
+
+    def never(*args, **kwargs):
+        raise AssertionError("the command pushed by itself (stale phone counters)")
+
+    monkeypatch.setattr(push, "send_hint", never)
+    monkeypatch.setattr(
+        release, "wake_phones", lambda code: sent.append(("update", str(code))) or 1
+    )
     return sent
+
+
+def test_without_a_running_bridge_nobody_is_woken(output, isolated_config, capsys, monkeypatch):
+    monkeypatch.setattr(push, "send_hint", lambda *a, **k: pytest.fail("pushed by itself"))
+    output(3, "0.1.3")
+    assert release.wake_phones(3) is None  # no configuration, no bridge to ask
+    assert cli(["release"]) == 0
+    assert "the bridge is not running" in capsys.readouterr().out
 
 
 def audit_of(config, tool):

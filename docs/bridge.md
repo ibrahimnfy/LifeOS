@@ -1401,7 +1401,16 @@ uv run lifeos-bridge release --apk FILE --version-code N --version-name X   # an
   `~/.config/lifeos/app-release.json`. The `AppRelease` audit record (version,
   size, hashes) is written first; without it nothing is registered.
 - **Push:** one sealed hint `update` (channel `reminders`, opens
-  `app_update`, `r` = version code) to every paired phone.
+  `app_update`, `r` = version code) to every paired phone, sent by the
+  running bridge (the command asks it with `POST /push/notify` `{"event":
+  "update", "ref": "<code>"}`): only the bridge may advance a phone's
+  message counters. When the bridge is not running, no push is sent and the
+  command says so; the app finds the release when it opens.
+- **Verified** on a real release output (read-only): Gradle's
+  `output-metadata.json` gives `versionCode`, `versionName`, `outputFile`;
+  the certificate taken from the v3 signing block is a valid X.509
+  certificate whose SHA-256 equals `keytool`'s fingerprint. The bridge does
+  not verify the signature itself (Android's installer does).
 - `GET /app/release` → `{"version_code": int, "version_name": str, "size":
   int, "sha256": hex, "cert_sha256": hex, "registered_at": iso}`; `404
   no_release` when none is registered.

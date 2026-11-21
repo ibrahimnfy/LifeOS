@@ -533,8 +533,17 @@ def create_app(settings: Settings) -> FastAPI:
         """Wake the paired phones with a notice (used by scripts/notify.sh).
 
         Body: ``{"title": str?, "link": str?}``; both travel only inside the sealed hint.
+        ``{"event": "update", "ref": "<version code>"}`` is the new-release hint of
+        ``lifeos-bridge release``: other processes push through here, because only the
+        running bridge may advance a phone's message counters.
         """
         data = await read_json_object(request)
+        if data.get("event") == "update":
+            ref = str(data.get("ref") or "")[:20]
+            reached = await asyncio.to_thread(push.send_hint, "update", ref)
+            return {"phones_reached": reached}
+        if data.get("event") not in (None, "notice"):
+            raise ClaudeError("bad_request", 400, "`event` must be `notice` or `update`")
         title = str(data.get("title") or "")[:200]
         link = str(data.get("link") or "")[:300]
         reached = await asyncio.to_thread(push.send_hint, "notice", "", t=title, l=link)
