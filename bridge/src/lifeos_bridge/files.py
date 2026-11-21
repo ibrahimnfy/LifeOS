@@ -16,6 +16,7 @@ import secrets
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import audit
@@ -196,6 +197,17 @@ class Offers:
         self._offers[offer.id] = offer
         return offer
 
+    def listing(self, session_id: str) -> list[dict]:
+        """The session's offers that have not expired: a card keeps its download after
+        the thread is read again. Nothing is read or sent here (fetching is audited)."""
+        now = time.time()
+        self._sweep(now)
+        found = sorted(
+            (o for o in self._offers.values() if o.session_id == session_id),
+            key=lambda o: o.expires_at,
+        )
+        return [{**offer.card(), "expires_at": _utc(offer.expires_at)} for offer in found]
+
     def take(self, offer_id: str, session_id: str) -> Offer:
         """The offer, checked again: it must be unexpired, of this session, and still sendable."""
         self._sweep(time.time())
@@ -216,6 +228,11 @@ class Offers:
             raise ClaudeError("file_unavailable", 409, f"the file cannot be sent: {reason}")
         _audit("FileDownload", session_id, {"name": offer.name, "size": offer.size})
         return offer
+
+
+def _utc(seconds: float) -> str:
+    moment = datetime.fromtimestamp(seconds, UTC).isoformat(timespec="seconds")
+    return moment.replace("+00:00", "Z")
 
 
 def chunks(offer: Offer, size: int | None = None) -> Iterator[bytes]:

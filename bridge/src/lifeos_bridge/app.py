@@ -31,6 +31,7 @@ from . import (
     files,
     guardcheck,
     history,
+    live,
     mcp_servers,
     memory,
     moodle_api,
@@ -362,6 +363,8 @@ def create_app(settings: Settings) -> FastAPI:
 
     control = runcontrol.RunControl()
     app.state.control = control
+    live_runs = live.Live()  # what the current run of a session says, for followers
+    app.state.live = live_runs
     # One live SDK client per active session when the SDK runner is selected.
     sdk_pool = sdk_runner.SdkPool(settings) if settings.runner == "sdk" else None
     app.state.sdk_pool = sdk_pool
@@ -422,7 +425,13 @@ def create_app(settings: Settings) -> FastAPI:
         outcome = {"queue_id": entry["id"], "state": "done"}
         try:
             await run_prompt(
-                {"prompt": entry["prompt"], "mode": entry["mode"], "_queued": True},
+                {
+                    "prompt": entry["prompt"],
+                    "mode": entry["mode"],
+                    "_queued": True,
+                    "_queue_id": entry["id"],
+                    "interactive": entry.get("interactive") is True,
+                },
                 session_id=session_id,
                 resume=True,
                 cwd=Path(entry["cwd"]),
@@ -452,7 +461,10 @@ def create_app(settings: Settings) -> FastAPI:
         if session_id in slots.active:
             # The session is answering: never a second writer. The message waits,
             # or (send now) the current run is interrupted and this one goes next.
-            entry = control.add(session_id, prompt, mode, cwd, front=when == "now")
+            entry = control.add(
+                session_id, prompt, mode, cwd, front=when == "now",
+                interactive=data.get("interactive") is True,
+            )  # fmt: skip
             if when == "now":
                 control.unpause(session_id)
                 await control.stop(session_id)
@@ -550,8 +562,12 @@ def create_app(settings: Settings) -> FastAPI:
             if use_sdk:
                 # Questions and approvals wait only for a client that streams the answer
                 # and said it can show them; anything else is refused at once, as before.
-                run_args["answering"] = streaming and data.get("interactive") is True
-            if not is_capable and not streaming:
+                # A queued message may ask if its client said so: a follower of
+                # /sessions/{id}/live answers.
+                followed = streaming or bool(data.get("_queued"))
+                run_args["answering"] = followed and data.get("interactive") is True
+            # Queued messages take the event path too, so a client can follow them live.
+            if not is_capable and not streaming and not data.get("_queued"):
                 try:
                     if use_sdk:
                         result = await sdk_runner.run(sdk_pool, settings, prompt, **run_args)
@@ -580,7 +596,23 @@ def create_app(settings: Settings) -> FastAPI:
                 finish(session_id)
 
         async def run_events() -> AsyncIterator[tuple[str, dict]]:
-            """The run as events; frees the session when it ends or is abandoned."""
+            """The run as events; frees the session when it ends or is abandoned.
+
+            Every event is also published for followers (``/sessions/{id}/live``).
+            """
+            async for event, payload in published(raw_events()):
+                yield event, payload
+
+        async def published(events: AsyncIterator) -> AsyncIterator[tuple[str, dict]]:
+            token = live_runs.begin(session_id, data.get("_queue_id"))
+            try:
+                async for event, payload in events:
+                    live_runs.publish(session_id, event, payload)
+                    yield event, payload
+            finally:
+                live_runs.end(session_id, token)
+
+        async def raw_events() -> AsyncIterator[tuple[str, dict]]:
             open_interactions: set[str] = set()
             try:
                 runner = (
@@ -810,10 +842,62 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/sessions/{session_id}/queue/resume")
     async def resume_queue(session_id: str):
-        """Send the waiting messages (after a cancel, an error or a restart)."""
+        """Send the waiting messages (after a cancel, an error or a restart).
+
+        Answers at once; the queued runs go on in the background (follow them with
+        ``GET /sessions/{id}/live``).
+        """
         control.unpause(session_id)
-        await drain(session_id)
+        start_drain(session_id)
         return {"resumed": True, "queue": [control.public(e) for e in control.queue(session_id)]}
+
+    def start_drain(session_id: str) -> None:
+        task = asyncio.create_task(drain(session_id))
+        drains.add(task)
+        task.add_done_callback(drains.discard)
+
+    @app.post("/sessions/{session_id}/queue/{queue_id}/send-now")
+    async def send_queued_now(session_id: str, queue_id: str):
+        """Make a waiting message the next one and send it now: the current run is
+        interrupted, as with ``"when": "now"`` (changes it made are not undone)."""
+        control.promote(session_id, queue_id)
+        control.unpause(session_id)
+        interrupted = False
+        if session_id in slots.active:
+            interrupted = await control.stop(session_id)  # its end sends the next message
+        else:
+            start_drain(session_id)
+        return {
+            "promoted": True,
+            "queue_id": queue_id,
+            "interrupted_current_run": interrupted,
+            "queue": [control.public(e) for e in control.queue(session_id)],
+        }
+
+    @app.get("/sessions/{session_id}/live")
+    async def follow_session(session_id: str):
+        """The session's current run as server-sent events, also when it started earlier:
+        what it said so far, then live, until it ends. Never a second writer."""
+        listed_session(session_id)
+        current = live_runs.running(session_id)
+
+        async def events() -> AsyncIterator[bytes]:
+            yield sse("live", {"session_id": session_id, "running": session_id in slots.active,
+                               "followable": current is not None,
+                               "queue_id": (current or {}).get("queue_id")})  # fmt: skip
+            async for event, payload in live_runs.follow(session_id):
+                yield sse(event, payload)
+
+        return StreamingResponse(
+            events(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/sessions/{session_id}/files")
+    async def session_files(session_id: str):
+        """The session's file offers that can still be fetched (cards after a re-read)."""
+        return {"files": offers.listing(session_id)}
 
     def chosen_folder(data: dict) -> Path:
         """The folder of a new conversation: the memory folder, or an allowed folder by name."""
@@ -996,6 +1080,22 @@ def create_app(settings: Settings) -> FastAPI:
             held = None  # unknown, not "free"
         held_cache.update(at=loop.time(), held=held)
         return held
+
+    @app.get("/sessions/{session_id}")
+    async def read_session(session_id: str):
+        """One session as in the list, read fresh: title, folder, model, effort, switches,
+        ``running_here``, ``open_elsewhere``, and its waiting messages."""
+        info = sessions.find_session(session_id, settings.allowed_roots)
+        if info is None:
+            raise ClaudeError("session_not_found", 404, "unknown session")
+        item = session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
+        held = await held_elsewhere()
+        item["running_here"] = item["in_use"]
+        item["open_elsewhere"] = None if held is None else (info.id in held and not item["in_use"])
+        item["followable"] = live_runs.running(info.id) is not None
+        item["queue"] = [control.public(e) for e in control.queue(info.id)]
+        item["queue_paused"] = control.paused.get(info.id)
+        return item
 
     @app.patch("/sessions/{session_id}")
     async def update_session(session_id: str, request: Request):

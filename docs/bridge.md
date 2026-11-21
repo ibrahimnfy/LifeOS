@@ -538,19 +538,50 @@ still answering (`POST /ask` with `session_id`, or
   most recent queued message (`done`, or `error` with a code). `PATCH
   …/queue/{qid}` with `{"prompt": "…"}` changes a waiting message, `DELETE`
   removes it.
+- **Send a waiting message now.** `POST /sessions/{id}/queue/{qid}/send-now`
+  makes it the next message and sends it now: a running run is interrupted
+  exactly as with `"when": "now"` (its end then sends this message), an idle
+  session sends it at once; a hold on the queue ends. Answers `{"promoted":
+  true, "queue_id", "interrupted_current_run": bool, "queue": [...]}`, or
+  `404 not_queued`.
 - **Cancel.** `POST /sessions/{id}/cancel` interrupts the current run: the
   interrupt signal first, then, only if the process does not stop within a
   few seconds, terminate and kill. The stopped request answers `409
   cancelled`. **Changes the run already made to files are kept.** The queue
   is then on hold (`"paused": "cancel"`) until the owner sends a message or
-  calls `POST …/queue/resume`.
+  calls `POST …/queue/resume`, which answers at once (`{"resumed": true,
+  "queue": [...]}`); the waiting messages are then sent one after the other
+  in the background.
 - A queued message that fails holds the rest (`"paused": "error"`). After a
   bridge restart waiting messages are drafts (`"paused": "restart"`): they
   are sent only after `…/queue/resume`, never by themselves.
 - Queued messages are prompt text. They are stored in
   `~/.config/lifeos/queue.json` (mode 600) and never logged.
-- Answers to queued messages are not pushed over this local API; read them
-  with the history endpoint. The relay will deliver them to the phone.
+- **Following a run after the fact.** `GET /sessions/{id}/live` is a stream
+  of server-sent events for the session's current run, also one that began
+  earlier (a queued message the bridge sent by itself, or a streamed answer
+  the client lost): first `live {"session_id", "running", "followable",
+  "queue_id": id | null}`, then what the run said so far (text merged into
+  one `delta`; `replay_truncated {}` first when more than a million
+  characters were said), then its events as they come (`delta`,
+  `interaction`, `interaction_closed`, `keepalive`, then `done` or `error`),
+  and the stream ends with the run. With no run that can be followed it
+  sends only `live` with `"followable": false` and ends (a plain
+  non-streamed run is not followable). It only reads: it never starts or
+  resumes a run. A queued message of a client that said `"interactive":
+  true` may ask questions and approvals; a follower answers them through
+  `POST /sessions/{id}/interactions/{iid}`. `404 session_not_found`.
+- **Live file offers.** `GET /sessions/{id}/files` → `{"files": [{"offer",
+  "name", "type", "size", "expires_at"}]}`: the session's offers that have
+  not expired, so a file card keeps its download after the thread is read
+  again. Fetching stays `GET /files/{offer}?session_id=…` (audited, as
+  before); listing reads nothing.
+- **One session.** `GET /sessions/{id}` → the item of `GET /sessions`
+  (`id`, `title`, `detected_title`, `folder`, `last_activity`, `in_use`,
+  `running_here`, `open_elsewhere`, `group`, `auto_group`, `pinned`,
+  `notify_replies`, `skills`, `model`, `effort`), read fresh, plus
+  `followable`, `queue` (the waiting messages) and `queue_paused`. `404
+  session_not_found`.
 
 ### Runner: `claude -p` or the Agent SDK
 
