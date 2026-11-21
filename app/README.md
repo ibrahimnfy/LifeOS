@@ -573,17 +573,19 @@ Nothing on these screens is sample content any more. Not paired, they show
   a flapping connection does not start parallel sends, and a run is never
   cut off half-way. Duplicates are still ruled out by the outbox itself
   (one sender at a time, `client_id` on new notes and tasks). Before this,
-  the phone waited for the stream's own back-off and for the check that
-  runs once a minute, and nothing was sent while the app was in the
-  background. **In the background**, whenever something waits while the
-  computer cannot be reached, a unique WorkManager job (`OutboxWorker`,
-  expedited from Android 12 on) is planned with "network connected" as its
-  condition; Android starts it, and the app's process if it was paused or
-  stopped, when the phone is online again, and it asks the same core for a
-  run. **Limit:** sending needs the device secret, which is behind the app
-  lock. When the app has locked itself (after the chosen lock time out of
-  sight, and always after the process was restarted), the job ends without
-  sending, and what waits is sent right after the next unlock.
+  nothing reacted to the network itself: the phone waited for the relay
+  stream's own pause between attempts, for the check that runs once a
+  minute when no "link down" had been seen, and nothing at all happened
+  while Android kept the app's process paused or stopped (there was no
+  background job for the outbox). **In the background**, whenever
+  something waits while the computer cannot be reached, a unique
+  WorkManager job (`OutboxWorker`, expedited from Android 12 on) is planned
+  with "network connected" as its condition; Android starts it (waking a paused process) when the phone is
+  online again, and it asks the running core for a run. **Limit:** sending
+  needs the device secret, which is behind the app lock. When the app has
+  locked itself (after the chosen lock time out of sight) or its process
+  was stopped (it always starts locked), the job ends without sending, and
+  what waits is sent right after the next unlock.
 - **Offline-first notes and tasks** (`data/Local.kt`): a new note or task
   is on every screen at once. While it waits it is shown where it belongs
   (Tasks in its date section or under "Just added", Today when it is due

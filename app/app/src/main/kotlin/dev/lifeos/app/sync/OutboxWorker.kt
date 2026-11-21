@@ -21,13 +21,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  * (and the app's process, if it was stopped) as soon as the phone is online again.
  *
  * It sends through the app's one core, the same way as the network callback does, so nothing is
- * sent twice. It never unlocks: a real pairing's secret needs the owner's fingerprint or screen
- * lock, so while the app is locked (always after the process was restarted) it ends at once and
- * what waits is sent right after the next unlock.
+ * sent twice. It never starts the core and never unlocks: a real pairing's secret needs the
+ * owner's fingerprint or screen lock, so when the core is not running (the process was
+ * restarted) or the app is locked, it ends at once and what waits is sent right after the next
+ * unlock.
  */
 class OutboxWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
-        val core = (applicationContext as LifeOsApplication).core
+        val core = (applicationContext as LifeOsApplication).runningCore() ?: return Result.success()
         if (core.pairing.value == null || core.locked.value) return Result.success()
         if (core.outbox.items.value.none(::waits)) return Result.success()
         core.syncNow()

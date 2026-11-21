@@ -1027,8 +1027,9 @@ class LifeOsCore(private val app: Application) {
      */
     private suspend fun networkBack() {
         val current = session ?: return
-        http.connectionPool.evictAll()
+        // The stream first, so its connection is let go before the idle ones are closed.
         current.client.reconnect()
+        http.connectionPool.evictAll()
         repeat(NETWORK_BACK_CHECKS) { attempt ->
             if (session !== current) return
             if (attempt > 0) delay(NETWORK_BACK_PAUSE_MILLIS)
