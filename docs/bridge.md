@@ -332,14 +332,16 @@ Subfolders of the memory folder are fine. Details:
     run. Probes without a model run (invalid settings, nested folders) are
     not counted.
   - A restart where both markers still match costs nothing.
-  - Each runner has its own suite version (`cli` 5, `sdk` 6), and only a
+  - Each runner has its own suite version (`cli` 6, `sdk` 7), and only a
     runner whose suite changed is checked again. The probes for personal
     skills and personal MCP servers (#162) and for chat folders (#163)
-    changed both, so the next start checks both once. The approval probes
+    changed both, and so did the corrected judgement of the chat-folder
+    probes (`permission-policy.md`, section 9.11), so the next start checks
+    both once. The approval probes
     may add up to 8 more per environment when the model does not make the
     needed call at once, the personal-skill run and the skill-copy steps
-    (#171, part of an existing run) up to 2 more each, and the chat-folder
-    shell run 1 more.
+    (#171, part of an existing run) up to 2 more each, and each of the
+    three chat-folder runs 1 more.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner
@@ -510,12 +512,12 @@ sandbox lets commands write the chat's own folder and the memory folder,
 and read the allowed folders; the gate, the audit log and the
 nested-repository rule apply unchanged. It needs a guardrail check whose
 chat-folder probes passed (`"chat_folders": true` in the marker, suite
-version `cli` 5 / `sdk` 6); until then a capable request in a chat folder
-answers `503 capable_mode_unavailable`. A marker written by a check from
-before these probes does not have that field, and **nothing reruns the
-check by itself for it**: run `scripts/verify-guardrails` (and with
-`--runner sdk`) once after this change. Details: `permission-policy.md`,
-section 9.11.
+version `cli` 5 / `sdk` 6 or later); until then a capable request in a
+chat folder answers `503 capable_mode_unavailable`. A marker written by a
+check from before these probes does not have that field. The suite
+versions changed once more since (`cli` 6 / `sdk` 7: how the chat-folder
+probes judge a read of another chat's file), so the automatic check reruns
+by itself for both runners. Details: `permission-policy.md`, section 9.11.
 
 As in every capable run, the owner's personal skills and approved personal
 MCP servers are offered in a capable blank chat too (#162): the run is told
