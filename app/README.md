@@ -297,15 +297,20 @@ with plain HTTPS requests.
     run and sends that message at once. **Stop** next to "Working…" ends the
     run. Both ask first and say: changes the assistant has already made to
     files are kept. After a stop the waiting messages are on hold until the
-    owner's next message or "Send them".
+    owner's next message, "Send them", or **Send now** on one of them (then
+    nothing is interrupted, so it does not ask). **The answer to a waiting
+    message is written on screen like any other** (#154): the message moves
+    from the line into the conversation, with "Working…", Stop, and question
+    and approval cards.
   - **Files:** a file the assistant offers appears as a card under its
     answer (name, kind, size) with a download button. Nothing is transferred
     before the tap; the file then goes into the phone's Downloads folder,
     with the progress on the card, and **Open** hands it to the phone's app
     for its kind, as for course files. A file the computer does not send (too
     large, outside the allowed folders, hidden) has a card that says why. An
-    offer is good for 15 minutes; after that, and for files offered in
-    earlier answers, the card asks to request the file again.
+    offer is good for 15 minutes, also after the conversation was read again
+    (a lock, another session and back): the card then keeps its download for
+    the time that is left. After that the card asks to request the file again.
   - **Model and effort:** the header shows the folder, the model and the
     effort of the conversation; the pill above the composer ("opus · high")
     opens the choice: the default for chat sessions, or one of the models and
@@ -320,6 +325,39 @@ with plain HTTPS requests.
     on for the session and usable; otherwise one line says why not (switched
     off, the computer's check has not passed, not one of this folder's,
     needs "Changes allowed").
+  - **The skills switch (#97):** the session's sheet (the dots next to the
+    pills, or a long press on a session) has **Use this folder's skills and
+    commands**, off unless switched on, per session, with what it means in
+    plain words: only in messages with "Changes allowed", only the skills
+    and commands of the folder's own `.claude` folder, never the personal
+    ones, and a skill cannot widen what the assistant may do. Under it the
+    sheet says how many the folder has, and when the computer's check for
+    skills has not passed, that they cannot be used right now.
+  - **Skill installs (#97):** when the assistant proposes a skill, a card
+    shows **where it comes from, what is in it and where it would go**
+    before anything can be approved: the source address, what the skill says
+    about itself, every file with its size, warnings in plain words (shell
+    lines, tools it asks for, files that are not notes) and the target
+    folder. While the computer still downloads it into its quarantine there
+    is no "Install", only "Don't install"; a skill that could not be fetched
+    says why and can only be put away; a source that is not HTTPS is shown as
+    refused. **Nothing is installed without the tap on Install.** The card
+    waits for up to a day, also across messages, runs and restarts, and is
+    shown whenever the conversation is opened.
+  - **MCP servers (#153):** the session's sheet has **MCP servers**: the
+    servers the folder's `.mcp.json` declares, each with its state (not
+    approved, approved, changed since the approval) and what would start:
+    the command with its arguments or the address, and only the *names* of
+    environment variables and headers. **The warning that an approved server
+    runs outside the sandbox** (an ordinary program with the network and the
+    whole home folder) stands first, in an amber frame, in the list and on
+    every approval card; an approved server has the amber frame too.
+    **Review and approve** asks the computer for the approval card of exactly
+    that definition and shows it at once (**Approve**, **Don't approve**);
+    left unanswered, the card waits for a day in the conversation like a
+    skill install. **Revoke approval** takes an approval back. An answer that
+    used servers says which under its text, and that they run outside the
+    sandbox.
   - **Read-only or "Changes allowed"** (the pill above the composer): every
     conversation starts read-only. Switched on, its next messages ask the
     computer for the capable mode, in which the assistant may change files
@@ -356,7 +394,14 @@ with plain HTTPS requests.
     The computer tidies a long conversation up by itself before the next
     message (what matters goes to the memory, a summary stays, a new
     session continues): the screen then says that it tidies up first, and
-    marks the place with one line. Which session the conversation is, the
+    marks the place with one line that says what was done (summarised, and
+    how many files of the memory got something). Both come from the answer's
+    own stream (#156): signs of life while the tidying up runs, then
+    `compacted` with the files, the summary and the new session; nothing is
+    guessed from a changed session id while the answer is heard. **Stop**
+    stays there meanwhile; the computer never stops the tidying up, and the
+    app then says so ("…is being tidied up right now, and that is never
+    stopped. Your message is answered as soon as it is done."). Which session the conversation is, the
     computer says each time (`GET /coach/chat`); the phone stores nothing
     about it. In the lists of sessions the coach's session opens this
     screen, and it is left out of "Recent".
@@ -591,12 +636,33 @@ Nothing on these screens is sample content any more. Not paired, they show
     itself.
   - The computer takes a message within seconds (it names the session or
     refuses), so no first answer within 45 seconds counts as "no answer". After
-    that a run may stay quiet for up to 11 minutes.
+    that a run may stay quiet for up to 11 minutes. The same holds for the
+    coach conversation: while it is tidied up first, the stream sends a
+    keep-alive every 20 seconds (#156).
+  - **The coach's stream** (`POST /coach/chat/messages`) may begin with
+    `keepalive` events and `compacted {"facts", "summary", "session_id"}`
+    before the message's own `session`: a keep-alive before `session` is
+    shown as "tidies it up first", `compacted` moves the conversation to the
+    new session and marks the place. A `queued {…}` event (the message had
+    to wait after all) puts it in line like a `202`; an `error` event before
+    the run ends the wait with its reason and **Retry**. `409
+    compaction_running` (Stop, or Send now, on the session that is being
+    tidied up) has its own text. When the answer is not heard (a lock, a
+    lost stream), the new session is still learned from `GET /coach/chat`.
   - **Whenever the app stops receiving an answer the computer is still
     writing** (the app was locked, the connection dropped, a long silence),
-    the run goes on there. The conversation then shows "The computer is still
+    the run goes on there, and the app **attaches to it again** (`GET
+    /sessions/{id}/live`, #154): a stream that only reads, first what the run
+    said so far (it replaces the unfinished answer on screen, so nothing is
+    doubled), then the rest as it is written, with its question and approval
+    cards. The same stream carries the answers to waiting messages, which the
+    computer sends by itself. Following never starts or continues a run.
+    Where a run cannot be followed (the computer says `"followable": false`,
+    or the stream cannot be reached or breaks off), it is as before: the
+    conversation shows "The computer is still
     working on this", asks every five seconds while it is on screen (`GET
-    /sessions/{id}/queue`), and reads the last messages (`GET
+    /sessions/{id}/queue`, trying to attach again each time), and reads the
+    last messages (`GET
     /sessions/{id}/history`) when the run has ended. If the conversation
     there does not end with the message, the app says that it probably did
     not arrive and offers **Retry**; it never repeats a message on its own. A first message that
@@ -619,24 +685,34 @@ Nothing on these screens is sample content any more. Not paired, they show
     fallback route of course files: chunks in sequence, announced size and
     SHA-256 checked, an incomplete file removed, hidden until complete). The
     app keeps no copy and no record; "Saved to Downloads" lives until the app
-    is closed. Offers exist only in the bridge's memory, so an answer read
-    from the conversation later (after a lock, or an earlier page) shows the
-    file's name without a download.
+    is closed. An answer read from the conversation later (after a lock, or
+    an earlier page) has only the marker line, so its card is rebuilt from
+    the file's name; the app then asks for the session's live offers (`GET
+    /sessions/{id}/files`, only when such a card is on screen) and puts each
+    offer back on the card of its name, the newest offer on the newest
+    answer, each once. The card counts the time that is *left* of the 15
+    minutes (the computer's end time), not a new window.
   - **Earlier messages** are asked for one page at a time (`GET
     /sessions/{id}/history?before=<cursor>`) and held only while the
     conversation is on screen; nothing of a session is written to the phone.
   - **The queue is the computer's** (`GET /sessions/{id}/queue`, at most ten
     messages): a message sent during a run is the same request as any
     message and is answered with its place in the line (`202`). Editing and
-    removing are `PATCH` and `DELETE …/queue/{qid}`. **Send now** sends the
-    text again with `"when": "now"` (to the front, interrupting the run) and
-    then takes the old entry out; if that second step fails the list shows
-    both. **Stop** is `POST /sessions/{id}/cancel`. The computer answers
-    waiting messages in the background, not as a stream: the app shows "still
-    working" and reads the conversation when the line is empty, so their
-    answers appear whole, and they cannot ask for approvals or questions.
-    "Send them" (`POST …/queue/resume`) is answered by the computer only
-    after the first waiting message is done, so the app does not wait for it.
+    removing are `PATCH` and `DELETE …/queue/{qid}`. **Send now** is one
+    request, `POST …/queue/{qid}/send-now` (#154): the message becomes the
+    next one, a run in progress is interrupted for it, a hold ends; nothing
+    is sent twice or deleted. `404 not_queued` means that the computer sent
+    it meanwhile and is no failure. **Stop** is `POST /sessions/{id}/cancel`.
+    "Send them" (`POST …/queue/resume`) is answered at once; if it does not
+    get through, the line is on hold as before and a notice says so. The
+    computer sends waiting messages by itself; the app follows their answers
+    through `GET /sessions/{id}/live` (see above), so they are written on
+    screen and can ask for approvals and questions.
+  - **One session, read fresh** (`GET /sessions/{id}`, #154), instead of
+    looking it up in the list of the newest hundred: when a conversation is
+    opened (its model and effort; a choice the owner makes meanwhile wins),
+    for a tapped notification or reminder (`SessionLookup`), and for the
+    session's sheet (title, pin, group, switches).
   - While the app is locked nothing of the conversation is in memory; it is
     read again after unlocking.
   - **Approvals and questions** (`data/Interactions.kt`, the bridge's
@@ -648,12 +724,49 @@ Nothing on these screens is sample content any more. Not paired, they show
     by itself:** when the time is over it only closes the card (the computer
     counts the silence as "no"), and a tap after that sends nothing. The
     time left is the computer's waiting time counted on the phone's running
-    clock, so the two wall clocks need not agree. `404 not_pending` is shown
+    clock, so the two wall clocks need not agree. (A card that is read from
+    the computer's list, or that arrives through a followed run, where it may
+    be a replay, has only its end time: its time left is that against the
+    phone's wall clock, so a clock that is off shortens or lengthens what the
+    card shows. The computer alone decides when the time is over, and a card
+    it still lists stays answerable.) `404 not_pending` is shown
     as "no longer waiting"; an answer that could not be sent can be given
-    again. While the app is not receiving the answer (locked, connection
-    lost) it reads `GET /sessions/{id}/interactions` with every look at the
-    run, so a waiting card appears again and can still be answered. Cards
-    are kept in memory only, until the next message.
+    again. **One list for everything that waits** (`GET
+    /sessions/{id}/interactions`): the app reads it whenever a conversation
+    is opened or read again (not only while a run is in progress), so a card
+    of a run it does not hear appears again and can still be answered, and so
+    does a card that waits across runs. Cards are kept in memory only; those
+    of a run until the next message.
+  - **Skill installs** (`kind: "skill_install"` in that list and in
+    `skill_installs` of a capable answer's `done`): they wait up to 24 hours
+    on the computer, so the app neither clears them with the next message nor
+    closes them when a run ends, and counts their time in hours. A card that
+    is still `downloading` is asked about every three seconds while it is on
+    screen. The answer is the same `{"approve": true|false}`; a yes is sent
+    only for a `ready` card, and what the computer answers decides what the
+    card says (`"installed": false`, `409 skill_exists`, `503
+    audit_unavailable`: after these the computer has dropped the card, so
+    there is no "try again"). The bridge describes a failed download with an
+    English sentence; the app maps the known ones to its own texts. The
+    marker line `[[skill-install: …]]` is left out of the text while an
+    answer is written and in earlier answers. The switch is `PATCH
+    /sessions/{id}` with `{"skills": true|false}`; what the folder has and
+    whether it is usable comes from `GET /sessions/{id}/commands`.
+  - **MCP servers** (`data/McpServers.kt`): the list is `GET
+    /sessions/{id}/mcp-servers`, read each time the sheet's page is opened
+    and after every change, never kept. "Review and approve" is `POST
+    …/mcp-servers/{name}/approval`, unless a card for the same definition
+    (same `hash`) already waits in the session's interactions; the card
+    (`kind: "mcp_server"`) is answered with `{"approve": true|false}` like
+    every approval, from the sheet or from the conversation, and the
+    computer's `"approved"` decides what is shown (`false` after a yes: the
+    definition changed meanwhile). Revoking is `DELETE
+    …/mcp-servers/{name}`. `mcp_servers` of a finished answer becomes the
+    line under it (it is not part of the conversation the computer keeps, so
+    an answer read again later does not have it). A message refused with
+    `503 mcp_unavailable` or `503 audit_unavailable` says why in the app's
+    own words and can be retried. The app uses its own EN/TR warning text,
+    not the bridge's English `note`.
 
 What the bridge does not offer yet, and the app therefore does not do:
 editing topic notes or moving notes, reopening or deleting a task, deleting
@@ -807,7 +920,17 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   answered, but nothing reaches the phone), `delete` or `push` (the run waits for an
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
-  minutes, to see what running out of time looks like.
+  minutes, to see what running out of time looks like. `install` (the answer
+  proposes a skill: its card is "downloading" for six seconds, then lists
+  three files and two warnings; with `broken` the download fails, with
+  `plain` the source is not HTTPS and is refused at once). `mcp` (the answer
+  names the approved MCP servers it used), `mcp unchecked` (the message is
+  refused because the computer has not checked the folder's approved
+  servers). Every sample session's folder declares three MCP servers, one of
+  each state; approvals and revocations are kept until the app is closed.
+  The answer to a waiting message can be followed (`/live`) and is written
+  over a few seconds; `file` offers are listed for 15 minutes (`/files`),
+  and each sample session can be read by itself.
   The session "Milestone summary draft" counts as open on the computer, and
   "Summarise the lecture notes of week 3" waits for an approval from the
   start: `--es lifeos.test.push approval --es lifeos.test.push_ref
@@ -819,7 +942,9 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   shows a reminder notification whose tap opens its session.
   **The coach conversation** starts empty there and counts as long after
   five messages, or at once for a message that contains `tidy`: the next
-  answer then begins only after six seconds, in a renewed session.
+  answer then begins only after nine seconds of keep-alives and a
+  `compacted` event (two files, a summary), in a renewed session; a stop
+  during those seconds is refused with `compaction_running`.
 
   ```sh
   adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --ez lifeos.test.sample_data true
@@ -1175,8 +1300,13 @@ emulator with the `sample_data` test aid:
 5. A long conversation (sample mode: a message with "tidy"; on the
    computer: a transcript over the limit of `GET /coach/chat`): after
    sending, "The conversation had grown long: the computer tidies it up
-   first…", then the answer, with the line "Tidied up here…" above the
-   message.
+   first…" with **Stop** next to it, then the answer, with the line "Tidied
+   up here: what stands above was summarised, and what matters was written
+   to 2 files of the memory." above the message. Tap **Stop** → confirm
+   while it tidies up: "The conversation is being tidied up right now, and
+   that is never stopped…"; the answer arrives all the same. On the
+   computer the conversation's summary and facts are complete
+   (`coach/conversation.md` in the memory).
 6. Sessions: the session "Coach" opens the coach screen, not an ordinary
    conversation. Lock and unlock the app: the conversation is read again.
 
@@ -1284,16 +1414,26 @@ minute:
    `GET /sessions/<id>/queue` lists them.
 3. Tap **Edit** on the first, change it, Save: the row shows the new text.
    Tap **Remove** on the second: it is gone.
-4. When the count is finished the conversation shows "The computer is still
-   working on this…", and a little later the waiting message and its answer.
+4. When the count is finished the waiting message moves from "Waiting to be
+   sent" into the conversation and its answer is written as it arrives, with
+   "Working…" and **Stop** (for a moment before that: "The computer is still
+   working on this…").
 5. Start a long answer again, send a second message, tap **Send now** on it:
    a question says that changes made to files are kept. Confirm: the count
    breaks off ("Stopped. Changes … are kept."), and the second message is
-   answered next.
+   answered next, written as it arrives. On the computer the queue never
+   held the message twice (`GET /sessions/<id>/queue`).
 6. Start a long answer, send a second message and tap **Stop** → confirm:
    the answer breaks off, the second message stays under "Waiting to be
    sent" with "On hold since the run was stopped". **Send them** lets it go
-   on; so does sending another message.
+   on; so does sending another message, or **Send now** on the message
+   (without a question: nothing is running).
+7. With the computer: send "Count slowly from 1 to 60, one number per line",
+   lock the phone while it counts (app lock on "Immediately"), unlock and
+   open the conversation: the numbers so far are there once, and the count
+   goes on being written, with **Stop**. Switch flight mode on for a few
+   seconds during another count: after "The computer is still working on
+   this…" the answer continues where it was.
 
 ### Model, effort and "/" commands
 
@@ -1305,8 +1445,8 @@ minute:
 2. Settings → Models → "Chat sessions" → **Change** sets the default: a
    conversation without its own choice shows it in its header afterwards.
 3. In a session of a folder that has `.claude/skills` or `.claude/commands`,
-   with the folder's skills switched on for the session (`PATCH
-   /sessions/<id>` with `{"skills": true}` until the switch is in the app),
+   with the folder's skills switched on for the session (its sheet → **Use
+   this folder's skills and commands**),
    type "/": the folder's skills and commands are listed. Type two letters:
    the list narrows. Tap one: its name is completed, coloured in the
    composer, and the line says that commands run only with "Changes
@@ -1329,10 +1469,12 @@ minute:
    the phone's app for that kind of file shows it.
 3. Ask for a file larger than the limit (50 MB unless changed), or one
    outside the allowed folders: the card says that it is not sent and why.
-4. Wait 15 minutes (or restart the bridge) and tap the download arrow of an
-   older card: "The computer no longer sends this file…". Lock and unlock
-   the app: the earlier answer shows the file's name with "Ask for this file
-   again".
+4. Lock and unlock the app (or open another session and come back) within
+   15 minutes: the card still has its download arrow, and the download
+   works. Wait until the 15 minutes are over (or restart the bridge) and
+   open the conversation again: the card shows the file's name with "Ask for
+   this file again"; a card that was on screen all the time says "The
+   computer no longer sends this file…" when tapped.
 5. Start a larger download and switch flight mode on: the card says that the
    computer could not be reached, and no partial file is in Downloads.
 
@@ -1386,6 +1528,87 @@ switched on by its guardrail check; each step is a short run on the plan):
 9. With "Changes allowed" on and the capable mode switched off on the
    computer, a message is refused with "Making changes is switched off on
    the computer right now…" and **Retry**.
+
+### Skill installs and the skills switch (#97)
+
+On an emulator with the `sample_data` test aid (nothing is installed
+anywhere):
+
+1. Open a session, tap the dots next to the pills: the sheet has **Use this
+   folder's skills and commands** with its explanation and "This folder has
+   3 skills and commands." Switch it off, close the sheet and type "/": the
+   line says that skills are switched off for this session. Switch it on
+   again: "/" lists them.
+2. Send "install a skill": under the answer a card "Skill install" with the
+   source address and "The computer is fetching it…", and only **Don't
+   install**. After a few seconds, without a tap, it shows what the skill
+   says about itself, "Contains 3 files, 4.8 kB" with each file and size,
+   two warnings in amber, "Would be installed into …/.claude/skills/tidy-notes",
+   **Install**, **Don't install** and "It waits 23 h 59 min more."
+3. Send another message without answering: the card is still there, below
+   the new answer. Go back, open another session and return (or lock and
+   unlock): the card is there again.
+4. Tap **Install**: "Installed." Send "install a skill" again and tap
+   **Don't install**: "Not installed."
+5. Send "install broken": after a few seconds the card says that there is
+   no SKILL.md at its top, with **Put away** only. Send "install plain": the
+   card says at once that only an HTTPS address is accepted, without buttons.
+
+With the computer (capable mode on; each step is a short run on the plan):
+
+6. In a session of an allowed folder switch the skills on, switch **Changes
+   allowed** on and send "Propose installing the skill at <an HTTPS address
+   of a SKILL.md> with the install line". The card appears; on the computer
+   `GET /sessions/<id>/interactions` lists it and nothing is in
+   `<folder>/.claude/skills/`. Close the app, open it and the conversation
+   again: the card is back. **Install**: the folder now has
+   `.claude/skills/<name>/SKILL.md`, and the audit log (`tail -n 3
+   ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl`) shows the proposal and
+   `skill_install_approved`. "/" then lists the skill.
+7. Propose the same skill again: the card says that a skill of this name
+   exists in the folder already and that nothing is replaced, with **Put
+   away** only.
+
+### A session's MCP servers (#153)
+
+On an emulator with the `sample_data` test aid (nothing is started
+anywhere):
+
+1. Open a session → the dots next to the pills → **MCP servers**. The
+   warning in the amber frame stands first; below it three servers:
+   "calendar" (approved, amber frame, an address and the header name
+   `Authorization`), "issue-tracker" (changed since the approval) and
+   "notes-index" (not approved, `npx -y notes-index-server --root notes`,
+   the variable name `NOTES_TOKEN`). No value of a variable or header is
+   shown anywhere.
+2. **Review and approve** on "issue-tracker": the approval card with the
+   same warning, the command and the folder. **Approve**: "Approved.
+   Messages with “Changes allowed”…"; **Back to the servers**: it is listed
+   as approved, with the amber frame.
+3. **Revoke approval** on "calendar": "The approval was revoked." and it is
+   listed as not approved.
+4. **Review and approve** on "notes-index", then close the sheet without
+   answering: the same card waits in the conversation ("It waits 23 h 59 min
+   more."), also after another message and after reopening the conversation.
+   Answer it there with **Don't approve**: "Not approved."
+5. Send "mcp please": under the answer, "This answer used the MCP server
+   issue-tracker, which runs outside the sandbox." Send "mcp unchecked":
+   "Not run: this folder has approved MCP servers…" with **Retry**.
+
+With the computer (capable mode on; an allowed folder with a `.mcp.json`
+that declares a harmless server, for example `{"mcpServers": {"clock":
+{"command": "python3", "args": ["tools/clock_server.py"]}}}`):
+
+6. The sheet lists "clock" as not approved, and `GET
+   /sessions/<id>/mcp-servers` on the computer shows the same. **Review and
+   approve** → **Approve**: the list shows it approved; `tail -n 2
+   ~/.config/lifeos/audit/$(date -u +%Y-%m).jsonl` has the request and
+   `mcp_server_approved`.
+7. Send a message with **Changes allowed** that needs the server: the answer
+   names it under its text, and the audit log has `mcp_servers_used`.
+8. Change an argument in `.mcp.json` on the computer and open the sheet
+   again: "Changed since you approved it: not used". **Revoke approval**: it
+   is not approved, and the log has `mcp_server_revoked`.
 
 ### The warmer design (P2, Courses in P3)
 

@@ -150,19 +150,24 @@ class CommandsTest {
     }
 
     @Test
-    fun `a restored conversation learns its model from the session list, once`() = runTest {
+    fun `a restored conversation learns its model from the session itself, read fresh`() = runTest {
         store.pointer = ChatPointer("s-1", "/home/owner/brain", "brain", memory = true)
         val chat = chat()
         chat.restore()
         assertFalse(chat.state.value.choiceKnown)
-        chat.noteChoice(SessionSummary("s-2", model = "sonnet"))
-        assertFalse(chat.state.value.choiceKnown)
-        chat.noteChoice(SessionSummary("s-1", model = "sonnet", effort = "high"))
+        transport.answer("GET /sessions/s-1", 200, """{"id":"s-1","model":"sonnet","effort":"high","skills":true,"followable":false,"queue":[],"queue_paused":null}""")
+        transport.answer("GET /sessions/s-1/queue", 200, """{"running":false,"paused":null,"queue":[]}""")
+        transport.answer("GET /sessions/s-1/history", 200, """{"exchanges":[],"older":null}""")
+        chat.load()
+        advanceUntilIdle()
         assertEquals(ModelChoice("sonnet", "high"), chat.state.value.choice)
-        // What the owner chooses afterwards is not overwritten by an older list.
+        assertTrue(chat.state.value.choiceKnown)
+        // The list of sessions is not asked for.
+        assertTrue(transport.calls.none { it.path == "/sessions" })
+        // What the owner chooses while the conversation is read again is not overwritten by the older answer.
         transport.answer("PATCH /sessions/s-1", 200, """{"id":"s-1","model":"opus"}""")
+        chat.load()
         chat.setModel(ModelChoice("opus", "high"))
-        chat.noteChoice(SessionSummary("s-1", model = "sonnet"))
         advanceUntilIdle()
         assertEquals(ModelChoice("opus", "high"), chat.state.value.choice)
         // The lock keeps the choice.

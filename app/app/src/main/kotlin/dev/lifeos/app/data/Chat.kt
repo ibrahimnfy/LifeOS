@@ -72,6 +72,8 @@ data class ChatMessage(
     val text: String,
     val incomplete: Boolean = false,
     val files: List<OfferedFile> = emptyList(),
+    /** The MCP servers this answer used (#153): they ran outside the sandbox. Known only for an answer received here. */
+    val servers: List<String> = emptyList(),
 )
 
 /**
@@ -157,6 +159,9 @@ enum class ChatProblem {
     /** The run was stopped (cancelled) on the computer. */
     STOPPED,
 
+    /** The coach conversation is being tidied up: that run is never stopped; the message is answered after it. */
+    COMPACTING,
+
     /** The owner stopped the run from this phone: what it had changed stays. */
     STOPPED_HERE,
 
@@ -171,6 +176,12 @@ enum class ChatProblem {
 
     /** The folder's skills cannot be used right now (the computer's check for them has not passed). */
     SKILLS_OFF,
+
+    /** The folder has approved MCP servers, and the computer's check for them has not passed: nothing ran. */
+    MCP_OFF,
+
+    /** The computer could not write its audit log, so it ran nothing. */
+    UNRECORDED,
 
     /** A setting of the session (its model) could not be changed on the computer. */
     SETTING_FAILED,
@@ -265,12 +276,8 @@ data class ChatState(
     val renewedAt: Long? = null,
     /** The owner asked to tidy the conversation up now; the computer is at it. */
     val compacting: Boolean = false,
-    /**
-     * A message is sent and the computer has not said yet in which session it runs. Until
-     * then whatever runs may be the tidying up in the session before: a stop would hit that
-     * (the session is renewed without its facts and summary) and not the owner's message.
-     */
-    val unnamed: Boolean = false,
+    /** What the tidying up before [renewedAt] did, as the answer's own stream said it (#156): files that got facts, a summary. */
+    val tidied: CoachCompacted? = null,
 ) {
     val canSend: Boolean get() = phase == ChatPhase.IDLE && !loading && loadProblem == null && loaded && !compacting
 
@@ -280,8 +287,11 @@ data class ChatState(
     /** The computer has earlier messages than the ones shown. */
     val olderExist: Boolean get() = olderCursor != null
 
-    /** A run can be stopped once the computer has named its session. */
-    val canStop: Boolean get() = phase != ChatPhase.IDLE && sessionId != null && !stopping && !unnamed
+    /**
+     * A run can be stopped once its session is known. While the computer tidies the coach
+     * conversation up first it refuses (`compaction_running`), and the screen says so (#156).
+     */
+    val canStop: Boolean get() = phase != ChatPhase.IDLE && sessionId != null && !stopping
     val isEmpty: Boolean get() = messages.isEmpty() && phase == ChatPhase.IDLE && failure == null
 }
 
@@ -351,6 +361,21 @@ class Chat(
     /** Coach: the thread was already found without the awaited message once (see [read]). */
     @Volatile
     private var doubted = false
+
+    /** The stream of the message that was sent has named its session: what runs now is the message itself. */
+    @Volatile
+    private var named = false
+
+    /** Counts the owner's own choices of a model, so an older answer about the session never overwrites one. */
+    @Volatile
+    private var choiceEdits = 0
+
+    /** The job that listens to a run the computer makes without a request of this app behind it (see [follow]). */
+    @Volatile
+    private var following: Job? = null
+
+    /** Waiting messages the computer took out of its line (it is sending them): their text, for the thread. */
+    private val taken = LinkedHashMap<String, QueuedMessage>()
 
     val state: StateFlow<ChatState> = mutable
 
@@ -448,7 +473,9 @@ class Chat(
         reading?.cancel()
         run = null
         reading = null
+        following = null
         awaiting = null
+        synchronized(taken) { taken.clear() }
         synchronized(side) {
             side.forEach { it.cancel() }
             side.clear()
@@ -473,6 +500,20 @@ class Chat(
         val generation = current.generation
         mutable.update { if (it.generation == generation) it.copy(loading = true, loadProblem = null) else it }
         reading = scope.launch { read(generation, id, wholeThread = true) }
+        // What the computer keeps about the session is read fresh (#154), not taken from a list.
+        val edits = choiceEdits
+        if (!coach && current.sessionId != null) launchSide { settings(generation, id, edits) }
+    }
+
+    /**
+     * The session's own model and effort as the computer has them now. A choice the owner made
+     * since the question was asked ([edits] then differs) is newer than the answer and stays.
+     */
+    private suspend fun settings(generation: Int, id: String, edits: Int) {
+        val session = attempt { api.session(id) }.getOrNull() ?: return
+        change(generation) {
+            if (it.sessionId == id && choiceEdits == edits) it.copy(choice = ModelChoice(session.model, session.effort), choiceKnown = true) else it
+        }
     }
 
     /**
@@ -507,11 +548,18 @@ class Chat(
         // A run under the id the phone chose: the first message arrived, the session exists.
         if (busy == true) change(generation) { confirmed(it, id) }
         run.getOrNull()?.let { listed -> change(generation) { queueFrom(it, listed) } }
-        // A run the app does not hear may be waiting for the owner's yes or no.
-        if (busy == true) pending(generation, id)
+        // A run the app does not hear may be waiting for the owner's yes or no; and a card that
+        // waits across runs (a skill install, #97) is there whenever the conversation is read.
+        if (busy == true || (!coach && mutable.value.sessionId == id)) pending(generation, id)
+        val running = run.getOrNull()?.running == true
         if (!wholeThread) {
             if (busy == null) return change(generation) { it.copy(unreachable = true) }
-            if (busy) return change(generation) { it.copy(unreachable = false) }
+            if (busy) {
+                change(generation) { it.copy(unreachable = false) }
+                // The run can be heard after all: its answer is followed as it is written (#154).
+                if (running) follow(generation, id)
+                return
+            }
         }
         val page = attempt { api.history(id) }
         val error = page.exceptionOrNull() as? ApiException
@@ -574,6 +622,8 @@ class Chat(
             store.save(null)
         }
         if ((exchanges != null || gone) && busy != true && awaiting === sent) awaiting = null
+        if (exchanges != null) restoreOffers(generation, id)
+        if (exchanges != null && running) follow(generation, id)
     }
 
     /** The thread as the computer has it; a sent message that is not in it did not arrive. */
@@ -611,8 +661,6 @@ class Chat(
         return state.copy(
             coach = view,
             sessionId = id,
-            // An answer that is not heard: once the session is renewed, or no longer due for it, what runs is the message.
-            unnamed = state.unnamed && view.dueForCompaction && !renewed,
             // Earlier messages of the session before are not part of the new one.
             olderCursor = if (renewed) null else state.olderCursor,
             renewedAt = if (renewed) awaiting?.second ?: state.renewedAt else state.renewedAt,
@@ -647,20 +695,32 @@ class Chat(
         }
     }
 
+    /**
+     * One more look at what waits for the owner, for the screen: a skill that is still being
+     * downloaded becomes ready (or fails) without any event, so the card asks while it is shown.
+     */
+    suspend fun refreshCards() {
+        val state = mutable.value
+        val id = state.sessionId ?: return
+        if (!state.loading && state.loaded) pending(state.generation, id)
+    }
+
     /** What the computer says is waiting: new items are shown, items it no longer lists are closed. */
     private suspend fun pending(generation: Int, id: String) {
         val list = attempt { api.interactions(id) }.getOrNull() ?: return
         val now = uptimeMillis()
         val wall = nowMillis()
         change(generation) { state ->
-            val listed = list.map { it.id }.toSet()
+            val listed = list.associateBy { it.id }
             val known = state.interactions.map { it.id }.toSet()
             val kept = state.interactions.map {
+                val data = listed[it.id]
                 when {
                     it.status != Interaction.Status.WAITING -> it
-                    it.id !in listed -> it.copy(status = Interaction.Status.GONE)
+                    data == null -> it.copy(status = Interaction.Status.GONE)
                     // The computer still waits, whatever the two clocks say: answerable until the next look.
-                    else -> it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS))
+                    // What a card that waits across runs shows may have changed (downloaded, or failed).
+                    else -> it.copy(deadline = maxOf(it.deadline, now + STILL_WAITING_MILLIS), install = if (it.install != null) SkillInstall.of(data) else null, server = data.server ?: it.server)
                 }
             }
             val added = list.filter { it.id !in known }.mapNotNull { data ->
@@ -700,6 +760,7 @@ class Chat(
                     else -> state.copy(loadingOlder = false)
                 }
             }
+            restoreOffers(generation, id)
         }
     }
 
@@ -736,10 +797,169 @@ class Chat(
         val known = state.queue.associateBy { it.id }
         val rows = listed.queue.filter { validId(it.id) }.map { known[it.id]?.copy(prompt = it.prompt) ?: QueuedMessage(keys.incrementAndGet(), it.id, it.prompt) }
         val onTheWay = state.queue.filter { it.id.isEmpty() }
+        // A message that left the line is being sent: its text is kept for the thread (see [attach]).
+        val still = rows.map { it.id }.toSet()
+        synchronized(taken) {
+            state.queue.filter { it.id.isNotEmpty() && it.id !in still }.forEach { taken[it.id] = it }
+            while (taken.size > MAX_QUEUED * 2) taken.remove(taken.keys.first())
+        }
         return state.copy(queue = rows + onTheWay, queueHold = listed.paused.takeIf { rows.isNotEmpty() })
     }
 
     private fun since(state: ChatState): Long = if (state.phase == ChatPhase.IDLE || state.sinceMillis == 0L) nowMillis() else state.sinceMillis
+
+    /**
+     * File cards of answers read from the conversation have only a name: the computer keeps
+     * the offers themselves, for 15 minutes. Those that have not run out are put back on
+     * their cards (#154), so a card keeps its download after a lock or a re-read. The newest
+     * answer first and each offer once: of two files of one name, the later offer belongs to
+     * the later answer.
+     */
+    private suspend fun restoreOffers(generation: Int, id: String) {
+        fun bare(file: OfferedFile) = file.offer == null && file.refused == null
+        val shown = mutable.value
+        if (shown.generation != generation || shown.messages.none { message -> message.files.any(::bare) }) return
+        val offers = attempt { api.sessionFiles(id) }.getOrNull()?.filter { validId(it.offer) } ?: return
+        val now = uptimeMillis()
+        val wall = nowMillis()
+        change(generation) { state ->
+            val used = state.messages.flatMap { message -> message.files.mapNotNull { it.offer?.offer } }.toSet()
+            val left = offers.filter { it.offer !in used }.sortedByDescending { it.expiresAt.orEmpty() }.toMutableList()
+            val messages = state.messages.asReversed().map { message ->
+                if (message.files.none(::bare)) return@map message
+                val files = message.files.asReversed().map { file ->
+                    val index = if (bare(file)) left.indexOfFirst { it.name == file.name } else -1
+                    if (index < 0) return@map file
+                    val offer = left.removeAt(index)
+                    // The time that is left of its 15 minutes, by the computer's end time: not a new window.
+                    val remaining = try {
+                        java.time.Instant.parse(offer.expiresAt).toEpochMilli() - wall
+                    } catch (_: Exception) {
+                        0L
+                    }
+                    file.copy(offer = FileOffer(offer.offer, offer.name, offer.type, offer.size, sessionId = id), offeredAt = now - (OFFER_FULL_MILLIS - remaining.coerceIn(0, OFFER_FULL_MILLIS)))
+                }
+                message.copy(files = files.asReversed())
+            }
+            state.copy(messages = messages.asReversed())
+        }
+    }
+
+    // ------------------------------------------------------------------ following a run (#154)
+
+    /**
+     * Listen to the run the computer is making for this conversation without a request of
+     * this app behind it: a waiting message it sent by itself, or an answer the app stopped
+     * hearing (a lock, a lost connection). It only reads on the computer, so it is never a
+     * second writer. With nothing to follow, nothing changes here and the screen keeps asking.
+     */
+    private fun follow(generation: Int, id: String) {
+        val state = mutable.value
+        if (state.generation != generation || state.sessionId != id || state.phase != ChatPhase.ELSEWHERE) return
+        if (following?.isActive == true) return
+        val job = scope.launch { followRun(generation, id) }
+        following = job
+        // It is the answer that is being received now: a lock or another conversation ends it.
+        run = job
+    }
+
+    private suspend fun followRun(generation: Int, id: String) {
+        val answer = keys.incrementAndGet()
+        val streamed = StringBuilder()
+        var attached = false
+        var ended = false
+        var known = false
+        var prompt: String? = null
+        try {
+            api.live(id).firstOrNull { event ->
+                when (event) {
+                    is AnswerEvent.Done -> true
+                    is AnswerEvent.Stream -> when {
+                        event.event == "live" -> {
+                            val data = event.data as? JsonObject
+                            // Nothing that can be followed (a run without events, or none at all).
+                            if ((data?.get("followable") as? JsonPrimitive)?.content != "true") return@firstOrNull true
+                            attached = true
+                            val asked = attach(generation, data.text("queue_id"))
+                            prompt = asked.first
+                            known = asked.second
+                            false
+                        }
+                        // The final answer carries the whole text, whatever of the replay was left out.
+                        !attached || event.event == "replay_truncated" -> false
+                        // What comes first may be a replay: a card's time is its end time, not a fresh wait.
+                        else -> onEvent(generation, event, prompt, answer, streamed, fresh = false).also { ended = it }
+                    }
+                    else -> false
+                }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: ApiException) {
+            // Not reached, or the stream broke off: the computer is asked instead, as before.
+        }
+        following = null
+        if (!attached) return
+        if (!ended) {
+            // The stream stopped without saying how the run ended.
+            change(generation) { if (it.phase == ChatPhase.IDLE) it else unheard(it) }
+            delay(FOLLOW_AGAIN_MILLIS)
+            return read(generation, id, wholeThread = false)
+        }
+        // The message this answer belongs to was not on screen: the thread is read as the computer has it.
+        if (!known) return read(generation, id, wholeThread = true)
+        afterRun(generation)
+        if (coach) refreshCoach(generation)
+    }
+
+    /**
+     * The followed run begins on screen. [queueId]: the waiting message it answers, which
+     * moves from the line into the conversation. Returns that message's text (for "Retry"
+     * after a failure) and whether the question of this answer is on screen.
+     */
+    private fun attach(generation: Int, queueId: String?): Pair<String?, Boolean> {
+        var prompt: String? = awaiting?.first
+        var known = prompt != null
+        // What is followed is a run of its own, never the tidying up before one.
+        named = true
+        change(generation) { state ->
+            val row = queueId?.let { id -> state.queue.firstOrNull { it.id == id } ?: synchronized(taken) { taken[id] } }
+            val last = state.messages.lastOrNull()
+            val unfinished = last != null && !last.fromOwner && last.incomplete
+            val before = if (unfinished) state.messages.dropLast(1) else state.messages
+            val asked = before.lastOrNull()?.takeIf { it.fromOwner }
+            // What the run said so far comes again with the stream, so this run's unfinished answer on
+            // screen gives way to it. An unfinished answer of the run before (stopped for this
+            // message, or broken off) is not this run's: it stays as it is.
+            val own = row == null || (asked != null && same(asked.text, row.prompt))
+            var messages = if (own) before else state.messages
+            if (row != null) {
+                prompt = row.prompt
+                if (!own) messages = messages + ChatMessage(row.key, true, row.prompt)
+            }
+            // A message of this app whose answer was never seen to its end, and now another one is
+            // being answered: only the computer's conversation says what became of the first.
+            known = (row != null || awaiting != null || asked != null) && !(queueId != null && awaiting != null)
+            state.copy(
+                messages = messages,
+                queue = if (queueId != null) state.queue.filter { it.id != queueId } else state.queue,
+                phase = ChatPhase.SENDING,
+                sinceMillis = if (row != null) nowMillis() else since(state),
+                unreachable = false,
+                // A waiting message's own run: the stop that made room for it is done with.
+                stopping = if (row != null) false else state.stopping,
+                failure = state.failure?.takeIf { row == null || it.problem != ChatProblem.STOPPED_HERE },
+            )
+        }
+        return prompt to known
+    }
+
+    /** The answer is no longer heard: what was written of it is unfinished until the computer says more. */
+    private fun unheard(state: ChatState): ChatState {
+        val last = state.messages.lastOrNull()
+        val cut = state.phase == ChatPhase.ANSWERING && last != null && !last.fromOwner
+        return state.copy(messages = if (cut) state.messages.dropLast(1) + checkNotNull(last).copy(incomplete = true) else state.messages, phase = ChatPhase.ELSEWHERE)
+    }
 
     // ------------------------------------------------------------------ sending
 
@@ -751,7 +971,7 @@ class Chat(
         val text = prompt.trim()
         val current = mutable.value
         if (text.isEmpty()) return false
-        if (!current.canSend) return current.canQueue && enqueue(current.generation, text, now = false, replaces = null)
+        if (!current.canSend) return current.canQueue && enqueue(current.generation, text)
         val generation = current.generation
         val key = keys.incrementAndGet()
         // A new conversation gets its id from the phone (#148). The same first message again
@@ -777,34 +997,29 @@ class Chat(
                 draft = null,
                 unreachable = false,
                 stopping = false,
-                interactions = emptyList(),
+                interactions = carried(it.interactions),
+                // What the computer said last: the next message is tidied up first. Its stream confirms it.
                 tidying = coach && it.coach?.dueForCompaction == true,
-                unnamed = coach,
                 // As on the computer: the hold a stop put on the queue ends with the owner's next message.
                 queueHold = it.queueHold.takeIf { hold -> hold != HOLD_CANCEL },
             )
         }
         doubted = false
-        run = scope.launch { exchange(generation, text, key, Sending.DIRECT, replaces = null) }
+        named = false
+        run = scope.launch { exchange(generation, text, key, queued = false) }
         return true
     }
 
     // ------------------------------------------------------------------ while a run is in progress
 
-    /**
-     * Put [text] in line: one request, answered at once with the message's place in the queue.
-     * [now] ("send now"): it goes to the front and the current run is interrupted for it.
-     * [replaces]: the queued row this is the same message as (its old place is given up).
-     */
-    private fun enqueue(generation: Int, text: String, now: Boolean, replaces: QueuedMessage?): Boolean {
-        val key = replaces?.key ?: keys.incrementAndGet()
+    /** Put [text] in line: one request, answered at once with the message's place in the queue. */
+    private fun enqueue(generation: Int, text: String): Boolean {
+        val key = keys.incrementAndGet()
         mutable.update { state ->
             if (state.generation != generation) return false
-            val row = QueuedMessage(key, replaces?.id.orEmpty(), text, busy = true)
-            val queue = if (replaces == null) state.queue + row else state.queue.map { if (it.key == key) row else it }
-            state.copy(queue = queue, draft = null, failure = null, stopping = state.stopping || now)
+            state.copy(queue = state.queue + QueuedMessage(key, "", text, busy = true), draft = null, failure = null)
         }
-        launchSide { exchange(generation, text, key, if (now) Sending.NOW else Sending.QUEUED, replaces) }
+        launchSide { exchange(generation, text, key, queued = true) }
         return true
     }
 
@@ -839,14 +1054,53 @@ class Chat(
     }
 
     /**
-     * "Send now": interrupt the current run and send this waiting message at once. What the run
-     * has already changed stays (the screen says so before this is called).
+     * "Send now": this waiting message becomes the next one, in one request (#154). A run in
+     * progress is interrupted for it (what it has already changed stays; the screen says so
+     * first); a line that is on hold goes on with it. Nothing is sent twice or deleted.
      */
     fun sendNow(key: Long) {
         val state = mutable.value
+        val id = state.sessionId ?: return
         val row = state.queue.firstOrNull { it.key == key && !it.busy && it.id.isNotEmpty() } ?: return
-        if (state.sessionId == null) return
-        enqueue(state.generation, row.prompt, now = true, replaces = row)
+        val generation = state.generation
+        // An answer that is being received ends as "stopped": asked for, so no failure.
+        val heard = state.phase == ChatPhase.SENDING || state.phase == ChatPhase.ANSWERING
+        change(generation) { st -> st.copy(queue = st.queue.map { if (it.key == key) it.copy(busy = true) else it }, failure = null, stopping = st.stopping || heard) }
+        launchSide {
+            val sent = attempt { api.sendQueuedNow(id, row.id) }
+            val result = sent.getOrNull()
+            val error = sent.exceptionOrNull() as? ApiException
+            fun free(st: ChatState) = st.copy(queue = st.queue.map { if (it.key == key) it.copy(busy = false) else it })
+
+            // No "stopped" will come for this request: what was expected of the answer is taken back.
+            fun calm(st: ChatState) = if (heard) st.copy(stopping = false) else st
+            when {
+                result != null -> {
+                    change(generation) { st ->
+                        // Nothing was interrupted (the run had just ended): no "stopped" will come. If
+                        // something was, the answer's own end says so (it may have done so already).
+                        queueFrom(free(st), RunState(queue = result.queue)).let { if (result.interrupted) it else calm(it) }
+                    }
+                    // Nothing heard here says how it goes on: ask, and follow the answer.
+                    if (!heard) {
+                        change(generation) { if (it.phase == ChatPhase.IDLE) it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), interactions = carried(it.interactions)) else it }
+                        delay(RESUME_LOOK_MILLIS)
+                        read(generation, id, wholeThread = false)
+                    }
+                }
+                // "Not queued": the computer sent it meanwhile. Its list says what waits now.
+                error?.kind == ApiException.Kind.HTTP && error.status == 404 -> {
+                    val listed = attempt { api.runState(id) }.getOrNull()
+                    change(generation) { st -> calm(if (listed != null) queueFrom(free(st), listed) else free(st).let { it.copy(queue = it.queue.filter { waiting -> waiting.key != key }) }) }
+                }
+                else -> {
+                    // It may have arrived all the same: the computer's list is the truth.
+                    val listed = if (error?.kind == ApiException.Kind.UNCERTAIN) attempt { api.runState(id) }.getOrNull() else null
+                    val problem = if (error?.code == COMPACTION_RUNNING) ChatProblem.COMPACTING else ChatProblem.QUEUE_FAILED
+                    change(generation) { st -> calm(if (listed != null) queueFrom(free(st), listed) else free(st)).copy(failure = ChatFailure(problem)) }
+                }
+            }
+        }
     }
 
     /**
@@ -860,8 +1114,13 @@ class Chat(
         val generation = state.generation
         change(generation) { it.copy(stopping = true, failure = null) }
         launchSide {
-            val result = attempt { api.cancelRun(id) }.getOrNull()
-            if (result == null) return@launchSide change(generation) { it.copy(stopping = false, failure = ChatFailure(ChatProblem.STOP_FAILED)) }
+            val asked = attempt { api.cancelRun(id) }
+            val result = asked.getOrNull()
+            if (result == null) {
+                // Coach: the tidying up before the message is never stopped; the computer says so.
+                val tidyingUp = (asked.exceptionOrNull() as? ApiException)?.code == COMPACTION_RUNNING
+                return@launchSide change(generation) { it.copy(stopping = false, failure = ChatFailure(if (tidyingUp) ChatProblem.COMPACTING else ChatProblem.STOP_FAILED)) }
+            }
             change(generation) { st ->
                 st.copy(
                     // Nothing was running any more: the answer is complete, or on its way.
@@ -880,21 +1139,34 @@ class Chat(
         if (state.generation != generation || !state.stopping || state.phase == ChatPhase.IDLE) return
         if (state.phase != ChatPhase.ELSEWHERE) {
             run?.cancel()
-            change(generation) { it.copy(phase = ChatPhase.ELSEWHERE) }
+            change(generation) { unheard(it) }
         }
         read(generation, id, wholeThread = false)
     }
 
-    /** Let a queue that is on hold go on: the computer sends the waiting messages one after the other. */
+    /**
+     * Let a queue that is on hold go on: the computer answers at once (#154) and sends the
+     * waiting messages one after the other in the background; their answers are followed.
+     */
     fun resumeQueue() {
         val state = mutable.value
         val id = state.sessionId ?: return
-        if (state.queueHold == null || state.queue.isEmpty() || state.phase != ChatPhase.IDLE) return
+        val hold = state.queueHold
+        if (hold == null || state.queue.isEmpty() || state.phase != ChatPhase.IDLE) return
         val generation = state.generation
-        change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), queueHold = null, failure = null, interactions = emptyList()) }
-        // The answer to this comes only when the first waiting message is done: not waited for.
-        launchSide { attempt { api.resumeQueue(id) } }
+        change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), queueHold = null, failure = null, interactions = carried(it.interactions)) }
         launchSide {
+            if (attempt { api.resumeQueue(id) }.isFailure) {
+                // It may have arrived all the same: the computer's own word decides.
+                val listed = attempt { api.runState(id) }.getOrNull()
+                if (listed == null || (!listed.busy && listed.queue.isNotEmpty())) {
+                    // Not let go: the line is on hold as before, and the screen says that it did not get through.
+                    return@launchSide change(generation) { st ->
+                        val held = if (listed != null) queueFrom(st, listed) else st
+                        held.copy(phase = ChatPhase.IDLE, queueHold = held.queueHold ?: hold, failure = ChatFailure(ChatProblem.QUEUE_FAILED))
+                    }
+                }
+            }
             delay(RESUME_LOOK_MILLIS)
             read(generation, id, wholeThread = false)
         }
@@ -913,38 +1185,38 @@ class Chat(
     /** The composer took the text that was handed back. */
     fun takeDraft() = mutable.update { it.copy(draft = null) }
 
-    /** How a message goes out: straight away, into the line behind a run, or to its front ("send now"). */
-    private enum class Sending { DIRECT, QUEUED, NOW }
-
     /**
      * One message to the computer and what comes back: the answer as events, or one result
-     * that says the message was refused or put in line. A message meant for the line can still
-     * get an answer at once (the run before it ended in the same moment): it then becomes the
-     * conversation's current message ([started]).
+     * that says the message was refused or put in line. [queued]: it is meant for the line
+     * behind a run; it can still get an answer at once (the run before it ended in the same
+     * moment) and then becomes the conversation's current message ([startedAfterAll]).
      */
-    private suspend fun exchange(generation: Int, prompt: String, key: Long, sending: Sending, replaces: QueuedMessage?) {
-        val direct = sending == Sending.DIRECT
-        if (direct && !reachable()) return notSent(generation, prompt, key, ChatProblem.NOT_REACHED)
+    private suspend fun exchange(generation: Int, prompt: String, key: Long, queued: Boolean) {
+        if (!queued && !reachable()) return notSent(generation, prompt, key, ChatProblem.NOT_REACHED)
         val before = mutable.value
         if (before.generation != generation) return
         val answer = keys.incrementAndGet()
         val streamed = StringBuilder()
-        var started = direct
-        if (direct) awaiting = prompt to key
+        var started = !queued
+        if (!queued) awaiting = prompt to key
         try {
             val folder = before.folder?.takeIf { !it.memory }?.path?.takeIf { it.isNotEmpty() }
-            val options = if (sending == Sending.NOW) options(before) + ("when" to JsonPrimitive("now")) else options(before)
-            val ended = api.chat(prompt, before.sessionId, folder, options, coach = coach).firstOrNull { event ->
+            val ended = api.chat(prompt, before.sessionId, folder, options(before), coach = coach).firstOrNull { event ->
                 when (event) {
-                    is AnswerEvent.Stream -> {
+                    // Coach (#156): after its wait for the tidying up the message was put in line after all.
+                    is AnswerEvent.Stream -> if (event.event == "queued") {
+                        val placed = AnswerEvent.Done(dev.lifeos.app.relay.RelayResponse(202, event.data))
+                        if (started) onRefusal(generation, placed, prompt, key) else onQueueAnswer(generation, placed, prompt, key)
+                        true
+                    } else {
                         if (!started) {
                             started = true
-                            startedAfterAll(generation, prompt, key, replaces)
+                            startedAfterAll(generation, prompt, key)
                         }
                         onEvent(generation, event, prompt, answer, streamed)
                     }
                     is AnswerEvent.Done -> {
-                        if (started) onRefusal(generation, event, prompt, key) else onQueueAnswer(generation, event, prompt, key, replaces)
+                        if (started) onRefusal(generation, event, prompt, key) else onQueueAnswer(generation, event, prompt, key)
                         true
                     }
                     else -> false
@@ -958,7 +1230,7 @@ class Chat(
             throw error
         } catch (error: ApiException) {
             when {
-                !started -> notQueued(generation, prompt, key, replaces, uncertain = error.kind == ApiException.Kind.UNCERTAIN)
+                !started -> notQueued(generation, prompt, key, uncertain = error.kind == ApiException.Kind.UNCERTAIN)
                 error.kind == ApiException.Kind.NOT_SENT -> notSent(generation, prompt, key, ChatProblem.NOT_REACHED)
                 error.kind == ApiException.Kind.NOT_PAIRED || error.kind == ApiException.Kind.REFUSED -> notSent(generation, prompt, key, ChatProblem.NOT_PAIRED)
                 else -> lost(generation)
@@ -967,8 +1239,9 @@ class Chat(
     }
 
     /** A message meant for the line is answered right away: it is the current message now. */
-    private fun startedAfterAll(generation: Int, prompt: String, key: Long, replaces: QueuedMessage?) {
+    private fun startedAfterAll(generation: Int, prompt: String, key: Long) {
         awaiting = prompt to key
+        named = false
         change(generation) { state ->
             state.copy(
                 queue = state.queue.filter { it.key != key },
@@ -977,19 +1250,17 @@ class Chat(
                 sinceMillis = nowMillis(),
                 stopping = false,
                 unreachable = false,
-                interactions = emptyList(),
+                interactions = carried(state.interactions),
             )
         }
-        // Its old place in the line is given up (it may be gone already).
-        if (replaces != null) giveUp(generation, replaces)
     }
 
     /** The one result for a message meant for the line: its place there, or a refusal. */
-    private suspend fun onQueueAnswer(generation: Int, done: AnswerEvent.Done, prompt: String, key: Long, replaces: QueuedMessage?) {
+    private suspend fun onQueueAnswer(generation: Int, done: AnswerEvent.Done, prompt: String, key: Long) {
         val body = done.response.body as? JsonObject
         val queueId = body.text("queue_id")?.takeIf(::validId)
         if (done.response.status != 202 || queueId == null) {
-            return if (done.response.ok) notQueued(generation, prompt, key, replaces, uncertain = true) else refusedForQueue(generation, done.response, prompt, key, replaces)
+            return if (done.response.ok) notQueued(generation, prompt, key, uncertain = true) else refusedForQueue(generation, done.response, prompt, key)
         }
         val position = (body?.get("position") as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
         change(generation) { state ->
@@ -998,35 +1269,14 @@ class Chat(
             val row = QueuedMessage(key, queueId, prompt)
             // Position 1 is the front; without a usable position it stands where the row stood.
             val at = if (position in 1..others.size + 1) position - 1 else state.queue.indexOfFirst { it.key == key }.coerceIn(0, others.size)
-            state.copy(
-                queue = others.take(at) + row + others.drop(at),
-                queueHold = null,
-                // "Send now" while the answer is not received here: no end of an answer will say "stopped".
-                stopping = state.stopping && state.phase != ChatPhase.ELSEWHERE,
-            )
-        }
-        if (replaces != null) giveUp(generation, replaces)
-    }
-
-    /** Take a message's old entry out of the computer's queue; if that fails it shows up in the list again. */
-    private fun giveUp(generation: Int, old: QueuedMessage) {
-        val id = mutable.value.sessionId ?: return
-        if (old.id.isEmpty()) return
-        launchSide {
-            attempt { api.removeQueued(id, old.id) }
-            attempt { api.runState(id) }.getOrNull()?.let { listed -> change(generation) { queueFrom(it, listed) } }
+            state.copy(queue = others.take(at) + row + others.drop(at), queueHold = null)
         }
     }
 
-    private fun refusedForQueue(generation: Int, response: dev.lifeos.app.relay.RelayResponse, prompt: String, key: Long, replaces: QueuedMessage?) {
+    private fun refusedForQueue(generation: Int, response: dev.lifeos.app.relay.RelayResponse, prompt: String, key: Long) {
         val code = (response.body as? JsonObject).text("error") ?: response.error
         change(generation) { state ->
-            if (replaces != null) {
-                // "Send now" was refused: the message keeps its place in the line.
-                state.copy(queue = state.queue.map { if (it.key == key) replaces else it }, stopping = false, failure = ChatFailure(problemOf(code, response.status)))
-            } else {
-                state.copy(queue = state.queue.filter { it.key != key }, draft = prompt, failure = ChatFailure(problemOf(code, response.status)))
-            }
+            state.copy(queue = state.queue.filter { it.key != key }, draft = prompt, failure = ChatFailure(problemOf(code, response.status)))
         }
     }
 
@@ -1034,15 +1284,10 @@ class Chat(
      * A message for the line got no (usable) answer. [uncertain]: it may have arrived, so the
      * computer's list decides; only when it is not there does the text return to the composer.
      */
-    private suspend fun notQueued(generation: Int, prompt: String, key: Long, replaces: QueuedMessage?, uncertain: Boolean) {
+    private suspend fun notQueued(generation: Int, prompt: String, key: Long, uncertain: Boolean) {
         val id = mutable.value.sessionId
         val listed = if (uncertain && id != null) attempt { api.runState(id) }.getOrNull() else null
         change(generation) { state ->
-            if (replaces != null) {
-                // "Send now" did not get through: the message keeps its place in the line.
-                val kept = state.copy(queue = state.queue.map { if (it.key == key) replaces else it }, stopping = false, failure = ChatFailure(ChatProblem.QUEUE_FAILED))
-                return@change if (listed != null) queueFrom(kept, listed) else kept
-            }
             val before = state.queue.map { it.id }.toSet()
             val without = state.copy(queue = state.queue.filter { it.key != key })
             val synced = if (listed != null) queueFrom(without, listed) else without
@@ -1092,6 +1337,7 @@ class Chat(
         val before = state.choice
         if (choice == before && state.choiceKnown) return
         val generation = state.generation
+        choiceEdits++
         change(generation) { it.copy(choice = choice, choiceKnown = true, failure = null) }
         val id = state.sessionId ?: return
         launchSide {
@@ -1103,11 +1349,6 @@ class Chat(
                 change(generation) { it.copy(choice = before, failure = ChatFailure(ChatProblem.SETTING_FAILED)) }
             }
         }
-    }
-
-    /** What the session list says about this session's model, for a conversation restored after a start. */
-    fun noteChoice(session: SessionSummary) = mutable.update {
-        if (it.sessionId == session.id && !it.choiceKnown) it.copy(choice = ModelChoice(session.model, session.effort), choiceKnown = true) else it
     }
 
     // ------------------------------------------------------------------ questions and approvals
@@ -1149,15 +1390,19 @@ class Chat(
         val session = state.sessionId ?: return
         val interaction = state.interactions.firstOrNull { it.id == id } ?: return
         if (!interaction.open(uptimeMillis())) return expire(id)
+        // A skill whose contents are not listed (yet) can be declined, never installed.
+        val approve = result == Interaction.Status.ALLOWED
+        if (approve && !interaction.canApprove) return
         val generation = state.generation
         mark(generation, id) { it.copy(status = Interaction.Status.SENDING, sendFailed = false) }
         scope.launch {
             val outcome = try {
-                api.answerInteraction(session, id, body)
-                result
+                val answered = api.answerInteraction(session, id, body)
+                // A card that waits across runs says what the computer did with the yes.
+                if (interaction.crossRun) Interaction.settled(approve, answered) else result
             } catch (error: ApiException) {
-                // "Not pending": answered, expired or cancelled meanwhile. Anything else: not delivered.
-                if (error.kind == ApiException.Kind.HTTP && error.status == 404) Interaction.Status.GONE else null
+                // A final refusal closes the card; anything else was not delivered and can be given again.
+                Interaction.refusal(error)?.takeIf { it == Interaction.Status.GONE || interaction.crossRun }
             }
             mark(generation, id) {
                 if (outcome != null) it.copy(status = outcome, sendFailed = false) else it.copy(status = Interaction.Status.WAITING, sendFailed = true)
@@ -1168,12 +1413,31 @@ class Chat(
     private fun mark(generation: Int, id: String, transform: (Interaction) -> Interaction) =
         change(generation) { state -> state.copy(interactions = state.interactions.map { if (it.id == id) transform(it) else it }) }
 
-    /** The run ended: what was still waiting is closed (an answer on its way keeps its own result). */
+    /**
+     * What stays when the next message begins: the cards that wait across runs and are not
+     * settled. Everything else belonged to the run before.
+     */
+    private fun carried(interactions: List<Interaction>): List<Interaction> = interactions.filter { it.crossRun && it.pending }
+
+    /** The skill installs a finished answer proposed (#97): cards that wait from now on, and what was refused at once. */
+    private fun proposals(data: JsonObject?): List<Interaction> {
+        val now = uptimeMillis()
+        return (data?.get("skill_installs") as? JsonArray).orEmpty().mapNotNull { item ->
+            val card = try {
+                BridgeJson.decodeFromJsonElement(InteractionData.serializer(), item)
+            } catch (_: Exception) {
+                return@mapNotNull null
+            }
+            if (card.state == "refused" || card.id.isEmpty()) Interaction.refusedInstall(card, keys.incrementAndGet(), now) else Interaction.of(card, now, nowMillis(), fresh = true)
+        }
+    }
+
+    /** The run ended: what was still waiting for it is closed (an answer on its way keeps its own result). */
     private fun closed(interactions: List<Interaction>): List<Interaction> {
         val now = uptimeMillis()
         return interactions.map {
             when {
-                it.status != Interaction.Status.WAITING -> it
+                it.status != Interaction.Status.WAITING || it.crossRun -> it
                 // Its time was up, give or take a moment: the computer counted the silence as "no".
                 now >= it.deadline - EXPIRY_SLACK_MILLIS -> it.copy(status = Interaction.Status.EXPIRED)
                 else -> it.copy(status = Interaction.Status.GONE)
@@ -1182,7 +1446,7 @@ class Chat(
     }
 
     /** True when the event ends the answer. */
-    private fun onEvent(generation: Int, event: AnswerEvent.Stream, prompt: String, answer: Long, streamed: StringBuilder): Boolean {
+    private fun onEvent(generation: Int, event: AnswerEvent.Stream, prompt: String?, answer: Long, streamed: StringBuilder, fresh: Boolean = true): Boolean {
         val data = event.data as? JsonObject
         when (event.event) {
             "session" -> {
@@ -1190,15 +1454,28 @@ class Chat(
                 // From here on the conversation can be found again, whatever happens to this answer.
                 change(generation) { state ->
                     state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
-                    // Coach: another session than before means that the conversation was tidied up first.
-                    val renewed = coach && state.sessionId != null && state.sessionId != id
+                    // Coach: that it was tidied up first is said by `compacted`, not guessed from the id.
+                    // Earlier messages of another session are not part of this one in any case.
+                    val other = coach && state.sessionId != null && state.sessionId != id
+                    state.copy(sessionId = id, startingId = null, tidying = false, olderCursor = if (other) null else state.olderCursor)
+                }
+                named = true
+            }
+            // Coach (#156): the conversation was tidied up before this message; a new session continues.
+            "compacted" -> {
+                if (!coach) return false
+                val result = try {
+                    BridgeJson.decodeFromJsonElement(CoachCompacted.serializer(), event.data)
+                } catch (_: Exception) {
+                    CoachCompacted()
+                }
+                change(generation) { state ->
                     state.copy(
-                        sessionId = id,
-                        startingId = null,
+                        sessionId = result.sessionId.takeIf(::validId) ?: state.sessionId,
                         tidying = false,
-                        unnamed = false,
-                        olderCursor = if (renewed) null else state.olderCursor,
-                        renewedAt = if (renewed) awaiting?.second ?: state.renewedAt else state.renewedAt,
+                        olderCursor = null,
+                        renewedAt = awaiting?.second ?: state.renewedAt,
+                        tidied = result,
                     )
                 }
             }
@@ -1215,14 +1492,15 @@ class Chat(
                 } catch (_: Exception) {
                     return false
                 }
-                // Just created: the whole waiting time lies ahead.
-                val interaction = Interaction.of(asked, uptimeMillis(), nowMillis(), fresh = true) ?: return false
+                // Just created: the whole waiting time lies ahead (unless it may be a replay of a followed run).
+                val interaction = Interaction.of(asked, uptimeMillis(), nowMillis(), fresh = fresh) ?: return false
                 change(generation) { state ->
                     if (state.interactions.any { it.id == interaction.id }) state else state.copy(interactions = state.interactions + interaction)
                 }
             }
             // A sign of life from a run that says nothing for a while: the stream is alive (#148).
-            "keepalive" -> Unit
+            // Coach (#156): before the message's own run has begun, it is the tidying up that takes this long.
+            "keepalive" -> if (coach && !named) change(generation) { if (it.phase == ChatPhase.SENDING) it.copy(tidying = true) else it }
             // The computer no longer waits for this card: answered (from any device), out of time, or the run ended.
             "interaction_closed" -> {
                 val id = data.text("id") ?: return false
@@ -1238,8 +1516,10 @@ class Chat(
                 val text = data.text("answer")?.takeIf { it.isNotBlank() } ?: visible(streamed)
                 val id = data.text("session_id")?.takeIf(::validId)
                 val files = files(data, id ?: mutable.value.sessionId)
+                val proposed = proposals(data)
+                val servers = (data?.get("mcp_servers") as? JsonArray).orEmpty().mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
                 change(generation) { state ->
-                    val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files))
+                    val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files, servers = servers))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
                     state.copy(
                         messages = messages,
@@ -1249,8 +1529,7 @@ class Chat(
                         loaded = true,
                         stopping = false,
                         tidying = false,
-                        unnamed = false,
-                        interactions = closed(state.interactions),
+                        interactions = closed(state.interactions).let { cards -> cards + proposed.filter { new -> cards.none { it.id == new.id } } },
                     )
                 }
                 return true
@@ -1263,7 +1542,7 @@ class Chat(
                     // The owner stopped it from here: that is what was asked for, not a failure to retry.
                     val failure = if (problem == ChatProblem.STOPPED && state.stopping) ChatFailure(ChatProblem.STOPPED_HERE) else ChatFailure(problem, prompt)
                     // The run had started: the message is part of the conversation, a retry is a new message.
-                    state.copy(messages = messages, phase = ChatPhase.IDLE, stopping = false, tidying = false, unnamed = false, failure = failure, interactions = closed(state.interactions))
+                    state.copy(messages = messages, phase = ChatPhase.IDLE, stopping = false, tidying = false, failure = failure, interactions = closed(state.interactions))
                 }
                 return true
             }
@@ -1284,6 +1563,7 @@ class Chat(
                     messages = state.messages.filter { it.key != key },
                     queue = state.queue + QueuedMessage(key, queueId, prompt),
                     phase = ChatPhase.ELSEWHERE,
+                    tidying = false,
                 )
             }
             val id = mutable.value.sessionId ?: return
@@ -1311,7 +1591,7 @@ class Chat(
         }
         // Nothing ran: "Retry" sends the same message in place of this one.
         change(generation) {
-            it.copy(phase = ChatPhase.IDLE, startingId = null, unnamed = false, failure = ChatFailure(problem, prompt, replaces = key, status = response.status))
+            it.copy(phase = ChatPhase.IDLE, startingId = null, tidying = false, failure = ChatFailure(problem, prompt, replaces = key, status = response.status))
         }
     }
 
@@ -1321,7 +1601,7 @@ class Chat(
         // A first message: there is no conversation to find again (its id is kept for the next try).
         if (mutable.value.let { it.generation == generation && it.sessionId == null }) store.save(null)
         change(generation) { state ->
-            state.copy(messages = state.messages.filter { it.key != key }, phase = ChatPhase.IDLE, unnamed = false, draft = prompt, failure = ChatFailure(problem))
+            state.copy(messages = state.messages.filter { it.key != key }, phase = ChatPhase.IDLE, tidying = false, draft = prompt, failure = ChatFailure(problem))
         }
     }
 
@@ -1335,7 +1615,7 @@ class Chat(
             awaiting = null
             return change(generation) { it.copy(phase = ChatPhase.IDLE, failure = ChatFailure(ChatProblem.NO_ANSWER)) }
         }
-        change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, tidying = false) }
+        change(generation) { unheard(it).copy(tidying = false) }
         read(generation, id, wholeThread = false)
     }
 
@@ -1354,15 +1634,22 @@ class Chat(
         /** The computer keeps at most this many waiting messages per session. */
         const val MAX_QUEUED = 10
 
+        /** The computer's word for "the coach conversation is being tidied up: that run is not stopped". */
+        const val COMPACTION_RUNNING = "compaction_running"
+
         /** The hold a stop puts on the queue; it ends with the owner's next message. */
         const val HOLD_CANCEL = "cancel"
 
         /** How long the answer may take to say that it was stopped before the app asks instead. */
         private const val STOP_WAIT_MILLIS = 12_000L
 
-        /** How long after "Send them" the app first looks whether the line moves. */
-        private const val RESUME_LOOK_MILLIS = 3_000L
-        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[file:[^\\n]*]][ \\t]*\\n?")
+        /** How long after "Send them" or "Send now" the app first looks whether the line moves. */
+        private const val RESUME_LOOK_MILLIS = 1_500L
+
+        /** How long the app waits before it asks again after a followed answer stopped arriving. */
+        private const val FOLLOW_AGAIN_MILLIS = 2_000L
+        // Also the lines that propose a skill install (#97): the computer turns them into cards.
+        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[(?:file|skill-install):[^\\n]*]][ \\t]*\\n?")
         private val FILE_PATH = Regex("(?m)^[ \\t]*\\[\\[file:([^\\n]*?)]][ \\t]*$")
 
         /** Ids are put into request paths: only the characters a session id can have. */
@@ -1378,6 +1665,9 @@ class Chat(
 
         /** An offer is valid for 15 minutes on the computer; the card stops a little earlier. */
         const val OFFER_MILLIS = 14 * 60_000L
+
+        /** The whole time the computer keeps an offer. */
+        private const val OFFER_FULL_MILLIS = 15 * 60_000L
 
         private fun put(messages: List<ChatMessage>, message: ChatMessage): List<ChatMessage> =
             if (messages.any { it.key == message.key }) messages.map { if (it.key == message.key) message else it } else messages + message
@@ -1416,9 +1706,12 @@ class Chat(
             "claude_not_found", "working_directory_missing", "not_configured" -> ChatProblem.NOT_SET_UP
             "timeout" -> ChatProblem.TOO_LONG
             "cancelled" -> ChatProblem.STOPPED
+            COMPACTION_RUNNING -> ChatProblem.COMPACTING
             "prompt_too_large", "too_large" -> ChatProblem.TOO_LARGE
             "command_not_allowed" -> ChatProblem.COMMAND_UNKNOWN
             "skills_unavailable" -> ChatProblem.SKILLS_OFF
+            "mcp_unavailable" -> ChatProblem.MCP_OFF
+            "audit_unavailable" -> ChatProblem.UNRECORDED
             else -> if (status == 503) ChatProblem.NOT_SET_UP else ChatProblem.FAILED
         }
     }

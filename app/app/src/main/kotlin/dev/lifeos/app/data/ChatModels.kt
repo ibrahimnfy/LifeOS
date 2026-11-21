@@ -53,6 +53,12 @@ data class SessionSummary(
     @SerialName("open_elsewhere") val openElsewhere: Boolean? = null,
     /** A finished answer of this session is announced with a notification (#75); on unless switched off. */
     @SerialName("notify_replies") val notifyReplies: Boolean = true,
+    // ---- only in the fresh read of one session (`GET /sessions/{id}`, #154)
+    /** Its current run can be followed live (`GET /sessions/{id}/live`). */
+    val followable: Boolean = false,
+    /** The messages that wait for its current run to end. */
+    val queue: List<QueuedData> = emptyList(),
+    @SerialName("queue_paused") val queuePaused: String? = null,
 ) {
     /** The folder's name as the rows show it. */
     val folderLabel: String get() = autoGroup.ifEmpty { folder.trimEnd('/').substringAfterLast('/') }
@@ -86,6 +92,30 @@ data class Exchange(
 /** `POST /sessions/{id}/cancel`. */
 @Serializable
 data class CancelResult(val cancelled: Boolean = false, @SerialName("queue_paused") val queuePaused: Boolean = false)
+
+/**
+ * `POST /sessions/{id}/queue/{qid}/send-now`: the waiting message is the next one now.
+ * [interrupted]: a run was in progress and was stopped for it; [queue] is the line afterwards.
+ */
+@Serializable
+data class SendNowResult(
+    val promoted: Boolean = false,
+    @SerialName("interrupted_current_run") val interrupted: Boolean = false,
+    val queue: List<QueuedData> = emptyList(),
+)
+
+/** A file offer of a session that can still be fetched (`GET /sessions/{id}/files`). */
+@Serializable
+data class LiveOffer(
+    val offer: String = "",
+    val name: String = "",
+    val type: String? = null,
+    val size: Long = 0,
+    @SerialName("expires_at") val expiresAt: String? = null,
+)
+
+@Serializable
+data class LiveOffers(val files: List<LiveOffer> = emptyList())
 
 /** [older] is set when the computer has earlier exchanges than these. */
 @Serializable

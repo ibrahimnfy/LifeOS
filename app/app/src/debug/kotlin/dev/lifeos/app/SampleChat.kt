@@ -71,6 +71,13 @@ internal class SampleChat(private val context: Context) {
         var paused: String? = null
         var stop = CompletableDeferred<Unit>()
 
+        /** What the run the computer makes by itself has said so far, for a follower (`/live`, #154). */
+        @Volatile
+        var live: LiveRun? = null
+
+        /** The file offers of this session: offer id, name, when it runs out. */
+        val offers = mutableListOf<Triple<String, String, Instant>>()
+
         init {
             if (seeded) {
                 for (item in data.getValue("history").jsonArray) {
@@ -79,6 +86,18 @@ internal class SampleChat(private val context: Context) {
             }
             if (parkedHere) exchanges += "Push the milestone summary to the remote." to ""
         }
+    }
+
+    /** A run that can be followed: its text grows, then [end] says how it ended ("done" or an error word). */
+    private class LiveRun(val queueId: String?) {
+        val text = StringBuilder()
+
+        @Volatile
+        var end: String? = null
+    }
+
+    private fun queueJson(session: Session) = buildJsonArray {
+        session.queue.forEach { (id, prompt) -> add(buildJsonObject { put("id", JsonPrimitive(id)); put("prompt", JsonPrimitive(prompt)) }) }
     }
 
     private val sessions = ConcurrentHashMap<String, Session>()
@@ -102,6 +121,10 @@ internal class SampleChat(private val context: Context) {
 
     // ---- the coach conversation (#114)
     private var coachRound = 1
+
+    /** The coach session that is being tidied up right now; a stop is refused for it. */
+    @Volatile
+    private var coachTidying: String? = null
     private var coachRuns = 0
     private val coachId get() = "$COACH-$coachRound"
     private fun coachDue() = session(coachId).exchanges.size >= COACH_FULL
@@ -145,6 +168,90 @@ internal class SampleChat(private val context: Context) {
         put("morning_usage", periods(1, 6))
     }
 
+    /**
+     * A skill install that waits across runs (#97), as the bridge keeps it for a day: it is
+     * "downloading" for [FETCH_MILLIS], then ready (or failed, for a proposal with "broken").
+     */
+    private class Proposal(val session: String, val source: String, val broken: Boolean, val madeAt: Instant = Instant.now())
+
+    private val proposals = ConcurrentHashMap<String, Proposal>()
+
+    private fun proposalCard(id: String, proposal: Proposal) = buildJsonObject {
+        val fetched = Instant.now().isAfter(proposal.madeAt.plusMillis(FETCH_MILLIS))
+        put("id", JsonPrimitive(id))
+        put("kind", JsonPrimitive("skill_install"))
+        put("session_id", JsonPrimitive(proposal.session))
+        put("folder", JsonPrimitive("/home/owner/project-alpha"))
+        put("source", JsonPrimitive(proposal.source))
+        put("created_at", JsonPrimitive(proposal.madeAt.toString()))
+        put("expires_at", JsonPrimitive(proposal.madeAt.plusSeconds(24 * 3600).toString()))
+        when {
+            !fetched -> put("state", JsonPrimitive("downloading"))
+            proposal.broken -> {
+                put("state", JsonPrimitive("failed"))
+                put("error", JsonPrimitive("there is no SKILL.md at the top"))
+            }
+            else -> {
+                put("state", JsonPrimitive("ready"))
+                put("name", JsonPrimitive("tidy-notes"))
+                put("target", JsonPrimitive("/home/owner/project-alpha/.claude/skills/tidy-notes"))
+                put("description", JsonPrimitive("Tidy the notes of a project: merge duplicates, fix headings, list open questions."))
+                put("warnings", Json.parseToJsonElement("""["shell_lines","has_scripts"]"""))
+                put("files", Json.parseToJsonElement("""[{"path":"SKILL.md","size":1840},{"path":"reference/headings.md","size":612},{"path":"scripts/merge.py","size":2310}]"""))
+                put("total_size", JsonPrimitive(4762))
+            }
+        }
+    }
+
+    private fun proposalCards(session: String) = proposals.filter { it.value.session == session }.toSortedMap().map { (id, proposal) -> proposalCard(id, proposal) }
+
+    // ---- the MCP servers of a folder (#153): what its .mcp.json declares, and the owner's approvals
+    private val mcpState = ConcurrentHashMap(mapOf("notes-index" to "not_approved", "calendar" to "approved", "issue-tracker" to "changed"))
+
+    private fun mcpServer(name: String) = buildJsonObject {
+        put("name", JsonPrimitive(name))
+        when (name) {
+            "calendar" -> {
+                put("type", JsonPrimitive("http"))
+                put("command", JsonNull)
+                put("args", JsonArray(emptyList()))
+                put("url", JsonPrimitive("https://calendar.example.org/mcp"))
+                put("env_names", JsonArray(emptyList()))
+                put("header_names", Json.parseToJsonElement("""["Authorization"]"""))
+            }
+            else -> {
+                put("type", JsonPrimitive("stdio"))
+                put("command", JsonPrimitive(if (name == "notes-index") "npx" else "python3"))
+                put("args", Json.parseToJsonElement(if (name == "notes-index") """["-y","notes-index-server","--root","notes"]""" else """["tools/issue_tracker.py","--read-only"]"""))
+                put("url", JsonNull)
+                put("env_names", Json.parseToJsonElement(if (name == "notes-index") """["NOTES_TOKEN"]""" else "[]"))
+                put("header_names", JsonArray(emptyList()))
+            }
+        }
+        put("hash", JsonPrimitive("samplehash-$name"))
+        put("outside_sandbox", JsonPrimitive(true))
+        put("state", JsonPrimitive(mcpState[name] ?: "not_approved"))
+        put("approved_at", if (mcpState[name] == "not_approved") JsonNull else JsonPrimitive(Instant.now().minusSeconds(86_400).toString()))
+    }
+
+    /** An approval card for one server: it waits for a day, like a skill install. */
+    private class McpCard(val session: String, val name: String, val madeAt: Instant = Instant.now())
+
+    private val mcpCards = ConcurrentHashMap<String, McpCard>()
+
+    private fun mcpCard(id: String, card: McpCard) = buildJsonObject {
+        put("id", JsonPrimitive(id))
+        put("kind", JsonPrimitive("mcp_server"))
+        put("session_id", JsonPrimitive(card.session))
+        put("folder", JsonPrimitive("/home/owner/project-alpha"))
+        put("server", mcpServer(card.name))
+        put("warning", JsonPrimitive("An approved MCP server runs outside the sandbox."))
+        put("created_at", JsonPrimitive(card.madeAt.toString()))
+        put("expires_at", JsonPrimitive(card.madeAt.plusSeconds(24 * 3600).toString()))
+    }
+
+    private fun mcpCards(session: String) = mcpCards.filter { it.value.session == session }.toSortedMap().map { (id, card) -> mcpCard(id, card) }
+
     /** Questions and approvals a sample run waits for, by id. */
     private val waiting = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private var asked = 0
@@ -176,13 +283,59 @@ internal class SampleChat(private val context: Context) {
                             session.exchanges.last().first to if (allowed) "Pushed, as you allowed." else "I left it unpushed."
                         ok { put("answered", JsonPrimitive(true)) }
                     }
+                    method == "GET" && rest == "mcp-servers" -> ok {
+                        put("capable_only", JsonPrimitive(true))
+                        put("note", JsonPrimitive("An approved MCP server runs outside the sandbox."))
+                        put("servers", buildJsonArray { mcpState.keys.sorted().forEach { add(mcpServer(it)) } })
+                    }
+                    method == "POST" && rest.startsWith("mcp-servers/") && rest.endsWith("/approval") -> {
+                        val name = rest.removePrefix("mcp-servers/").removeSuffix("/approval")
+                        if (!mcpState.containsKey(name)) return@synchronized error(404, "mcp_server_not_found")
+                        val cardId = "samplemcp%03d".format(++asked)
+                        val card = McpCard(parts[1], name)
+                        mcpCards[cardId] = card
+                        RelayResponse(200, mcpCard(cardId, card))
+                    }
+                    method == "DELETE" && rest.startsWith("mcp-servers/") -> {
+                        val name = rest.removePrefix("mcp-servers/")
+                        val had = mcpState[name].let { it != null && it != "not_approved" }
+                        if (had) mcpState[name] = "not_approved"
+                        ok { put("revoked", JsonPrimitive(had)) }
+                    }
+                    method == "POST" && rest.startsWith("interactions/") && mcpCards[rest.removePrefix("interactions/")]?.session == parts[1] -> {
+                        val id = rest.removePrefix("interactions/")
+                        val card = mcpCards.remove(id) ?: return@synchronized error(404, "not_pending")
+                        val approved = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true"
+                        if (approved) mcpState[card.name] = "approved"
+                        ok {
+                            put("answered", JsonPrimitive(true))
+                            put("id", JsonPrimitive(id))
+                            put("approved", JsonPrimitive(approved))
+                            if (approved) put("name", JsonPrimitive(card.name))
+                        }
+                    }
+                    // A skill install: the computer takes it out of its list, then acts on a yes.
+                    method == "POST" && rest.startsWith("interactions/") && proposals[rest.removePrefix("interactions/")]?.session == parts[1] -> {
+                        val id = rest.removePrefix("interactions/")
+                        val card = proposalCard(id, proposals.remove(id) ?: return@synchronized error(404, "not_pending"))
+                        val installed = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true" && card["state"]?.jsonPrimitive?.content == "ready"
+                        ok {
+                            put("answered", JsonPrimitive(true))
+                            put("id", JsonPrimitive(id))
+                            put("installed", JsonPrimitive(installed))
+                            if (installed) {
+                                put("name", card.getValue("name"))
+                                put("target", card.getValue("target"))
+                            }
+                        }
+                    }
                     method == "POST" && rest.startsWith("interactions/") -> {
                         val run = waiting.remove(rest.removePrefix("interactions/")) ?: return@synchronized error(404, "not_pending")
                         run.complete(body as? JsonObject ?: JsonObject(emptyMap()))
                         ok { put("answered", JsonPrimitive(true)) }
                     }
                     method == "GET" && rest == "interactions" ->
-                        ok { put("pending", JsonArray(if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList())) }
+                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]) + mcpCards(parts[1]))) }
                     // The coach conversation has no thread to read before its first message.
                     method == "GET" && rest == "history" && parts[1].startsWith(COACH) && session.exchanges.isEmpty() -> error(404, "session_not_found")
                     method == "GET" && rest == "history" -> history(session, query["before"])
@@ -198,8 +351,44 @@ internal class SampleChat(private val context: Context) {
                     method == "GET" && rest == "queue" -> ok {
                         put("running", JsonPrimitive(session.running || (parts[1] == PARKED && parked)))
                         put("paused", session.paused?.let(::JsonPrimitive) ?: JsonNull)
-                        put("queue", buildJsonArray { session.queue.forEach { (id, prompt) -> add(buildJsonObject { put("id", JsonPrimitive(id)); put("prompt", JsonPrimitive(prompt)) }) } })
+                        put("queue", queueJson(session))
                     }
+                    // The offers that have not run out: a card read again keeps its download (#154).
+                    method == "GET" && rest == "files" -> ok {
+                        put(
+                            "files",
+                            buildJsonArray {
+                                session.offers.filter { it.third.isAfter(Instant.now()) }.forEach { (offer, name, expires) ->
+                                    add(
+                                        buildJsonObject {
+                                            put("offer", JsonPrimitive(offer))
+                                            put("name", JsonPrimitive(name))
+                                            put("type", JsonPrimitive("text/markdown"))
+                                            put("size", JsonPrimitive(20))
+                                            put("expires_at", JsonPrimitive(expires.toString()))
+                                        },
+                                    )
+                                }
+                            },
+                        )
+                    }
+                    // "Send now" for a waiting message, in one request (#154).
+                    method == "POST" && rest.startsWith("queue/") && rest.endsWith("/send-now") -> {
+                        val queueId = rest.removePrefix("queue/").removeSuffix("/send-now")
+                        val index = session.queue.indexOfFirst { it.first == queueId }
+                        if (index < 0) return@synchronized error(404, "not_queued")
+                        session.queue.add(0, session.queue.removeAt(index))
+                        session.paused = null
+                        val interrupted = session.running
+                        if (interrupted) session.stop.complete(Unit) else drain(session)
+                        ok {
+                            put("promoted", JsonPrimitive(true))
+                            put("queue_id", JsonPrimitive(queueId))
+                            put("interrupted_current_run", JsonPrimitive(interrupted))
+                            put("queue", queueJson(session))
+                        }
+                    }
+                    method == "POST" && rest == "cancel" && coachTidying == parts[1] -> error(409, "compaction_running")
                     method == "POST" && rest == "cancel" -> {
                         val stopped = session.running
                         if (stopped) {
@@ -214,7 +403,10 @@ internal class SampleChat(private val context: Context) {
                     method == "POST" && rest == "queue/resume" -> {
                         session.paused = null
                         drain(session)
-                        ok { put("resumed", JsonPrimitive(true)) }
+                        ok {
+                            put("resumed", JsonPrimitive(true))
+                            put("queue", queueJson(session))
+                        }
                     }
                     rest.startsWith("queue/") -> {
                         val index = session.queue.indexOfFirst { it.first == rest.removePrefix("queue/") }
@@ -232,6 +424,32 @@ internal class SampleChat(private val context: Context) {
         }
         // What the computer keeps about a session (model, effort, title, pin, switches): taken as sent.
         val patched = Regex("^/sessions/([^/]+)$").find(path)?.groupValues?.get(1)
+        // One session, read fresh (#154): as in the list, with its run and its waiting messages.
+        if (method == "GET" && patched != null) {
+            val listed = listedSessions().firstOrNull { it["id"]?.jsonPrimitive?.content == patched }
+            val started = sessions[patched]
+            if (listed == null && started == null) return error(404, "session_not_found")
+            val session = session(patched)
+            val item = listed ?: buildJsonObject {
+                put("id", JsonPrimitive(patched))
+                put("title", JsonPrimitive(session.exchanges.firstOrNull()?.first.orEmpty()))
+                put("folder", JsonPrimitive("/home/owner/brain"))
+                put("auto_group", JsonPrimitive("brain"))
+                put("in_use", JsonPrimitive(session.running))
+            }
+            return synchronized(session) {
+                RelayResponse(
+                    200,
+                    JsonObject(
+                        described(item) + mapOf(
+                            "followable" to JsonPrimitive(session.live != null),
+                            "queue" to queueJson(session),
+                            "queue_paused" to (session.paused?.let(::JsonPrimitive) ?: JsonNull),
+                        ),
+                    ),
+                )
+            }
+        }
         if (method == "PATCH" && patched != null) {
             val changes = body as? JsonObject ?: JsonObject(emptyMap())
             (changes["skills"] as? JsonPrimitive)?.let { session(patched).skills = it.content == "true" }
@@ -286,6 +504,8 @@ internal class SampleChat(private val context: Context) {
         buildJsonObject {
             item.forEach { (name, value) -> put(name, value) }
             put("detected_title", item["title"] ?: JsonNull)
+            // The sample sessions start with their folder's skills switched on.
+            item["id"]?.jsonPrimitive?.content?.let { put("skills", JsonPrimitive(session(it).skills)) }
             changes.forEach { (name, value) ->
                 when {
                     // A cleared title is the detected one again; a group that is gone is no group.
@@ -398,7 +618,51 @@ internal class SampleChat(private val context: Context) {
         }
     }
 
-    fun events(path: String, body: JsonElement?): Flow<AnswerEvent> = flow {
+    fun events(method: String, path: String, body: JsonElement?): Flow<AnswerEvent> {
+        if (method != "GET") return answer(path, body)
+        val id = Regex("^/sessions/([^/]+)/live$").find(path)?.groupValues?.get(1)
+        return if (id != null) follow(id) else flow { emit(AnswerEvent.Done(error(404, "not_found"))) }
+    }
+
+    /**
+     * `GET /sessions/{id}/live` (#154): what the run the computer makes by itself has said so
+     * far, then the rest as it is written, to its end. Only the answers to waiting messages
+     * can be followed here; an answer the app itself receives ends with the app's listening.
+     */
+    private fun follow(id: String): Flow<AnswerEvent> = flow {
+        val session = session(id)
+        val run = session.live
+        emit(
+            AnswerEvent.Stream(
+                "live",
+                buildJsonObject {
+                    put("session_id", JsonPrimitive(id))
+                    put("running", JsonPrimitive(session.running))
+                    put("followable", JsonPrimitive(run != null))
+                    put("queue_id", run?.queueId?.let(::JsonPrimitive) ?: JsonNull)
+                },
+            ),
+        )
+        var sent = 0
+        while (run != null) {
+            val end = run.end
+            val text = synchronized(run) { run.text.toString() }
+            if (text.length > sent) {
+                emit(AnswerEvent.Stream("delta", buildJsonObject { put("text", JsonPrimitive(text.substring(sent))) }))
+                sent = text.length
+            }
+            if (end == "done") {
+                emit(AnswerEvent.Stream("done", buildJsonObject { put("answer", JsonPrimitive(text)); put("session_id", JsonPrimitive(id)) }))
+            } else if (end != null) {
+                emit(AnswerEvent.Stream("error", buildJsonObject { put("error", JsonPrimitive(end)) }))
+            }
+            if (end != null) break
+            delay(250)
+        }
+        emit(AnswerEvent.Done(RelayResponse(200, null)))
+    }
+
+    private fun answer(path: String, body: JsonElement?): Flow<AnswerEvent> = flow {
         val request = body as? JsonObject
         val text = (request?.get("prompt") as? JsonPrimitive)?.content.orEmpty()
         val prompt = text.lowercase()
@@ -422,16 +686,40 @@ internal class SampleChat(private val context: Context) {
         }
         if (toCoach) {
             if (!session(id).running && session(id).exchanges.isNotEmpty() && (coachDue() || "tidy" in prompt)) {
-                // The conversation had grown long: one run without any sign, then a new session.
-                delay(6000)
+                // The conversation had grown long (#156): keep-alives while it is tidied up (that run
+                // is never stopped), then what was done, then the message in a new session.
+                coachTidying = id
+                try {
+                    repeat(3) {
+                        delay(3000)
+                        emit(AnswerEvent.Stream("keepalive", JsonObject(emptyMap())))
+                    }
+                } finally {
+                    coachTidying = null
+                }
                 renewCoach()
                 id = coachId
+                emit(
+                    AnswerEvent.Stream(
+                        "compacted",
+                        buildJsonObject {
+                            put("facts", buildJsonArray { add(JsonPrimitive("profile/work.md")); add(JsonPrimitive("projects/project-alpha.md")) })
+                            put("summary", JsonPrimitive(true))
+                            put("session_id", JsonPrimitive(id))
+                        },
+                    ),
+                )
             }
             coachRuns++
         }
         val session = session(id)
         if ("in use" in prompt) {
             emit(AnswerEvent.Done(error(409, "session_in_use")))
+            return@flow
+        }
+        // "mcp unchecked": the folder has approved MCP servers the computer has not checked yet (#153).
+        if ("mcp" in prompt && "unchecked" in prompt) {
+            emit(AnswerEvent.Done(error(503, "mcp_unavailable")))
             return@flow
         }
         // A run is going on: the message waits in line, or goes first and interrupts ("send now").
@@ -482,6 +770,8 @@ internal class SampleChat(private val context: Context) {
             throw ApiException(ApiException.Kind.UNCERTAIN)
         }
         var written = ""
+        // The line that offers a file stays in the conversation the computer keeps.
+        var marker = ""
         try {
             emit(AnswerEvent.Stream("session", buildJsonObject { put("session_id", JsonPrimitive(id)) }))
             if (pause(session, 1200)) return@flow stopped()
@@ -511,6 +801,7 @@ internal class SampleChat(private val context: Context) {
                         else -> "Thanks. You answered: `" + reply["answers"].toString() + "`"
                     }
                 }
+                "install" in prompt -> "A skill for tidying notes would help here. I have proposed it below; nothing is installed unless you say so."
                 else -> data.getValue("answer").jsonPrimitive.content
             }
             val step = if ("slow" in prompt) 2000L else 90L
@@ -534,8 +825,30 @@ internal class SampleChat(private val context: Context) {
                         put("session_id", JsonPrimitive(id))
                         // "file": one file is offered (the 20-byte sample file) and one is refused.
                         if ("file" in prompt) {
-                            put("files", Json.parseToJsonElement("""[{"offer":"sample-offer-${++asked}","name":"outline.md","type":"text/markdown","size":20}]"""))
+                            val offer = "sample-offer-${++asked}"
+                            synchronized(session) { session.offers += Triple(offer, "outline.md", Instant.now().plusSeconds(15 * 60)) }
+                            marker = "\n[[file: notes/alpha/outline.md]]"
+                            put("files", Json.parseToJsonElement("""[{"offer":"$offer","name":"outline.md","type":"text/markdown","size":20}]"""))
                             put("files_refused", Json.parseToJsonElement("""[{"name":"recordings.zip","reason":"larger than the limit of 50 MB"}]"""))
+                        }
+                        // "mcp": the answer used the approved MCP servers of the folder (#153).
+                        val used = mcpState.filterValues { it == "approved" }.keys.sorted()
+                        if ("mcp" in prompt && used.isNotEmpty()) {
+                            put("mcp_servers", buildJsonArray { used.forEach { add(buildJsonObject { put("name", JsonPrimitive(it)); put("outside_sandbox", JsonPrimitive(true)) }) } })
+                            put("mcp_note", JsonPrimitive("An approved MCP server runs outside the sandbox."))
+                        }
+                        // "install": the answer proposes a skill (#97). With "plain" its source is not
+                        // HTTPS and is refused at once; with "broken" the download fails.
+                        if ("install" in prompt) {
+                            val card = if ("plain" in prompt) {
+                                Json.parseToJsonElement("""{"kind":"skill_install","source":"http://skills.example.org/tidy-notes.zip","state":"refused","error":"only HTTPS sources can be installed"}""")
+                            } else {
+                                val cardId = "samplecard%03d".format(++asked)
+                                val proposal = Proposal(id, "https://skills.example.org/tidy-notes.zip", broken = "broken" in prompt)
+                                proposals[cardId] = proposal
+                                proposalCard(cardId, proposal)
+                            }
+                            put("skill_installs", JsonArray(listOf(card)))
                         }
                     },
                 ),
@@ -543,7 +856,7 @@ internal class SampleChat(private val context: Context) {
             emit(AnswerEvent.Done(RelayResponse(200, null)))
         } finally {
             synchronized(session) {
-                session.exchanges[session.exchanges.lastIndex] = text to written
+                session.exchanges[session.exchanges.lastIndex] = text to written + marker
                 session.running = false
                 drain(session)
             }
@@ -558,18 +871,31 @@ internal class SampleChat(private val context: Context) {
     /** Wait [millis]; true when the run was stopped meanwhile. */
     private suspend fun pause(session: Session, millis: Long): Boolean = withTimeoutOrNull(millis) { session.stop.await() } != null
 
-    /** The next waiting message, answered in the background as the bridge does (not streamed). */
+    /**
+     * The next waiting message, sent by the computer itself as the bridge does: its answer is
+     * written in the background and can be followed (`/live`).
+     */
     private fun drain(session: Session) {
         if (session.running || session.paused != null || session.queue.isEmpty()) return
-        val (_, text) = session.queue.removeAt(0)
+        val (queueId, text) = session.queue.removeAt(0)
         session.running = true
         session.stop = CompletableDeferred()
         session.exchanges += text to ""
+        val run = LiveRun(queueId)
+        session.live = run
         scope.launch {
-            val stopped = pause(session, 6000)
+            val answer = "Answer to the waiting message “$text”. The computer sent it by itself when the run before it had ended, and the phone followed it as it was written."
+            var stopped = pause(session, 1500)
+            for (piece in answer.chunked(14)) {
+                if (stopped) break
+                synchronized(run) { run.text.append(piece) }
+                stopped = pause(session, 450)
+            }
             synchronized(session) {
-                session.exchanges[session.exchanges.lastIndex] = text to if (stopped) "" else "Answer to the waiting message “$text”."
+                session.exchanges[session.exchanges.lastIndex] = text to synchronized(run) { run.text.toString() }
                 session.running = false
+                run.end = if (stopped) "cancelled" else "done"
+                session.live = null
                 drain(session)
             }
         }
@@ -633,6 +959,9 @@ internal class SampleChat(private val context: Context) {
         const val PARKED_CARD = "sample-parked-1"
         const val COACH_FULL = 5
         const val PAGE = 4
+
+        /** How long a proposed skill counts as being downloaded. */
+        const val FETCH_MILLIS = 6_000L
         const val QUESTIONS = """[
             {"question": "Which draft should the summary be based on?", "header": "Draft", "multi_select": false, "options": [
                 {"label": "The outline", "description": "notes/alpha/outline.md"},

@@ -39,10 +39,13 @@ class FakeTransport : Transport {
     /** Chat answers: what a streamed request ("METHOD /path") is answered with. */
     var events: (Call) -> Flow<AnswerEvent> = { flow { } }
 
+    /** A followed run (`GET /sessions/{id}/live`): by default there is nothing to follow, so the caller asks instead. */
+    var live: (Call) -> Flow<AnswerEvent> = { flow { } }
+
     override fun events(method: String, path: String, body: JsonElement?, idleTimeoutMillis: Long): Flow<AnswerEvent> {
         val call = Call(method, path, emptyMap(), body)
         calls += call
-        return events(call)
+        return if (method == "GET") live(call) else events(call)
     }
 
     companion object {

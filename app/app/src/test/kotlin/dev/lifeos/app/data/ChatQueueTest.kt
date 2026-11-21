@@ -280,13 +280,10 @@ class ChatQueueTest {
     // ------------------------------------------------------------------ send now
 
     @Test
-    fun `send now interrupts the run and gives up the message's old place in the line`() = runTest {
+    fun `send now is one request that puts the message first and interrupts the run`() = runTest {
         val chat = opened()
         val gate = CompletableDeferred<String>()
-        runningUntil(gate) { call ->
-            val now = "when" in (call.body as JsonObject)
-            done(202, """{"queued":true,"queue_id":"${if (now) "q-front" else "q-" + prompt(call)}","position":${if (now) 1 else 0},"interrupted_current_run":$now}""")
-        }
+        runningUntil(gate)
         chat.send("Start")
         runCurrent()
         chat.send("Later")
@@ -295,16 +292,22 @@ class ChatQueueTest {
         val urgent = chat.state.value.queue.last()
         assertEquals("q-Urgent", urgent.id)
 
-        transport.answer("DELETE /sessions/s-1/queue/q-Urgent", 200, """{"removed":true}""")
-        queue(true, null, "q-front" to "Urgent", "q-Later" to "Later")
+        transport.answer(
+            "POST /sessions/s-1/queue/q-Urgent/send-now",
+            200,
+            """{"promoted":true,"queue_id":"q-Urgent","interrupted_current_run":true,"queue":[{"id":"q-Urgent","prompt":"Urgent"},{"id":"q-Later","prompt":"Later"}]}""",
+        )
+        queue(true, null, "q-Urgent" to "Urgent", "q-Later" to "Later")
+        val before = transport.calls.size
         chat.sendNow(urgent.key)
         assertTrue(chat.state.value.stopping)
         runCurrent()
-        // The same message again, marked to go first; then its old entry is taken out.
-        val sent = transport.calls.last { it.method == "POST" }
-        assertEquals(json("""{"prompt":"Urgent","stream":true,"interactive":true,"when":"now"}"""), sent.body)
-        assertEquals(listOf("/sessions/s-1/queue/q-Urgent"), calls("DELETE"))
-        assertEquals(listOf("q-front" to "Urgent", "q-Later" to "Later"), waiting(chat))
+        // One request: the message is neither sent again nor deleted.
+        assertEquals(listOf("POST /sessions/s-1/queue/q-Urgent/send-now"), transport.calls.drop(before).map { it.method + " " + it.path })
+        assertNull(transport.calls.last().body)
+        assertTrue(calls("DELETE").isEmpty())
+        assertEquals(listOf("q-Urgent" to "Urgent", "q-Later" to "Later"), waiting(chat))
+        assertTrue(chat.state.value.queue.none { it.busy })
 
         // The interrupted answer ends as "stopped": asked for, so no failure to retry.
         gate.complete("cancelled")
@@ -352,18 +355,23 @@ class ChatQueueTest {
         advanceUntilIdle()
         assertEquals(ChatPhase.IDLE, chat.state.value.phase)
 
-        // "Send them": the computer answers only when the first one is done, so the app does not wait for it.
-        val resumed = CompletableDeferred<Unit>()
-        transport.answers["POST /sessions/s-1/queue/resume"] = {
-            resumed.complete(Unit)
-            throw ApiException(ApiException.Kind.UNCERTAIN)
-        }
+        // "Send them" did not get through: the line is on hold as before, and the screen says so.
+        transport.fail("POST /sessions/s-1/queue/resume", ApiException(ApiException.Kind.NOT_SENT))
+        queue(false, "cancel", "q-Later" to "Later")
+        chat.resumeQueue()
+        assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
+        advanceUntilIdle()
+        assertEquals(ChatPhase.IDLE, chat.state.value.phase)
+        assertEquals(Chat.HOLD_CANCEL, chat.state.value.queueHold)
+        assertEquals(ChatProblem.QUEUE_FAILED, chat.state.value.failure?.problem)
+
+        // "Send them": the computer answers at once and goes on with the line in the background.
+        transport.answer("POST /sessions/s-1/queue/resume", 200, """{"resumed":true,"queue":[{"id":"q-Later","prompt":"Later"}]}""")
         queue(true)
         chat.resumeQueue()
         assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
         assertNull(chat.state.value.queueHold)
-        runCurrent()
-        assertTrue(resumed.isCompleted)
+        assertNull(chat.state.value.failure)
         advanceUntilIdle()
         assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
         assertTrue(chat.state.value.queue.isEmpty())

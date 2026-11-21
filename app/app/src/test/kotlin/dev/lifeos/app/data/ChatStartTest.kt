@@ -368,8 +368,7 @@ class ChatStartTest {
     }
 
     @Test
-    fun `a stream counts as lost after three missed keep-alives, the queue's own answer may take as long as a run`() {
+    fun `a stream counts as lost after three missed keep-alives`() {
         assertTrue(Api.CHAT_IDLE_MILLIS in 60_000L..120_000L)
-        assertTrue(Api.RESUME_TIMEOUT_MILLIS >= 10 * 60_000L)
     }
 }

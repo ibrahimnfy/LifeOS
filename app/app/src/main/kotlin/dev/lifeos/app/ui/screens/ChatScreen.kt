@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -63,7 +64,6 @@ import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.Chat
-import dev.lifeos.app.data.ChatEndpoints
 import dev.lifeos.app.data.CommandList
 import dev.lifeos.app.data.Commands
 import dev.lifeos.app.data.Endpoints
@@ -75,7 +75,9 @@ import dev.lifeos.app.data.ChatMessage
 import dev.lifeos.app.data.ChatPhase
 import dev.lifeos.app.data.ChatProblem
 import dev.lifeos.app.data.ChatState
+import dev.lifeos.app.data.CoachCompacted
 import dev.lifeos.app.data.Interaction
+import dev.lifeos.app.data.SkillInstall
 import dev.lifeos.app.ui.components.ErrorNotice
 import dev.lifeos.app.ui.components.LifeCard
 import dev.lifeos.app.ui.components.MarkdownText
@@ -95,6 +97,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /** How often the app asks about a run it is not receiving, while the conversation is on screen. */
 private const val CHECK_MILLIS = 5_000L
+
+/** How often a card asks whether the skill it shows has been downloaded. */
+private const val CARD_MILLIS = 3_000L
 
 /**
  * One conversation: the messages, the answer as it is written, and the composer. It is the
@@ -164,6 +169,18 @@ internal fun ColumnScope.ConversationPane(
             while (true) {
                 delay(CHECK_MILLIS)
                 chat.check()
+            }
+        }
+    }
+    // A skill that is still being downloaded becomes ready (or fails) without any event: its
+    // card asks while it is on screen (#97).
+    val fetching = state.interactions.any { it.pending && it.install?.state == SkillInstall.State.DOWNLOADING }
+    LaunchedEffect(state.generation, fetching, locked) {
+        if (!fetching || locked) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                delay(CARD_MILLIS)
+                chat.refreshCards()
             }
         }
     }
@@ -243,11 +260,6 @@ internal fun ColumnScope.ConversationPane(
     if (paired && slash) CommandHelp(commands, draft, state, onPick = { draft = Commands.complete(it) })
     if (paired && modes) {
         val modelChoices = (rememberLoad(core, Endpoints.modelChoices) { false }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
-        val sessions = (rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
-        // A conversation restored after a start learns its model from the session list.
-        LaunchedEffect(sessions, state.sessionId, state.choiceKnown) {
-            if (!state.choiceKnown) sessions?.sessions?.firstOrNull { it.id == state.sessionId }?.let(chat::noteChoice)
-        }
         var pickingModel by rememberSaveable { mutableStateOf(false) }
         // What belongs to this session (#75): its title, group, reminders and reply notifications.
         val change = rememberSessionChange(core)
@@ -338,7 +350,7 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
     }
     // Questions and approvals of the last run. Those that wait for the owner come last, where
     // the eye is; those that are settled stay as a record above the answer that followed them.
-    val (waiting, settled) = state.interactions.partition { it.status == Interaction.Status.WAITING || it.status == Interaction.Status.SENDING }
+    val (waiting, settled) = state.interactions.partition { it.pending }
     val cards: @Composable (List<Interaction>) -> Unit = { list ->
         list.forEach { interaction ->
             key(interaction.id) {
@@ -355,13 +367,14 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
     val answer = state.messages.lastOrNull()?.takeIf { !it.fromOwner }
     state.messages.forEach { message ->
         // Coach (#114): from this message on it is a renewed session; what stands above was tidied up.
-        if (message.key == state.renewedAt) SystemLine(stringResource(R.string.coach_renewed))
+        if (message.key == state.renewedAt) SystemLine(renewedLine(state.tidied))
         if (message === answer) cards(settled)
         if (message.fromOwner) OwnerBubble(message) else AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
     }
     if (answer == null) cards(settled)
     cards(waiting)
-    val asked = state.interactions.any { it.status == Interaction.Status.WAITING }
+    // "Waiting for you" is about the run: a card that waits across runs does not hold it up.
+    val asked = state.interactions.any { it.status == Interaction.Status.WAITING && !it.crossRun }
     when (state.phase) {
         ChatPhase.SENDING, ChatPhase.ANSWERING -> Working(state.sinceMillis, onStop.takeIf { state.canStop }) {
             when {
@@ -384,6 +397,15 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
         ChatPhase.IDLE -> Unit
     }
     state.failure?.let { FailureNotice(it, chat::retry, chat::dismissFailure, onSessions) }
+}
+
+/** Coach: what the tidying up at this place did, as the computer said it with the answer (#156). */
+@Composable
+private fun renewedLine(tidied: CoachCompacted?): String = when {
+    tidied == null -> stringResource(R.string.coach_renewed)
+    !tidied.summary -> stringResource(R.string.coach_renewed_plain)
+    tidied.facts.isEmpty() -> stringResource(R.string.coach_renewed_summary)
+    else -> pluralStringResource(R.plurals.coach_renewed_facts, tidied.facts.size, tidied.facts.size)
 }
 
 /**
@@ -508,6 +530,15 @@ private fun AssistantBubble(message: ChatMessage, cutOff: Boolean) {
 @Composable
 private fun AnswerWithFiles(core: LifeOsCore, message: ChatMessage, cutOff: Boolean) {
     if (message.text.isNotBlank() || cutOff) AssistantBubble(message, cutOff)
+    // MCP servers this answer used (#153): they ran outside the sandbox, and the answer says so.
+    if (message.servers.isNotEmpty()) {
+        Text(
+            text = pluralStringResource(R.plurals.mcp_used, message.servers.size, message.servers.size, message.servers.joinToString(", ")),
+            style = LifeType.small,
+            color = LifeTheme.colors.warn,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
     message.files.forEach { FileCard(core, it) }
 }
 
@@ -588,11 +619,14 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.NOT_SET_UP -> R.string.chat_fail_not_set_up
     ChatProblem.TOO_LONG -> R.string.chat_fail_too_long
     ChatProblem.STOPPED -> R.string.chat_fail_stopped
+    ChatProblem.COMPACTING -> R.string.coach_fail_compacting
     ChatProblem.STOPPED_HERE -> R.string.chat_fail_stopped_here
     ChatProblem.STOP_FAILED -> R.string.chat_fail_stop_failed
     ChatProblem.QUEUE_FAILED -> R.string.chat_fail_queue_failed
     ChatProblem.COMMAND_UNKNOWN -> R.string.chat_fail_command_unknown
     ChatProblem.SKILLS_OFF -> R.string.chat_fail_skills_off
+    ChatProblem.MCP_OFF -> R.string.chat_fail_mcp_off
+    ChatProblem.UNRECORDED -> R.string.chat_fail_unrecorded
     ChatProblem.SETTING_FAILED -> R.string.chat_fail_setting_failed
     ChatProblem.TOO_LARGE -> R.string.chat_fail_too_large
     ChatProblem.TIDY_FAILED -> R.string.coach_tidy_failed

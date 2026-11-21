@@ -49,6 +49,12 @@ import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.CommandList
+import dev.lifeos.app.data.skills
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import dev.lifeos.app.data.Reminder
 import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.UiState
@@ -121,7 +127,7 @@ internal fun RefreshOnSessionChange(core: LifeOsCore, model: LoadModel<*>) {
     }
 }
 
-private enum class SessionSheetPage { MENU, RENAME, GROUP, REMINDERS, REMINDER }
+private enum class SessionSheetPage { MENU, RENAME, GROUP, REMINDERS, REMINDER, MCP }
 
 /**
  * The sheet of the session [sessionId] (null: none is open), with what it needs from the
@@ -134,13 +140,22 @@ internal fun SessionSheetHost(core: LifeOsCore, sessionId: String?, change: Sess
     val sessions = rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }
     val reminders = rememberLoad(core, ChatEndpoints.reminders)
     val list = (sessions.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
-    val session = list?.sessions?.firstOrNull { it.id == sessionId }
-    val known = (reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty()
-    LaunchedEffect(sessionId) {
-        reminders.refresh()
-        // A conversation that has only just begun is not in the list the screen has.
-        if (session == null) sessions.refresh()
+    // The session itself is read fresh (#154): the list has only the newest hundred, and a
+    // conversation that has only just begun is not in the one the screen has. Until the
+    // computer has answered, the sheet shows what the list knows.
+    val version by core.sessionsVersion.collectAsStateWithLifecycle()
+    val fresh by produceState<SessionSummary?>(null, sessionId, version, locked) {
+        if (!locked) {
+            try {
+                value = core.api.session(sessionId)
+            } catch (_: ApiException) {
+                // Not reached: the list's copy stays.
+            }
+        }
     }
+    val session = fresh ?: list?.sessions?.firstOrNull { it.id == sessionId }
+    val known = (reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty()
+    LaunchedEffect(sessionId) { reminders.refresh() }
     // Sheets are windows of their own: none may be open above the lock screen.
     if (session == null || locked) return
     SessionSheet(core, session, list?.groups.orEmpty(), Reminders.scheduled(known, session.id), change, onDismiss)
@@ -189,7 +204,12 @@ internal fun SessionSheet(
                     }
                 }
             }
+            // The folder's own skills and commands, for this session only (#97).
+            SkillsSwitch(core, session, change)
+            // The MCP servers the folder declares (#153): listed, approved one by one, revoked.
+            SheetAction(LifeIcons.Chip, stringResource(R.string.mcp_action), note = stringResource(R.string.mcp_action_note)) { page = SessionSheetPage.MCP }
         }
+        SessionSheetPage.MCP -> McpSheet(core, session, onDismiss)
         SessionSheetPage.REMINDERS -> RemindersSheet(
             reminders = reminders,
             onDismiss = onDismiss,
@@ -255,6 +275,57 @@ internal fun SessionSheet(
                 // Two requests: when the second fails the new group exists and is empty.
                 change { api.patchSession(session.id, SessionEdits.group(api.createGroup(name).id)) }
             },
+        )
+    }
+}
+
+/**
+ * "Use this folder's skills and commands" for one session (#97), with what that means in plain
+ * words, what the folder has, and whether the computer can use them right now. Off unless the
+ * owner switches it on; the computer keeps it (`PATCH /sessions/{id}`).
+ */
+@Composable
+private fun SkillsSwitch(core: LifeOsCore, session: SessionSummary, change: SessionChange) {
+    val colors = LifeTheme.colors
+    // Shown at once; the list follows when the computer has answered.
+    var on by remember(session.skills) { mutableStateOf(session.skills) }
+    // Counts the changes the computer has taken: what it says about the folder is asked again.
+    var taken by remember { mutableStateOf(0) }
+    val list by produceState<CommandList?>(null, session.id, taken) {
+        value = try {
+            core.api.commands(session.id)
+        } catch (_: ApiException) {
+            null
+        }
+    }
+    SheetSwitch(stringResource(R.string.session_skills), stringResource(R.string.session_skills_note), checked = on) { wanted ->
+        on = wanted
+        change {
+            try {
+                core.api.patchSession(session.id, SessionEdits.skills(wanted))
+                taken++
+            } catch (error: ApiException) {
+                on = !wanted
+                throw error
+            }
+        }
+    }
+    val found = list ?: return
+    val count = found.commands.size
+    Text(
+        text = if (count == 0) stringResource(R.string.session_skills_none) else pluralStringResource(R.plurals.session_skills_count, count, count),
+        style = LifeType.small,
+        color = colors.muted,
+        modifier = Modifier.padding(horizontal = 4.dp),
+    )
+    if (on && found.switchedOn && !found.enabled) {
+        Text(
+            text = stringResource(R.string.session_skills_unavailable),
+            style = LifeType.label,
+            color = colors.warn,
+            modifier = Modifier
+                .padding(horizontal = 4.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite },
         )
     }
 }

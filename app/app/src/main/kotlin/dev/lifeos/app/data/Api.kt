@@ -223,30 +223,79 @@ class Api(private val transport: Transport) {
     }
 
     /**
-     * Let a queue that is on hold go on. The computer answers only when the first waiting
-     * message has been answered, which takes as long as a run: the caller starts this without
-     * waiting for it and asks for the state meanwhile. Hence the long limit (a short one would
-     * count every use as "the computer did not answer") and no place in chat's lane.
+     * Let a queue that is on hold go on. The computer answers at once (#154) and sends the
+     * waiting messages one after the other in the background; [live] follows their answers.
      */
     suspend fun resumeQueue(sessionId: String) {
-        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, RESUME_TIMEOUT_MILLIS)
+        chatCall("POST", "/sessions/$sessionId/queue/resume")
     }
+
+    /**
+     * "Send now" for a message that waits: it becomes the next one, a run in progress is
+     * interrupted for it (as with `"when": "now"`), a hold on the queue ends. One request,
+     * nothing is sent twice. `404 not_queued` once it was sent.
+     */
+    suspend fun sendQueuedNow(sessionId: String, queueId: String): SendNowResult =
+        read(SendNowResult.serializer(), chatCall("POST", "/sessions/$sessionId/queue/$queueId/send-now"))
+
+    /**
+     * The session's current run as events, also one that began earlier or elsewhere (a
+     * waiting message the computer sent by itself, an answer this app stopped hearing): first
+     * `live {"running", "followable", "queue_id"}`, then what the run said so far, then the
+     * rest as it comes, to its `done` or `error`. Read-only: it never starts a run. With
+     * nothing to follow the stream is only `live` and ends.
+     */
+    fun live(sessionId: String): Flow<AnswerEvent> = transport.events("GET", "/sessions/$sessionId/live", null, CHAT_IDLE_MILLIS)
+
+    /** The session's file offers that have not run out, so a card read again keeps its download. */
+    suspend fun sessionFiles(sessionId: String): List<LiveOffer> =
+        read(LiveOffers.serializer(), chatCall("GET", "/sessions/$sessionId/files")).files
+
+    /**
+     * One session as the computer has it now (not the list of the newest hundred): title,
+     * folder, model, effort, switches, whether it runs here or is open elsewhere, and its
+     * waiting messages. `404 session_not_found`.
+     */
+    suspend fun session(sessionId: String): SessionSummary =
+        read(SessionSummary.serializer(), chatCall("GET", "/sessions/$sessionId"))
 
     /** Whether the computer is working on the session right now, and what waits behind that. */
     suspend fun runState(sessionId: String): RunState =
         read(RunState.serializer(), chatCall("GET", "/sessions/$sessionId/queue"))
 
-    /** The questions and approvals a run of the session waits for right now. */
+    /**
+     * What waits for the owner in the session: the questions and approvals of a running turn,
+     * and the cards that wait across runs for up to a day (skill installs, MCP servers).
+     */
     suspend fun interactions(sessionId: String): List<InteractionData> =
         read(PendingInteractions.serializer(), chatCall("GET", "/sessions/$sessionId/interactions")).pending
 
     /**
-     * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours).
-     * `404 not_pending` when the computer no longer waits for it.
+     * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours);
+     * the computer's answer says what it did (`"installed"` for a skill install).
+     * `404 not_pending` when the computer no longer waits for it; for a skill install also
+     * `409 skill_exists`, and for it and an MCP server `503 audit_unavailable` (see [Interaction.refusal]).
      */
-    suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement) {
+    suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement): JsonElement =
         chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)
-    }
+
+    // ---- a session folder's MCP servers (#153)
+
+    /** The MCP servers the session's folder declares, each with its approval. Starts nothing. */
+    suspend fun mcpServers(sessionId: String): List<McpServer> =
+        read(McpServerList.serializer(), chatCall("GET", "/sessions/$sessionId/mcp-servers")).servers
+
+    /**
+     * Ask for the approval card of one server: exactly its definition as it is now. The card
+     * waits in the session's interactions and is answered like any approval. `404
+     * mcp_server_not_found`, `503 audit_unavailable`.
+     */
+    suspend fun requestMcpApproval(sessionId: String, name: String): InteractionData =
+        read(InteractionData.serializer(), chatCall("POST", "/sessions/$sessionId/mcp-servers/$name/approval"))
+
+    /** Take a server's approval back; false when it had none. */
+    suspend fun revokeMcp(sessionId: String, name: String): Boolean =
+        read(McpRevoked.serializer(), chatCall("DELETE", "/sessions/$sessionId/mcp-servers/$name")).revoked
 
     /** The skills and commands of the session's folder, and whether the session may use them. */
     suspend fun commands(sessionId: String): CommandList =
@@ -312,9 +361,6 @@ class Api(private val transport: Transport) {
          * (#148): three of them missed, and the stream counts as lost.
          */
         const val CHAT_IDLE_MILLIS = 75_000L
-
-        /** The answer to "let the queue go on" comes when the first waiting message is done: as long as a run. */
-        const val RESUME_TIMEOUT_MILLIS = 11 * 60_000L
 
         /** Where a message to the coach goes (#114); its first answer may take as long as a run. */
         const val COACH_MESSAGES = "/coach/chat/messages"
