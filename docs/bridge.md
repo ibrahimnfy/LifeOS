@@ -311,21 +311,23 @@ Subfolders of the memory folder are fine. Details:
 - **Plan usage of one restart:** a runner needs a check after an update of
   Claude Code or the Agent SDK, after a new version of the probe suite (the
   skill probes of #91 are suite version 2), or when it was never checked.
-  - The `claude -p` suite takes about 11 short runs on the small model per
+  - The `claude -p` suite takes about 12 short runs on the small model per
     environment.
-  - The SDK suite takes about 15 per environment, because it adds the
+  - The SDK suite takes about 16 per environment, because it adds the
     approval probes.
-  - Both runners in both environments come to **about 52 short runs**. The
+  - Both runners in both environments come to **about 56 short runs**. The
     skill probes of #91 and #92 add 12 of these (3 runs per environment and
-    runner); the MCP probes of #108 need no model run.
-    Probes without a model run (invalid settings, nested folders) are not
-    counted.
+    runner) and the personal-skill probes of #162 add 4 (1 run per
+    environment and runner); the MCP probes of #108 and #162 need no model
+    run. Probes without a model run (invalid settings, nested folders) are
+    not counted.
   - A restart where both markers still match costs nothing.
-  - Each runner has its own suite version (`cli` 4, `sdk` 5), and only a
-    runner whose suite changed is checked again. The SDK fix of 2026-11-21
-    therefore reruns only the SDK suite: about 30 short runs. The approval
-    probes may add up to 8 more per environment when the model does not
-    make the needed call at once.
+  - Each runner has its own suite version (`cli` 5, `sdk` 6), and only a
+    runner whose suite changed is checked again. The probes for personal
+    skills and personal MCP servers (#162) changed both, so the next start
+    checks both once. The approval probes may add up to 8 more per
+    environment when the model does not make the needed call at once, and
+    the personal-skill run up to 2 more.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner
@@ -349,6 +351,10 @@ What a capable run looks like:
   pushing, installing packages, network and messaging commands) are refused
   with an explanation; the response lists them in `refused_actions`, e.g.
   `["push"]`. `sudo` and system-setting commands are always refused.
+- It is offered the owner's personal skills and commands (#162), as copies
+  made by the bridge, and the session folder's own when they are switched
+  on for the session; see `GET /sessions/{id}/commands`. It gets the MCP
+  servers the owner approved; see "MCP servers".
 - The mode belongs to the request, not the session: the next request without
   `"mode": "capable"` is read-only again.
 
@@ -477,43 +483,67 @@ exchanges.
 
 ### `GET /sessions/{id}/commands`
 
-Lists the skills and custom commands found in the session's own folder, for
-the app's composer. It reads only the documented project locations,
-`<folder>/.claude/skills/<name>/SKILL.md` and
-`<folder>/.claude/commands/**/*.md`; it runs nothing and uses no model.
+Lists the skills and custom commands a capable run of the session can use,
+for the app's composer: those of the session's own folder, then the
+owner's personal ones (#162). It reads only the documented locations,
+`.claude/skills/<name>/SKILL.md` and `.claude/commands/**/*.md`, of the
+session's folder and of the personal Claude Code folder (`~/.claude` of the
+user the bridge runs as); it runs nothing and uses no model.
 
 ```json
 {"enabled": false, "switched_on": false, "capable_only": true, "prefix": "folder:",
  "reason": "skills are switched off for this session",
+ "personal": {"enabled": true, "reason": null, "prefix": "personal:"},
  "commands": [{"name": "review", "kind": "command", "description": "…",
-               "argument_hint": "<file>", "warnings": ["shell_lines"]}]}
+               "argument_hint": "<file>", "warnings": ["shell_lines"],
+               "source": "folder"},
+              {"name": "standup", "kind": "skill", "description": "…",
+               "argument_hint": null, "warnings": [], "source": "personal"}]}
 ```
 
-- **Usable in capable runs of the session when switched on (#91).**
+- Each entry says where it comes from: `"source": "folder"` or
+  `"personal"`. The folder's entries come first, each group sorted by name.
+- **The owner's personal skills are offered in every capable run (#162).**
+  They need no switch.
+  - `personal.enabled` is true when the capable mode is on and the guardrail
+    check passed with the personal-skill probes
+    (`docs/permission-policy.md`, section 9.2). Otherwise `personal.reason`
+    says why, in one sentence, and capable runs are offered none.
+  - In a run they are named with `personal.prefix` (`personal:standup`).
+- **The folder's own are usable in capable runs of the session when switched
+  on (#91).**
   - The owner switches them on per session with `PATCH /sessions/{id}`
     `{"skills": true}`. The session list and the PATCH answer carry
     `"skills": true|false`.
   - `enabled` is true only when the switch is on **and** the guardrail check
-    passed with the skill probes (`docs/permission-policy.md`, section 9.2).
-    Otherwise `reason` says why, in one sentence.
+    passed with the skill probes. Otherwise `reason` says why, in one
+    sentence. `enabled`, `switched_on`, `reason` and `prefix` are about the
+    folder's own only, as before #162.
   - `switched_on` is the owner's switch alone. `capable_only` is always
     true: read-only runs never get skills.
-  - In a run the skills are named with `prefix` (`folder:review`). A capable
-    message that starts with `/` must name one of the listed entries, with or
-    without the prefix (the bridge adds it). Any other `/...` message (for
-    example a built-in command such as `/config`) is refused with
-    `400 command_not_allowed`.
-  - The assistant can also use the listed skills itself (its `Skill` tool).
-  - If the check passed but could not verify that personal skills are kept
-    out, `reason` is the marker's `skills_unverified_reason`. This happens
-    when there is no personal skill to test with and
-    `LIFEOS_GUARD_PERSONAL_SKILL_PROBE` is off.
+  - In a run they are named with `prefix` (`folder:review`).
   - A capable message in a session whose switch is on, while the check with
     the skill probes has not passed yet, is refused with
     `503 skills_unavailable`. It never runs silently without the skills;
     switch them off to continue without.
+- **Messages that start with `/`.** In a capable run that is offered any
+  skill, such a message must name one of the usable entries: by its name
+  alone (the folder's own wins a name both have) or with its prefix (the
+  bridge adds the prefix). Any other `/...` message (for example a built-in
+  command such as `/config`, or a folder entry while the switch is off) is
+  refused with `400 command_not_allowed`. Since #162 this also holds in
+  sessions whose switch is off, as soon as the owner has a personal skill.
+  In a read-only run, and in a capable run that is offered no skill, the
+  message is plain text.
+- The assistant can also use the offered skills itself (its `Skill` tool),
+  unless a skill says `disable-model-invocation`.
+- **What a run gets is a copy.** Of a skill's or command's frontmatter only
+  the name, the description, the argument hints and the two "who may invoke
+  it" flags are kept; `hooks`, `allowed-tools`, a model or a subagent are
+  dropped, and shell lines do not run. A personal skill's supporting files
+  are copied but cannot be read by the run (section 9.2, "Honest limits").
 - `kind` is `skill` or `command`. A command in a sub-folder is named with
-  `:` between the parts (`git/log.md` is `git:log`). Sorted by name.
+  `:` between the parts (`git/log.md` is `git:log`).
 - `description` is the `description:` of the file's frontmatter, otherwise
   its first line of text; one line, at most 200 characters. Nothing else of
   a file's content is returned.
@@ -521,10 +551,12 @@ the app's composer. It reads only the documented project locations,
   would run before the model sees it), `requests_tools` (it asks for tools
   with `allowed-tools`), `has_scripts` (the skill folder holds files other
   than Markdown).
-- Nothing from the home folder and no plugins. Symbolic links are resolved,
-  and anything that ends up outside `<folder>/.claude` is skipped.
-- Limits: 200 entries, the first 64 KB of each file, names of letters,
-  digits and `_ . : -` up to 64 characters; anything else is skipped.
+- No plugins, and nothing else of the personal folder. Symbolic links are
+  resolved, and anything that ends up outside the folder that is listed is
+  skipped.
+- Limits: 200 entries per source, the first 64 KB of each file, names of
+  letters, digits and `_ . : -` up to 64 characters; anything else is
+  skipped.
 - Only sessions inside the allowed folders (`404 session_not_found`
   otherwise).
 
@@ -757,40 +789,66 @@ the session's pending approvals:
   (also across bridge restarts); after that they count as refused.
 - Details and limits: `permission-policy.md`, section 9.4.
 
-### MCP servers (#108)
+### MCP servers (#108, #162)
 
 - `GET /sessions/{id}/mcp-servers` lists the servers of the session
-  folder's `.mcp.json` and starts nothing:
+  folder's `.mcp.json`, then the owner's personal (user-scope) servers, and
+  starts nothing:
 
   ```json
   {"capable_only": true, "note": "An approved MCP server runs outside the sandbox: …",
-   "servers": [{"name": "tools", "type": "stdio", "command": "npx",
+   "servers": [{"name": "tools", "scope": "folder", "type": "stdio", "command": "npx",
                 "args": ["-y", "some-server"], "url": null,
                 "env_names": ["API_TOKEN"], "header_names": [], "hash": "…",
                 "outside_sandbox": true,
                 "state": "not_approved", "approved_at": null}]}
   ```
 
-  `state` is `not_approved`, `approved` or `changed` (approved, but the
-  definition changed since: not used).
+  - `scope` is `folder` or `personal`. Personal servers are the top-level
+    `mcpServers` of `~/.claude.json` of the user the bridge runs as, where
+    Claude Code keeps user-scope servers. Nothing else of that file is
+    read: no per-project servers, no claude.ai connectors, no plugins.
+  - `state` is `not_approved`, `approved` or `changed` (approved, but the
+    definition changed since: not used). A personal server can also be
+    `unsupported`: its definition is not a plain stdio or http one (for
+    example it names a helper command for headers), so it can never be
+    approved.
+  - Values of environment variables and headers are never returned, only
+    their names.
+  - The same name can appear once per scope: two servers, two approvals.
 - `POST /sessions/{id}/mcp-servers/{name}/approval` creates an approval
   card (and a sealed `approval` push hint):
-  `{"id", "kind": "mcp_server", "session_id", "folder", "server": {…as
-  above}, "warning": "…outside the sandbox…", "created_at", "expires_at",
-  "already_waiting": false}`. Asking again while a card for the same
-  definition (same hash) waits in that session returns that card with
-  `"already_waiting": true`, and sends no second push (#157). A changed
-  definition gets a card of its own.
-  It is answered like every approval: `POST
-  /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`, which
-  returns `{"answered": true, "id": …, "approved": true|false, "name"?,
-  "reason"?}`. `503 audit_unavailable` leaves the card waiting.
+  `{"id", "kind": "mcp_server", "session_id", "folder", "scope", "server":
+  {…as above}, "warning": "…outside the sandbox…", "created_at",
+  "expires_at", "already_waiting": false}`.
+  - `?scope=folder|personal` says which server is meant. Without it: the
+    folder's own server of that name, else the personal one.
+    `400 bad_request` for another value; `404 mcp_server_not_found`;
+    `409 mcp_server_unsupported`.
+  - Asking again while a card for the same definition (same scope and hash)
+    waits in that session returns that card with `"already_waiting": true`,
+    and sends no second push (#157). A changed definition gets a card of
+    its own.
+  - It is answered like every approval: `POST
+    /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`, which
+    returns `{"answered": true, "id": …, "approved": true|false, "name"?,
+    "reason"?}`. `503 audit_unavailable` leaves the card waiting.
+  - A folder's server is approved for that folder. A personal server is
+    approved once, for every folder.
 - `DELETE /sessions/{id}/mcp-servers/{name}` revokes an approval
-  (`{"revoked": true|false}`).
+  (`{"revoked": true|false}`). `?scope=` as above; without it the folder's
+  approval of that name is revoked, else the personal one.
 - A capable answer that used servers carries `"mcp_servers": [{"name",
-  "outside_sandbox": true}]` and `"mcp_note"`.
-- `503 mcp_unavailable`: the folder has approved servers, but the check
-  with the MCP probes has not passed yet.
+  "scope", "outside_sandbox": true}]` and `"mcp_note"`. When the folder and
+  the owner both have an approved server of one name, the run gets the
+  folder's.
+- The definitions reach Claude Code as a file in the private settings folder
+  (`mcp-run/`, mode 600; files not used for a day are removed), never on the
+  command line.
+- `503 mcp_unavailable`: there are approved servers, but the check with
+  the MCP probes has not passed yet. Personal servers are passed only after
+  the check with their own probes (suite `cli` 5, `sdk` 6); until then a
+  capable run simply gets none of them.
 - Details: `permission-policy.md`, section 9.3.
 
 ### Model and effort

@@ -1,16 +1,17 @@
-"""List the skills and custom commands of a session's folder.
+"""List the skills and custom commands of a session's folder, and the owner's personal ones.
 
-Only the documented project locations are read, and only inside the
-session's own folder:
+Only the documented locations are read:
 
-- ``<folder>/.claude/skills/<name>/SKILL.md``
-- ``<folder>/.claude/commands/**/*.md``
+- ``<folder>/.claude/skills/<name>/SKILL.md`` and ``<folder>/.claude/commands/**/*.md``
+  of the session's own folder (``list_commands``);
+- the same two folders of the owner's personal Claude Code folder
+  (``list_personal``, #162).
 
-Nothing from the home folder and no plugins. Every file is resolved first
-and skipped unless it really lies inside ``<folder>/.claude``, so a symbolic
-link cannot lead the reader elsewhere. Nothing is executed and no model is
-involved; of each file only the name, a one-line description, the argument
-hint and a few fixed warning words are returned, never the content.
+No plugins. Every file is resolved first and skipped unless it really lies
+inside the folder that is listed, so a symbolic link cannot lead the reader
+elsewhere. Nothing is executed and no model is involved; of each file only
+the name, a one-line description, the argument hint and a few fixed warning
+words are returned, never the content.
 
 The listing is information for the app's composer. Whether a session's
 capable runs may use them is decided in ``skills`` and the app
@@ -160,14 +161,29 @@ def _command_candidates(base: Path) -> list[tuple[str, str, Path]]:
     return found
 
 
-def list_commands(folder: Path) -> list[dict]:
-    """Skills and commands found in ``folder/.claude``, sorted by name."""
+def list_commands(folder: Path, personal: Path | None = None) -> list[dict]:
+    """Skills and commands found in ``folder/.claude``, sorted by name.
+
+    ``personal``: the owner's personal folder, when it is not the default one.
+    """
     try:
         base = folder.resolve() / ".claude"
-        if base == Path.home().resolve() / ".claude":
-            return []  # personal skills and commands are never listed
+        if base in (Path.home().resolve() / ".claude", personal and personal.resolve()):
+            return []  # the personal folder is never a session's own
     except (OSError, RuntimeError):
         return []
+    return _list(base)
+
+
+def list_personal(base: Path) -> list[dict]:
+    """The owner's personal skills and commands (``base`` is the personal Claude Code folder)."""
+    try:
+        return _list(base.resolve())
+    except (OSError, RuntimeError):
+        return []
+
+
+def _list(base: Path) -> list[dict]:
     candidates = [
         candidate
         for candidate in _skill_candidates(base) + _command_candidates(base)
