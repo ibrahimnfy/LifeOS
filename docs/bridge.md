@@ -1572,6 +1572,15 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
     phone sees the answer through `GET /sessions/{id}/live` or the history.
   - whatever the stream left in the mailbox is removed, and no error
     message follows.
+  - a file transfer (`/files/…`) stops before its next chunk; its chunks
+    are removed and no `transfer_abandoned` notice follows (#158).
+  - a request that still **waits for a free worker** is remembered (#158;
+    at most 256, for 10 minutes) and also answers `"detached": true`.
+    When a worker reaches it, a `/live` follower or a file transfer is not
+    started at all; any other request, such as a chat message, still runs
+    (the owner's message is never dropped), but in a thread of its own
+    that reads it to the end and sends nothing, so it holds no worker.
+    Nothing is sent for it.
 
   Without a detach message (app killed, connection lost), the relay notices
   by itself: when four or more of a stream's messages wait unread and the
