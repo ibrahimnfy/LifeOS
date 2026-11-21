@@ -614,20 +614,40 @@ text written to steer the model.
 | Output | one JSON list of proposals (title, address, kind, licence, why it is legal); nothing else is used |
 | Downloads | **by the bridge**, never by the model (below) |
 
-The bridge's own rules for downloading a proposal:
+The bridge's own rules for downloading a proposal (owner's decision on
+#146, built in #160: no per-site approval, safeguards instead of a host
+list):
 
-- **HTTPS only**, and the host must be on the allow-list: known publishers
-  and archives of openly licensed material (`DEFAULT_HOSTS` in
-  `resources.py`) plus hosts the owner adds in `LIFEOS_RESOURCE_HOSTS`
-  (for example a vendor's documentation host).
+- **Any public HTTPS host.** No plain HTTP and no proxy. The legal filter
+  is unchanged: paid books are listed only, with their link.
 - **Piracy sources are refused and not even listed**: shadow libraries and
-  their mirrors, matched by name, wherever the model puts them.
-- **No private or local addresses** (the address is resolved first), and
-  every redirect passes the same checks.
-- **Only PDF or EPUB**, checked by the declared type and the first bytes,
-  within the size limit of course files; at most ten downloads per run.
-- Everything else (paid books, web pages, hosts not on the list) is
-  **listed only** in `resources/sources.md`, with its link and the reason.
+  their mirrors, matched by name, wherever the model puts them, also as a
+  redirect hop.
+- **No private or local addresses**: the name is resolved and checked
+  first, the address the connection actually reaches is checked again
+  (a name that answers public for the check and private a moment later is
+  refused), and every redirect hop passes the same checks.
+- **Only PDF or EPUB, decided by the content**: the first bytes (`%PDF-`,
+  or a zip whose first, uncompressed entry `mimetype` holds
+  `application/epub+zip`); the name and the server's content type never
+  decide. Anything else is discarded and listed as `not_a_document`.
+- **A size limit per file** (`LIFEOS_RESOURCE_MAX_FILE_MB`, default 200 MB),
+  enforced while streaming; at most ten fetches per run.
+- **Never executed**: saved as plain files with mode 600 and a `.pdf` or
+  `.epub` extension taken from the content check; the bridge never opens,
+  parses or runs them afterwards (only offers them to the phone on request).
+- **The owner's existing resource folders are checked first**
+  (`~/.config/lifeos/resource_folders`, one path per line; the paths never
+  enter the repository, the view, `sources.md` or the audit log). Until
+  that file exists nothing is downloaded (`folders_not_named`); an empty
+  file means there are none. Only names and sizes are read there, nothing
+  is opened or written. What matches (rule in [`bridge.md`](bridge.md),
+  "Course resources from the syllabus") is listed as `already_present` and
+  not fetched.
+- **At most one summary notification a day**, fixed text with a count
+  only, no approval step.
+- Everything else (paid books, web pages, other files) is **listed only**
+  in `resources/sources.md`, with its link and the reason.
 - Every fetch is written to the audit log (`ResourceDownload`: course,
   host, file name, size, result), and each run once (`ResourcesRun`, with
   its counts); a downloaded file whose record cannot be written is removed.
@@ -637,10 +657,19 @@ The bridge's own rules for downloading a proposal:
 What a steered run could still do, and why it is accepted: it can make
 `WebFetch` requests to any address, carrying text from the syllabus (which
 the course's members have anyway) and nothing else, because the run sees
-nothing else. It cannot write anywhere or reach the memory. A wrong "kind" or
-"licence" from the model is limited by the allow-list: only the listed hosts
-are downloaded from. The model's claims about licences are recorded as
-claims; the owner judges anything listed only.
+nothing else. It cannot write anywhere or reach the memory. Since #160 a
+wrong "kind" or "licence" from the model is no longer limited by a host
+list: a steered run can make the bridge download a PDF or EPUB from any
+public HTTPS host, at most ten per run and within the size limit. The owner
+accepted this (#146). What limits the harm: the file is only stored, never
+opened or run by the bridge; it cannot be anything but a PDF or EPUB by its
+first bytes; private addresses stay out of reach, so the bridge cannot be
+used against the local network; known piracy sources are dropped; every
+fetch is in the audit log (host, file name, size) and listed in
+`sources.md` with its link. The model's claims about licences are recorded
+as claims; the owner judges what was downloaded and anything listed only.
+A downloaded PDF or EPUB is opened later in the owner's own reader, with
+that reader's usual risks.
 
 **Verified 2026-11-21** with one real run (Claude Code 2.1.328, exactly these
 flags, a synthetic syllabus in a scratch folder): no tool was denied, 5
@@ -650,6 +679,7 @@ model `WebFetch` uses to read pages) in its usage, no Opus: the advisor was
 not consulted, or its use is not reported there.
 
 Retried at the next run: items listed only because of the per-run limit, a
-failed or too-large download, an unreachable host or a host not on the list
-(the owner may have allowed it since). Downloaded items and the other
-reasons are final.
+failed or too-large download, an unreachable host, folders not named yet, or
+a host that was not on the old allow-list (records from before #160).
+Downloaded items and the other reasons (`already_present` included) are
+final.

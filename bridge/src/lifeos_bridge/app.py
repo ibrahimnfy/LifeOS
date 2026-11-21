@@ -228,10 +228,15 @@ def create_app(settings: Settings) -> FastAPI:
         async def resources_tick() -> None:
             """A syllabus is new, changed or asked for: one course-resources run, apart
             from the six-hour sync (which never starts a run)."""
-            if not resource_runs and await asyncio.to_thread(resources.due):
+            if resource_runs:
+                return
+            if await asyncio.to_thread(resources.due):
                 run = asyncio.create_task(resources.run_next(settings))
                 resource_runs.add(run)
                 run.add_done_callback(resource_runs.discard)
+                return
+            # Nothing running or waiting: the day's one summary of what was downloaded.
+            await asyncio.to_thread(resources.send_summary, settings.notify_script)
 
         consolidation_runs: set[asyncio.Task] = set()
 
