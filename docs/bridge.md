@@ -168,7 +168,7 @@ Request body (JSON):
 |---|---|---|
 | `prompt` | string, required | The prompt, at most 100 000 characters |
 | `session_id` | string, optional | Continue an earlier `/ask` conversation |
-| `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. Follow-ups go to `POST /sessions/{id}/messages` as usual |
+| `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. A first message refused before its run began (for example `429 busy`, or a failed check) does not keep the id: sending it again starts it. Follow-ups go to `POST /sessions/{id}/messages` as usual |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
 | `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
 
@@ -547,7 +547,8 @@ still answering (`POST /ask` with `session_id`, or
 - **Cancel.** `POST /sessions/{id}/cancel` interrupts the current run: the
   interrupt signal first, then, only if the process does not stop within a
   few seconds, terminate and kill. The stopped request answers `409
-  cancelled`. **Changes the run already made to files are kept.** The queue
+  cancelled`. **Changes the run already made to files are kept.** A coach
+  compaction is never stopped (`409 compaction_running`). The queue
   is then on hold (`"paused": "cancel"`) until the owner sends a message or
   calls `POST …/queue/resume`, which answers at once (`{"resumed": true,
   "queue": [...]}`); the waiting messages are then sent one after the other
@@ -1090,7 +1091,16 @@ summary. `GET /coach/chat` → `{"session_id", "started", "transcript_bytes",
 "morning_usage": {"today", "week"}}`. `POST /coach/chat/messages` answers
 like `POST /sessions/{id}/messages` (also streaming), plus `"compacted":
 {"facts", "summary", "session_id"}` when a compaction ran first; a model
-choice or `"mode": "capable"` is refused (`400`). Manual check:
+choice or `"mode": "capable"` is refused (`400`). **Streamed, with a
+compaction first:** one stream that sends `keepalive {}` every 20 seconds
+while the compaction runs, then `compacted {"facts", "summary": bool,
+"session_id"}`, then the message's own events (`session`, `delta`, …,
+`done`); an error before the message runs comes as an `error` event. The
+compaction is finished even when the client goes away, and it is never
+interrupted: `POST /sessions/{id}/cancel` on the session being compacted
+answers `409 compaction_running`, and a message sent with `"when": "now"`
+or `…/send-now` waits behind it (`"interrupted_current_run": false`).
+Manual check:
 
 ```
 curl -s -H "$H" -H "$J" -d '{"prompt":"What should I start with today?"}' $B/coach/chat/messages
