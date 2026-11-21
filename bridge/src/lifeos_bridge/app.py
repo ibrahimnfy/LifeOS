@@ -804,13 +804,16 @@ def create_app(settings: Settings) -> FastAPI:
         await asyncio.to_thread(expire_approvals)
         if await asyncio.to_thread(approvals.get, session_id, interaction_id) is not None:
             approve = approvals.read_approve(await read_json_object(request))
-            entry = await asyncio.to_thread(approvals.take, session_id, interaction_id)
-            if entry["kind"] == skill_installs.KIND:
-                done = await asyncio.to_thread(skill_installs.answer, entry, approve)
-            elif entry["kind"] == mcp_servers.KIND:
-                done = await asyncio.to_thread(mcp_servers.answer, entry, approve)
-            else:
+
+            def handle(entry: dict) -> dict:
+                if entry["kind"] == skill_installs.KIND:
+                    return skill_installs.answer(entry, approve)
+                if entry["kind"] == mcp_servers.KIND:
+                    return mcp_servers.answer(entry, approve)
                 raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
+
+            # A refused answer (409, 503) leaves the card waiting (#157).
+            done = await asyncio.to_thread(approvals.settle, session_id, interaction_id, handle)
             return {"answered": True, "id": interaction_id, **done}
         if sdk_pool is None:
             raise ClaudeError("not_pending", 404, "this question is no longer waiting")
@@ -828,10 +831,12 @@ def create_app(settings: Settings) -> FastAPI:
     async def request_mcp_approval(session_id: str, name: str):
         """Ask the owner to approve exactly this server: an approval card (#108)."""
         info = listed_session(session_id)
+        await asyncio.to_thread(expire_approvals)
         card = await asyncio.to_thread(mcp_servers.request, info.id, info.folder, name)
-        wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", info.id))
-        background.add(wake)
-        wake.add_done_callback(background.discard)
+        if not card["already_waiting"]:  # the same definition asked again: no second push
+            wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", info.id))
+            background.add(wake)
+            wake.add_done_callback(background.discard)
         return card
 
     @app.delete("/sessions/{session_id}/mcp-servers/{name}")

@@ -11,8 +11,11 @@ answer means no.
 
 from __future__ import annotations
 
+import contextlib
+import threading
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 from . import store
@@ -21,6 +24,7 @@ from .config import config_dir
 
 FILE_NAME = "pending-approvals.json"
 TTL_SECONDS = 24 * 3600
+LOCK = threading.RLock()  # one answer or request at a time
 
 
 def _path():
@@ -52,19 +56,21 @@ def add(kind: str, session_id: str, folder: str, data: dict, ttl: float = TTL_SE
         "expires_at": _stamp(now + ttl),
         "expires": now + ttl,
     }
-    items = load()
-    items[entry["id"]] = entry
-    _save(items)
+    with LOCK:
+        items = load()
+        items[entry["id"]] = entry
+        _save(items)
     return entry
 
 
 def update(entry_id: str, changes: dict) -> dict | None:
-    items = load()
-    if entry_id not in items:
-        return None
-    items[entry_id] |= changes
-    _save(items)
-    return items[entry_id]
+    with LOCK:
+        items = load()
+        if entry_id not in items:
+            return None
+        items[entry_id] |= changes
+        _save(items)
+        return items[entry_id]
 
 
 def public(entry: dict) -> dict:
@@ -74,10 +80,11 @@ def public(entry: dict) -> dict:
 def take_expired(now: float | None = None) -> list[dict]:
     """Remove and return the entries whose time is up."""
     now = time.time() if now is None else now
-    items = load()
-    expired = [e for e in items.values() if e.get("expires", 0) <= now]
-    if expired:
-        _save({k: v for k, v in items.items() if v.get("expires", 0) > now})
+    with LOCK:
+        items = load()
+        expired = [e for e in items.values() if e.get("expires", 0) <= now]
+        if expired:
+            _save({k: v for k, v in items.items() if v.get("expires", 0) > now})
     return expired
 
 
@@ -90,14 +97,31 @@ def get(session_id: str, entry_id: str) -> dict | None:
     return entry if entry is not None and entry.get("session_id") == session_id else None
 
 
+def settle(session_id: str, entry_id: str, handle: Callable[[dict], dict]) -> dict:
+    """Answer one waiting entry; it is taken out only once ``handle`` succeeded.
+
+    An answer that is refused (``handle`` raises, for example ``skill_exists`` or
+    ``audit_unavailable``) leaves the card waiting, so the owner can answer
+    again. One answer at a time: a second one waits and then finds it gone.
+    """
+    with LOCK:
+        if get(session_id, entry_id) is None:
+            raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
+        done = handle(load()[entry_id])
+        with contextlib.suppress(ClaudeError):
+            take(session_id, entry_id)
+        return done
+
+
 def take(session_id: str, entry_id: str) -> dict:
     """Remove and return one entry of the session, or 404."""
-    items = load()
-    entry = items.get(entry_id)
-    if entry is None or entry.get("session_id") != session_id:
-        raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
-    del items[entry_id]
-    _save(items)
+    with LOCK:
+        items = load()
+        entry = items.get(entry_id)
+        if entry is None or entry.get("session_id") != session_id:
+            raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
+        del items[entry_id]
+        _save(items)
     return entry
 
 

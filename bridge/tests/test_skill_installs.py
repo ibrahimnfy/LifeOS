@@ -175,6 +175,71 @@ def test_no_install_without_its_audit_record(ask_dir, monkeypatch):
     assert not (ask_dir / ".claude" / "skills" / "tidy").exists()
 
 
+def settle(entry_id, approve, session_id="s1"):
+    return approvals.settle(session_id, entry_id, lambda e: skill_installs.answer(e, approve))
+
+
+def test_an_approval_while_downloading_leaves_the_card(ask_dir, isolated_config):
+    _, [card] = propose(ask_dir, "https://example.org/tidy/SKILL.md")
+    with pytest.raises(ClaudeError) as caught:
+        settle(card["id"], True)
+    assert (caught.value.code, caught.value.status) == ("still_downloading", 409)
+    assert approvals.pending("s1")[0]["id"] == card["id"]
+    skill_installs.prepare(card["id"], fetcher=lambda _url: SKILL)
+    assert settle(card["id"], True)["installed"] is True
+
+
+def test_a_refusal_while_downloading_leaves_nothing(ask_dir, isolated_config):
+    _, [card] = propose(ask_dir, "https://example.org/tidy/SKILL.md")
+    assert settle(card["id"], False) == {"installed": False}
+    assert skill_installs.prepare(card["id"], fetcher=lambda _url: SKILL) is None
+    assert not (isolated_config / "skill-quarantine" / card["id"]).exists()
+
+
+def test_a_refused_answer_keeps_the_card_and_its_files(ask_dir, isolated_config, monkeypatch):
+    entry = ready(ask_dir, "https://example.org/tidy/SKILL.md", SKILL)
+    quarantine = isolated_config / "skill-quarantine" / entry["id"]
+    existing = ask_dir / ".claude" / "skills" / "tidy"
+    existing.mkdir(parents=True)
+    with pytest.raises(ClaudeError) as caught:
+        settle(entry["id"], True)
+    assert (caught.value.code, caught.value.status) == ("skill_exists", 409)
+    assert approvals.pending("s1")[0]["state"] == "ready" and quarantine.exists()
+    existing.rmdir()
+    with monkeypatch.context() as patch:
+
+        def unavailable(*_a, **_k):
+            raise audit.AuditUnavailable("x")
+
+        patch.setattr(audit, "record", unavailable)
+        with pytest.raises(ClaudeError) as caught:
+            settle(entry["id"], True)
+        assert (caught.value.code, caught.value.status) == ("audit_unavailable", 503)
+    assert approvals.pending("s1")[0]["state"] == "ready" and quarantine.exists()
+    assert settle(entry["id"], True)["installed"] is True  # the owner answers again
+    assert approvals.pending("s1") == [] and not quarantine.exists()
+
+
+def test_failed_cards_carry_a_stable_code(ask_dir):
+    _, [plain] = propose(ask_dir, "http://example.org/SKILL.md")
+    assert plain["error_code"] == "source_not_https"
+    assert ready(ask_dir, "https://x.org/a.zip", b"not a zip")["error_code"] == "source_unreadable"
+    assert ready(ask_dir, "https://x.org/a.zip", zipped({"README.md": b"x"}))["error_code"] == (
+        "source_refused"
+    )
+    (ask_dir / ".claude" / "skills" / "tidy").mkdir(parents=True)
+    exists = ready(ask_dir, "https://example.org/tidy/SKILL.md", SKILL)
+    assert exists["error_code"] == "skill_exists" and "already installed" in exists["error"]
+    _, [card] = propose(ask_dir, "https://example.org/SKILL.md")
+
+    def broken(_url):
+        raise OSError("network down")
+
+    failed = skill_installs.prepare(card["id"], fetcher=broken)
+    assert (failed["error_code"], failed["error"]) == ("download_failed", "the download failed")
+    assert {p["error_code"] for p in approvals.pending("s1")} >= {"skill_exists"}
+
+
 def test_install_records_never_count_as_a_runs_tool_calls(ask_dir, isolated_config):
     ready(ask_dir, "https://example.org/tidy/SKILL.md", SKILL)
     watch = capable.AuditWatch("s1")

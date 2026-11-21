@@ -27,6 +27,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -119,16 +120,30 @@ def request(session_id: str, folder: Path, name: str) -> dict:
     if spec is None:
         raise ClaudeError("mcp_server_not_found", 404, "this folder has no MCP server of that name")
     shown = describe(name, spec)
-    entry = approvals.add(
-        KIND, session_id, _key(folder),
-        {"server": shown, "warning": OUTSIDE_SANDBOX, "definition_hash": shown["hash"]},
-    )  # fmt: skip
-    try:
-        audit.record("mcp_server_approval_requested", _detail(entry))
-    except audit.AuditUnavailable as exc:
-        approvals.take(session_id, entry["id"])
-        raise ClaudeError("audit_unavailable", 503, "the audit log could not be written") from exc
-    return approvals.public(entry)
+    with approvals.LOCK:
+        now = time.time()
+        for waiting in approvals.load().values():
+            if (
+                waiting.get("kind") == KIND
+                and waiting.get("session_id") == session_id
+                and waiting.get("folder") == _key(folder)
+                and waiting.get("definition_hash") == shown["hash"]
+                and waiting.get("expires", 0) > now
+            ):
+                # The same definition waits already: that card, and no second push.
+                return approvals.public(waiting) | {"already_waiting": True}
+        entry = approvals.add(
+            KIND, session_id, _key(folder),
+            {"server": shown, "warning": OUTSIDE_SANDBOX, "definition_hash": shown["hash"]},
+        )  # fmt: skip
+        try:
+            audit.record("mcp_server_approval_requested", _detail(entry))
+        except audit.AuditUnavailable as exc:
+            approvals.take(session_id, entry["id"])
+            raise ClaudeError(
+                "audit_unavailable", 503, "the audit log could not be written"
+            ) from exc
+    return approvals.public(entry) | {"already_waiting": False}
 
 
 def _detail(entry: dict, **extra: object) -> dict:

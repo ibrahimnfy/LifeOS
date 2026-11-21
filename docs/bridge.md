@@ -722,16 +722,27 @@ the session's pending approvals:
 ```
 
 - `state` is `downloading` (wait), `ready` (can be approved), or `failed`
-  with an `error` sentence (it can only be refused). A proposal from a
-  non-HTTPS source is answered at once, in the `done` card, with
-  `"state": "refused"`.
+  with an `error` sentence and a stable `error_code` (it can only be
+  refused). A proposal from a non-HTTPS source is answered at once, in the
+  `done` card, with `"state": "refused"`. The codes (#157), for the app to
+  choose its own words: `source_not_https`, `audit_unavailable` (both
+  `refused`), `source_refused` (an unsafe or unusable source: a link, an
+  absolute or `..` path, no `SKILL.md`, no usable name, too many files,
+  a redirect to something other than HTTPS), `source_too_large`,
+  `source_unreadable` (a broken archive), `skill_exists`,
+  `download_failed` (network or server error).
 - `GET /sessions/{id}/interactions` lists it next to the questions and
   approvals of a running turn. `POST /sessions/{id}/interactions/{iid}`
   answers it with `{"approve": true|false}`. The reply is
   `{"answered": true, "id": …, "installed": true|false, "name", "target"}`.
-  A missing or expired proposal answers `404 not_pending`, an existing skill
-  of the same name `409 skill_exists`, and an unwritable audit log
-  `503 audit_unavailable`.
+  A missing or expired proposal answers `404 not_pending`.
+- **A refused answer leaves the card waiting** (#157), with its files in
+  quarantine, so the owner can answer again: `409 still_downloading`
+  (approved while `downloading`), `409 skill_exists` (a skill of that name
+  appeared meanwhile), `503 audit_unavailable`, `500 install_failed`
+  (nothing was written). A refusal (`false`) is always accepted, also while
+  downloading; the download is then thrown away. Two answers at the same
+  time are taken one after the other: the second gets `404 not_pending`.
 - Paired phones get a sealed `approval` push hint. Proposals wait 24 hours
   (also across bridge restarts); after that they count as refused.
 - Details and limits: `permission-policy.md`, section 9.4.
@@ -755,11 +766,15 @@ the session's pending approvals:
 - `POST /sessions/{id}/mcp-servers/{name}/approval` creates an approval
   card (and a sealed `approval` push hint):
   `{"id", "kind": "mcp_server", "session_id", "folder", "server": {…as
-  above}, "warning": "…outside the sandbox…", "created_at", "expires_at"}`.
+  above}, "warning": "…outside the sandbox…", "created_at", "expires_at",
+  "already_waiting": false}`. Asking again while a card for the same
+  definition (same hash) waits in that session returns that card with
+  `"already_waiting": true`, and sends no second push (#157). A changed
+  definition gets a card of its own.
   It is answered like every approval: `POST
   /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`, which
   returns `{"answered": true, "id": …, "approved": true|false, "name"?,
-  "reason"?}`.
+  "reason"?}`. `503 audit_unavailable` leaves the card waiting.
 - `DELETE /sessions/{id}/mcp-servers/{name}` revokes an approval
   (`{"revoked": true|false}`).
 - A capable answer that used servers carries `"mcp_servers": [{"name",
