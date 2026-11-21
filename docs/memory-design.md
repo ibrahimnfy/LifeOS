@@ -269,6 +269,13 @@ without the owner present and lets a model edit the memory):
 **Decided: B.** The run proposes, the owner approves, then it is applied. It
 may be switched to C later if it proves itself; that would be a new decision.
 
+**Inferred facts in the proposal (#83).** The proposal may contain *add*
+operations for `[inferred <date>]` facts, shown to the owner like every
+other operation; only the approved ones are written, through the same check
+as every fact writer (`bridge/src/lifeos_bridge/facts.py`: existing topic
+files only, one line, appended, never over or beside an `[owner …]` fact
+with the same text). The consolidation run itself is not built yet.
+
 ## 7. Search
 
 Start with plain text search over the folder (Claude's own file search is

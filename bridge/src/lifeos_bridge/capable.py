@@ -36,6 +36,13 @@ MARKER_FILE_NAME = "capable-mode.json"  # the cli runner (the name it always had
 MARKER_FILE_NAMES = {"cli": MARKER_FILE_NAME, "sdk": "capable-mode-sdk.json"}
 AUDIT_DIR_NAME = "audit"
 KEY_FILE_NAME = "guardrail-key"
+# Version of the probe suite. A marker of an older suite keeps the capable mode
+# on, but not what needed the newer probes; the automatic check reruns it.
+# 2: the skill probes (#91). 3: a run cannot add skills to its folder (#92).
+# 4: unapproved or changed MCP servers are never passed to a run (#108).
+SUITE_VERSION = 4
+SKILLS_SUITE_VERSION = 3
+MCP_SUITE_VERSION = 4
 SDK_PACKAGE = "claude-agent-sdk"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
@@ -192,6 +199,80 @@ async def check_available(
         )
 
 
+async def skills_available(
+    settings: Settings, run_dir: Path | None = None, runner: str = "cli"
+) -> None:
+    """Raise unless the capable mode is on and its check included the skill probes (#91)."""
+    await check_available(settings, run_dir, runner=runner)
+    try:
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise skills_unavailable() from exc
+    version = marker.get("suite_version") if isinstance(marker, dict) else None
+    if not isinstance(version, int) or version < SKILLS_SUITE_VERSION:
+        raise skills_unavailable()
+    if marker.get("skills_verified") is not True:
+        raise ClaudeError("skills_unavailable", 503, SKILLS_UNVERIFIED_REASON)
+
+
+SKILLS_UNVERIFIED_REASON = (
+    "The session's skills stay off because the guardrail check could not verify that "
+    "personal skills are kept out (there is none to test with, and the owner has not "
+    "allowed a temporary probe skill)."
+)
+
+
+def skills_recheck_needed(settings: Settings, runner: str) -> bool:
+    """A marker whose skill probes could not be verified, while the setting changed since."""
+    try:
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(marker, dict) or marker.get("skills_verified") is not False:
+        return False
+    return marker.get("personal_skill_probe") != settings.guard_personal_skill_probe
+
+
+async def mcp_available(
+    settings: Settings, run_dir: Path | None = None, runner: str = "cli"
+) -> None:
+    """Raise unless the capable mode is on and its check included the MCP probes (#108)."""
+    await check_available(settings, run_dir, runner=runner)
+    try:
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        marker = {}
+    version = marker.get("suite_version") if isinstance(marker, dict) else None
+    if not isinstance(version, int) or version < MCP_SUITE_VERSION:
+        raise ClaudeError(
+            "mcp_unavailable",
+            503,
+            "this folder has approved MCP servers, and they are used only after the guardrail "
+            "check with the MCP probes has passed (it runs by itself at the next start of the "
+            "bridge); revoke their approval to work without them",
+        )
+
+
+def skills_unavailable() -> ClaudeError:
+    return ClaudeError(
+        "skills_unavailable",
+        503,
+        "the session's skills stay off until the guardrail check with the skill probes has "
+        "passed (it runs by itself at the next start of the bridge); switch skills off for "
+        "this session to work without them",
+    )
+
+
+def suite_outdated(runner: str) -> bool:
+    """True when the runner's marker comes from an older probe suite."""
+    try:
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    version = marker.get("suite_version") if isinstance(marker, dict) else None
+    return not isinstance(version, int) or version < SUITE_VERSION
+
+
 def _rule_path(folder: Path) -> str:
     """Absolute path in permission-rule syntax (``//`` = filesystem root)."""
     return "/" + str(folder)
@@ -239,11 +320,24 @@ def check_repositories(writable: list[Path], memory: Path) -> None:
         )
 
 
-def build_policy(settings: Settings, run_dir: Path, *, ask_host: bool = False) -> Policy:
+def build_policy(
+    settings: Settings,
+    run_dir: Path,
+    *,
+    ask_host: bool = False,
+    skills_dir: Path | None = None,
+    mcp: dict[str, dict] | None = None,
+) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
 
     ``ask_host``: the run's approval actions go to the bridge's permission
     callback (SDK runner) instead of being refused by the gate.
+    ``skills_dir``: the snapshot of the folder's skills (``skills.snapshot``),
+    for a session whose skills are switched on; shell lines in skills and the
+    bundled skills are switched off with it.
+    ``mcp``: the folder's approved, unchanged MCP servers (``mcp_servers.for_run``),
+    passed explicitly with permission to call their tools; they run outside the
+    sandbox by the owner's approval (#108).
     """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
@@ -278,7 +372,15 @@ def build_policy(settings: Settings, run_dir: Path, *, ask_host: bool = False) -
         },
         "permissions": {
             "allow": [f"Edit({_rule_path(folder)}/**)" for folder in writable],
-            "deny": [f"Read({pattern})" for pattern in DENIED_READS],
+            "deny": [f"Read({pattern})" for pattern in DENIED_READS]
+            # Skills, commands, settings and MCP definitions of a folder change only
+            # through the bridge with the owner's approval (#92, #108); commands are kept
+            # out of them by the sandbox's own protected paths.
+            + [
+                f"Edit({_rule_path(folder)}/{name})"
+                for folder in writable
+                for name in (".claude/**", ".mcp.json")
+            ],
         },
         "hooks": {
             "PreToolUse": [
@@ -289,11 +391,23 @@ def build_policy(settings: Settings, run_dir: Path, *, ask_host: bool = False) -
             ]
         },
     }
+    mcp_config = None
+    if mcp:
+        from . import mcp_servers  # local: only runs with approved servers need it
+
+        settings_json["permissions"]["allow"] += mcp_servers.allow_rules(mcp)
+        mcp_config = mcp_servers.run_config(mcp)
+    if skills_dir is not None:
+        from .skills import SETTINGS as SKILL_SETTINGS  # local: skills imports commands
+
+        settings_json |= SKILL_SETTINGS
     return Policy(
         tools=claude.CAPABLE_TOOLS,
         capable=True,
         settings_json=json.dumps(settings_json),
         add_dirs=tuple(folder for folder in writable if folder != run_dir),
+        skills_dir=skills_dir,
+        mcp_config=mcp_config,
     )
 
 

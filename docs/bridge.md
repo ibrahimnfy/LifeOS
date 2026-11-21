@@ -103,6 +103,8 @@ documented here as they are built.
 | GET | `/models` | yes | Models and effort levels the app may offer, and the defaults |
 | GET | `/models/routing` | yes | Model, effort and advisor of each job, and its plan usage today and this week |
 | PUT | `/models/routing` | yes | Changes one job's model, effort or advisor (audited, no restart) |
+| GET | `/app/release` | yes | The registered release of the app: version, size, SHA-256, certificate |
+| POST | `/app/release/offer` | yes | Offers the release APK for `GET /files/{offer}?session_id=app-release` |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
@@ -131,6 +133,8 @@ documented here as they are built.
 | POST | `/coach/chat/messages` | yes | A message to the coach (compacts first when the conversation is long) |
 | POST | `/coach/chat/compact` | yes | Compacts the coach conversation now |
 | GET | `/moodle/status` | yes | Whether the Moodle sign-in is set up, its age and state |
+| POST | `/moodle/signin/start` | yes | Sign-in from the phone (#100): the site's launch link with a one-time passport (`link`, `wwwroot`, `passport`, `scheme`, `expires_in` 600 s); the sign-in button chosen at the computer is reused; never asks anything. `502 signin_unavailable` when the site cannot be asked |
+| POST | `/moodle/signin/finish` | yes | Body `{"address": "moodlemobile://token=…"}`: checked against the waiting passport (used up by this call), tested at the site, and only then stored like `scripts/moodle-login` does; answers `{"stored", "release", "missing"}`, never the token. `409 signin_not_started`, `400 signin_mismatch`, `400 token_rejected`, `502 signin_unavailable` |
 | GET | `/moodle/courses` | yes | The owner's courses on the university Moodle |
 | GET | `/moodle/courses/{id}` | yes | Sections, modules and files of one course |
 | GET | `/moodle/assignments` | yes | Assignments with their dates |
@@ -160,6 +164,7 @@ Request body (JSON):
 |---|---|---|
 | `prompt` | string, required | The prompt, at most 100 000 characters |
 | `session_id` | string, optional | Continue an earlier `/ask` conversation |
+| `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. Follow-ups go to `POST /sessions/{id}/messages` as usual |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
 | `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
 
@@ -300,12 +305,15 @@ Subfolders of the memory folder are fine. Details:
   with the fixed name `lifeos-guardrail-check`). It also moves an old
   scratch folder to the memory folder's trash.
 - **Plan usage of one restart:** a runner needs a check after an update of
-  Claude Code or the Agent SDK, or when it was never checked.
-  - The `claude -p` suite takes about 8 short runs on the small model per
+  Claude Code or the Agent SDK, after a new version of the probe suite (the
+  skill probes of #91 are suite version 2), or when it was never checked.
+  - The `claude -p` suite takes about 11 short runs on the small model per
     environment.
-  - The SDK suite takes about 12 per environment, because it adds the
+  - The SDK suite takes about 15 per environment, because it adds the
     approval probes.
-  - Both runners in both environments come to **about 40 short runs**.
+  - Both runners in both environments come to **about 52 short runs**. The
+    skill probes of #91 and #92 add 12 of these (3 runs per environment and
+    runner); the MCP probes of #108 need no model run.
     Probes without a model run (invalid settings, nested folders) are not
     counted.
   - A restart where both markers still match costs nothing.
@@ -380,7 +388,12 @@ then newest first:
   beginning of its first prompt. Titles are conversation content: they are
   sent to the authenticated client only and never logged.
 - `in_use` is true while the bridge itself is running a prompt in that
-  session.
+  session; `running_here` is the same, named for what it means.
+  `open_elsewhere` is true when another Claude Code process on the computer
+  holds the session (a terminal, the desktop app), from `claude agents
+  --json` (the bridge's own processes left out, reused for 10 seconds), and
+  `null` when that could not be checked. A message to a session open
+  elsewhere answers `409 session_in_use`.
 - Claude Code deletes old sessions by itself (after 30 days by default), so
   a listed session can disappear later.
 - Session files are an internal format of Claude Code; files the bridge
@@ -454,15 +467,35 @@ the app's composer. It reads only the documented project locations,
 `<folder>/.claude/commands/**/*.md`; it runs nothing and uses no model.
 
 ```json
-{"enabled": false,
- "reason": "skills and commands are not switched on for this session",
+{"enabled": false, "switched_on": false, "capable_only": true, "prefix": "folder:",
+ "reason": "skills are switched off for this session",
  "commands": [{"name": "review", "kind": "command", "description": "…",
                "argument_hint": "<file>", "warnings": ["shell_lines"]}]}
 ```
 
-- **Listed, not yet usable.** Runs still start with skills and commands
-  switched off, so `enabled` is always `false` for now; the per-session
-  switch comes later (see [`chat-design.md`](chat-design.md), section 3).
+- **Usable in capable runs of the session when switched on (#91).**
+  - The owner switches them on per session with `PATCH /sessions/{id}`
+    `{"skills": true}`. The session list and the PATCH answer carry
+    `"skills": true|false`.
+  - `enabled` is true only when the switch is on **and** the guardrail check
+    passed with the skill probes (`docs/permission-policy.md`, section 9.2).
+    Otherwise `reason` says why, in one sentence.
+  - `switched_on` is the owner's switch alone. `capable_only` is always
+    true: read-only runs never get skills.
+  - In a run the skills are named with `prefix` (`folder:review`). A capable
+    message that starts with `/` must name one of the listed entries, with or
+    without the prefix (the bridge adds it). Any other `/...` message (for
+    example a built-in command such as `/config`) is refused with
+    `400 command_not_allowed`.
+  - The assistant can also use the listed skills itself (its `Skill` tool).
+  - If the check passed but could not verify that personal skills are kept
+    out, `reason` is the marker's `skills_unverified_reason`. This happens
+    when there is no personal skill to test with and
+    `LIFEOS_GUARD_PERSONAL_SKILL_PROBE` is off.
+  - A capable message in a session whose switch is on, while the check with
+    the skill probes has not passed yet, is refused with
+    `503 skills_unavailable`. It never runs silently without the skills;
+    switch them off to continue without.
 - `kind` is `skill` or `command`. A command in a sub-folder is named with
   `:` between the parts (`git/log.md` is `git:log`). Sorted by name.
 - `description` is the `description:` of the file's frontmatter, otherwise
@@ -591,9 +624,15 @@ How it reaches the owner:
   "header", "multi_select", "options": [{"label", "description"}]}]`; an
   approval carries `tool`, `command`, `folder`, `category` and `reason`.
   Paired phones also get a sealed push hint (`question` or `approval`).
-  While the owner is being asked, the stream sends an SSE comment
-  (`: keep-alive`) every 30 seconds, so the relay's read does not time
-  out.
+  When the interaction is over, the stream sends `interaction_closed
+  {"id", "reason": "answered" | "timed_out" | "run_ended"}` (answered from
+  any client, the time ran out, or the run ended or was stopped first).
+- **Keep-alives:** a streamed run that sends nothing for 20 seconds (a long
+  tool call; also on `claude -p`) and a run that waits for the owner (every
+  30 seconds) send the event `keepalive {}`. The relay forwards it as a
+  small sealed chunk `{"event": "keepalive", "data": {}}`, so the phone can
+  tell a working run from a dead connection. (Before #147 this was an SSE
+  comment the relay dropped.)
 - `GET /sessions/{id}/interactions` → `{"pending": [...]}` (same objects).
 - `POST /sessions/{id}/interactions/{iid}` answers:
   - question: `{"answers": {"<question>": "<label or own text>"}}` (a list
@@ -621,6 +660,72 @@ with a prompt such as "Use the question tool to ask me Red or Blue, then
 say what I chose". An `interaction` event appears. Answer it with the POST
 above, and the reply names the choice. Without `"stream": true` the same
 prompt is answered with a plain-text question.
+
+### Skill installs (#92)
+
+A capable run can propose a skill for its folder with a line of its own,
+`[[skill-install: https://…]]` (a `SKILL.md`, `.zip` or `.tar.gz`). The
+bridge removes the line from the answer and lists the proposal in the
+`done` event: `"skill_installs": [card]`. It downloads the source into a
+quarantine in the private settings folder, and the card then appears among
+the session's pending approvals:
+
+```json
+{"id": "a1b2c3d4e5f6", "kind": "skill_install", "session_id": "…",
+ "folder": "…", "source": "https://…/SKILL.md", "state": "ready",
+ "name": "tidy", "target": "<folder>/.claude/skills/tidy",
+ "description": "Tidy the notes.",
+ "warnings": ["shell_lines", "requests_tools", "has_scripts"],
+ "files": [{"path": "SKILL.md", "size": 812}], "total_size": 812,
+ "created_at": "…", "expires_at": "…"}
+```
+
+- `state` is `downloading` (wait), `ready` (can be approved), or `failed`
+  with an `error` sentence (it can only be refused). A proposal from a
+  non-HTTPS source is answered at once, in the `done` card, with
+  `"state": "refused"`.
+- `GET /sessions/{id}/interactions` lists it next to the questions and
+  approvals of a running turn. `POST /sessions/{id}/interactions/{iid}`
+  answers it with `{"approve": true|false}`. The reply is
+  `{"answered": true, "id": …, "installed": true|false, "name", "target"}`.
+  A missing or expired proposal answers `404 not_pending`, an existing skill
+  of the same name `409 skill_exists`, and an unwritable audit log
+  `503 audit_unavailable`.
+- Paired phones get a sealed `approval` push hint. Proposals wait 24 hours
+  (also across bridge restarts); after that they count as refused.
+- Details and limits: `permission-policy.md`, section 9.4.
+
+### MCP servers (#108)
+
+- `GET /sessions/{id}/mcp-servers` lists the servers of the session
+  folder's `.mcp.json` and starts nothing:
+
+  ```json
+  {"capable_only": true, "note": "An approved MCP server runs outside the sandbox: …",
+   "servers": [{"name": "tools", "type": "stdio", "command": "npx",
+                "args": ["-y", "some-server"], "url": null,
+                "env_names": ["API_TOKEN"], "header_names": [], "hash": "…",
+                "outside_sandbox": true,
+                "state": "not_approved", "approved_at": null}]}
+  ```
+
+  `state` is `not_approved`, `approved` or `changed` (approved, but the
+  definition changed since: not used).
+- `POST /sessions/{id}/mcp-servers/{name}/approval` creates an approval
+  card (and a sealed `approval` push hint):
+  `{"id", "kind": "mcp_server", "session_id", "folder", "server": {…as
+  above}, "warning": "…outside the sandbox…", "created_at", "expires_at"}`.
+  It is answered like every approval: `POST
+  /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`, which
+  returns `{"answered": true, "id": …, "approved": true|false, "name"?,
+  "reason"?}`.
+- `DELETE /sessions/{id}/mcp-servers/{name}` revokes an approval
+  (`{"revoked": true|false}`).
+- A capable answer that used servers carries `"mcp_servers": [{"name",
+  "outside_sandbox": true}]` and `"mcp_note"`.
+- `503 mcp_unavailable`: the folder has approved servers, but the check
+  with the MCP probes has not passed yet.
+- Details: `permission-policy.md`, section 9.3.
 
 ### Model and effort
 
@@ -952,7 +1057,11 @@ git -C ~/brain log -1 --format=%s     # "Compact the coach conversation" when fa
 - `GET /coach/settings` → `{"frequency": "off" | "1" | "3", "quiet_start":
   "22:00", "quiet_end": "08:00", "questions": true}` (these are the
   defaults). `PUT /coach/settings` takes any of these fields; fields left
-  out keep their value. With `frequency` `off` no notification is sent; with
+  out keep their value. `frequency`: `off` sends no notification, `"1"`
+  (`"low"`, the default) the daily note only, `"3"` (`"normal"`) the daily
+  note and up to two further nudges from the same batch, two hours apart,
+  never in quiet hours, never about a task done meanwhile (coach-design.md
+  section 5; no run per nudge). With
   `questions` `false` the plan is served without its question. Stored in
   `~/.config/lifeos/coach/settings.json`; skips are remembered in
   `coach/state.json` next to it.
@@ -1341,9 +1450,10 @@ are used, so it works while the app is closed.
   | `question`, `approval` | `chat` | `session` | session id | a run waits for the owner (SDK runner) |
   | `courses` | `courses` | `course` / `courses` | course id when one course changed, else none | a course sync found something (one push per sync) |
   | `signin` | `courses` | `moodle_signin` | – | the course sign-in needs renewal |
-  | `coach` | `coach` | `coach` | – | the coach's daily note |
+  | `coach` | `coach` | `coach` | message id of `GET /coach/plan` | the coach's daily note, and further nudges (frequency `"3"`) |
   | `reminder` | `reminders` | `reminder` | reminder id | a session reminder is due |
   | `notice` | `reminders` | `notice` | – (`t`, `l`) | `scripts/notify.sh` (for example a new owner issue) |
+  | `update` | `reminders` | `app_update` | version code | a new app release was registered (`lifeos-bridge release`) |
 
 - **Courses: one push per sync.** Every change one sync finds (new or
   changed files, new or changed pages and books, new assignments, new
@@ -1367,6 +1477,63 @@ are used, so it works while the app is closed.
   $B/push/notify` answers `{"phones_reached": 1}`; after a course refresh
   that found something, the bridge log shows no course names, and the
   phone (once the app side exists) shows one "courses" notification.
+
+## App releases for the phone
+
+`lifeos-bridge release` registers a new release build of the app; the
+paired phones are told and can install it with one tap (#138, app side
+separate). No third-party update service.
+
+```
+uv run lifeos-bridge release --build     # Gradle builds and signs (it reads the key itself), then registers
+uv run lifeos-bridge release             # registers the existing build output instead
+uv run lifeos-bridge release --apk FILE --version-code N --version-name X   # another APK
+```
+
+- **What it checks and records:** the APK from Gradle's release output
+  (`app/app/build/outputs/apk/release/`, with version code and name from
+  `output-metadata.json`), its size (at most 200 MB), the SHA-256 of the
+  file, and the SHA-256 of its signing certificate, read from the APK
+  Signature Scheme v3/v2 block; an unsigned APK is refused. The first
+  registered certificate is pinned: an APK signed with another key is
+  refused unless `--new-certificate` is given. The version code must be
+  newer than the current release. The command never asks for or reads the
+  keystore password: Gradle reads `~/.config/lifeos/release/` itself.
+- **Where:** a private copy in `~/.config/lifeos/app-release/lifeos-<code>.apk`
+  (mode 600; only the current one is kept) and the record in
+  `~/.config/lifeos/app-release.json`. The `AppRelease` audit record (version,
+  size, hashes) is written first; without it nothing is registered.
+- **Push:** one sealed hint `update` (channel `reminders`, opens
+  `app_update`, `r` = version code) to every paired phone, sent by the
+  running bridge (the command asks it with `POST /push/notify` `{"event":
+  "update", "ref": "<code>"}`): only the bridge may advance a phone's
+  message counters. When the bridge is not running, no push is sent and the
+  command says so; the app finds the release when it opens.
+- **Verified** on a real release output (read-only): Gradle's
+  `output-metadata.json` gives `versionCode`, `versionName`, `outputFile`;
+  the certificate taken from the v3 signing block is a valid X.509
+  certificate whose SHA-256 equals `keytool`'s fingerprint. The bridge does
+  not verify the signature itself (Android's installer does).
+- `GET /app/release` → `{"version_code": int, "version_name": str, "size":
+  int, "sha256": hex, "cert_sha256": hex, "registered_at": iso}`; `404
+  no_release` when none is registered.
+- `POST /app/release/offer` → `{"offer", "name", "type":
+  "application/vnd.android.package-archive", "size", "session_id":
+  "app-release", "version_code", "version_name", "sha256", "cert_sha256",
+  "registered_at"}`. The phone fetches it with `GET
+  /files/{offer}?session_id=app-release` (through the relay: sealed chunks
+  of 700 KB, three waiting at a time, the SHA-256 of the whole file with
+  the last message), within 15 minutes. The release has its own size limit
+  (200 MB), independent of `LIFEOS_MAX_FILE_MB` (50 MB for ordinary file
+  offers), and it is offered only from its own folder; the offer and the
+  download are audited like every file. The phone checks the hash and the
+  certificate before it opens the installer.
+
+Manual check: `uv run lifeos-bridge release --build` prints "Registered
+release …; the paired phones were told"; `curl -s -H "$H"
+$B/app/release` shows the same version and hashes; `curl -s -X POST -H
+"$H" $B/app/release/offer` gives a card; `grep AppRelease
+~/.config/lifeos/audit/*.jsonl | tail -n 1`.
 
 ## Moodle sign-in
 
@@ -1593,6 +1760,9 @@ curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"1","quiet_start":"23:00"}' $B/c
 ls -l ~/.config/lifeos/coach/                    # plan.json, settings.json, state.json; mode 600
 # outside quiet hours, within about 30 seconds of the first plan of the day,
 # a desktop notification "LifeOS: coach" appears, once
+curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"3"}' $B/coach/settings   # "normal" works too
+# then, two and four hours after the daily note (outside quiet hours), "A note from your coach."
+# appears; never a fourth that day, never in quiet hours; no new run (`/models/routing` unchanged)
 ```
 
 Queue, cancel and models (in a second terminal while a longer question

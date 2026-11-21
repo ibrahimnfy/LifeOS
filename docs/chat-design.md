@@ -72,10 +72,18 @@ cancel request.
 
 ## 3. Skills and slash commands
 
-**Today:** switched off on purpose. Every run starts with skills and
+**Before #91:** switched off on purpose. Every run starts with skills and
 commands disabled, without MCP servers and with project settings ignored;
 the guardrail probes check that a hook or MCP server inside the run folder
 does not run.
+
+**Built (#91):** capable runs of a session whose `skills` switch is on get
+a copy of the folder's own skills and commands, loaded as a plugin
+(`folder:<name>`). Everything else stays as described here: read-only
+runs, no personal skills, no shell lines, no hooks, MCP servers or project
+settings. It is enabled only after the guardrail check with the skill
+probes passed. Details: `docs/permission-policy.md`, section 9.2; API:
+`docs/bridge.md`, `GET /sessions/{id}/commands`.
 
 What the documentation says, and what follows:
 
@@ -303,6 +311,29 @@ turn at once and the process stays usable; `claude -p --resume` from a
 terminal works while the bridge's process sits idle, and the bridge notices
 the changed transcript and resumes instead of writing over it. See
 `docs/bridge.md`, "Runner".
+
+### 7.1 Chat through the relay (#147)
+
+Three gaps the chat screen found, closed in the bridge:
+
+- **Signs of life.** A streamed run that says nothing for 20 seconds (a long
+  tool call) or waits for the owner sends a `keepalive` event; the relay
+  forwards it sealed. The phone treats a stream without any event for well
+  over 30 seconds as a lost connection, and a stream with keep-alives as a
+  working run.
+- **A new conversation the phone names itself.** The phone sends its first
+  message with `new_session_id` (a UUID it chose). If the answer is lost,
+  it sends the same message again with the same id: the bridge recognises
+  the repeat (same text and folder) and runs nothing, answering
+  `{"repeat": true, "session_id", "running"}`; the phone then follows the
+  session (queue, history) instead of starting a second conversation.
+- **Closed interactions.** A question or approval card closes on the
+  stream's `interaction_closed {"id", "reason"}` (`answered` from any
+  client, `timed_out`, or `run_ended`), so a card answered elsewhere or
+  left over from a stopped run does not stay open.
+- **Session list:** `running_here` (the bridge answers in it) and
+  `open_elsewhere` (a terminal or the desktop app holds it; `null` when
+  unknown) tell the two kinds of "busy" apart.
 
 ## 8. Build issues
 

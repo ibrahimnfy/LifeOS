@@ -327,9 +327,11 @@ with plain HTTPS requests.
   words); the instructions (the site's Markdown: headings, lists, bold,
   italic, web links that open in the browser); the attached files, which
   download and open like other materials; the submission (status, when it
-  closes, when it is graded) and whether it is in the task list. (The
-  summary names a deadline by its name and time only, so the app finds the
-  assignment in the course's list by them.) Files
+  closes, when it is graded) and whether it is in the task list. A deadline
+  that belongs to an assignment carries its id (`assignment_id`, #144) and
+  opens it directly, and so does the course page's header card for the
+  course's next deadline; without the id (an older bridge) the app finds the
+  assignment in the course's list by name and due time. Files
   are listed, not stored; "Download" saves one to the phone's Downloads
   folder.
 - **Activity** (under More), two tabs:
@@ -360,9 +362,14 @@ with plain HTTPS requests.
   where that comes from (the job's default, the routing setting, the
   background model; chat sessions can choose per session), and the plan
   usage of its runs today and this week (runs, tokens with cache, Claude
-  Code's cost estimate); then what uses no model at all. **Read-only:** the
-  bridge has no endpoint to change the routing yet, so it is changed on the
-  computer (`LIFEOS_MODEL_ROUTING`).
+  Code's cost estimate); then what uses no model at all. **Change** opens a
+  sheet with the job's model, effort and advisor (the choices of
+  `GET /models`; "Default" returns a field to what lies underneath, the
+  advisor can be switched off); **Back to the default** appears when the
+  app chose something. A change is a setting, sent directly with
+  `PUT /models/routing` (not through the outbox): without a connection
+  nothing changes and the screen says so; a refusal or an audit log that
+  cannot be written is reported too. It applies from the job's next run.
 - **First run:** one welcome screen that leads to pairing or is skipped.
 
 Nothing on these screens is sample content any more. Not paired, they show
@@ -567,6 +574,32 @@ phone side mirrors the bridge's `e2e.py`, `devices.py`, `mailbox.py` and
   message; requests other than GET are retried only when the first try
   certainly did not leave the phone.
 
+**Moodle sign-in from the phone** (`signin/`, `data/MoodleSignIn.kt`, #100):
+the renewal of the course site's sign-in, in one tap from the "sign-in ran
+out" notification, from the Courses screen (its notice has the button) or
+from Settings → Courses sign-in.
+
+- The app asks the computer for the site's sign-in link
+  (`POST /moodle/signin/start`, a direct request; nothing is saved): the
+  official mobile app's flow, with a one-time passport that the computer
+  keeps for ten minutes.
+- The link opens in a **browser tab** (a Custom Tab where the browser offers
+  one, through the documented session extra; no extra library, never a
+  WebView). The owner signs in on the site's own page; the app never sees
+  or fills in that page and never sees the password.
+- The page ends on `moodlemobile://token=…`, the address scheme the site
+  uses for its official app. `MoodleRedirectActivity` receives it (no
+  screen), removes it from the intent and brings the app back. If the
+  official Moodle app is installed too, Android may ask which app opens it:
+  choose LifeOS.
+- The app checks the address against the passport (`md5(site + passport)`,
+  as the official app does) and only then sends it sealed to the computer
+  (`POST /moodle/signin/finish`); locked or offline, it waits in memory
+  until the app is unlocked and connected. The computer checks it again,
+  tests the token at the site and only then stores it. The app keeps no
+  copy: the address lives in memory until it is sent, and an attempt is
+  forgotten on unpair.
+
 **Push** (`push/`, #38; docs/security.md 5.1):
 
 - **Firebase without its Gradle plugin:** the four values of the owner's
@@ -671,7 +704,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
   renaming, pinning and reminders. The coach conversation and Projects are
   placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
-- Courses: "Ask about this course" and renewing the sign-in from the phone.
+- Courses: "Ask about this course".
 - No instrumented (on-device) tests; only JVM unit tests.
 
 ## Manual check
@@ -797,6 +830,25 @@ running on the computer with the relay set up.
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
 
+### Renewing the Moodle sign-in on the phone
+
+Needs a paired phone, the computer running, and the course site set up.
+
+1. Settings → **Courses sign-in** → **Renew the sign-in** (or the button on
+   the Courses screen when its notice says the sign-in ran out, or tap the
+   "sign-in needs renewing" notification): "Asking your computer…", then
+   the site's sign-in page opens in a browser tab.
+2. Sign in on the site's page (the institution's button if the site offers
+   one). At the end the browser comes back to LifeOS by itself; some
+   browsers show a last page with a link to tap. If the official Moodle app
+   is installed, choose LifeOS when Android asks.
+3. Courses shows "Passing the new sign-in to your computer…", then
+   "Renewed". On the computer, `scripts/moodle-login --check` says the
+   token works, and the next course sync (the refresh arrow) succeeds.
+4. Start again and come back without signing in, or wait more than ten
+   minutes: "This sign-in attempt has run out". Nothing changed on the
+   computer.
+
 ### Push notifications (app closed, phone idle)
 
 Needs a build made with the owner's Firebase settings and a paired phone.
@@ -833,8 +885,12 @@ Settings → **Models and plan usage**: one card per job with its model
 chat or rerun the coach on the computer, pull down: the numbers of that job
 grow. Set `LIFEOS_MODEL_ROUTING` on the computer (for example
 `summaries=haiku`), restart the bridge, pull down: the job shows the new
-model and "Set in the computer's routing setting". The screen has no way to
-change it from the phone yet.
+model and "Set in the computer's routing setting". Tap **Change** on
+"Summaries", pick another model and effort, Save: "Saved. Used from the next
+run."; the card shows the new model and "Chosen in the app", and the
+computer's audit log has a `ModelRouting` entry. **Back to the default**:
+the card shows what the computer is set up with again. In flight mode,
+Save says the computer cannot be reached and nothing changes.
 
 ### Chat and sessions
 

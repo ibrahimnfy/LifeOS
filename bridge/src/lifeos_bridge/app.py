@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import hmac
 import json
 import uuid
@@ -18,6 +19,8 @@ from . import (
     __version__,
     activity,
     allowed,
+    approvals,
+    audit,
     capable,
     claude,
     coach,
@@ -27,12 +30,14 @@ from . import (
     files,
     guardcheck,
     history,
+    mcp_servers,
     memory,
     moodle_api,
     moodle_sync,
     moodle_watch,
     push,
     relay,
+    release,
     reminders,
     resources,
     routing,
@@ -40,6 +45,8 @@ from . import (
     sdk_runner,
     session_meta,
     sessions,
+    skill_installs,
+    skills,
 )
 from .claude import ClaudeError
 from .config import Settings
@@ -125,6 +132,47 @@ def sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
 
 
+KEEPALIVE_SECONDS = 20.0  # a run that is quiet this long (a long tool call) sends a sign of life
+HELD_SECONDS = 10.0  # how long the list of sessions open elsewhere is reused
+
+
+async def with_keepalives(events: AsyncIterator, every: float | None = None) -> AsyncIterator:
+    """The events of a run, plus ``("keepalive", {})`` whenever none came for a while.
+
+    One task reads the run from start to end (the run's own time limit is bound
+    to that task); a keep-alive only fills the silence. Closing this generator
+    (the client went away) cancels that task, which stops the run as before.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def pump() -> None:
+        try:
+            async for item in events:
+                await queue.put(("item", item))
+            await queue.put(("end", None))
+        except Exception as error:  # handed to the reader, raised there
+            await queue.put(("error", error))
+
+    reader = asyncio.create_task(pump())
+    try:
+        while True:
+            try:
+                kind, value = await asyncio.wait_for(queue.get(), every or KEEPALIVE_SECONDS)
+            except TimeoutError:
+                yield "keepalive", {}
+                continue
+            if kind == "end":
+                return
+            if kind == "error":
+                raise value
+            yield value
+    finally:
+        if not reader.done():
+            reader.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await reader
+
+
 def create_app(settings: Settings) -> FastAPI:
     # No interactive docs or schema endpoints: less surface, nothing to leak.
     @contextlib.asynccontextmanager
@@ -156,6 +204,7 @@ def create_app(settings: Settings) -> FastAPI:
                 coach_runs.add(run)
                 run.add_done_callback(coach_runs.discard)
             await asyncio.to_thread(coach.send_daily_notification, settings)
+            await asyncio.to_thread(coach.send_nudges, settings)  # within the daily cap
 
         course_syncs: set[asyncio.Task] = set()
 
@@ -253,13 +302,37 @@ def create_app(settings: Settings) -> FastAPI:
         "You are answering the owner through their phone app. "
         + files.INSTRUCTIONS
         + " When you need the owner to decide something, ask one clear question at a time and "
-        "give the choices as a short lettered list (A, B, C), so that a one-letter reply is enough."
+        "give the choices as a short lettered list (A, B, C), so that a one-letter reply is "
+        "enough. " + skill_installs.INSTRUCTIONS
     )
     if settings.runner == "sdk":
         phone_instructions += (
             " If the question tool is available you may use it instead for a choice between a few "
             "options; when it is refused, ask in your reply as described."
         )
+
+    def with_installs(payload: dict, session_id: str, cwd: Path) -> None:
+        """Skill-install proposals of a capable run: cards, then a download into quarantine."""
+        text, cards = skill_installs.from_answer(str(payload.get("answer") or ""), session_id, cwd)
+        if not cards:
+            return
+        payload["answer"] = text
+        payload["skill_installs"] = cards
+        for card in cards:
+            if card.get("state") == "downloading":
+                task = asyncio.create_task(asyncio.to_thread(skill_installs.prepare, card["id"]))
+                background.add(task)
+                task.add_done_callback(background.discard)
+                wake = asyncio.create_task(
+                    asyncio.to_thread(push.send_hint, "approval", session_id)
+                )
+                background.add(wake)
+                wake.add_done_callback(background.discard)
+
+    def expire_approvals() -> None:
+        for entry in approvals.take_expired():
+            if entry.get("kind") == skill_installs.KIND:
+                skill_installs.expire(entry)
 
     def with_files(payload: dict, session_id: str, cwd: Path) -> dict:
         """Turn file-offer lines of a finished answer into cards."""
@@ -407,6 +480,7 @@ def create_app(settings: Settings) -> FastAPI:
         streaming = bool(data.get("stream"))
         use_sdk = sdk_pool is not None
         watch = None
+        used_servers: list[str] = []
         slots.acquire(session_id)
         control.take_stopped(session_id)  # a stop request for an earlier run is not ours
         if not data.get("_queued"):
@@ -430,7 +504,31 @@ def create_app(settings: Settings) -> FastAPI:
                 if not use_sdk and sdk_pool is not None:
                     await sdk_pool.drop(session_id)  # never two kinds of writer at once
                 watch = capable.AuditWatch(session_id)
-                policy = capable.build_policy(settings, cwd, ask_host=use_sdk)
+                skills_dir = None
+                if chosen["skills"]:
+                    # The folder's own skills (#91): only after the check with the skill
+                    # probes; never silently without them (switch them off instead).
+                    runner = "sdk" if use_sdk else "cli"
+                    await capable.skills_available(settings, cwd, runner=runner)
+                    prompt = skills.check_prompt(prompt, cwd)
+                    skills_dir = await asyncio.to_thread(skills.snapshot, cwd, session_id)
+                # MCP servers the owner approved for this folder (#108): exactly those,
+                # unchanged, and only after the check with the MCP probes.
+                servers = await asyncio.to_thread(mcp_servers.for_run, cwd)
+                if servers:
+                    await capable.mcp_available(settings, cwd, runner="sdk" if use_sdk else "cli")
+                    try:
+                        detail = {"session": session_id, "folder": str(cwd),
+                                  "names": sorted(servers)}  # fmt: skip
+                        audit.record("mcp_servers_used", detail)
+                    except audit.AuditUnavailable as exc:
+                        raise ClaudeError(
+                            "audit_unavailable", 503, "the audit log could not be written"
+                        ) from exc
+                    used_servers = sorted(servers)
+                policy = capable.build_policy(
+                    settings, cwd, ask_host=use_sdk, skills_dir=skills_dir, mcp=servers
+                )
                 run_args |= {"policy": policy, "observer": watch}
             if use_sdk:
                 # Questions and approvals wait only for a client that streams the answer
@@ -466,13 +564,26 @@ def create_app(settings: Settings) -> FastAPI:
 
         async def run_events() -> AsyncIterator[tuple[str, dict]]:
             """The run as events; frees the session when it ends or is abandoned."""
+            open_interactions: set[str] = set()
             try:
                 runner = (
                     sdk_runner.stream(sdk_pool, settings, prompt, **run_args)
                     if use_sdk and sdk_pool is not None
                     else claude.stream(settings, prompt, **run_args)
                 )
-                async for event, payload in runner:
+                async for event, payload in with_keepalives(runner):
+                    if event == "interaction":
+                        open_interactions.add(str(payload.get("id")))
+                    elif event == "interaction_closed":
+                        open_interactions.discard(str(payload.get("id")))
+                    if event in ("done", "error"):
+                        # The run is over: whatever still waited for the owner is closed.
+                        for interaction_id in sorted(open_interactions):
+                            yield (
+                                "interaction_closed",
+                                {"id": interaction_id, "reason": "run_ended"},
+                            )
+                        open_interactions.clear()
                     if event in ("done", "error") and control.take_stopped(session_id):
                         stopped = runcontrol.stopped_error()
                         yield "error", {"error": stopped.code, "message": stopped.message}
@@ -481,6 +592,13 @@ def create_app(settings: Settings) -> FastAPI:
                         with_files(payload, session_id, cwd)
                         if watch is not None:
                             payload["refused_actions"] = watch.refused_actions()
+                        if is_capable:
+                            with_installs(payload, session_id, cwd)
+                        if used_servers:
+                            payload["mcp_servers"] = [
+                                {"name": name, "outside_sandbox": True} for name in used_servers
+                            ]
+                            payload["mcp_note"] = mcp_servers.OUTSIDE_SANDBOX
                     yield event, payload
             except ClaudeError as error:
                 yield "error", {"error": error.code, "message": error.message}
@@ -501,9 +619,8 @@ def create_app(settings: Settings) -> FastAPI:
         async def events() -> AsyncIterator[bytes]:
             yield sse("session", {"session_id": session_id})
             async for event, payload in run_events():
-                if event == "keepalive":
-                    yield b": keep-alive\n\n"  # a comment: keeps the relay's read open
-                    continue
+                # Keep-alives are a real (tiny) event, so the relay forwards them sealed and
+                # the phone can tell a working run from a dead connection.
                 yield sse(event, payload)
 
         return StreamingResponse(
@@ -531,8 +648,17 @@ def create_app(settings: Settings) -> FastAPI:
         """Wake the paired phones with a notice (used by scripts/notify.sh).
 
         Body: ``{"title": str?, "link": str?}``; both travel only inside the sealed hint.
+        ``{"event": "update", "ref": "<version code>"}`` is the new-release hint of
+        ``lifeos-bridge release``: other processes push through here, because only the
+        running bridge may advance a phone's message counters.
         """
         data = await read_json_object(request)
+        if data.get("event") == "update":
+            ref = str(data.get("ref") or "")[:20]
+            reached = await asyncio.to_thread(push.send_hint, "update", ref)
+            return {"phones_reached": reached}
+        if data.get("event") not in (None, "notice"):
+            raise ClaudeError("bad_request", 400, "`event` must be `notice` or `update`")
         title = str(data.get("title") or "")[:200]
         link = str(data.get("link") or "")[:300]
         reached = await asyncio.to_thread(push.send_hint, "notice", "", t=title, l=link)
@@ -554,6 +680,23 @@ def create_app(settings: Settings) -> FastAPI:
         """Each model job: its model, effort and advisor, and the plan usage of its runs
         today and this week. Never starts a run."""
         return await asyncio.to_thread(routing.overview, settings)
+
+    @app.get("/app/release")
+    async def app_release():
+        """The registered release of the app (``lifeos-bridge release``); 404 when none."""
+        return await asyncio.to_thread(release.view)
+
+    @app.post("/app/release/offer")
+    async def offer_app_release():
+        """Offer the release APK, fetched with ``GET /files/{offer}?session_id=app-release``
+        (through the relay: sealed chunks). The phone checks hash and certificate."""
+        current = await asyncio.to_thread(release.view)
+        stored = await asyncio.to_thread(release.current)
+        path = await asyncio.to_thread(release.apk_path, stored)
+        offer = await asyncio.to_thread(
+            offers.for_release, path, release.SESSION, current["version_code"]
+        )
+        return {**offer.card(), "session_id": release.SESSION, **current}
 
     @app.put("/models/routing")
     async def change_model_routing(request: Request):
@@ -579,16 +722,53 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions/{session_id}/interactions")
     async def list_interactions(session_id: str):
-        """Questions and approvals of the session that wait for the owner (SDK runner)."""
-        return {"pending": sdk_pool.asking.pending(session_id) if sdk_pool is not None else []}
+        """Questions and approvals that wait for the owner: those of a running turn (SDK
+        runner), and those that wait across runs (skill installs, MCP servers)."""
+        await asyncio.to_thread(expire_approvals)
+        live = sdk_pool.asking.pending(session_id) if sdk_pool is not None else []
+        return {"pending": live + await asyncio.to_thread(approvals.pending, session_id)}
 
     @app.post("/sessions/{session_id}/interactions/{interaction_id}")
     async def answer_interaction(session_id: str, interaction_id: str, request: Request):
         """Answer a waiting question or approval; see ``interactions.parse_answer``."""
+        await asyncio.to_thread(expire_approvals)
+        if await asyncio.to_thread(approvals.get, session_id, interaction_id) is not None:
+            approve = approvals.read_approve(await read_json_object(request))
+            entry = await asyncio.to_thread(approvals.take, session_id, interaction_id)
+            if entry["kind"] == skill_installs.KIND:
+                done = await asyncio.to_thread(skill_installs.answer, entry, approve)
+            elif entry["kind"] == mcp_servers.KIND:
+                done = await asyncio.to_thread(mcp_servers.answer, entry, approve)
+            else:
+                raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
+            return {"answered": True, "id": interaction_id, **done}
         if sdk_pool is None:
             raise ClaudeError("not_pending", 404, "this question is no longer waiting")
         data = await read_json_object(request)
         return sdk_pool.asking.answer(session_id, interaction_id, data)
+
+    @app.get("/sessions/{session_id}/mcp-servers")
+    async def list_mcp_servers(session_id: str):
+        """The MCP servers defined in the session's folder (nothing is started)."""
+        info = listed_session(session_id)
+        found = await asyncio.to_thread(mcp_servers.listing, info.folder)
+        return {"servers": found, "capable_only": True, "note": mcp_servers.OUTSIDE_SANDBOX}
+
+    @app.post("/sessions/{session_id}/mcp-servers/{name}/approval")
+    async def request_mcp_approval(session_id: str, name: str):
+        """Ask the owner to approve exactly this server: an approval card (#108)."""
+        info = listed_session(session_id)
+        card = await asyncio.to_thread(mcp_servers.request, info.id, info.folder, name)
+        wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", info.id))
+        background.add(wake)
+        wake.add_done_callback(background.discard)
+        return card
+
+    @app.delete("/sessions/{session_id}/mcp-servers/{name}")
+    async def revoke_mcp_server(session_id: str, name: str):
+        info = listed_session(session_id)
+        revoked = await asyncio.to_thread(mcp_servers.revoke, info.folder, name, info.id)
+        return {"revoked": revoked}
 
     @app.get("/sessions/{session_id}/queue")
     async def show_queue(session_id: str):
@@ -655,11 +835,37 @@ def create_app(settings: Settings) -> FastAPI:
         Body: ``{"prompt": str, "session_id": str?, "folder": str?, "stream": bool?}``.
         A new conversation runs in the memory folder, or in the allowed folder
         named by ``folder``. ``session_id`` continues an earlier conversation in
-        the folder it was started in.
+        the folder it was started in. ``new_session_id`` (a UUID the phone chose)
+        names a new conversation, so its first message can be sent again safely:
+        a repeat answers ``{"repeat": true, "session_id", "running"}`` and runs
+        nothing; the same id with another message or folder answers 409.
         """
         data = await read_json_object(request)
-        read_prompt(data)
+        prompt = read_prompt(data)
         read_mode(data)
+        chosen_id = data.get("new_session_id")
+        if chosen_id is not None:
+            if data.get("session_id") is not None:
+                raise ClaudeError("bad_request", 400, "give `session_id` or `new_session_id`")
+            if not isinstance(chosen_id, str) or not claude.is_session_id(chosen_id):
+                raise ClaudeError("bad_request", 400, "`new_session_id` must be a lowercase UUID")
+            cwd = chosen_folder(data)
+            fingerprint = hashlib.sha256(f"{cwd}\n{prompt}".encode()).hexdigest()[:16]
+            claimed = await asyncio.to_thread(
+                session_meta.claim_new_session, chosen_id, fingerprint
+            )
+            exists = claimed == "new" and (
+                claude.session_exists(cwd, chosen_id)
+                or sessions.find_session(chosen_id, settings.allowed_roots) is not None
+            )
+            if claimed == "conflict" or exists:
+                raise ClaudeError(
+                    "session_id_conflict", 409, "this session id is already used for another start"
+                )
+            if claimed == "repeat":
+                return {"repeat": True, "session_id": chosen_id,
+                        "running": chosen_id in slots.active}  # fmt: skip
+            return await run_prompt(data, session_id=chosen_id, resume=False, cwd=cwd)
         resume = data.get("session_id") is not None
         if resume:
             session_id = data["session_id"]
@@ -738,13 +944,41 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions")
     async def list_sessions(limit: int = 50):
-        """Claude Code sessions in the allowed folders: pinned first, then newest first."""
+        """Claude Code sessions in the allowed folders: pinned first, then newest first.
+
+        ``running_here``: the bridge is answering a message of it (same as ``in_use``).
+        ``open_elsewhere``: another Claude Code process on the computer holds it
+        (a terminal, the desktop app); ``null`` when that could not be checked.
+        """
         limit = max(1, min(limit, 200))
         found = sessions.list_sessions(settings.allowed_roots)
         meta = session_meta.load()
-        items = [session_meta.describe(s, in_use=s.id in slots.active, data=meta) for s in found]
+        held = await held_elsewhere()
+        items = []
+        for info in found:
+            item = session_meta.describe(info, in_use=info.id in slots.active, data=meta)
+            item["running_here"] = item["in_use"]
+            item["open_elsewhere"] = (
+                None if held is None else info.id in held and info.id not in slots.active
+            )
+            items.append(item)
         items.sort(key=lambda item: not item["pinned"])  # stable: keeps newest first
         return {"sessions": items[:limit], "total": len(found), "groups": meta["groups"]}
+
+    held_cache: dict = {"at": -1e9, "held": None}
+
+    async def held_elsewhere() -> set[str] | None:
+        """Sessions a Claude Code process other than the bridge's holds (10 s copy)."""
+        loop = asyncio.get_running_loop()
+        if loop.time() - held_cache["at"] < HELD_SECONDS:
+            return held_cache["held"]
+        own = sdk_pool.pids() if sdk_pool is not None else frozenset()
+        try:
+            held = await claude.sessions_in_use(settings, timeout=5.0, ignore_pids=own)
+        except ClaudeError:
+            held = None  # unknown, not "free"
+        held_cache.update(at=loop.time(), held=held)
+        return held
 
     @app.patch("/sessions/{session_id}")
     async def update_session(session_id: str, request: Request):
@@ -1074,9 +1308,31 @@ def create_app(settings: Settings) -> FastAPI:
         return history.read_page(path, limit, before or None)
 
     @app.get("/sessions/{session_id}/commands")
-    def session_commands(session_id: str):
-        """Skills and commands of the session's folder. Listed only: not usable in runs yet."""
-        return commands.listing(listed_session(session_id).folder)
+    async def session_commands(session_id: str):
+        """Skills and commands of the session's folder, and whether its capable runs may use them.
+
+        ``enabled`` is true only when the owner switched skills on for the session
+        and the guardrail check with the skill probes passed; ``reason`` says why not.
+        """
+        info = listed_session(session_id)
+        switched = (await asyncio.to_thread(session_meta.entry_for, info.id))["skills"]
+        reason = None if switched else "skills are switched off for this session"
+        if reason is None:
+            try:
+                use_sdk = await capable_on_sdk(info.folder)
+                runner = "sdk" if use_sdk else "cli"
+                await capable.skills_available(settings, info.folder, runner=runner)
+            except ClaudeError as error:
+                reason = error.message
+        found = await asyncio.to_thread(commands.list_commands, info.folder)
+        return {
+            "enabled": reason is None,
+            "switched_on": switched,
+            "reason": reason,
+            "capable_only": True,
+            "prefix": skills.PLUGIN + ":",
+            "commands": found,
+        }
 
     # ---- the university Moodle: status, courses, assignments, deadlines ----
     app.include_router(moodle_api.router())

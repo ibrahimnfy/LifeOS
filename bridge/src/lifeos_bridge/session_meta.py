@@ -7,6 +7,7 @@ session files are only ever read (``sessions.py``); nothing here writes them.
 from __future__ import annotations
 
 import re
+import threading
 import uuid
 from pathlib import Path
 
@@ -26,6 +27,8 @@ DEFAULTS = {
     "notify_replies": True,
     "model": None,
     "effort": None,
+    # Capable runs may use the skills and commands of the session's folder (#91).
+    "skills": False,
 }
 CHOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}")
 
@@ -108,7 +111,7 @@ def update_session(session_id: str, changes: dict) -> dict:
     """Apply ``title``, ``group``, ``pinned`` and ``notify_replies``; ``None`` clears."""
     unknown = set(changes) - set(DEFAULTS)
     if unknown or not changes:
-        raise bad("allowed fields: title, group, pinned, notify_replies, model, effort")
+        raise bad("allowed fields: title, group, pinned, notify_replies, model, effort, skills")
     data = load()
     entry = {**DEFAULTS, **data["sessions"].get(session_id, {})}
     if "title" in changes:
@@ -127,7 +130,7 @@ def update_session(session_id: str, changes: dict) -> dict:
             if value is not None and (not isinstance(value, str) or not CHOICE.fullmatch(value)):
                 raise bad(f"`{choice}` must be a name or null")
             entry[choice] = value
-    for flag in ("pinned", "notify_replies"):
+    for flag in ("pinned", "notify_replies", "skills"):
         if flag in changes:
             if not isinstance(changes[flag], bool):
                 raise bad(f"`{flag}` must be true or false")
@@ -161,4 +164,31 @@ def describe(info: SessionInfo, *, in_use: bool, data: dict) -> dict:
     item["notify_replies"] = entry["notify_replies"]
     item["model"] = entry["model"]
     item["effort"] = entry["effort"]
+    item["skills"] = entry["skills"]
     return item
+
+
+# --------------------------------------------------------------------------- phone-chosen ids
+
+NEW_SESSIONS_FILE = "new-sessions.json"
+MAX_NEW_SESSIONS = 200
+_NEW = threading.Lock()
+
+
+def claim_new_session(session_id: str, fingerprint: str) -> str:
+    """A new conversation named by the phone: ``new``, ``repeat`` or ``conflict``.
+
+    The phone chooses the id of a new conversation, so a first message whose
+    answer was lost can be sent again: the same id with the same first message
+    and folder is a ``repeat`` and is not run twice; the same id with anything
+    else is a ``conflict``. Ids and a fingerprint only, never the message.
+    """
+    path = config_dir() / NEW_SESSIONS_FILE
+    with _NEW:
+        data = store.read_json(path, {})
+        known = data.get("ids") if isinstance(data.get("ids"), dict) else {}
+        if session_id in known:
+            return "repeat" if known[session_id] == fingerprint else "conflict"
+        known[session_id] = fingerprint
+        store.write_json(path, {"ids": dict(list(known.items())[-MAX_NEW_SESSIONS:])})
+    return "new"

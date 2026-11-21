@@ -250,6 +250,31 @@ a new entry is added that says what changed and why.
 - **Question cards were built with the same mechanism** (choices, several choices, own words, skip), because a client that opts in must be able to answer them; #98 keeps whatever goes beyond that.
 - **Settled cards stay above the answer that followed them until the next message**, as a record of what was allowed or refused; they are kept in memory only.
 
+### Implementation choices for session skills (agent, #91; cheap to change unless noted)
+- **How the folder's skills reach a run:** a copy of `<folder>/.claude/skills` and `.claude/commands` in the private settings folder, passed as a plugin with `--plugin-dir`, while runs keep `--restricted` (no settings file of any source). `--setting-sources project` was rejected because it would also load the folder's settings file (hooks, permissions). Checked without a model run: only the copied skills are offered, as `folder:<name>`, and no personal ones.
+- **Stricter options taken where it is a security trade-off (owner may relax):** a capable message starting with `/` must name one of the folder's skills (built-in commands such as `/config` are refused); bundled skills are off in such runs; a session whose switch is on is refused with `503 skills_unavailable` while the skill probes have not passed, instead of running without skills; a failed skill probe fails the whole check, so the capable mode stays off too.
+- **Probe suite version 2** (`suite_version` in the marker): an older marker keeps the capable mode on but never enables session skills; the automatic start-up check reruns the whole suite by itself at the next start, about 48 short runs on the small model for both runners in both environments (the skill probes add 8).
+
+### Implementation choices for coach nudges (agent, #72, 2026-11-21; cheap to change)
+- **Nudges after the daily note come from the same morning batch in its order**, two hours apart, only for today's batch, never in quiet hours (dropped that day), never about a task done meanwhile or a blocked question. Each push carries the message id (sealed); the visible text is fixed. `"low"` and `"normal"` are accepted for `"1"` and `"3"`.
+
+### Implementation choices for app releases (agent, #138 bridge side, 2026-11-21; cheap to change)
+- **`lifeos-bridge release`** takes Gradle's release output (or builds it with `--build`; Gradle reads the signing key, the bridge never sees the password), reads version from `output-metadata.json` and the certificate from the v3/v2 signing block, pins the first certificate (another key needs `--new-certificate`), requires a newer version code, keeps one private copy, audits, and sends the sealed hint `update`.
+- **Its own size limit (200 MB)** instead of the 50 MB of ordinary file offers, and only from its own folder in the private config; transferred by the existing sealed chunks.
+
+### Implementation choices for inferred facts (agent, #83, 2026-11-21; cheap to change)
+- **One check for every fact writer** (`facts.py`): existing topic files only, one plain line, appended, and never written when the file already has a fact with the same text (so an `[owner …]` fact is never shadowed). The coach's filing step may now propose `inferred` facts (at most three facts per answer in all); a fact without a source counts as the owner's there and as inferred in the conversation's compaction. The consolidation run (trigger B) is not built and has no issue yet; it is to use the same check for the approved operations only.
+
+### Implementation choices for skill installs (agent, #92; cheap to change unless noted)
+- **Proposal by a line** `[[skill-install: https://…]]` in a capable run's answer (like file offers); HTTPS only; `SKILL.md`, `.zip` or `.tar.gz`; quarantine in the private settings folder; limits 5 MB total, 1 MB per file, 100 files; no replacing an existing skill; installed files are never executable; proposals wait 24 hours, also across restarts.
+- **One approval card** for running-turn approvals and these waiting ones (`kind: "skill_install"`, answered with `{"approve": …}`).
+- **Stricter (security):** capable runs are denied every write to a folder's `.claude/**` and `.mcp.json` by file tool (the sandbox already denies commands), probed as suite version 3; session skills require that suite.
+
+### Implementation choices for MCP servers (agent, #108; cheap to change unless noted)
+- **Per folder, per server, by hash:** only `<folder>/.mcp.json` is read; the owner requests an approval card from the app; the approval stores a hash of the complete definition, so any change (also between card and answer) needs a new approval; secret values of environment variables and headers are never shown or stored.
+- **Use:** capable runs of that folder only, exactly the approved unchanged servers via `--mcp-config` with `--strict-mcp-config`, allow rule `mcp__<name>__*`, every run with servers audited.
+- **Stricter (security, owner may relax):** approved servers wait for the check with the MCP probes (suite version 4); until then capable requests in that folder are refused (`503 mcp_unavailable`) instead of running without them. Project hooks and project settings stay off.
+
 ### Implementation choices for history, queue, send now and stop in the app (agent, #94; cheap to change)
 - **Earlier messages** load when the conversation is scrolled to its top (and by a tap on "Earlier messages"), one page of the bridge's default size at a time; they are held in memory only while that conversation is shown, and a fresh read of the conversation (after a run the app did not receive) starts again from the last page.
 - **A message sent during a run uses the ordinary message request** and is shown under "Waiting to be sent" once the bridge answered with its place in the line. If the bridge answers it at once instead (the run had just ended), it simply becomes the current message.

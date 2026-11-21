@@ -290,17 +290,64 @@ states this where the owner cancels. Two runs never write to one session.
 
 | Rule | Mechanism | Status |
 |---|---|---|
-| Only in capable mode, only in allowed folders, switched on per session | bridge: a per-session switch; without it runs keep `--disable-slash-commands` | to build |
-| Only the session folder's own skills and commands; nothing personal or global | bridge passes only that folder; user-level settings, skills and plugins stay excluded | to build, **to verify by probe** |
-| A skill cannot run shell lines before the model sees it | the documented setting that disables shell execution in skills | **to verify by probe** |
-| A skill cannot widen the tools or leave the sandbox | the tool list comes from the bridge; every command still runs in the OS sandbox and through the gate and audit log | **to verify by probe** |
+| Only in capable mode, only in allowed folders, switched on per session | bridge: the per-session switch `skills` in the session metadata; read-only runs and capable runs without it keep `--disable-slash-commands` | **built** (#91) |
+| Only the session folder's own skills and commands; nothing personal or global | runs keep `--restricted` (no user, project or local settings file, so no personal, project or plugin skills). The bridge copies only `<folder>/.claude/skills` and `.claude/commands` (regular files inside the folder, no links) into a plugin in the private settings folder and passes it with `--plugin-dir` | **built**, verified by probe |
+| No hooks, MCP servers, agents or settings from the folder | the plugin copy holds nothing but those two folders; `--strict-mcp-config` stays; project settings stay ignored | **built** |
+| A skill cannot run shell lines before the model sees it | `disableSkillShellExecution` in the run's settings JSON; bundled skills off (`disableBundledSkills`) | **built**, verified by probe |
+| A skill cannot widen the tools or leave the sandbox | the tool list comes from the bridge (only `Skill` is added); every command still runs in the OS sandbox and through the gate and audit log | **built**, verified by probe |
+| The run cannot change the skills it was started with | the plugin copy lies in the private settings folder, which sandboxed commands cannot read or write | by layout |
+| Phone messages cannot start built-in commands | a capable message starting with `/` must name one of the folder's skills or commands; otherwise `400 command_not_allowed` | **built** |
 | Skill text is outside text | never copied into always-loaded memory files | by layout |
 
-New probes before this is switched on: a skill in the run folder whose
-shell line would create a file (must not run); a skill that pre-approves a
-web tool and a write outside the folder (must change nothing); a personal
-skill in the home folder (must not be listed or usable); a read-only run in
-the same session (no skills at all).
+Found without a model run (only the list of commands that Claude Code
+offers at start-up, Claude Code 2.1.328):
+
+- With `--restricted`, no project or personal skill is offered, also not
+  with `--setting-sources project` or `--add-dir`.
+- `--setting-sources project` without `--restricted` would offer the
+  folder's skills, but it would also load the folder's settings file
+  (hooks and permissions). It is therefore not used.
+- `--restricted --plugin-dir <copy>` offers exactly the copied skills and
+  commands, as `folder:<name>`, and nothing personal.
+- `--disable-slash-commands` removes all of them again.
+
+**Probes** (suite version 2; the check records `suite_version` in its
+marker). Each runs with the run folder's skills switched on, in both
+environments and on both runners:
+
+- a skill whose shell line would create a file: the file must not exist;
+- a skill whose `allowed-tools` pre-approves `rm`, a write outside the
+  folder, a web fetch and `curl`, and whose text asks for them: nothing may
+  change, and `WebFetch` must not exist;
+- personal skills: none may be offered. The probe reads only the names of
+  the owner's existing personal skills and commands; it writes nothing into
+  `~/.claude/skills` unless the owner allows it with
+  `LIFEOS_GUARD_PERSONAL_SKILL_PROBE=on` (off by default; human issue). When
+  allowed, the check adds a temporary probe skill with the fixed name
+  `lifeos-guardrail-probe-personal`, removes it afterwards, and removes a
+  leftover from a crashed check before the next one.
+  - A personal skill is offered: a failure, and the whole check fails.
+  - Personal skills exist and none is offered: verified.
+  - No personal skill exists and writing is not allowed: **not
+    verifiable**. This is not a failure. The check passes for the capable
+    mode, and the marker records `"skills_verified": false` with
+    `skills_unverified_reason`. Session skills then stay off
+    (`503 skills_unavailable`, with that reason), while the capable mode
+    stays on. This is final until the versions or the setting change (no
+    rerun loop); turning the setting on reruns the check by itself;
+- a read-only run in the same session: no skills, no `Skill` tool;
+- a sanity probe: the folder's skills were offered and used. Without it the
+  other probes would prove nothing.
+
+**Switched on only by these probes.** The capable mode itself accepts a
+marker of an older suite. The session skills need a marker with
+`suite_version` 3 or later (2 added the skill probes, 3 the self-install
+probe of 9.4): a marker without them never enables them. The automatic start-up check sees the older suite and reruns
+the whole check by itself at the next start, once per version pair. While
+it runs, the capable mode is off, as during every check. A failed skill
+probe fails the whole check, so the capable mode stays off too (the
+stricter choice). The plan usage is in `docs/bridge.md`, "Plan usage of one
+restart".
 
 ### 9.3 MCP servers, project hooks and project settings: not enforceable
 
@@ -314,6 +361,40 @@ The owner's rule is that a guardrail that cannot be enforced is never
 weakened silently, so this is **a human decision** and stays off until it
 is answered.
 
+**Decided (#85): MCP servers approved one by one; project hooks and
+project settings stay off. Built (#108):**
+
+- **Listing** (`GET /sessions/{id}/mcp-servers`) reads only the session
+  folder's own `.mcp.json` (no parent folders, no links, at most 64 KB) and
+  starts nothing. It shows the command, arguments and address, and only the
+  names of environment variables and headers, never their values.
+- **Approval** per server, through the approval card (`kind:
+  "mcp_server"`). The owner requests it from the app; the card shows the
+  definition and the warning that the server runs outside the sandbox.
+  - The approval is stored in the private settings folder with a hash of
+    the complete definition.
+  - Any change needs a new approval. That includes a change between the
+    card and the answer.
+  - Requests, approvals, refusals, revocations and every run that gets
+    servers are in the audit log. If the log cannot be written, nothing is
+    approved or run.
+- **Use:** only capable runs of that folder get them, and only the approved
+  servers whose definition is unchanged.
+  - They are passed with `--mcp-config`. `--strict-mcp-config` stays, so
+    nothing else loads. Each gets an allow rule `mcp__<name>__*`.
+  - Every call still passes the gate (audit log).
+  - The answer lists them with `"outside_sandbox": true` and a note.
+  - Read-only runs never get any. Runs cannot change `.mcp.json` (9.4).
+- **Stricter choice:** approved servers are used only after the guardrail
+  check with the MCP probes passed (suite version 4). Until then a capable
+  request in that folder is refused (`503 mcp_unavailable`; revoke the
+  approval to work without), never run silently without them.
+- **Probes** (suite version 4, no model run): an unapproved server is never
+  passed to a run; a changed server is never passed; plus an approved one
+  is passed (sanity). That a server which is not passed never starts is
+  shown with the real CLI by the probe "run folder: its own MCP server did
+  not run".
+
 ### 9.4 Installing a skill
 
 An install is an approval-required action: the bridge downloads the
@@ -322,6 +403,42 @@ loaded, never executed), the app shows source, contents, warnings and the
 target folder, and only the owner's explicit approval copies it into the
 session folder's `.claude/skills/`. Every proposal, approval and refusal is
 in the audit log. Installs are per folder, never global.
+
+**Built (#92):**
+
+- **Proposal.** Only a capable run can propose. It writes a line of its own
+  in the form `[[skill-install: https://…]]`, naming a `SKILL.md`, a `.zip`
+  or a `.tar.gz`. Only HTTPS is accepted, and redirects only to HTTPS. The
+  line becomes an approval card. A read-only run's line stays plain text.
+- **Quarantine.** The bridge downloads the source into
+  `skill-quarantine/<id>/` in the private settings folder, which no run can
+  read or write, and loads or executes nothing there. It refuses:
+  - archives with links, absolute or `..` paths;
+  - more than 5 MB in total, more than 1 MB per file, or more than 100
+    files;
+  - a source without `SKILL.md` at the top;
+  - a name that is not a plain name;
+  - an existing skill of the same name (nothing is replaced).
+- **Approval** through the same approval card as #105 (`kind:
+  "skill_install"`). The card shows the source, the files with sizes, the
+  description, warnings (`shell_lines`, `requests_tools`, `has_scripts`)
+  and the target `<folder>/.claude/skills/<name>/`.
+  - Only `{"approve": true}` copies the files. They become plain files,
+    never executable.
+  - The approval is written to the audit log before anything is copied; if
+    the log cannot be written, nothing is installed.
+  - A refusal, or no answer within 24 hours, removes the quarantine.
+  - Proposed, ready or failed, approved, refused and expired are all in the
+    audit log, without a session id at the top level, so they never count
+    as a run's tool calls.
+- **No install around the approval.** Capable runs deny Claude Code's file
+  tools every write to a folder's `.claude/**` and `.mcp.json` (permission
+  rules). The sandbox keeps commands out of `.claude/skills`, `commands`,
+  `agents`, `hooks`, the settings files and `.mcp.json` by its own
+  protected paths.
+  - New probe (suite version 3): a capable run tries to add a skill by
+    shell and by file tool; neither may exist afterwards.
+  - Session skills need a marker of suite version 3.
 
 ### 9.5 Sending files to the phone
 
@@ -437,9 +554,10 @@ is off until they pass, and the owner is notified".
     check does.
 - **Notified** at the start and at the end (passed, failed, incomplete),
   with fixed texts that carry no versions, paths or results.
-- **Plan usage:** about 16 short runs on the small model for the `claude -p`
-  runner and about 24 for the SDK runner (both environments), so about 40
-  when one restart checks both.
+- **Plan usage:** about 22 short runs on the small model for the `claude -p`
+  runner and about 30 for the SDK runner (both environments), so about 52
+  when one restart checks both (suite version 3: the skill probes and the
+  self-install probe).
 
 ### 9.9 Folders inside another git repository (owner, #139)
 

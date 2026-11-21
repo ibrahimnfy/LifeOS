@@ -39,6 +39,8 @@ def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir
         "folder": str(ask_dir),
         "last_activity": "2027-01-15T08:08:20Z",
         "in_use": False,
+        "running_here": False,
+        "open_elsewhere": False,
         "detected_title": "second question",
         "group": None,
         "auto_group": ask_dir.name,
@@ -46,6 +48,7 @@ def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir
         "notify_replies": True,
         "model": None,
         "effort": None,
+        "skills": False,
     }
 
 
