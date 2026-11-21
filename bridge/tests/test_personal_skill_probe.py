@@ -126,6 +126,7 @@ def test_unverified_is_final_until_the_setting_changes(settings, monkeypatch):
     guardcheck.results_path("cli").write_text("{}")  # checked before
     sdk_marker = json.loads(capable.marker_path("cli").read_text())
     sdk_marker["runner"] = "sdk"
+    sdk_marker["suite_version"] = capable.suite_version("sdk")
     capable.marker_path("sdk").write_text(json.dumps(capable.sign_marker(sdk_marker)))
     launched = []
 

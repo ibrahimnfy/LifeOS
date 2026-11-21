@@ -321,6 +321,11 @@ Subfolders of the memory folder are fine. Details:
     Probes without a model run (invalid settings, nested folders) are not
     counted.
   - A restart where both markers still match costs nothing.
+  - Each runner has its own suite version (`cli` 4, `sdk` 5), and only a
+    runner whose suite changed is checked again. The SDK fix of 2026-11-21
+    therefore reruns only the SDK suite: about 30 short runs. The approval
+    probes may add up to 8 more per environment when the model does not
+    make the needed call at once.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner
