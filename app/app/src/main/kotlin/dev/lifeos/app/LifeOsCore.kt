@@ -33,6 +33,10 @@ import dev.lifeos.app.data.Confirmed
 import dev.lifeos.app.data.ConfirmedStore
 import dev.lifeos.app.data.CourseList
 import dev.lifeos.app.data.LocalItems
+import dev.lifeos.app.data.BridgeJson
+import dev.lifeos.app.data.MoodleSignIn
+import dev.lifeos.app.data.SignInDone
+import dev.lifeos.app.data.SignInStart
 import dev.lifeos.app.data.NoteSummary
 import dev.lifeos.app.data.LookAssignments
 import dev.lifeos.app.data.LookStore
@@ -119,6 +123,18 @@ sealed interface TestResult {
 enum class TestProblem { NOT_PAIRED, RELAY_UNREACHABLE, REFUSED, NO_ANSWER, BAD_ANSWER }
 
 enum class UnlockResult { UNLOCKED, NEEDS_CONFIRMATION, PAIRING_LOST }
+
+/** The renewal of the Moodle sign-in from the phone (#100). */
+sealed interface MoodleSignInState {
+    data object Idle : MoodleSignInState
+    data object Starting : MoodleSignInState
+    data object InBrowser : MoodleSignInState
+    data object Sending : MoodleSignInState
+    data class Done(val release: String?) : MoodleSignInState
+    data class Failed(val problem: MoodleSignInProblem) : MoodleSignInState
+}
+
+enum class MoodleSignInProblem { UNREACHABLE, SITE, EXPIRED, NOT_THIS_ATTEMPT, REFUSED }
 
 /**
  * Everything that outlives a screen: the pairing, the app lock and the connection to the
@@ -241,7 +257,102 @@ class LifeOsCore(private val app: Application) {
             drainOutbox()
             syncActivity()
             registerPush()
+            sendMoodleSignIn()
         }
+    }
+
+    // ---- Moodle sign-in from the phone (#100)
+
+    /** One sign-in attempt: its passport (memory only) and, once the browser came back, its address. */
+    private class PendingSignIn(val wwwroot: String, val passport: String, val startedAtMillis: Long, val validMillis: Long) {
+        @Volatile
+        var address: String? = null
+    }
+
+    @Volatile
+    private var pendingSignIn: PendingSignIn? = null
+    private val signInState = MutableStateFlow<MoodleSignInState>(MoodleSignInState.Idle)
+
+    /** How the renewal of the Moodle sign-in goes (shown on Courses and in Settings). */
+    val moodleSignIn: StateFlow<MoodleSignInState> = signInState
+
+    /**
+     * Ask the computer for the site's sign-in link (with a one-time passport) and return it for
+     * the browser tab, or null when the computer cannot be asked. The page itself is the site's:
+     * nothing in it is filled in or read by the app.
+     */
+    suspend fun startMoodleSignIn(): String? {
+        if (connectionState.value != ConnectionState.CONNECTED || locked.value) {
+            signInState.value = MoodleSignInState.Failed(MoodleSignInProblem.UNREACHABLE)
+            return null
+        }
+        signInState.value = MoodleSignInState.Starting
+        return try {
+            val start = BridgeJson.decodeFromJsonElement(SignInStart.serializer(), api.call("POST", "/moodle/signin/start"))
+            if (!start.link.startsWith("https://") || start.passport.isEmpty()) throw ApiException(ApiException.Kind.HTTP, 502, "bad_answer")
+            pendingSignIn = PendingSignIn(start.wwwroot, start.passport, System.currentTimeMillis(), start.expiresIn * 1000)
+            signInState.value = MoodleSignInState.InBrowser
+            start.link
+        } catch (error: Exception) {
+            val http = (error as? ApiException)?.kind == ApiException.Kind.HTTP
+            signInState.value = MoodleSignInState.Failed(if (http) MoodleSignInProblem.SITE else MoodleSignInProblem.UNREACHABLE)
+            null
+        }
+    }
+
+    /**
+     * The browser tab ended on the sign-in address. Accepted only while an attempt waits and
+     * only when it belongs to that attempt; then sent (now, or as soon as the app is unlocked
+     * and connected). The address lives in memory only, until it is sent.
+     */
+    fun onMoodleRedirect(address: String) {
+        val pending = pendingSignIn ?: return
+        if (System.currentTimeMillis() - pending.startedAtMillis > pending.validMillis) {
+            pendingSignIn = null
+            signInState.value = MoodleSignInState.Failed(MoodleSignInProblem.EXPIRED)
+            return
+        }
+        if (!MoodleSignIn.belongsTo(address, pending.wwwroot, pending.passport)) {
+            pendingSignIn = null
+            signInState.value = MoodleSignInState.Failed(MoodleSignInProblem.NOT_THIS_ATTEMPT)
+            return
+        }
+        pending.address = address
+        signInState.value = MoodleSignInState.Sending
+        sendMoodleSignIn()
+    }
+
+    private fun sendMoodleSignIn() {
+        scope.launch {
+            val pending = pendingSignIn ?: return@launch
+            val address = pending.address ?: return@launch
+            // Locked or not connected: it waits (in memory) for the next connection.
+            if (locked.value || connectionState.value != ConnectionState.CONNECTED) return@launch
+            pendingSignIn = null
+            pending.address = null
+            signInState.value = try {
+                val body = buildJsonObject { put("address", JsonPrimitive(address)) }
+                val done = BridgeJson.decodeFromJsonElement(SignInDone.serializer(), api.call("POST", "/moodle/signin/finish", body = body))
+                reloadState.value++
+                MoodleSignInState.Done(done.release)
+            } catch (error: ApiException) {
+                MoodleSignInState.Failed(
+                    when {
+                        error.kind != ApiException.Kind.HTTP -> MoodleSignInProblem.UNREACHABLE
+                        error.code == "signin_not_started" -> MoodleSignInProblem.EXPIRED
+                        error.code == "signin_mismatch" -> MoodleSignInProblem.NOT_THIS_ATTEMPT
+                        error.code == "token_rejected" -> MoodleSignInProblem.REFUSED
+                        else -> MoodleSignInProblem.SITE
+                    },
+                )
+            } catch (_: Exception) {
+                MoodleSignInState.Failed(MoodleSignInProblem.SITE)
+            }
+        }
+    }
+
+    fun dismissMoodleSignIn() {
+        if (signInState.value !is MoodleSignInState.Sending) signInState.value = MoodleSignInState.Idle
     }
 
     // ---- push (#38)
@@ -918,6 +1029,9 @@ class LifeOsCore(private val app: Application) {
         store.wipe()
         // The push key belongs to the pairing too.
         (app as LifeOsApplication).pushKeys.wipe()
+        // A sign-in attempt (memory only) ends with the pairing.
+        pendingSignIn = null
+        signInState.value = MoodleSignInState.Idle
         // Saved copies and unsent writes belong to the pairing: they go with it.
         cache.wipe()
         outbox.wipe()

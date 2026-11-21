@@ -290,7 +290,7 @@
     <string name="courses_new_mark">Yeni</string>
     <string name="courses_refresh">Dersleri şimdi eşitle</string>
     <string name="courses_syncing">Dersler eşitleniyor…</string>
-    <string name="courses_sign_in_needed">Üniversite sitesindeki oturumun süresi dolmuş, bu yüzden yeni içerik alınamıyor. Şimdilik oturumu bilgisayarda yenile. Burada gördüğün, son kaydedilen durumdur.</string>
+    <string name="courses_sign_in_needed">Üniversite sitesindeki oturumun süresi dolmuş, bu yüzden yeni içerik alınamıyor. Aşağıdan yenile; burada gördüğün, son kaydedilen durumdur.</string>
     <string name="courses_not_set_up">Dersler bilgisayarda henüz kurulmamış.</string>
     <string name="courses_sync_failed">Son eşitleme başarılı olmadı. Burada gördüğün, son kaydedilen durumdur.</string>
     <string name="course_title">Ders</string>
@@ -343,7 +343,7 @@
     <string name="download_open_no_app">Bu telefonda bu tür dosyayı açabilecek bir uygulama yok.</string>
     <string name="download_open_gone">Bu dosya artık İndirilenler\'de değil. Yeniden indirebilirsin.</string>
     <string name="download_failed_no_copy">Bu dosya indirilemedi: doğrudan yol başarısız oldu ve bilgisayarda gönderilebilecek bir kopya yok (eksik ya da o yol için fazla büyük).</string>
-    <string name="download_failed_sign_in">Bu dosya indirilemedi: üniversite sitesindeki oturumun süresi dolmuş. Şimdilik oturumu bilgisayarda yenile.</string>
+    <string name="download_failed_sign_in">Bu dosya indirilemedi: üniversite sitesindeki oturumun süresi dolmuş. Dersler ekranından ya da Ayarlar\'dan yenile.</string>
     <string name="download_failed_damaged">Dosya eksik ulaştı ve silindi. Lütfen yeniden dene.</string>
     <string name="download_failed_unreachable">Bilgisayara ulaşılamadı. Lütfen yeniden dene.</string>
     <string name="download_failed_storage">Dosya bu telefona kaydedilemedi.</string>
@@ -502,6 +502,21 @@
     <string name="notifications_push_missing">Uygulamanın bu sürümünde anlık bildirim ayarları yok (ya da telefonda Google Play hizmetleri yok); bu yüzden bilgisayar bu telefona bildirim gönderemez.</string>
     <string name="notifications_text">Bir bildirim yalnızca ne tür bir şey olduğunu söyler; neyle ilgili olduğu, uygulamayı açıp kilidini kaldırınca görünür. Her tür (sohbet, dersler, koç, hatırlatıcılar) sistem ayarlarından kapatılabilir.</string>
     <string name="notifications_open_system">Bildirim ayarları</string>
+
+    <!-- Telefondan Moodle oturumu (#100) -->
+    <string name="settings_courses_signin">Ders oturumu</string>
+    <string name="signin_explain">Üniversite sitesindeki oturumun süresi dolunca burada yenile: sitenin kendi sayfası bir tarayıcı sekmesinde açılır, orada oturum açarsın ve yeni oturum bilgisayarına gider. Şifren yalnızca sitenin sayfasına yazılır.</string>
+    <string name="signin_renew">Oturumu yenile</string>
+    <string name="signin_again">Oturum sayfasını yeniden aç</string>
+    <string name="signin_starting">Oturum sayfası bilgisayarından isteniyor…</string>
+    <string name="signin_in_browser">Sitenin sayfasında oturum aç. Tarayıcı seni kendiliğinden buraya getirir (bazı telefonlarda son sayfasındaki bir dokunuştan sonra).</string>
+    <string name="signin_sending">Yeni oturum bilgisayarına iletiliyor…</string>
+    <string name="signin_done">Yenilendi. Bilgisayarın derslerini yeniden alabilir.</string>
+    <string name="signin_failed_unreachable">Bilgisayarına şu an ulaşılamıyor. Nokta yeşil olunca yeniden dene.</string>
+    <string name="signin_failed_site">Üniversite sitesi ya da bilgisayarın oturumu tamamlayamadı. Daha sonra yeniden dene.</string>
+    <string name="signin_failed_expired">Bu oturum açma denemesinin süresi doldu. Yeniden başla.</string>
+    <string name="signin_failed_mismatch">Oturum sayfası başka bir denemeye yanıt verdi. Yeniden başla.</string>
+    <string name="signin_failed_refused">Üniversite sitesi yeni oturumu kabul etmedi. Yeniden başla.</string>
     <!-- Chat and sessions (#33) -->
     <string name="chat_new">Yeni sohbet</string>
     <string name="chat_current">Açık sohbet</string>

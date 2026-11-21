@@ -292,7 +292,7 @@
     <string name="courses_new_mark">New</string>
     <string name="courses_refresh">Sync courses now</string>
     <string name="courses_syncing">Syncing courses…</string>
-    <string name="courses_sign_in_needed">The sign-in at the university site has run out, so nothing new can be fetched. For now, renew it on the computer. What you see here is the last saved state.</string>
+    <string name="courses_sign_in_needed">The sign-in at the university site has run out, so nothing new can be fetched. Renew it below; what you see here is the last saved state.</string>
     <string name="courses_not_set_up">Courses are not set up on the computer yet.</string>
     <string name="courses_sync_failed">The last sync did not succeed. What you see here is the last saved state.</string>
     <string name="course_title">Course</string>
@@ -345,7 +345,7 @@
     <string name="download_open_no_app">No app on this phone can open this kind of file.</string>
     <string name="download_open_gone">This file is no longer in Downloads. You can download it again.</string>
     <string name="download_failed_no_copy">This file could not be downloaded: the direct way failed and the computer has no copy it can send (missing, or too large for that route).</string>
-    <string name="download_failed_sign_in">This file could not be downloaded: the sign-in at the university site has run out. For now, renew it on the computer.</string>
+    <string name="download_failed_sign_in">This file could not be downloaded: the sign-in at the university site has run out. Renew it on the Courses screen or in Settings.</string>
     <string name="download_failed_damaged">The file arrived incomplete and was removed. Please try again.</string>
     <string name="download_failed_unreachable">The computer could not be reached. Please try again.</string>
     <string name="download_failed_storage">The file could not be saved on this phone.</string>
@@ -504,6 +504,21 @@
     <string name="notifications_push_missing">This build of the app has no push settings (or the phone has no Google Play services), so the computer cannot notify this phone.</string>
     <string name="notifications_text">A notification says only what kind of thing happened; what it is about is shown after you open and unlock the app. Each kind (chat, courses, coach, reminders) can be switched off in the system settings.</string>
     <string name="notifications_open_system">Notification settings</string>
+
+    <!-- Moodle sign-in from the phone (#100) -->
+    <string name="settings_courses_signin">Courses sign-in</string>
+    <string name="signin_explain">When the sign-in at the university site runs out, renew it here: the site\'s own page opens in a browser tab, you sign in there, and the new sign-in goes to your computer. Your password is typed only on the site\'s page.</string>
+    <string name="signin_renew">Renew the sign-in</string>
+    <string name="signin_again">Open the sign-in page again</string>
+    <string name="signin_starting">Asking your computer for the sign-in page…</string>
+    <string name="signin_in_browser">Sign in on the site\'s page. The browser brings you back here by itself (on some phones after a tap on its last page).</string>
+    <string name="signin_sending">Passing the new sign-in to your computer…</string>
+    <string name="signin_done">Renewed. Your computer can fetch your courses again.</string>
+    <string name="signin_failed_unreachable">Your computer cannot be reached now. Try again when the dot is green.</string>
+    <string name="signin_failed_site">The university site or your computer could not finish the sign-in. Try again later.</string>
+    <string name="signin_failed_expired">This sign-in attempt has run out. Start again.</string>
+    <string name="signin_failed_mismatch">The sign-in page answered for another attempt. Start again.</string>
+    <string name="signin_failed_refused">The university site did not accept the new sign-in. Start again.</string>
     <!-- Chat and sessions (#33) -->
     <string name="chat_new">New chat</string>
     <string name="chat_current">Current chat</string>

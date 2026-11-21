@@ -524,6 +524,32 @@ phone side mirrors the bridge's `e2e.py`, `devices.py`, `mailbox.py` and
   message; requests other than GET are retried only when the first try
   certainly did not leave the phone.
 
+**Moodle sign-in from the phone** (`signin/`, `data/MoodleSignIn.kt`, #100):
+the renewal of the course site's sign-in, in one tap from the "sign-in ran
+out" notification, from the Courses screen (its notice has the button) or
+from Settings → Courses sign-in.
+
+- The app asks the computer for the site's sign-in link
+  (`POST /moodle/signin/start`, a direct request; nothing is saved): the
+  official mobile app's flow, with a one-time passport that the computer
+  keeps for ten minutes.
+- The link opens in a **browser tab** (a Custom Tab where the browser offers
+  one, through the documented session extra; no extra library, never a
+  WebView). The owner signs in on the site's own page; the app never sees
+  or fills in that page and never sees the password.
+- The page ends on `moodlemobile://token=…`, the address scheme the site
+  uses for its official app. `MoodleRedirectActivity` receives it (no
+  screen), removes it from the intent and brings the app back. If the
+  official Moodle app is installed too, Android may ask which app opens it:
+  choose LifeOS.
+- The app checks the address against the passport (`md5(site + passport)`,
+  as the official app does) and only then sends it sealed to the computer
+  (`POST /moodle/signin/finish`); locked or offline, it waits in memory
+  until the app is unlocked and connected. The computer checks it again,
+  tests the token at the site and only then stores it. The app keeps no
+  copy: the address lives in memory until it is sent, and an attempt is
+  forgotten on unpair.
+
 **Push** (`push/`, #38; docs/security.md 5.1):
 
 - **Firebase without its Gradle plugin:** the four values of the owner's
@@ -628,7 +654,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
   renaming, pinning and reminders. The coach conversation and Projects are
   placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
-- Courses: "Ask about this course" and renewing the sign-in from the phone.
+- Courses: "Ask about this course".
 - No instrumented (on-device) tests; only JVM unit tests.
 
 ## Manual check
@@ -753,6 +779,25 @@ running on the computer with the relay set up.
    is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### Renewing the Moodle sign-in on the phone
+
+Needs a paired phone, the computer running, and the course site set up.
+
+1. Settings → **Courses sign-in** → **Renew the sign-in** (or the button on
+   the Courses screen when its notice says the sign-in ran out, or tap the
+   "sign-in needs renewing" notification): "Asking your computer…", then
+   the site's sign-in page opens in a browser tab.
+2. Sign in on the site's page (the institution's button if the site offers
+   one). At the end the browser comes back to LifeOS by itself; some
+   browsers show a last page with a link to tap. If the official Moodle app
+   is installed, choose LifeOS when Android asks.
+3. Courses shows "Passing the new sign-in to your computer…", then
+   "Renewed". On the computer, `scripts/moodle-login --check` says the
+   token works, and the next course sync (the refresh arrow) succeeds.
+4. Start again and come back without signing in, or wait more than ten
+   minutes: "This sign-in attempt has run out". Nothing changed on the
+   computer.
 
 ### Push notifications (app closed, phone idle)
 

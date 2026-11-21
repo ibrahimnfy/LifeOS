@@ -208,7 +208,16 @@ fun CoursesScreen(
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                     )
                 }
-                if (summary !is UiState.NotPaired) noticeOf(sync)?.let { SyncNoticeCard(it) }
+                if (summary !is UiState.NotPaired) {
+                    // An expired sign-in is renewed right here (#100); other notices stay plain.
+                    val notice = noticeOf(sync)
+                    val signIn by core.moodleSignIn.collectAsStateWithLifecycle()
+                    if (notice == SyncNotice.SignIn || signIn != dev.lifeos.app.MoodleSignInState.Idle) {
+                        MoodleSignInCard(core, expired = notice == SyncNotice.SignIn)
+                    } else {
+                        notice?.let { SyncNoticeCard(it) }
+                    }
+                }
                 // The summary card holds the upcoming deadlines and nothing else.
                 StateHost(summary, "", onRetry = refreshLists, onPair = onPair, skeletonRows = 2) { data: CourseSummary ->
                     DeadlineCard(data.upcoming(System.currentTimeMillis() / 1000), onOpenDeadline)

@@ -25,6 +25,7 @@ import dev.lifeos.app.activity.SleepPrompt
 import dev.lifeos.app.push.Destination
 import dev.lifeos.app.push.PushNotifier
 import dev.lifeos.app.push.PushOpen
+import dev.lifeos.app.signin.MoodleRedirectActivity
 import dev.lifeos.app.lock.Authenticator
 import dev.lifeos.app.pairing.PairingText
 import dev.lifeos.app.ui.components.LocalConnection
@@ -191,6 +192,11 @@ class MainActivity : AppCompatActivity() {
             ACTION_CAPTURE -> captureRequest = ""
             SleepPrompt.ACTION_OPEN_SLEEP -> {
                 openSleep = true
+                welcomeDone = true
+            }
+            // Back from the Moodle sign-in (#100): Courses shows how the renewal went.
+            MoodleRedirectActivity.ACTION_SIGNED_IN -> {
+                openPush = PushOpen(Destination.Courses)
                 welcomeDone = true
             }
             // A push notification was tapped: open its screen (after unlocking, as always).

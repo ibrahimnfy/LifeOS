@@ -323,6 +323,12 @@ the platform the data comes from.*
 - **States:** loading · saved copy with last sync time · empty · "Not
   connected yet" · sign-in needed (with the renew action) · error with
   retry.
+- **Renewing the sign-in (#100, built):** one tap (the notice on Courses,
+  Settings → Courses sign-in, or the "sign-in needs renewing" push) opens
+  the site's own sign-in page in a browser tab; the app receives the
+  `moodlemobile://token=…` address, checks it against the one-time
+  passport and passes it sealed to the computer, which tests and stores
+  the token. The app keeps no copy; the page is never automated.
 - **Endpoints:** the course endpoints of the bridge (summary, list with
   markers, materials, announcements, assignments, grades, download address,
   refresh).
