@@ -4,6 +4,8 @@
 
     <!-- Outbound HTTPS to the relay only; the app opens no port. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- To notice the moment the phone is online again and send what waits (#165). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Only to read the pairing QR code; asked for when the owner starts pairing. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature

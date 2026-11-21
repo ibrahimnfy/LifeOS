@@ -79,6 +79,9 @@ import dev.lifeos.app.relay.RelayClient
 import dev.lifeos.app.relay.RelayException
 import dev.lifeos.app.relay.RtdbMailbox
 import dev.lifeos.app.relay.TokenSource
+import dev.lifeos.app.sync.NetworkWatch
+import dev.lifeos.app.sync.OutboxWorker
+import dev.lifeos.app.sync.SyncTrigger
 import dev.lifeos.app.settings.SettingsStore
 import dev.lifeos.app.update.AppUpdater
 import kotlinx.coroutines.CancellationException
@@ -90,6 +93,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -997,6 +1002,44 @@ class LifeOsCore(private val app: Application) {
         }
     }
 
+    // ---- sending as soon as the phone is online again (#165)
+
+    private val syncTrigger = SyncTrigger(scope, NetworkWatch.validatedNow(app)) { networkBack() }
+
+    init {
+        NetworkWatch.register(app, syncTrigger::networkChanged)
+        // Something waits and the computer cannot be reached: let the system start the sending
+        // when the network is there, also if this process is paused or stopped by then.
+        scope.launch {
+            combine(outbox.items, connectionState, lockedState) { items, state, locked ->
+                !locked && state == ConnectionState.UNREACHABLE && items.any { it.state == OutboxItem.State.WAITING }
+            }.distinctUntilChanged().collect { if (it) OutboxWorker.schedule(app) }
+        }
+    }
+
+    /** Send what waits now if the app is unlocked (the background job asks for this). */
+    fun syncNow() = syncTrigger.request()
+
+    /**
+     * The phone is online again: drop connections that belonged to the old network, listen
+     * again at once, ask the computer, and send what waits. A successful check also refreshes
+     * the screens (see [reached]). The first check may come a moment too early; it is repeated.
+     */
+    private suspend fun networkBack() {
+        val current = session ?: return
+        // The stream first, so its connection is let go before the idle ones are closed.
+        current.client.reconnect()
+        http.connectionPool.evictAll()
+        repeat(NETWORK_BACK_CHECKS) { attempt ->
+            if (session !== current) return
+            if (attempt > 0) delay(NETWORK_BACK_PAUSE_MILLIS)
+            if (check() is TestResult.Ok) {
+                if (outbox.drain() > 0) reloadState.value++
+                return
+            }
+        }
+    }
+
     /** "Test connection" in settings: one `GET /whoami` through the relay. */
     suspend fun testConnection(): TestResult {
         if (session == null) return TestResult.Failed(TestProblem.NOT_PAIRED)
@@ -1149,6 +1192,10 @@ class LifeOsCore(private val app: Application) {
         const val CHECK_TIMEOUT_MILLIS = 20_000L
         const val SUBMIT_WAIT_MILLIS = 8_000L
         const val RECHECK_MILLIS = 60_000L
+
+        /** When the network comes back: how often the computer is asked, and the pause in between. */
+        const val NETWORK_BACK_CHECKS = 3
+        const val NETWORK_BACK_PAUSE_MILLIS = 2_000L
         const val ACTIVITY_SYNC_GAP_MILLIS = 60 * 60_000L
 
         /** Chat: how long the computer may take to take a message (it answers at once, the model later). */
