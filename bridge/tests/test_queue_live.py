@@ -58,6 +58,7 @@ def test_the_hub_replays_then_follows_and_ends_only_its_own_run():
 
     seen = asyncio.run(scenario())
     assert seen == [("delta", {"text": "Hello"}), ("interaction", {"id": "i1"}),
+                    ("replay_end", {"events": 2}),  # what follows is live (#157)
                     ("delta", {"text": "!"}), ("done", {"answer": "Hello!"})]  # fmt: skip
     assert hub.running("s") is None
 
@@ -125,10 +126,13 @@ def test_a_queued_answer_can_be_followed_live(running, auth, session, scripted):
                                   "queue_id": queued["queue_id"]})  # fmt: skip
     texts = [d["text"] for e, d in events if e == "delta"]
     assert texts == ["two: part one. ", "Part two."]  # what was said before, then live
+    names = [e for e, _d in events]
+    assert names.count("replay_end") == 1
+    assert names.index("replay_end") < names.index("done")
     assert events[-1][0] == "done" and events[-1][1]["answer"] == "two: part one. Part two."
     idle = events_of(running.get(f"/sessions/{session}/live", headers=auth).text)
     assert idle == [("live", {"session_id": session, "running": False, "followable": False,
-                              "queue_id": None})]  # fmt: skip
+                              "queue_id": None}), ("replay_end", {"events": 0})]  # fmt: skip
     assert running.get("/sessions/unknown/live", headers=auth).status_code == 404
     assert relay.allowed("GET", f"/sessions/{session}/live")
 

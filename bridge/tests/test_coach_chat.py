@@ -276,3 +276,28 @@ def test_a_cancel_never_stops_the_compaction(
     assert compacted["summary"] is True and compacted["facts"]  # completed, not cut short
     assert coach_chat.state()["last_compaction"]["result"] == "ok"
     assert "Talked about mornings" in (brain / "coach" / "conversation.md").read_text()
+
+
+def test_the_compaction_is_reported_also_when_decided_after_the_stream_type(
+    coach_client, auth, answers, monkeypatch
+):
+    """#157: the conversation grew too long between the choice and the compaction."""
+    monkeypatch.setattr(coach_chat, "LIMIT_BYTES", 10)
+    say(coach_client, auth, "first")
+    answers(LEARNED)
+    real, asked = coach_chat.too_long, []
+
+    def too_long(settings):
+        asked.append(1)
+        return False if len(asked) == 1 else real(settings)  # "not yet" at the choice
+
+    monkeypatch.setattr(coach_chat, "too_long", too_long)
+    response = say(coach_client, auth, "next", stream=True)
+    assert len(asked) >= 2  # chosen as a plain stream, then compacted after all
+    events = events_of(response.text)
+    names = [event for event, _ in events]
+    assert names.count("compacted") == 1
+    assert names.index("compacted") < names.index("session") < names.index("done")
+    compacted = dict(events)["compacted"]
+    assert compacted["session_id"] == coach_chat.state()["session_id"]
+    assert dict(events)["session"]["session_id"] == compacted["session_id"]

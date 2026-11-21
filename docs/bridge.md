@@ -441,9 +441,16 @@ exchanges.
 {"exchanges": [{"id": "…", "at": "2027-01-15T08:00:00.000Z",
                 "user": "…", "assistant": "…",
                 "tools": [{"name": "Read", "count": 3}],
-                "complete": true, "truncated": false}],
+                "complete": true, "truncated": false,
+                "mcp_servers": [{"name": "tools", "outside_sandbox": true}]}],
  "older": "…", "total_exchanges_known": null}
 ```
+
+- `mcp_servers` (#157) lists the MCP servers that answer had, the same as
+  the `done` event's `mcp_servers`; empty for every other answer. The bridge
+  keeps only the names, for the last 200 such answers of the last 200
+  sessions (`~/.config/lifeos/mcp-used.json`); answers from before #157
+  show none.
 
 - An exchange is one message of the owner and the text the assistant wrote
   until the owner's next message. Exchanges are oldest first within a page.
@@ -564,11 +571,14 @@ still answering (`POST /ask` with `session_id`, or
   the client lost): first `live {"session_id", "running", "followable",
   "queue_id": id | null}`, then what the run said so far (text merged into
   one `delta`; `replay_truncated {}` first when more than a million
-  characters were said), then its events as they come (`delta`,
-  `interaction`, `interaction_closed`, `keepalive`, then `done` or `error`),
-  and the stream ends with the run. With no run that can be followed it
-  sends only `live` with `"followable": false` and ends (a plain
-  non-streamed run is not followable). It only reads: it never starts or
+  characters were said), then `replay_end {"events": n}` (#157: everything
+  after it is live; `n` is the number of replayed events), then its events
+  as they come (`delta`, `interaction`, `interaction_closed`, `keepalive`,
+  then `done` or `error`), and the stream ends with the run. With no run
+  that can be followed it sends only `live` with `"followable": false` and
+  `replay_end {"events": 0}`, and ends (a plain non-streamed run is not
+  followable). Through the relay, a phone that stops reading sends
+  `POST /relay/detach` (see "Paired phones and the relay"). It only reads: it never starts or
   resumes a run. A queued message of a client that said `"interactive":
   true` may ask questions and approvals; a follower answers them through
   `POST /sessions/{id}/interactions/{iid}`. `404 session_not_found`.
@@ -722,16 +732,27 @@ the session's pending approvals:
 ```
 
 - `state` is `downloading` (wait), `ready` (can be approved), or `failed`
-  with an `error` sentence (it can only be refused). A proposal from a
-  non-HTTPS source is answered at once, in the `done` card, with
-  `"state": "refused"`.
+  with an `error` sentence and a stable `error_code` (it can only be
+  refused). A proposal from a non-HTTPS source is answered at once, in the
+  `done` card, with `"state": "refused"`. The codes (#157), for the app to
+  choose its own words: `source_not_https`, `audit_unavailable` (both
+  `refused`), `source_refused` (an unsafe or unusable source: a link, an
+  absolute or `..` path, no `SKILL.md`, no usable name, too many files,
+  a redirect to something other than HTTPS), `source_too_large`,
+  `source_unreadable` (a broken archive), `skill_exists`,
+  `download_failed` (network or server error).
 - `GET /sessions/{id}/interactions` lists it next to the questions and
   approvals of a running turn. `POST /sessions/{id}/interactions/{iid}`
   answers it with `{"approve": true|false}`. The reply is
   `{"answered": true, "id": …, "installed": true|false, "name", "target"}`.
-  A missing or expired proposal answers `404 not_pending`, an existing skill
-  of the same name `409 skill_exists`, and an unwritable audit log
-  `503 audit_unavailable`.
+  A missing or expired proposal answers `404 not_pending`.
+- **A refused answer leaves the card waiting** (#157), with its files in
+  quarantine, so the owner can answer again: `409 still_downloading`
+  (approved while `downloading`), `409 skill_exists` (a skill of that name
+  appeared meanwhile), `503 audit_unavailable`, `500 install_failed`
+  (nothing was written). A refusal (`false`) is always accepted, also while
+  downloading; the download is then thrown away. Two answers at the same
+  time are taken one after the other: the second gets `404 not_pending`.
 - Paired phones get a sealed `approval` push hint. Proposals wait 24 hours
   (also across bridge restarts); after that they count as refused.
 - Details and limits: `permission-policy.md`, section 9.4.
@@ -755,11 +776,15 @@ the session's pending approvals:
 - `POST /sessions/{id}/mcp-servers/{name}/approval` creates an approval
   card (and a sealed `approval` push hint):
   `{"id", "kind": "mcp_server", "session_id", "folder", "server": {…as
-  above}, "warning": "…outside the sandbox…", "created_at", "expires_at"}`.
+  above}, "warning": "…outside the sandbox…", "created_at", "expires_at",
+  "already_waiting": false}`. Asking again while a card for the same
+  definition (same hash) waits in that session returns that card with
+  `"already_waiting": true`, and sends no second push (#157). A changed
+  definition gets a card of its own.
   It is answered like every approval: `POST
   /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`, which
   returns `{"answered": true, "id": …, "approved": true|false, "name"?,
-  "reason"?}`.
+  "reason"?}`. `503 audit_unavailable` leaves the card waiting.
 - `DELETE /sessions/{id}/mcp-servers/{name}` revokes an approval
   (`{"revoked": true|false}`).
 - A capable answer that used servers carries `"mcp_servers": [{"name",
@@ -1095,7 +1120,11 @@ choice or `"mode": "capable"` is refused (`400`). **Streamed, with a
 compaction first:** one stream that sends `keepalive {}` every 20 seconds
 while the compaction runs, then `compacted {"facts", "summary": bool,
 "session_id"}`, then the message's own events (`session`, `delta`, …,
-`done`); an error before the message runs comes as an `error` event. The
+`done`); an error before the message runs comes as an `error` event. Every
+streamed message whose conversation switched sessions carries `compacted`
+before `session` (#157), also when the conversation only grew too long
+while the message was on its way (then without the keep-alives first); a
+queued answer (`202`) carries it as `"compacted"` in its body. The
 compaction is finished even when the client goes away, and it is never
 interrupted: `POST /sessions/{id}/cancel` on the session being compacted
 answers `409 compaction_running`, and a message sent with `"when": "now"`
@@ -1528,6 +1557,38 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
   and the remaining chunks are removed; `"from": <chunk>` in the query
   continues an interrupted transfer. Measured through the real mailbox: a
   3 MB file in about 7 seconds.
+- **Streams the phone stops reading** (#157). The relay answers with four
+  workers; a stream (a chat message, `GET /sessions/{id}/live`) holds one
+  for as long as it runs. When the phone stops reading one (screen locked,
+  another session opened, connection lost) it sends
+  `{"m": "POST", "path": "/relay/detach", "body": {"r": "<request id of the
+  stream>"}}`. This request is answered at once, even when every worker is
+  busy, with `{"status": 200, "body": {"detached": true}}`
+  (`false`: no such stream, for example it had ended already). Then:
+  - a `/live` follower is closed at once (following is read-only);
+  - a chat stream is **never cut**, because closing it would stop the
+    run. Its messages stop at the next event (at the latest the next
+    keep-alive, 20 seconds), and the run goes on to its end unseen. The
+    phone sees the answer through `GET /sessions/{id}/live` or the history.
+  - whatever the stream left in the mailbox is removed, and no error
+    message follows.
+
+  Without a detach message (app killed, connection lost), the relay notices
+  by itself: when four or more of a stream's messages wait unread and the
+  oldest is more than 45 seconds old, the stream is let go in the same way,
+  and one last message, an error `{"status": 504, "error":
+  "stream_abandoned"}`, is left for that request: a phone that comes back
+  follows the run again with `GET /sessions/{id}/live`. A quiet run sends a
+  keep-alive every 20 seconds, so this happens about 80 seconds after the
+  phone stopped reading. **The phone should always send the detach:** a
+  phone that keeps taking every message out of its mailbox (as a running
+  app does, also for a stream it no longer shows) never looks abandoned.
+  The phone sends its requests one at a time with rising key times, as
+  for every request, so a detach is never taken after a later request.
+  Manual check: start a long chat message from the app, lock the phone,
+  unlock, and repeat five times during the same run; the app's other
+  screens (`/whoami`, notes) still answer at once, and the run's answer is
+  there afterwards.
 - **In the mailbox:** only sealed messages; each is deleted as soon as it is
   taken, and anything older than 15 minutes is swept. Dropped messages are
   counted by reason in `~/.config/lifeos/relay-drops.json`, nothing else is

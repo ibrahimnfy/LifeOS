@@ -7,9 +7,10 @@ import contextlib
 import hashlib
 import hmac
 import json
+import time
 import uuid
 from collections.abc import AsyncIterator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -349,6 +350,30 @@ def create_app(settings: Settings) -> FastAPI:
                 background.add(wake)
                 wake.add_done_callback(background.discard)
 
+    def remember_servers(session_id: str, names: list[str], started: float) -> None:
+        """Tie the servers a finished run had to its exchange in the history (#157).
+
+        Runs of one session never overlap, so the transcript's last exchange is
+        this run's, if it began after the run started (a prompt the history does
+        not count as the owner's, such as a command, has none: nothing is tied).
+        Best effort: the answer is not held up by a failure here.
+        """
+        try:
+            info = sessions.find_session(session_id, settings.allowed_roots)
+            path = history.transcript_path(info, settings.allowed_roots) if info else None
+            page = history.read_page(path, 1) if path is not None else {"exchanges": []}
+            if not page["exchanges"]:
+                return
+            last = page["exchanges"][-1]
+            at = last.get("at")
+            if at is not None:  # Claude Code stamps its lines; a line without one is taken
+                when = datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp()
+                if when < started - 2:  # an earlier exchange: not this run's
+                    return
+            mcp_servers.remember_used(session_id, last["id"], names)
+        except Exception:  # noqa: S110 - a missing note in the history only
+            pass
+
     def expire_approvals() -> None:
         for entry in approvals.take_expired():
             if entry.get("kind") == skill_installs.KIND:
@@ -633,6 +658,7 @@ def create_app(settings: Settings) -> FastAPI:
 
         async def raw_events() -> AsyncIterator[tuple[str, dict]]:
             open_interactions: set[str] = set()
+            started = time.time()
             try:
                 runner = (
                     sdk_runner.stream(sdk_pool, settings, prompt, **run_args)
@@ -667,6 +693,10 @@ def create_app(settings: Settings) -> FastAPI:
                                 {"name": name, "outside_sandbox": True} for name in used_servers
                             ]
                             payload["mcp_note"] = mcp_servers.OUTSIDE_SANDBOX
+                            await asyncio.to_thread(
+                                remember_servers, payload.get("session_id") or session_id,
+                                used_servers, started,
+                            )  # fmt: skip
                     yield event, payload
             except ClaudeError as error:
                 yield "error", {"error": error.code, "message": error.message}
@@ -804,13 +834,16 @@ def create_app(settings: Settings) -> FastAPI:
         await asyncio.to_thread(expire_approvals)
         if await asyncio.to_thread(approvals.get, session_id, interaction_id) is not None:
             approve = approvals.read_approve(await read_json_object(request))
-            entry = await asyncio.to_thread(approvals.take, session_id, interaction_id)
-            if entry["kind"] == skill_installs.KIND:
-                done = await asyncio.to_thread(skill_installs.answer, entry, approve)
-            elif entry["kind"] == mcp_servers.KIND:
-                done = await asyncio.to_thread(mcp_servers.answer, entry, approve)
-            else:
+
+            def handle(entry: dict) -> dict:
+                if entry["kind"] == skill_installs.KIND:
+                    return skill_installs.answer(entry, approve)
+                if entry["kind"] == mcp_servers.KIND:
+                    return mcp_servers.answer(entry, approve)
                 raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
+
+            # A refused answer (409, 503) leaves the card waiting (#157).
+            done = await asyncio.to_thread(approvals.settle, session_id, interaction_id, handle)
             return {"answered": True, "id": interaction_id, **done}
         if sdk_pool is None:
             raise ClaudeError("not_pending", 404, "this question is no longer waiting")
@@ -828,10 +861,12 @@ def create_app(settings: Settings) -> FastAPI:
     async def request_mcp_approval(session_id: str, name: str):
         """Ask the owner to approve exactly this server: an approval card (#108)."""
         info = listed_session(session_id)
+        await asyncio.to_thread(expire_approvals)
         card = await asyncio.to_thread(mcp_servers.request, info.id, info.folder, name)
-        wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", info.id))
-        background.add(wake)
-        wake.add_done_callback(background.discard)
+        if not card["already_waiting"]:  # the same definition asked again: no second push
+            wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", info.id))
+            background.add(wake)
+            wake.add_done_callback(background.discard)
         return card
 
     @app.delete("/sessions/{session_id}/mcp-servers/{name}")
@@ -1490,9 +1525,30 @@ def create_app(settings: Settings) -> FastAPI:
             )
         session_id, compacted = await asyncio.shield(prepare)
         answer = await coach_message(data, session_id)
-        if compacted is not None and isinstance(answer, dict):
+        if compacted is None:
+            return answer
+        # The compaction was decided only now (the conversation grew meanwhile): the
+        # answer says so in every form (#157).
+        if isinstance(answer, StreamingResponse):
+            return StreamingResponse(
+                with_compacted(compacted, answer.body_iterator),
+                status_code=answer.status_code,
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        if isinstance(answer, JSONResponse):  # it waits in the queue
+            body = json.loads(answer.body)
+            if isinstance(body, dict):
+                body["compacted"] = compacted
+            return JSONResponse(body, status_code=answer.status_code)
+        if isinstance(answer, dict):
             answer["compacted"] = compacted
         return answer
+
+    async def with_compacted(compacted: dict, body: AsyncIterator) -> AsyncIterator[bytes]:
+        yield sse("compacted", compacted)
+        async for chunk in body:
+            yield chunk if isinstance(chunk, bytes) else chunk.encode()
 
     async def prepare_coach_session() -> tuple[str, dict | None]:
         """The coach session a message goes to, compacted first when it grew too long."""
@@ -1553,7 +1609,12 @@ def create_app(settings: Settings) -> FastAPI:
         path = history.transcript_path(info, settings.allowed_roots)
         if path is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
-        return history.read_page(path, limit, before or None)
+        page = history.read_page(path, limit, before or None)
+        used = mcp_servers.used_in(info.id)  # the servers an answer had (#157)
+        for exchange in page["exchanges"]:
+            names = used.get(exchange["id"], [])
+            exchange["mcp_servers"] = [{"name": n, "outside_sandbox": True} for n in names]
+        return page
 
     @app.get("/sessions/{session_id}/commands")
     async def session_commands(session_id: str):

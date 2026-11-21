@@ -10,15 +10,17 @@ mailbox. The bridge only ever makes outbound connections.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import json
 import re
+import socket
 import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -40,6 +42,12 @@ RESCAN_SECONDS = 5.0
 SWEEP_SECONDS = 600.0
 KEEP_SECONDS = 15 * 60  # nothing stays in the mailbox longer than this
 MAX_WORKERS = 4
+# A stream the phone stopped reading frees its worker: when this many of its chunks
+# wait unread in the mailbox and the oldest is older than STREAM_STALL_SECONDS.
+STREAM_WINDOW = 4
+STREAM_STALL_SECONDS = 45.0
+STREAM_CHECK_SECONDS = 5.0  # how often the mailbox is looked at while a stream runs
+DETACH_PATH = "/relay/detach"  # the phone's own "I stopped reading this stream"
 FILE_WINDOW = 3  # at most this many file chunks wait in the mailbox
 FILE_STALL_SECONDS = 120.0  # give up when the phone stops taking chunks
 FILE_POLL_SECONDS = 0.3
@@ -80,18 +88,51 @@ def local_api(settings: Settings) -> LocalCall:
     return call
 
 
-def _sse_events(response) -> Iterator[tuple[str, object]]:
-    event = ""
-    with response:
-        for raw in response:
-            line = raw.decode(errors="replace").rstrip("\r\n")
-            if line.startswith("event:"):
-                event = line[6:].strip()
-            elif line.startswith("data:"):
-                try:
-                    yield event, json.loads(line[5:].strip())
-                except ValueError:
-                    continue
+class SseEvents:
+    """The (event, data) pairs of a server-sent event response.
+
+    ``close()`` may be called from another thread: it ends a read that is
+    waiting (the stream of a phone that went away), so the worker is freed.
+    """
+
+    def __init__(self, response) -> None:
+        self.response = response
+        self.closed = threading.Event()
+
+    def close(self) -> None:
+        self.closed.set()
+        # Shutting the socket down wakes a read that waits in another thread; a plain
+        # close would only take effect at the next keep-alive.
+        raw = getattr(getattr(self.response, "fp", None), "raw", None)
+        sock = getattr(raw, "_sock", None)
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.shutdown(socket.SHUT_RDWR)
+
+    def __iter__(self) -> Iterator[tuple[str, object]]:
+        event = ""
+        try:
+            for raw in self.response:
+                if self.closed.is_set():
+                    return
+                line = raw.decode(errors="replace").rstrip("\r\n")
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:"):
+                    try:
+                        yield event, json.loads(line[5:].strip())
+                    except ValueError:
+                        continue
+        except (OSError, ValueError, AttributeError):
+            if not self.closed.is_set():
+                raise
+        finally:
+            with contextlib.suppress(Exception):
+                self.response.close()
+
+
+def _sse_events(response) -> SseEvents:
+    return SseEvents(response)
 
 
 REFUSED_ROUTE = "(refused)"
@@ -111,7 +152,7 @@ def route_table(app) -> RouteTable:
 
 def route_template(routes: RouteTable, method: object, path: object) -> str:
     """The template a request matched: never the path itself, which may carry ids."""
-    if path == "/push/token":  # answered by the relay itself
+    if path in ("/push/token", DETACH_PATH):  # answered by the relay itself
         return path
     is_file = isinstance(path, str) and path.startswith("/files/") and "/" not in path[7:]
     if not is_file and not allowed(method, path):
@@ -133,6 +174,25 @@ def allowed(method: object, path: object) -> bool:
     )
 
 
+class Stream:
+    """One answer the relay is sending to a phone, watched for being abandoned."""
+
+    def __init__(self, device_id: bytes, rid: str, path: str) -> None:
+        self.device_id = device_id
+        self.rid = rid
+        # Following a run (GET /sessions/{id}/live) is read-only: it may simply be closed.
+        self.follower = path.startswith("/sessions/") and path.endswith("/live")
+        self.events: object | None = None  # the local server-sent event reader
+        self.answer: Generator | None = None  # the relay's messages made from it
+        self.detached = threading.Event()
+        self.stalled = False  # let go because nobody read it (not by a detach)
+        self.written: list[str] = []
+        self.checked = time.monotonic()
+
+    def sent(self, key: str) -> None:
+        self.written.append(key)
+
+
 class Relay:
     def __init__(
         self,
@@ -150,6 +210,8 @@ class Relay:
         self.stop = threading.Event()
         self._listeners: dict[str, threading.Event] = {}
         self._send_locks: dict[bytes, threading.Lock] = {}
+        self._streams: dict[tuple[bytes, str], Stream] = {}  # answers being sent, by request
+        self._streams_lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="relay")
         self._thread: threading.Thread | None = None
 
@@ -175,6 +237,11 @@ class Relay:
         with contextlib.suppress(mailbox.MailboxError):
             self.box.delete(f"lifeos/{device_hex}/b/{key}")
         if message is None or message.header.kind != e2e.REQUEST:
+            return
+        payload = message.payload if isinstance(message.payload, dict) else {}
+        if payload.get("path") == DETACH_PATH:
+            # At once, not behind the streams it frees (they may hold every worker).
+            self._answer(message)
             return
         self._pool.submit(self._answer, message)
 
@@ -218,14 +285,105 @@ class Relay:
             with contextlib.suppress(Exception):
                 self.send_file(device_id, rid, request)
             return
+        if isinstance(request, dict) and request.get("path") == DETACH_PATH:
+            body = request.get("body") if isinstance(request.get("body"), dict) else {}
+            found = request.get("m") == "POST" and self.detach(device_id, str(body.get("r") or ""))
+            with contextlib.suppress(Exception):
+                self.send(device_id, e2e.END, rid, {"status": 200, "body": {"detached": found}})
+            return
+        stream = Stream(
+            device_id, rid, str(request.get("path") if isinstance(request, dict) else "")
+        )
+        with self._streams_lock:
+            self._streams[(device_id, rid)] = stream
+        answer = stream.answer = self.dispatch(message.payload, stream)
         try:
-            for kind, payload in self.dispatch(message.payload):
-                self.send(device_id, kind, rid, payload)
+            for kind, payload in answer:
+                stream.sent(self.send(device_id, kind, rid, payload))
+                if kind == e2e.CHUNK and self._abandoned(stream):
+                    break
         except devices.PairingError:
             return  # revoked meanwhile
         except Exception:  # never let one request take the relay down
-            with contextlib.suppress(Exception):
-                self.send(device_id, e2e.ERROR, rid, {"status": 502, "error": "relay_failed"})
+            if not stream.detached.is_set():
+                with contextlib.suppress(Exception):
+                    self.send(device_id, e2e.ERROR, rid, {"status": 502, "error": "relay_failed"})
+        finally:
+            with self._streams_lock:
+                self._streams.pop((device_id, rid), None)
+            if stream.detached.is_set():
+                self._let_go(stream)
+            if stream.stalled:
+                # Not asked for by the phone: one last word, so a phone that comes back
+                # knows to follow the run again (GET /sessions/{id}/live).
+                with contextlib.suppress(Exception):
+                    self.send(
+                        device_id, e2e.ERROR, rid, {"status": 504, "error": "stream_abandoned"}
+                    )
+
+    # -- streams the phone stopped reading ------------------------------------------
+    def detach(self, device_id: bytes, rid: str) -> bool:
+        """The phone stopped reading a stream (locked, another session): free its worker.
+
+        A ``/live`` follower is read-only, so its connection is closed at once. A
+        chat stream is never cut (that would stop the run): the worker hands it to
+        a reader that lets the run finish.
+        """
+        with self._streams_lock:
+            stream = self._streams.get((device_id, rid))
+        if stream is None:
+            return False
+        stream.detached.set()
+        if stream.follower and stream.events is not None:
+            close = getattr(stream.events, "close", None)
+            if close is not None:
+                close()  # wakes the worker that waits for the next event
+        return True
+
+    def _abandoned(self, stream: Stream) -> bool:
+        """Detached by the phone, or its chunks wait unread in the mailbox for too long."""
+        if stream.detached.is_set():
+            return True
+        now = time.monotonic()
+        if not stream.written or now - stream.checked < STREAM_CHECK_SECONDS:
+            return False
+        stream.checked = now
+        try:
+            waiting = set(self.box.keys(f"lifeos/{stream.device_id.hex()}/p"))
+        except mailbox.MailboxError:
+            return False
+        stream.written = [key for key in stream.written if key in waiting]
+        oldest = mailbox.key_time(stream.written[0]) if stream.written else None
+        if (
+            len(stream.written) >= STREAM_WINDOW
+            and oldest is not None
+            and time.time() - oldest > STREAM_STALL_SECONDS
+        ):
+            stream.stalled = True
+            stream.detached.set()
+            return True
+        return False
+
+    def _let_go(self, stream: Stream) -> None:
+        """After a stream was abandoned: nothing of it stays unread, the run goes on."""
+        side = f"lifeos/{stream.device_id.hex()}/p"
+        for key in stream.written:
+            with contextlib.suppress(mailbox.MailboxError):
+                self.box.delete(f"{side}/{key}")
+        if stream.events is None or stream.answer is None:
+            return
+        if stream.follower:
+            close = getattr(stream.events, "close", None)
+            if close is not None:
+                close()
+            stream.answer.close()
+            return
+        # A chat stream: the same reader goes on to its end (dropping it would close the
+        # connection and stop the run), its messages are no longer sent.
+        answer = stream.answer
+        threading.Thread(
+            target=lambda: collections.deque(answer, maxlen=0), daemon=True, name="relay-drain"
+        ).start()
 
     def send_file(self, device_id: bytes, rid: str, request: dict) -> None:
         """Send an offered file in sealed chunks; only a few wait in the mailbox at a time.
@@ -274,7 +432,9 @@ class Relay:
             with contextlib.suppress(Exception):
                 self.send(device_id, e2e.ERROR, rid, {"status": 504, "error": "transfer_abandoned"})
 
-    def dispatch(self, request: object) -> Iterator[tuple[int, object]]:
+    def dispatch(
+        self, request: object, stream: Stream | None = None
+    ) -> Iterator[tuple[int, object]]:
         """Turn one request from the phone into the messages of its answer."""
         if not isinstance(request, dict) or not allowed(request.get("m"), request.get("path")):
             yield e2e.ERROR, {"status": 404, "error": "not_found"}
@@ -284,6 +444,8 @@ class Relay:
             request["m"], request["path"], query, request.get("body")
         )
         if kind == "sse":
+            if stream is not None:
+                stream.events = items
             yield from self._stream(status, items)
             return
         body = next(iter(items), None)

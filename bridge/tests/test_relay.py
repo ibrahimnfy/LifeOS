@@ -1,10 +1,12 @@
 # ruff: noqa: E501
 """The relay path with an in-memory mailbox and a stand-in local API."""
 
+import http.server
 import json
 import shutil
 import threading
 import time
+import urllib.request
 
 import pytest
 
@@ -443,6 +445,175 @@ def test_an_unwritable_audit_log_does_not_stop_the_answers(paired, isolated_conf
     phone.request("GET", "/whoami")
     (answer,) = phone.receive()
     assert answer.payload["status"] == 200
+
+
+# ---- #157: streams the phone abandons free their worker ------------------------------
+
+
+class EndlessEvents:
+    """A long run's server-sent events: a keep-alive now and then until it ends or closes."""
+
+    def __init__(self, every=0.05):
+        self.every, self.closed, self.finished = every, threading.Event(), threading.Event()
+        self.run_over = threading.Event()
+
+    def close(self):
+        self.closed.set()
+
+    def __iter__(self):
+        # Like the real reader: dropping the reader (closing it) closes the connection,
+        # which would stop the run behind it.
+        try:
+            yield "session", {"session_id": "s1"}
+            while not self.closed.is_set():
+                if self.run_over.is_set():
+                    yield "done", {"answer": "finished"}
+                    self.finished.set()
+                    return
+                time.sleep(self.every)
+                yield "keepalive", {}
+        finally:
+            if not self.finished.is_set():
+                self.closed.set()
+
+
+def until(condition, seconds=5.0):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if condition():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition not reached")
+
+
+def answer_of(phone, rid, timeout=5.0):
+    """Take only this request's messages out of the mailbox (the others stay unread)."""
+    got, deadline = [], time.time() + timeout
+    side = f"lifeos/{phone.id.hex()}/p"
+    while time.time() < deadline:
+        for key in phone.box.keys(side):
+            value = phone.box.get(f"{side}/{key}")
+            if value is None:
+                continue
+            message = e2e.open_sealed(phone.secret, mailbox.decode(value))
+            if message.request_id == rid:
+                phone.box.delete(f"{side}/{key}")
+                got.append(message)
+        if got and got[-1].header.kind in (e2e.END, e2e.ERROR):
+            return got
+        time.sleep(0.02)
+    return got
+
+
+@pytest.fixture
+def long_runs(paired):
+    service, phone, _box, _ = paired
+    phone.receive()
+    streams = []
+
+    def local(method, path, query, body):
+        if path == "/whoami":
+            return 200, "json", iter([{"status": "ok"}])
+        events = EndlessEvents()
+        streams.append((path, events))
+        return 200, "sse", events
+
+    service.call_local = local
+    return service, phone, streams
+
+
+def test_detached_streams_free_every_worker_and_the_run_goes_on(long_runs):
+    _service, phone, streams = long_runs
+    for index in range(relay.MAX_WORKERS):  # lock, unlock, lock …: every worker holds a stream
+        path = "/sessions/s1/live" if index % 2 else "/sessions/s1/messages"
+        phone.request("GET" if index % 2 else "POST", path, rid=f"s{index}")
+        until(lambda index=index: len(streams) == index + 1)  # one after the other
+    phone.request("GET", "/whoami", rid="who")
+    assert answer_of(phone, "who", timeout=0.5) == []  # every worker is busy
+    for index in range(relay.MAX_WORKERS):
+        phone.request("POST", relay.DETACH_PATH, {"r": f"s{index}"}, rid=f"d{index}")
+        (done,) = answer_of(phone, f"d{index}")
+        assert done.payload == {"status": 200, "body": {"detached": True}}
+    (who,) = answer_of(phone, "who")
+    assert who.payload["body"] == {"status": "ok"}  # a worker was free again
+    followers = [e for path, e in streams if path.endswith("/live")]
+    chats = [e for path, e in streams if not path.endswith("/live")]
+    assert all(e.closed.is_set() for e in followers)  # a follower is simply closed
+    assert not any(e.closed.is_set() for e in chats)  # a chat stream is never cut …
+    for events in chats:
+        events.run_over.set()
+    assert all(e.finished.wait(5) for e in chats)  # … its run goes on to its end
+    phone.request("POST", relay.DETACH_PATH, {"r": "nothing"}, rid="d-none")
+    assert answer_of(phone, "d-none")[0].payload["body"] == {"detached": False}
+
+
+def test_a_stream_nobody_reads_frees_its_worker_by_itself(long_runs, monkeypatch):
+    _service, phone, streams = long_runs
+    monkeypatch.setattr(relay, "STREAM_WINDOW", 3)
+    monkeypatch.setattr(relay, "STREAM_STALL_SECONDS", 0.3)
+    monkeypatch.setattr(relay, "STREAM_CHECK_SECONDS", 0.05)
+    for index in range(relay.MAX_WORKERS + 2):  # more streams than workers, none read
+        phone.request("POST", "/sessions/s1/messages", rid=f"s{index}")
+        time.sleep(0.01)  # one after the other, as a phone sends them
+    until(lambda: len(streams) == relay.MAX_WORKERS + 2, seconds=10)  # all got a worker
+    phone.request("GET", "/whoami", rid="who")
+    (who,) = answer_of(phone, "who", timeout=10)
+    assert who.payload["status"] == 200  # the stalled streams let go of their workers
+    side = f"lifeos/{phone.id.hex()}/p"
+
+    def left():
+        # Read while other streams are still being cleaned up: an entry may go meanwhile.
+        values = [phone.box.get(f"{side}/{key}") for key in phone.box.keys(side)]
+        return [e2e.open_sealed(phone.secret, mailbox.decode(v)) for v in values if v is not None]
+
+    count = relay.MAX_WORKERS + 2
+    until(lambda: len(left()) == count and all(m.header.kind == e2e.ERROR for m in left()))
+    # Of each abandoned stream only one last word stays: follow the run again.
+    assert sorted(m.request_id for m in left()) == [f"s{i}" for i in range(count)]
+    assert all(m.payload == {"status": 504, "error": "stream_abandoned"} for m in left())
+    assert not any(e.closed.is_set() for _path, e in streams)  # the runs were not cut
+    for _path, events in streams:
+        events.run_over.set()
+
+
+def test_closing_a_follower_wakes_its_waiting_read():
+    """On a real connection: the worker that waits for the next event is freed at once."""
+    release = threading.Event()
+
+    class Endless(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            self.wfile.write(b'event: live\ndata: {"running": true}\n\n')
+            self.wfile.flush()
+            release.wait(10)  # a run with nothing to say for a long time
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Endless)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/"
+        events = relay.SseEvents(urllib.request.urlopen(url, timeout=30))
+        got, done = [], threading.Event()
+
+        def read():
+            got.extend(events)
+            done.set()
+
+        threading.Thread(target=read, daemon=True).start()
+        until(lambda: got == [("live", {"running": True})])
+        time.sleep(0.1)  # the reader now waits for the next line
+        started = time.monotonic()
+        events.close()
+        assert done.wait(2)
+        assert time.monotonic() - started < 2
+    finally:
+        release.set()
+        server.shutdown()
+        server.server_close()
 
 
 def test_pairing_and_revocation_are_recorded(paired, isolated_config):

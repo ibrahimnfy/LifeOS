@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import user_line
-from lifeos_bridge import approvals, audit, capable, claude, mcp_servers, verify
+from lifeos_bridge import approvals, audit, capable, claude, mcp_servers, push, verify
 from lifeos_bridge.app import create_app
 from lifeos_bridge.claude import ClaudeError
 
@@ -22,6 +22,10 @@ def define(folder, servers):
 def records(config):
     folder = config / "audit"
     return [json.loads(line) for f in sorted(folder.glob("*.jsonl")) for line in f.open()]
+
+
+def no_audit(*_a, **_k):
+    raise audit.AuditUnavailable("x")
 
 
 def approve(folder, name="tools", session_id="s1"):
@@ -112,6 +116,48 @@ def test_no_approval_without_its_audit_record(ask_dir, monkeypatch):
     assert mcp_servers.for_run(ask_dir) == {}
 
 
+def test_the_same_definition_asked_again_returns_the_waiting_card(ask_dir, isolated_config):
+    define(ask_dir, {"tools": SERVER})
+    first = mcp_servers.request("s1", ask_dir, "tools")
+    again = mcp_servers.request("s1", ask_dir, "tools")
+    assert first["already_waiting"] is False and again["already_waiting"] is True
+    assert again["id"] == first["id"] and len(approvals.pending("s1")) == 1
+    steps = [r["tool"] for r in records(isolated_config)]
+    assert steps == ["mcp_server_approval_requested"]  # asked once
+    other = mcp_servers.request("s2", ask_dir, "tools")  # another session: its own card
+    assert other["already_waiting"] is False and other["id"] != first["id"]
+    define(ask_dir, {"tools": SERVER, "twin": SERVER})  # same definition, another name
+    twin = mcp_servers.request("s1", ask_dir, "twin")
+    assert twin["already_waiting"] is False and twin["server"]["name"] == "twin"
+    assert mcp_servers.request("s1", ask_dir, "twin")["id"] == twin["id"]
+    define(ask_dir, {"tools": dict(SERVER, command="sh")})
+    changed = mcp_servers.request("s1", ask_dir, "tools")  # another definition: a new card
+    assert changed["already_waiting"] is False and changed["id"] != first["id"]
+    approvals.take_expired(now=9e12)
+    define(ask_dir, {"tools": SERVER})
+    assert mcp_servers.request("s1", ask_dir, "tools")["already_waiting"] is False
+
+
+def test_a_refused_answer_leaves_the_card_waiting(ask_dir, monkeypatch):
+    define(ask_dir, {"tools": SERVER})
+    card = mcp_servers.request("s1", ask_dir, "tools")
+
+    def handle(entry):
+        return mcp_servers.answer(entry, True)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(audit, "record", no_audit)
+        with pytest.raises(ClaudeError) as caught:
+            approvals.settle("s1", card["id"], handle)
+        assert caught.value.code == "audit_unavailable"
+    assert [p["id"] for p in approvals.pending("s1")] == [card["id"]]  # still there
+    assert approvals.settle("s1", card["id"], handle)["approved"] is True
+    assert approvals.pending("s1") == []
+    with pytest.raises(ClaudeError) as caught:
+        approvals.settle("s1", card["id"], handle)
+    assert caught.value.code == "not_pending"
+
+
 def test_revoke(ask_dir):
     define(ask_dir, {"tools": SERVER})
     approve(ask_dir)
@@ -152,18 +198,29 @@ def calls(ask_dir):
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
-def test_api_from_listing_to_a_run(settings, ask_dir, auth, write_session, isolated_config):
+def test_api_from_listing_to_a_run(
+    settings, ask_dir, auth, write_session, isolated_config, monkeypatch
+):
     marker(capable.SUITE_VERSION)
     define(ask_dir, {"tools": SERVER})
     session_id = write_session(ask_dir, [user_line(ask_dir, "first")])
+    pushes = []
+    monkeypatch.setattr(push, "send_hint", lambda *a, **_k: pushes.append(a))
     with TestClient(create_app(settings)) as client:
         base = f"/sessions/{session_id}/mcp-servers"
         listed = client.get(base, headers=auth).json()
         assert listed["servers"][0]["state"] == "not_approved" and "sandbox" in listed["note"]
         card = client.post(f"{base}/tools/approval", headers=auth).json()
+        again = client.post(f"{base}/tools/approval", headers=auth).json()
+        assert again["id"] == card["id"] and again["already_waiting"] is True
+        assert pushes == [("approval", session_id)]  # one push for one card
         pending = client.get(f"/sessions/{session_id}/interactions", headers=auth).json()
         assert [p["id"] for p in pending["pending"]] == [card["id"]]
         url = f"/sessions/{session_id}/interactions/{card['id']}"
+        with monkeypatch.context() as patch:
+            patch.setattr(audit, "record", no_audit)
+            refused = client.post(url, headers=auth, json={"approve": True})
+        assert refused.status_code == 503 and refused.json()["error"] == "audit_unavailable"
         assert client.post(url, headers=auth, json={"approve": True}).json()["approved"] is True
         assert client.get(base, headers=auth).json()["servers"][0]["state"] == "approved"
 
@@ -175,6 +232,10 @@ def test_api_from_listing_to_a_run(settings, ask_dir, auth, write_session, isola
         read_only = client.post(messages, headers=auth, json={"prompt": "y"}).json()
         assert "mcp_servers" not in read_only
         assert "--mcp-config" not in calls(ask_dir)[-1]["args"]
+        # The history shows which answer had servers (#157).
+        page = client.get(f"/sessions/{session_id}/history?limit=3", headers=auth).json()
+        had = [(e["user"], [s["name"] for s in e["mcp_servers"]]) for e in page["exchanges"]]
+        assert had[-2:] == [("x", ["tools"]), ("y", [])]
 
         assert client.delete(f"{base}/tools", headers=auth).json() == {"revoked": True}
         again = client.post(messages, headers=auth, json={"prompt": "z", "mode": "capable"})

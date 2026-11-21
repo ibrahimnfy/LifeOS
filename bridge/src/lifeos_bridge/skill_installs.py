@@ -147,7 +147,8 @@ def from_answer(answer: str, session_id: str, folder: Path) -> tuple[str, list[d
     for url in MARKER.findall(answer):
         if not source_ok(url):
             cards.append({"kind": KIND, "source": url[:200], "state": "refused",
-                          "error": "only HTTPS sources can be installed"})  # fmt: skip
+                          "error": "only HTTPS sources can be installed",
+                          "error_code": "source_not_https"})  # fmt: skip
             continue
         entry = approvals.add(
             KIND, session_id, str(folder), {"source": url, "state": "downloading"}
@@ -157,7 +158,8 @@ def from_answer(answer: str, session_id: str, folder: Path) -> tuple[str, list[d
         except audit.AuditUnavailable:
             approvals.take(session_id, entry["id"])
             cards.append({"kind": KIND, "source": url, "state": "refused",
-                          "error": "the audit log could not be written"})  # fmt: skip
+                          "error": "the audit log could not be written",
+                          "error_code": "audit_unavailable"})  # fmt: skip
             continue
         cards.append(approvals.public(entry))
     text = MARKER.sub("", answer).strip("\n") if cards else answer
@@ -196,38 +198,61 @@ def prepare(entry_id: str, fetcher=None) -> dict | None:
         }
     except Exception as error:  # any failure is shown on the card, never raised
         shutil.rmtree(quarantine, ignore_errors=True)
-        message = error.message if isinstance(error, ClaudeError) else "the download failed"
-        changes = {"state": "failed", "error": message}
+        code, message = failure(error)
+        changes = {"state": "failed", "error": message, "error_code": code}
     updated = approvals.update(entry_id, changes)
-    if updated is not None:
-        with contextlib.suppress(audit.AuditUnavailable):
-            _record(f"skill_install_{changes['state']}", updated)
+    if updated is None:  # refused while it was downloading: nothing is kept
+        shutil.rmtree(quarantine, ignore_errors=True)
+        return None
+    with contextlib.suppress(audit.AuditUnavailable):
+        _record(f"skill_install_{changes['state']}", updated)
     return updated
 
 
+def failure(error: Exception) -> tuple[str, str]:
+    """A stable code and the sentence shown on a failed card."""
+    if isinstance(error, ClaudeError):
+        return error.code, error.message
+    if isinstance(error, (zipfile.BadZipFile, tarfile.TarError, EOFError)):
+        return "source_unreadable", "the archive could not be read"
+    return "download_failed", "the download failed"
+
+
 def answer(entry: dict, approve: bool) -> dict:
-    """The owner's answer (the entry was taken out of the pending list)."""
+    """The owner's answer (``approvals.settle``: the card is taken out only if this returns).
+
+    A refused answer (``still_downloading``, ``skill_exists``,
+    ``audit_unavailable``, ``install_failed``) raises and keeps the card and its
+    quarantine, so the owner can answer again.
+    """
     quarantine = Path(entry["quarantine"]) if entry.get("quarantine") else None
+    if approve and entry.get("state") == "downloading":
+        raise ClaudeError(
+            "still_downloading", 409, "the skill is still being downloaded; try again in a moment"
+        )
+    if not approve or entry.get("state") != "ready" or quarantine is None:
+        with contextlib.suppress(audit.AuditUnavailable):
+            why = "owner" if not approve else "not_ready"
+            _record("skill_install_refused", entry, why=why)
+        if quarantine is not None:
+            shutil.rmtree(quarantine, ignore_errors=True)
+        return {"installed": False}
+    target = Path(entry["target"])
+    if target.exists():
+        with contextlib.suppress(audit.AuditUnavailable):
+            _record("skill_install_refused", entry, why="exists")
+        raise ClaudeError("skill_exists", 409, "a skill of that name is already installed")
     try:
-        if not approve or entry.get("state") != "ready" or quarantine is None:
-            with contextlib.suppress(audit.AuditUnavailable):
-                why = "owner" if not approve else "not_ready"
-                _record("skill_install_refused", entry, why=why)
-            return {"installed": False}
-        target = Path(entry["target"])
-        if target.exists():
-            with contextlib.suppress(audit.AuditUnavailable):
-                _record("skill_install_refused", entry, why="exists")
-            raise ClaudeError("skill_exists", 409, "a skill of that name is already installed")
-        try:
-            _record("skill_install_approved", entry)  # before anything is written
-        except audit.AuditUnavailable as exc:
-            raise ClaudeError(
-                "audit_unavailable", 503, "the audit log could not be written; nothing installed"
-            ) from exc
+        _record("skill_install_approved", entry)  # before anything is written
+    except audit.AuditUnavailable as exc:
+        raise ClaudeError(
+            "audit_unavailable", 503, "the audit log could not be written; nothing installed"
+        ) from exc
+    staging = target.with_name(f".{target.name}.installing")
+    try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        staging = target.with_name(f".{target.name}.installing")
         shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir()
         for source in sorted(quarantine.rglob("*")):
             if source.is_file() and not source.is_symlink():
                 path = staging / source.relative_to(quarantine)
@@ -235,10 +260,13 @@ def answer(entry: dict, approve: bool) -> dict:
                 path.write_bytes(source.read_bytes())
                 path.chmod(0o644)  # plain files: nothing becomes executable
         staging.rename(target)
-        return {"installed": True, "name": entry["name"], "target": str(target)}
-    finally:
-        if quarantine is not None:
-            shutil.rmtree(quarantine, ignore_errors=True)
+    except OSError as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise ClaudeError(
+            "install_failed", 500, "the skill could not be written; nothing installed"
+        ) from exc
+    shutil.rmtree(quarantine, ignore_errors=True)
+    return {"installed": True, "name": entry["name"], "target": str(target)}
 
 
 def expire(entry: dict) -> None:
