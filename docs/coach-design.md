@@ -159,8 +159,9 @@ Limits, enforced by the bridge regardless of what the batch proposes:
 (`coach.send_nudges`): the daily notification is the first nudge; with the
 frequency `"3"` (also accepted as `"normal"`; `"1"` as `"low"`) up to two
 more follow from the same batch, in the batch's order, at least two hours
-apart, never in quiet hours (a nudge whose turn falls there is not sent
-that day), never about a task done meanwhile or a question that is
+apart, never in quiet hours (a nudge whose turn falls there is dropped:
+it counts toward the day's cap and is not sent later), never about a task
+done meanwhile or a question that is
 blocked, never a message twice, and only for today's batch. Each is one
 push with the `coach` event whose sealed reference `r` is the message id
 (the app finds it in `GET /coach/plan`); the lock screen and

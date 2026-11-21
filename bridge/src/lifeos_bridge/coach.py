@@ -576,7 +576,8 @@ def send_daily_notification(settings: Settings, clock: Clock | None = None) -> b
         # Stored before sending, so a crash cannot make it go out twice.
         _write(PLAN_FILE, plan | {"notification_pending": False, "notification_sent_at": _iso(now)})
         first = plan.get("notification") or ""
-        nudged = {"day": today, "sent": [first] if first else [], "last_at": _iso(now)}
+        # The daily note always counts as the first nudge of the day, with or without an id.
+        nudged = {"day": today, "sent": [first or DAILY], "last_at": _iso(now)}
         _write(STATE_FILE, state | {"notified_day": today, "nudges": nudged})
     notifications.send(
         "LifeOS: coach", "Your daily note is ready.", "", settings.notify_script, event="coach",
@@ -586,6 +587,8 @@ def send_daily_notification(settings: Settings, clock: Clock | None = None) -> b
 
 
 NUDGE_GAP = timedelta(hours=2)
+DAILY = "(daily)"  # stands for the daily note in the day's count when it named no message
+DROPPED = "(dropped)"  # a nudge whose turn fell in quiet hours: counted, never sent later
 
 
 def send_nudges(settings: Settings, clock: Clock | None = None) -> bool:
@@ -593,11 +596,11 @@ def send_nudges(settings: Settings, clock: Clock | None = None) -> bool:
 
     The daily notification is the first nudge of a day. With the frequency
     "3", up to two more follow, taken from the same batch: not before the
-    daily notification, at least two hours apart, never in quiet hours (one
-    that would fall there is not sent that day), never about a task that is
-    done meanwhile or a question that is blocked, and never the same message
-    twice. The push carries the message id, sealed; the text stays fixed.
-    Returns True when one was sent.
+    daily notification, at least two hours apart, never in quiet hours (a
+    nudge whose turn comes in quiet hours is dropped: it counts, and is not
+    sent later), never about a task that is done meanwhile or a question
+    that is blocked, and never the same message twice. The push carries the
+    message id, sealed; the text stays fixed. Returns True when one was sent.
     """
     now = _now(clock)
     today = now.date().isoformat()
@@ -605,16 +608,27 @@ def send_nudges(settings: Settings, clock: Clock | None = None) -> bool:
     with _FILES:
         plan, state, prefs = load_plan(), _read(STATE_FILE), load_settings()
         nudged = state.get("nudges") if isinstance(state.get("nudges"), dict) else {}
-        sent = list(nudged.get("sent") or []) if nudged.get("day") == today else []
-        last = _moment(nudged.get("last_at")) if nudged.get("day") == today else None
+        if nudged.get("day") == today:
+            sent, last = list(nudged.get("sent") or []), _moment(nudged.get("last_at"))
+        elif plan is not None and state.get("notified_day") == today:
+            # The daily note went out before the nudges were counted (the day of an
+            # update): it is the first, sent when the plan says.
+            sent = [plan.get("notification") or DAILY]
+            last = _moment(plan.get("notification_sent_at")) or now
+        else:
+            sent, last = [], None
         if (
             plan is None
             or plan["day"] != today
             or state.get("notified_day") != today  # the daily notification comes first
             or len(sent) >= prefs["nudges_per_day"]
-            or in_quiet_hours(now.time(), prefs)
             or (last is not None and now - last < NUDGE_GAP)
         ):
+            return False
+        if in_quiet_hours(now.time(), prefs):
+            # This nudge's turn came in quiet hours: dropped, not delayed.
+            _write(STATE_FILE, state | {"nudges": {"day": today, "sent": [*sent, DROPPED],
+                                                   "last_at": _iso(now)}})  # fmt: skip
             return False
         waiting = [m for m in _view(plan, tasks, now, state, prefs)["messages"]
                    if m["id"] not in sent]  # fmt: skip
