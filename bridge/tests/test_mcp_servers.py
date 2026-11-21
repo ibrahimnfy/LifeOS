@@ -228,6 +228,10 @@ def test_api_from_listing_to_a_run(
         read_only = client.post(messages, headers=auth, json={"prompt": "y"}).json()
         assert "mcp_servers" not in read_only
         assert "--mcp-config" not in calls(ask_dir)[-1]["args"]
+        # The history shows which answer had servers (#157).
+        page = client.get(f"/sessions/{session_id}/history?limit=3", headers=auth).json()
+        had = [(e["user"], [s["name"] for s in e["mcp_servers"]]) for e in page["exchanges"]]
+        assert had[-2:] == [("x", ["tools"]), ("y", [])]
 
         assert client.delete(f"{base}/tools", headers=auth).json() == {"revoked": True}
         again = client.post(messages, headers=auth, json={"prompt": "z", "mode": "capable"})

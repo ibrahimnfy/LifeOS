@@ -441,9 +441,16 @@ exchanges.
 {"exchanges": [{"id": "…", "at": "2027-01-15T08:00:00.000Z",
                 "user": "…", "assistant": "…",
                 "tools": [{"name": "Read", "count": 3}],
-                "complete": true, "truncated": false}],
+                "complete": true, "truncated": false,
+                "mcp_servers": [{"name": "tools", "outside_sandbox": true}]}],
  "older": "…", "total_exchanges_known": null}
 ```
+
+- `mcp_servers` (#157) lists the MCP servers that answer had, the same as
+  the `done` event's `mcp_servers`; empty for every other answer. The bridge
+  keeps only the names, for the last 200 such answers of the last 200
+  sessions (`~/.config/lifeos/mcp-used.json`); answers from before #157
+  show none.
 
 - An exchange is one message of the owner and the text the assistant wrote
   until the owner's next message. Exchanges are oldest first within a page.
@@ -564,11 +571,14 @@ still answering (`POST /ask` with `session_id`, or
   the client lost): first `live {"session_id", "running", "followable",
   "queue_id": id | null}`, then what the run said so far (text merged into
   one `delta`; `replay_truncated {}` first when more than a million
-  characters were said), then its events as they come (`delta`,
-  `interaction`, `interaction_closed`, `keepalive`, then `done` or `error`),
-  and the stream ends with the run. With no run that can be followed it
-  sends only `live` with `"followable": false` and ends (a plain
-  non-streamed run is not followable). It only reads: it never starts or
+  characters were said), then `replay_end {"events": n}` (#157: everything
+  after it is live; `n` is the number of replayed events), then its events
+  as they come (`delta`, `interaction`, `interaction_closed`, `keepalive`,
+  then `done` or `error`), and the stream ends with the run. With no run
+  that can be followed it sends only `live` with `"followable": false` and
+  `replay_end {"events": 0}`, and ends (a plain non-streamed run is not
+  followable). Through the relay, a phone that stops reading sends
+  `POST /relay/detach` (see "Paired phones and the relay"). It only reads: it never starts or
   resumes a run. A queued message of a client that said `"interactive":
   true` may ask questions and approvals; a follower answers them through
   `POST /sessions/{id}/interactions/{iid}`. `404 session_not_found`.
@@ -1110,7 +1120,11 @@ choice or `"mode": "capable"` is refused (`400`). **Streamed, with a
 compaction first:** one stream that sends `keepalive {}` every 20 seconds
 while the compaction runs, then `compacted {"facts", "summary": bool,
 "session_id"}`, then the message's own events (`session`, `delta`, …,
-`done`); an error before the message runs comes as an `error` event. The
+`done`); an error before the message runs comes as an `error` event. Every
+streamed message whose conversation switched sessions carries `compacted`
+before `session` (#157), also when the conversation only grew too long
+while the message was on its way (then without the keep-alives first); a
+queued answer (`202`) carries it as `"compacted"` in its body. The
 compaction is finished even when the client goes away, and it is never
 interrupted: `POST /sessions/{id}/cancel` on the session being compacted
 answers `409 compaction_running`, and a message sent with `"when": "now"`

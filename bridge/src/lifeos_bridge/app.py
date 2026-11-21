@@ -349,6 +349,21 @@ def create_app(settings: Settings) -> FastAPI:
                 background.add(wake)
                 wake.add_done_callback(background.discard)
 
+    def remember_servers(session_id: str, names: list[str]) -> None:
+        """Tie the servers a finished run had to its exchange in the history (#157).
+
+        Runs of one session never overlap, so the transcript's last exchange is
+        this run's. Best effort: the answer is not held up by a failure here.
+        """
+        try:
+            info = sessions.find_session(session_id, settings.allowed_roots)
+            path = history.transcript_path(info, settings.allowed_roots) if info else None
+            page = history.read_page(path, 1) if path is not None else {"exchanges": []}
+            if page["exchanges"]:
+                mcp_servers.remember_used(session_id, page["exchanges"][-1]["id"], names)
+        except Exception:  # noqa: S110 - a missing note in the history only
+            pass
+
     def expire_approvals() -> None:
         for entry in approvals.take_expired():
             if entry.get("kind") == skill_installs.KIND:
@@ -667,6 +682,10 @@ def create_app(settings: Settings) -> FastAPI:
                                 {"name": name, "outside_sandbox": True} for name in used_servers
                             ]
                             payload["mcp_note"] = mcp_servers.OUTSIDE_SANDBOX
+                            await asyncio.to_thread(
+                                remember_servers, payload.get("session_id") or session_id,
+                                used_servers,
+                            )  # fmt: skip
                     yield event, payload
             except ClaudeError as error:
                 yield "error", {"error": error.code, "message": error.message}
@@ -1495,9 +1514,30 @@ def create_app(settings: Settings) -> FastAPI:
             )
         session_id, compacted = await asyncio.shield(prepare)
         answer = await coach_message(data, session_id)
-        if compacted is not None and isinstance(answer, dict):
+        if compacted is None:
+            return answer
+        # The compaction was decided only now (the conversation grew meanwhile): the
+        # answer says so in every form (#157).
+        if isinstance(answer, StreamingResponse):
+            return StreamingResponse(
+                with_compacted(compacted, answer.body_iterator),
+                status_code=answer.status_code,
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        if isinstance(answer, JSONResponse):  # it waits in the queue
+            body = json.loads(answer.body)
+            if isinstance(body, dict):
+                body["compacted"] = compacted
+            return JSONResponse(body, status_code=answer.status_code)
+        if isinstance(answer, dict):
             answer["compacted"] = compacted
         return answer
+
+    async def with_compacted(compacted: dict, body: AsyncIterator) -> AsyncIterator[bytes]:
+        yield sse("compacted", compacted)
+        async for chunk in body:
+            yield chunk if isinstance(chunk, bytes) else chunk.encode()
 
     async def prepare_coach_session() -> tuple[str, dict | None]:
         """The coach session a message goes to, compacted first when it grew too long."""
@@ -1558,7 +1598,12 @@ def create_app(settings: Settings) -> FastAPI:
         path = history.transcript_path(info, settings.allowed_roots)
         if path is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
-        return history.read_page(path, limit, before or None)
+        page = history.read_page(path, limit, before or None)
+        used = mcp_servers.used_in(info.id)  # the servers an answer had (#157)
+        for exchange in page["exchanges"]:
+            names = used.get(exchange["id"], [])
+            exchange["mcp_servers"] = [{"name": n, "outside_sandbox": True} for n in names]
+        return page
 
     @app.get("/sessions/{session_id}/commands")
     async def session_commands(session_id: str):

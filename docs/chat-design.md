@@ -356,6 +356,42 @@ Three gaps the chat screen found, closed in the bridge:
   effort, switches (skills, reply notifications, pinned, group), whether it
   runs here or is open elsewhere, and its waiting messages.
 
+### 7.3 Streams, cards and live follow (#157)
+
+- **Leaving a stream frees the relay.** The relay has four workers, and a
+  stream holds one while it runs. When the app stops reading a stream (the
+  screen locks, another session opens, the connection breaks) it sends
+  `POST /relay/detach` with `{"r": "<request id of the stream>"}` through
+  the relay; the answer is `{"detached": true|false}`. A `/live` follower
+  is closed at once. A chat stream is never cut: its run goes on to the
+  end, and the app picks it up again with `GET /sessions/{id}/live` when it
+  returns. If the app could not send the detach (killed, offline), the
+  relay lets go by itself once the stream's messages wait unread for about
+  a minute. Repeated lock and unlock during one long run therefore never
+  exhausts the workers.
+- **Live follow, caught up.** `GET /sessions/{id}/live` sends
+  `replay_end {"events": n}` after what the run said so far. Until then
+  the app shows the replay as one block ("catching up"); after it, the text
+  streams as usual. Without a followable run the stream is `live`,
+  `replay_end`, end.
+- **Approval cards stay until the answer took effect.** A refused answer
+  leaves the card waiting, with its files: `409 still_downloading` (the
+  skill is still being fetched: keep the card, enable "Install" when its
+  state is `ready`), `409 skill_exists`, `503 audit_unavailable`,
+  `500 install_failed`. The app shows the error and keeps the card. A
+  failed skill card carries `error_code` next to the `error` sentence, so
+  the app can word it itself (codes in `bridge.md`, "Skill installs").
+- **One MCP card per definition.** Asking again for an MCP server whose
+  card already waits returns that card (`"already_waiting": true`) and wakes
+  no phone a second time.
+- **History shows the servers.** Each history exchange carries
+  `mcp_servers` (the MCP servers that answer had), so a re-read
+  conversation shows the same "outside the sandbox" note as the live one.
+- **The coach conversation always says when it switched sessions.** A
+  streamed coach message sends `compacted` before `session` whenever its
+  conversation was compacted first, including when that was decided only
+  after the message was sent.
+
 ## 8. Build issues
 
 | Part | Bridge | App |

@@ -96,6 +96,7 @@ def test_one_exchange_has_the_documented_shape(client, auth, ask_dir, write_sess
                 "tools": [],
                 "complete": True,
                 "truncated": False,
+                "mcp_servers": [],  # the MCP servers that answer had (#157)
             }
         ],
         "older": None,

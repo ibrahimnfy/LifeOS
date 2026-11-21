@@ -81,6 +81,7 @@ class Live:
         """What the current run said so far, then its events live, until it ends."""
         run = self._runs.get(session_id)
         if run is None:
+            yield "replay_end", {"events": 0}  # nothing to replay, nothing live
             return
         follower: asyncio.Queue = asyncio.Queue()
         replay = list(run["events"])
@@ -90,6 +91,8 @@ class Live:
                 yield "replay_truncated", {}
             for item in replay:
                 yield item
+            # Everything after this is live (#157): the app can stop showing "catching up".
+            yield "replay_end", {"events": len(replay)}
             while True:
                 item = await follower.get()
                 if item is END:

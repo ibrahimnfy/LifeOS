@@ -27,6 +27,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +38,10 @@ from .config import config_dir
 
 KIND = "mcp_server"
 FILE_NAME = "mcp-approvals.json"
+USED_FILE = "mcp-used.json"  # which servers an answer had, for the history (#157)
+USED_PER_SESSION = 200
+USED_SESSIONS = 200
+_used_lock = threading.Lock()
 MAX_BYTES = 64 * 1024
 OUTSIDE_SANDBOX = (
     "An approved MCP server runs outside the sandbox: it can use the network and read and "
@@ -204,6 +209,30 @@ def for_run(folder: Path) -> dict[str, dict]:
         for name, spec in definitions(folder).items()
         if name in approved and approved[name].get("hash") == definition_hash(spec)
     }
+
+
+def remember_used(session_id: str, exchange_id: str, names: list[str]) -> None:
+    """Which servers an answer had (#157), so its history can show them again.
+
+    Only names, keyed by the history's exchange id; the last ``USED_PER_SESSION``
+    answers of the last ``USED_SESSIONS`` sessions.
+    """
+    with _used_lock:
+        data = store.read_json(config_dir() / USED_FILE, {})
+        data = data if isinstance(data, dict) else {}
+        answers = data.pop(session_id, None)
+        answers = answers if isinstance(answers, dict) else {}
+        answers.pop(exchange_id, None)
+        answers[exchange_id] = sorted(names)
+        data[session_id] = dict(list(answers.items())[-USED_PER_SESSION:])
+        store.write_json(config_dir() / USED_FILE, dict(list(data.items())[-USED_SESSIONS:]))
+
+
+def used_in(session_id: str) -> dict[str, list[str]]:
+    """Exchange id → names of the servers that answer had."""
+    data = store.read_json(config_dir() / USED_FILE, {})
+    answers = data.get(session_id) if isinstance(data, dict) else None
+    return answers if isinstance(answers, dict) else {}
 
 
 def run_config(servers: dict[str, dict]) -> str:
