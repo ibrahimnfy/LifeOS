@@ -101,21 +101,26 @@ class Api(private val transport: Transport) {
         return read(NoteSaved.serializer(), call("POST", "/notes", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS))
     }
 
-    /** A new task; [clientId] as for [addNote]. */
-    suspend fun addTask(title: String, due: String?, clientId: String? = null): TaskSaved {
+    /** A new task; [clientId] as for [addNote]; [note] the owner's note (#170), sent only when there is one. */
+    suspend fun addTask(title: String, due: String?, clientId: String? = null, note: String? = null): TaskSaved {
         val body = buildJsonObject {
             put("title", JsonPrimitive(title))
             if (due != null) put("due", JsonPrimitive(due))
+            TaskNote.of(note)?.let { put("note", JsonPrimitive(it)) }
             if (clientId != null) put("client_id", JsonPrimitive(clientId))
         }
         return read(TaskSaved.serializer(), call("POST", "/tasks", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS))
     }
 
-    /** Change a task's title and due date; a null [due] removes the date. */
-    suspend fun editTask(id: String, title: String, due: String?) {
+    /**
+     * Change a task's title and due date; a null [due] removes the date. [note] (#170): null
+     * leaves the note as it is (not sent), blank removes it, other text replaces it.
+     */
+    suspend fun editTask(id: String, title: String, due: String?, note: String? = null) {
         val body = buildJsonObject {
             put("title", JsonPrimitive(title))
             put("due", if (due == null) JsonNull else JsonPrimitive(due))
+            if (note != null) put("note", TaskNote.of(note)?.let { JsonPrimitive(it) } ?: JsonNull)
         }
         call("PATCH", "/tasks/$id", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }

@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -30,7 +31,8 @@ CONTEXT_LIMIT = 60_000  # characters of memory added to a prompt
 TASK_ID = re.compile(r"\^(t-\d{8}-\d{2,})\s*$")
 EVENT_ID = re.compile(r"\^(e-\d{8}-\d{2,})\s*$")
 FIELD = re.compile(r"\((\w[\w-]*):\s*([^()]*)\)")
-TASK_FIELDS = ("due", "project", "course", "added", "blocked-by", "next", "effort")
+TASK_FIELDS = ("due", "project", "course", "added", "blocked-by", "next", "effort", "note")
+MAX_TASK_NOTE = 500
 
 
 def now_local() -> datetime:
@@ -377,7 +379,7 @@ class Task:
         item: dict = {"id": self.id, "title": self.title, "done": self.done}
         for name in ("due", "project", "course", "added"):
             item[name] = self.fields.get(name)
-        for name in ("blocked-by", "next", "effort", "assignment"):
+        for name in ("blocked-by", "next", "effort", "assignment", "note"):
             if name in self.fields:
                 item[name] = self.fields[name]
         if self.done:
@@ -426,11 +428,28 @@ def find_task(memory: Path, task_id: str) -> Task | None:
     return None
 
 
+def read_task_note(value: object) -> str | None:
+    """The owner's note on a task: one paragraph, or None for no note (null or blank text).
+
+    Line breaks and runs of spaces become one space, so the note stays one ``(note: …)``
+    mark on the task's line; brackets ``()`` become ``[]`` (they would end the mark).
+    Other control characters are refused.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if not isinstance(value, str):
+        raise bad("`note` must be text or null")
+    if any(unicodedata.category(ch) == "Cc" and ch not in "\t\n\r" for ch in value):
+        raise bad("`note` must not contain control characters")
+    note = clean_line(value, "note", MAX_TASK_NOTE)
+    return note.replace("(", "[").replace(")", "]")
+
+
 def _task_fields(data: dict) -> tuple[str, dict[str, str]]:
     """Title and fields of a new task, validated."""
-    unknown = set(data) - {"title", "due", "project", "course"}
+    unknown = set(data) - {"title", "due", "project", "course", "note"}
     if unknown:
-        raise bad("allowed fields: title, due, project, course, client_id")
+        raise bad("allowed fields: title, due, project, course, note, client_id")
     title = clean_line(data.get("title"), "title", MAX_TITLE)
     if "(" in title or ")" in title:
         title = title.replace("(", "[").replace(")", "]")
@@ -443,11 +462,17 @@ def _task_fields(data: dict) -> tuple[str, dict[str, str]]:
             if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", value):
                 raise bad(f"`{name}` must be a file name such as example-project")
             fields[name] = value
+    note = read_task_note(data.get("note"))
+    if note is not None:
+        # Only when set: a create without a note keeps the fingerprint it always had.
+        fields["note"] = note
     return title, fields
 
 
 def _append_task(memory: Path, title: str, fields: dict[str, str], now: datetime) -> Task:
     """Write one new open task (the caller holds the lock and commits)."""
+    if "note" in fields:  # the owner's note is the last mark, right before the id
+        fields = {**{k: v for k, v in fields.items() if k != "note"}, "note": fields["note"]}
     path = memory / "tasks.md"
     current = read_text(path) or "# Tasks\n\n## Open\n"
     done_text = read_text(memory / "tasks-done.md")
@@ -525,9 +550,13 @@ def add_task(memory: Path, data: dict, now: datetime | None = None) -> Task:
 
 
 def update_task(memory: Path, task_id: str, data: dict, *, commit_now: bool = True) -> Task:
-    """Change a task's title or due date (``"due": null`` removes the date)."""
-    if not data or set(data) - {"title", "due"}:
-        raise bad("allowed fields: title, due")
+    """Change a task's title, due date or note (``null`` removes the date or the note).
+
+    Every other mark of the line (course, assignment, the coach's ``next`` …) is kept.
+    """
+    if not data or set(data) - {"title", "due", "note"}:
+        raise bad("allowed fields: title, due, note")
+    note = read_task_note(data["note"]) if "note" in data else None
     with LOCK:
         check_repo(memory)
         path = memory / "tasks.md"
@@ -548,6 +577,11 @@ def update_task(memory: Path, task_id: str, data: dict, *, commit_now: bool = Tr
                         "due": due,
                         **{k: v for k, v in task.fields.items() if k != "due"},
                     }
+            if "note" in data:
+                if note is None:
+                    task.fields.pop("note", None)
+                else:
+                    task.fields["note"] = note  # a new note goes last, a changed one stays put
             lines[index] = task.line()
             write_text(path, "\n".join(lines) + "\n")
             if commit_now:

@@ -266,14 +266,17 @@ with plain HTTPS requests.
   task the course sync made from an assignment (`assignment: moodle-<id>`,
   its course folder ending in the course id) opens that assignment's page
   below the same tab; any other task opens its card, a bottom sheet with
-  its title, due date, its note (the coach's next step, when it has one),
-  its course or project, **Mark as done** and **Edit**. Edit turns the card
-  into the form for the title and the due date (or no date); the change is
-  shown at once with "Waiting to sync" until the computer confirmed it. A
-  task captured on this phone that has not been sent yet opens the same
-  card and can be edited (it then leaves with the new title and date) and
+  its title, due date, the owner's own note (#170, under "Note"), the
+  coach's next step (a separate block, under "Next step"), its course or
+  project, **Mark as done** and **Edit**. Edit turns the card into the form
+  for the title, the due date (or no date) and the note (one paragraph, up
+  to 500 characters, empty for none); the change is shown at once with
+  "Waiting to sync" until the computer confirmed it. The note is sent only
+  when it was changed, so a title or date edit never touches it. A task
+  captured on this phone that has not been sent yet opens the same card and
+  can be edited (it then leaves with the new title, date and note) and
   ticked (the tick waits behind it and names the computer's id once the
-  task arrived).
+  task arrived). Capturing a task under "+" can include a note.
 - **Chat** (the tab): the coach's conversation pinned on top, the chat in
   progress, the three most recent sessions with **All
   sessions**, and **New chat**. New chat (here, in a conversation's and the
@@ -1220,6 +1223,37 @@ task from an assignment (its line in `tasks.md` has `(assignment: moodle-…)`).
 6. Turn the phone while a card is open: it stays open. Lock the app with a
    card open: after unlocking the card is closed.
 7. In Turkish and in dark mode the card is fully translated and readable.
+
+### A task's note (#170)
+
+Paired, with the bridge running.
+
+1. **Capture with a note:** **+** → type a title → **Task**: under the date
+   a "Note (optional)" field appears. Type two lines (Enter gives a space),
+   for example `Bring the (old) notes`, **Save**: "Saved". Tap the task: the
+   card shows the note under "Note". `tasks.md` has the task on one line
+   ending in `(note: Bring the [old] notes) ^t-…`. A task saved without a
+   note has no "Note" block and no `(note:` on its line.
+2. **Edit the note:** in the card **Edit** → change only the note, **Save**:
+   "Saved", the card shows the new note when tapped again, and the line in
+   `tasks.md` has it (title and date unchanged). Edit only the title: the
+   note stays. Empty the note field and Save: the "Note" block is gone and
+   so is `(note:` on the line.
+3. **Next step stays apart:** on a task the coach gave a next step, add a
+   note: the card shows "Note" and "Next step" as two blocks, and the line
+   keeps both `(next: …)` and `(note: …)`.
+4. **Offline:** flight mode on; capture a task with a note: it shows
+   "Waiting to sync" and its card shows the note. **Edit** its note, Save.
+   Edit the note of a task already on the computer too. Flight mode off:
+   within seconds `tasks.md` has the new task once, with the edited note,
+   and the other task's new note.
+5. **The course sync keeps it:** add a note to a task made from an
+   assignment (on the computer, `PATCH /tasks/{id}` with `{"note": "…"}`, see
+   `docs/bridge.md`); after the next sync that moves its date or completes
+   it, the line (in `tasks.md` or `tasks-done.md`) still has the note.
+6. The 500-character limit: pasting a longer text into the note field
+   keeps the first 500 characters. In Turkish the labels read "Not" and
+   "Not (isteğe bağlı)".
 
 ### Renewing the Moodle sign-in on the phone
 

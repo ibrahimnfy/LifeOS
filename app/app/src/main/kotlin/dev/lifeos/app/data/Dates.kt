@@ -82,12 +82,15 @@ object CoachRotation {
 object TaskLists {
     /**
      * Open tasks without those the owner already ticked here (the tick is waiting or unclear),
-     * each shown with the title and date of its latest edit that is still on its way.
+     * each shown with the title, date and note of its latest edit that is still on its way (an
+     * edit without a note, from before #170, leaves the note as it is).
      */
     fun open(tasks: List<Task>, outbox: List<OutboxItem>, justTicked: Set<String> = emptySet()): List<Task> {
         val ticked = outbox.filter { it.kind == OutboxItem.Kind.COMPLETE && it.state != OutboxItem.State.FAILED }.mapNotNull { it.taskId }.toSet()
         return tasks.filter { !it.done && it.id !in ticked && it.id !in justTicked }.map { task ->
-            pendingEdit(task.id, outbox)?.let { task.copy(title = it.text, due = it.due) } ?: task
+            pendingEdit(task.id, outbox)?.let { edit ->
+                task.copy(title = edit.text, due = edit.due, note = if (edit.note == null) task.note else TaskNote.of(edit.note))
+            } ?: task
         }
     }
 
