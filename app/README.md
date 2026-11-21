@@ -724,7 +724,12 @@ Nothing on these screens is sample content any more. Not paired, they show
     by itself:** when the time is over it only closes the card (the computer
     counts the silence as "no"), and a tap after that sends nothing. The
     time left is the computer's waiting time counted on the phone's running
-    clock, so the two wall clocks need not agree. `404 not_pending` is shown
+    clock, so the two wall clocks need not agree. (A card that is read from
+    the computer's list, or that arrives through a followed run, where it may
+    be a replay, has only its end time: its time left is that against the
+    phone's wall clock, so a clock that is off shortens or lengthens what the
+    card shows. The computer alone decides when the time is over, and a card
+    it still lists stays answerable.) `404 not_pending` is shown
     as "no longer waiting"; an answer that could not be sent can be given
     again. **One list for everything that waits** (`GET
     /sessions/{id}/interactions`): the app reads it whenever a conversation

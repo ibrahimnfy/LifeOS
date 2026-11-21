@@ -924,15 +924,22 @@ class Chat(
         named = true
         change(generation) { state ->
             val row = queueId?.let { id -> state.queue.firstOrNull { it.id == id } ?: synchronized(taken) { taken[id] } }
-            // What the run said so far comes again with the stream: the unfinished answer on screen gives way to it.
             val last = state.messages.lastOrNull()
-            var messages = if (last != null && !last.fromOwner && last.incomplete) state.messages.dropLast(1) else state.messages
-            val asked = messages.lastOrNull()?.takeIf { it.fromOwner }
+            val unfinished = last != null && !last.fromOwner && last.incomplete
+            val before = if (unfinished) state.messages.dropLast(1) else state.messages
+            val asked = before.lastOrNull()?.takeIf { it.fromOwner }
+            // What the run said so far comes again with the stream, so this run's unfinished answer on
+            // screen gives way to it. An unfinished answer of the run before (stopped for this
+            // message, or broken off) is not this run's: it stays as it is.
+            val own = row == null || (asked != null && same(asked.text, row.prompt))
+            var messages = if (own) before else state.messages
             if (row != null) {
                 prompt = row.prompt
-                if (asked == null || !same(asked.text, row.prompt)) messages = messages + ChatMessage(row.key, true, row.prompt)
+                if (!own) messages = messages + ChatMessage(row.key, true, row.prompt)
             }
-            known = row != null || awaiting != null || asked != null
+            // A message of this app whose answer was never seen to its end, and now another one is
+            // being answered: only the computer's conversation says what became of the first.
+            known = (row != null || awaiting != null || asked != null) && !(queueId != null && awaiting != null)
             state.copy(
                 messages = messages,
                 queue = if (queueId != null) state.queue.filter { it.id != queueId } else state.queue,

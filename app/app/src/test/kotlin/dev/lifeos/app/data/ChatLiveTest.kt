@@ -137,6 +137,93 @@ class ChatLiveTest {
     }
 
     @Test
+    fun `an answer that was stopped for a waiting message keeps what was written of it`() = runTest {
+        history(Triple("Earlier", "Answer", true))
+        queue(false)
+        val chat = opened()
+        val stopped = CompletableDeferred<Unit>()
+        var first = true
+        transport.events = { call ->
+            if (first) {
+                first = false
+                flow {
+                    emit(event("session", """{"session_id":"s-1"}"""))
+                    emit(event("delta", """{"text":"One two"}"""))
+                    stopped.await()
+                    emit(event("error", """{"error":"cancelled"}"""))
+                    emit(done())
+                }
+            } else {
+                flow { emit(done(202, """{"queued":true,"queue_id":"q-${prompt(call)}","position":0}""")) }
+            }
+        }
+        chat.send("Count")
+        runCurrent()
+        chat.send("Urgent")
+        runCurrent()
+        transport.answers["POST /sessions/s-1/queue/q-Urgent/send-now"] = {
+            stopped.complete(Unit)
+            RelayResponse(200, json("""{"promoted":true,"queue_id":"q-Urgent","interrupted_current_run":true,"queue":[{"id":"q-Urgent","prompt":"Urgent"}]}"""))
+        }
+        queue(true)
+        live("q-Urgent") { emit(event("done", """{"answer":"Right away.","session_id":"s-1"}""")) }
+        chat.sendNow(chat.state.value.queue.single().key)
+        advanceUntilIdle()
+        // The interrupted answer is still there, marked as unfinished; the urgent message follows it.
+        assertEquals(listOf("me:Earlier", "it:Answer", "me:Count", "it:One two", "me:Urgent", "it:Right away."), texts(chat))
+        assertTrue(chat.state.value.messages[3].incomplete)
+        assertFalse(chat.state.value.stopping)
+        assertNull(chat.state.value.failure)
+        assertEquals(ChatPhase.IDLE, chat.state.value.phase)
+    }
+
+    @Test
+    fun `when an answer was lost and the next message is already being answered, the thread is read at the end`() = runTest {
+        history(Triple("Earlier", "Answer", true))
+        queue(false)
+        val chat = opened()
+        val lost = CompletableDeferred<Unit>()
+        var first = true
+        transport.events = { call ->
+            if (first) {
+                first = false
+                flow {
+                    emit(event("session", """{"session_id":"s-1"}"""))
+                    emit(event("delta", """{"text":"One"}"""))
+                    lost.await()
+                    throw ApiException(ApiException.Kind.UNCERTAIN)
+                }
+            } else {
+                flow { emit(done(202, """{"queued":true,"queue_id":"q-${prompt(call)}","position":0}""")) }
+            }
+        }
+        chat.send("Count")
+        runCurrent()
+        chat.send("Later")
+        runCurrent()
+        // The first answer stops arriving; by then the computer has finished it and sends the waiting message.
+        queue(true)
+        val going = CompletableDeferred<Unit>()
+        live("q-Later") {
+            emit(event("delta", """{"text":"Second"}"""))
+            going.await()
+            emit(event("done", """{"answer":"Second answer.","session_id":"s-1"}"""))
+        }
+        lost.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("me:Earlier", "it:Answer", "me:Count", "it:One", "me:Later", "it:Second"), texts(chat))
+
+        // Only the computer's conversation has the whole first answer: it is read when the second is done.
+        history(Triple("Earlier", "Answer", true), Triple("Count", "One two three", true), Triple("Later", "Second answer.", true))
+        queue(false)
+        going.complete(Unit)
+        advanceUntilIdle()
+        assertEquals(listOf("me:Earlier", "it:Answer", "me:Count", "it:One two three", "me:Later", "it:Second answer."), texts(chat))
+        assertEquals(ChatPhase.IDLE, chat.state.value.phase)
+        assertNull(chat.state.value.failure)
+    }
+
+    @Test
     fun `a run that is in progress when the conversation is opened is attached to, with its cards`() = runTest {
         history(Triple("Earlier", "Answer", true), Triple("Count", "1 2", false))
         queue(true)
