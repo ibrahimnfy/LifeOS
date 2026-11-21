@@ -36,6 +36,7 @@ import select
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -553,6 +554,75 @@ def sign_in(url: str, use_handler: bool, ask_again: bool) -> None:
     store_token(token, issuer or NO_ISSUER)
     print("Saved the token in the private env file (mode 600).")
     report(url, token)
+
+
+# ---- the phone's sign-in (#100) --------------------------------------------------
+#
+# The app opens the same launch link in a browser tab on the phone, receives the
+# ``moodlemobile://token=…`` address, checks it against the one-time passport and
+# sends it here through the sealed channel. The bridge checks it again, asks the
+# site whether the token works, and only then stores it. The passport lives in
+# memory only, for one attempt, for a limited time.
+
+PHONE_SIGNIN_SECONDS = 600
+_phone_signin: dict = {}
+_PHONE_LOCK = threading.Lock()
+
+
+class SignInNotStarted(LoginError):
+    """No sign-in from the phone is waiting (none started, expired or already used)."""
+
+
+def start_phone_signin(now: float | None = None) -> dict:
+    """A launch link for the phone, with the passport it must check the answer with.
+
+    Never asks anything: the sign-in button chosen at the computer is reused when the
+    site still offers it, otherwise the site's own choice applies.
+    """
+    url = site_url()
+    config = public_config(url)
+    wwwroot = str(config.get("wwwroot") or url).rstrip("/")
+    remembered = read_env_file(config_dir() / ENV_FILE_NAME).get(ISSUER_KEY, "").strip()
+    offered = {choice["issuer"] for choice in providers(config) if choice["issuer"]}
+    issuer = remembered if remembered in offered else None
+    passport = secrets.token_hex(12)
+    link = launch_link(config, passport, issuer)
+    with _PHONE_LOCK:
+        _phone_signin.clear()
+        _phone_signin.update(
+            {
+                "url": url,
+                "wwwroot": wwwroot,
+                "passport": passport,
+                "issuer": issuer,
+                "at": time.time() if now is None else now,
+            }
+        )
+    return {"link": link, "wwwroot": wwwroot, "passport": passport, "scheme": SCHEME,
+            "expires_in": PHONE_SIGNIN_SECONDS}  # fmt: skip
+
+
+def finish_phone_signin(address: object, now: float | None = None) -> dict:
+    """Check the address the phone received, test the token, then store it (in that order).
+
+    The waiting attempt is used up by this call whatever its outcome. Raises
+    :class:`SignInNotStarted`, :class:`LoginError` (not this attempt's answer, or the
+    site cannot be reached) or :class:`TokenRejected`; nothing is stored then.
+    """
+    with _PHONE_LOCK:
+        pending = dict(_phone_signin)
+        _phone_signin.clear()
+    moment = time.time() if now is None else now
+    if not pending or moment - pending["at"] > PHONE_SIGNIN_SECONDS:
+        raise SignInNotStarted("no sign-in from the phone is waiting; start again")
+    if not isinstance(address, str) or not address.startswith(f"{SCHEME}://"):
+        raise LoginError("that is not the address the sign-in ends on")
+    token = token_from_redirect(address, pending["wwwroot"], pending["passport"])
+    facts = check_token(
+        pending["url"], token
+    )  # before storing: a bad value never replaces a good token
+    store_token(token, pending["issuer"] or NO_ISSUER)
+    return {"stored": True, "release": facts["release"], "missing": facts["missing"]}
 
 
 def main(argv: list[str] | None = None) -> int:
