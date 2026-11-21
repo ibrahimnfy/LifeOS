@@ -260,8 +260,10 @@ def test_the_folders_file(configured):
     assert resources.named_folders() is None  # missing: not named yet
     (configured / resources.FOLDERS_FILE).write_bytes(b"\xff\xfe not text")
     assert resources.named_folders() is None  # unreadable: not named either
-    (configured / resources.FOLDERS_FILE).write_text("/srv/books\n  relative/path\n# /x\n~/b\n")
-    folders = resources.named_folders()
+    (configured / resources.FOLDERS_FILE).write_text(
+        "/srv/books\n  relative/path\n# /x\n~nosuchuser-lifeos/books\n~/b\n"
+    )
+    folders = resources.named_folders()  # an unknown ~user is skipped, not an error
     assert folders[0].as_posix() == "/srv/books" and len(folders) == 2  # relative is ignored
     assert folders[1].is_absolute()
     (configured / resources.FOLDERS_FILE).write_text("")
@@ -390,6 +392,7 @@ def test_the_type_is_decided_by_the_first_bytes():
     ("application/pdf", b"<html>not really</html>", "Fake", ("listed", "not_a_document"), None),
     ("application/epub+zip", b"PK\x03\x04" + bytes(60), "Zip", ("listed", "not_a_document"), None),
     ("application/pdf", PDF, "setup.exe", ("downloaded", None), "setup.pdf"),
+    ("application/pdf", PDF, "Physics Vol. 1", ("downloaded", None), "Physics Vol. 1.pdf"),
 ])  # fmt: skip
 def test_names_and_content_types_never_decide(
     synced, settings_, web, named, monkeypatch, kind, body, title, result, name
@@ -554,6 +557,39 @@ def test_the_opener_only_speaks_https(monkeypatch):
     for address in ("http://openstax.org/x", "ftp://openstax.org/x", "data:,x"):
         with pytest.raises(urllib.error.URLError):
             resources._open(address)  # no handler for anything but HTTPS
+
+
+def test_the_real_opener_refuses_a_private_peer(monkeypatch):
+    """The whole chain: an HTTPS address whose connection lands on a private address."""
+
+    class Socket:
+        def getpeername(self):
+            return ("192.168.1.20", 443)
+
+        def close(self):
+            pass
+
+    def connect(self):
+        self.sock = Socket()
+
+    monkeypatch.setattr(http.client.HTTPSConnection, "connect", connect)
+    with pytest.raises(urllib.error.URLError, match="private_address"):
+        resources._open("https://books.example.invalid/x.pdf")
+
+
+def test_volumes_of_one_book_are_both_fetched(synced, settings_, web, named, monkeypatch):
+    volumes = [f"https://books.example.invalid/physics-{n}.pdf" for n in (1, 2)]
+    for address in volumes:
+        web.pages[address] = ("application/pdf", PDF + address.encode())
+    answer_with(monkeypatch, {"items": [
+        {"title": f"University Physics Vol. {n}", "url": address, "kind": "open_access_book"}
+        for n, address in zip((1, 2), volumes, strict=True)
+    ]})  # fmt: skip
+    go(settings_)
+    assert statuses() == {"University Physics Vol. 1": ("downloaded", None),
+                          "University Physics Vol. 2": ("downloaded", None)}  # fmt: skip
+    folder = synced / FOLDER_A / "resources"
+    assert (folder / "University Physics Vol. 2.pdf").is_file()
 
 
 # ---- the daily summary ------------------------------------------------------------------

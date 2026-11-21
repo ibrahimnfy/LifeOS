@@ -203,7 +203,10 @@ def named_folders() -> list[Path] | None:
     for line in text.splitlines():
         line = line.strip()
         if line and not line.startswith("#"):
-            path = Path(line).expanduser()
+            try:
+                path = Path(line).expanduser()
+            except RuntimeError:  # ~someone who does not exist: skipped
+                continue
             if path.is_absolute():
                 folders.append(path)
     return folders
@@ -424,7 +427,9 @@ def _download(
         suffix = document_suffix(head)
         if suffix is None:
             return None, "not_a_document"
-        stem = moodle_sync.safe_file_name(wanted, 100).rsplit(".", 1)[0] or "document"
+        # Only a real extension is dropped ("setup.exe"), never "Vol. 1" or "3.2".
+        stem = re.sub(r"\.[A-Za-z][A-Za-z0-9]{0,4}$", "", moodle_sync.safe_file_name(wanted, 100))
+        stem = stem.rstrip(". ") or "document"
         taken = {p.name.casefold() for p in folder.iterdir()}
         name = moodle_sync.free_name(stem + suffix, taken, folder)
         temporary = folder / (name + ".part")
