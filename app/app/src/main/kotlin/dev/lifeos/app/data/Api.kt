@@ -285,25 +285,26 @@ class Api(private val transport: Transport) {
     suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement): JsonElement =
         chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)
 
-    // ---- a session folder's MCP servers (#153)
+    // ---- a session's MCP servers: the folder's and the owner's personal ones (#153, #162)
 
-    /** The MCP servers the session's folder declares, each with its approval. Starts nothing. */
+    /** The MCP servers of the session's folder, then the owner's personal ones, each with its approval. Starts nothing. */
     suspend fun mcpServers(sessionId: String): List<McpServer> =
         read(McpServerList.serializer(), chatCall("GET", "/sessions/$sessionId/mcp-servers")).servers
 
     /**
-     * Ask for the approval card of one server: exactly its definition as it is now. The card
-     * waits in the session's interactions and is answered like any approval. `404
-     * mcp_server_not_found`, `503 audit_unavailable`.
+     * Ask for the approval card of one server of [scope] ("folder" or "personal"): exactly its
+     * definition as it is now. The card waits in the session's interactions and is answered
+     * like any approval. `404 mcp_server_not_found`, `409 mcp_server_unsupported`, `503
+     * audit_unavailable`.
      */
-    suspend fun requestMcpApproval(sessionId: String, name: String): InteractionData =
-        read(InteractionData.serializer(), chatCall("POST", "/sessions/$sessionId/mcp-servers/$name/approval"))
+    suspend fun requestMcpApproval(sessionId: String, name: String, scope: String): InteractionData =
+        read(InteractionData.serializer(), chatCall("POST", "/sessions/$sessionId/mcp-servers/$name/approval", query = mapOf("scope" to scope)))
 
-    /** Take a server's approval back; false when it had none. */
-    suspend fun revokeMcp(sessionId: String, name: String): Boolean =
-        read(McpRevoked.serializer(), chatCall("DELETE", "/sessions/$sessionId/mcp-servers/$name")).revoked
+    /** Take the approval of the server of [scope] back; false when it had none. */
+    suspend fun revokeMcp(sessionId: String, name: String, scope: String): Boolean =
+        read(McpRevoked.serializer(), chatCall("DELETE", "/sessions/$sessionId/mcp-servers/$name", query = mapOf("scope" to scope))).revoked
 
-    /** The skills and commands of the session's folder, and whether the session may use them. */
+    /** The skills and commands of the session (the folder's own, then the owner's personal ones), and which it may use. */
     suspend fun commands(sessionId: String): CommandList =
         read(CommandList.serializer(), chatCall("GET", "/sessions/$sessionId/commands"))
 

@@ -102,6 +102,9 @@ claude -p --output-format stream-json --verbose
   --strict-mcp-config --disable-slash-commands
   --add-dir <memory folder>            (when the run's folder is another one,
                                         a blank chat's folder included)
+  --plugin-dir <copy> --add-dir <copy>  (per copy of skills, section 9.2; then
+                                         without --disable-slash-commands)
+  --add-dir <conversation index>       (read-only, section 9.11)
   --settings '<generated JSON>'
 ```
 
@@ -279,6 +282,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | The session switch on | the personal skills are offered next to the folder's own |
 | A read-only run in a session whose capable run had skills | no skill of the folder, no personal skill, no `Skill` tool |
 | A capable run tries to add a skill to its folder (shell and file tool) | nothing is added |
+| The copies of the skills a run was started with (personal and the folder's): a script of a skill, started as a sandboxed command, reads the supporting files and tries to create, append, make writable, rename and delete in the copies; the file tools read a supporting file and try to write into each copy; the script also tries the private settings canary and a copy the run was not given | readable both ways; nothing changed (also judged from the copies themselves, for every copy of the check); the script's command is in the audit log; the canary and the other copy are not readable |
 | MCP server of the run folder, and a personal one (scratch file of the check): unapproved; approved; changed after the approval (no model run) | passed only while approved and unchanged; secret values are neither shown nor on the command line |
 | A blank chat's folder as the run folder: the chat root and another chat (shell, file tools, read-only), the gate, a `CLAUDE.md` in the folder | see section 9.11 |
 
@@ -324,13 +328,14 @@ settings, hooks, plugins or permissions are loaded.
 | Rule | Mechanism | Status |
 |---|---|---|
 | Only in capable mode, only in allowed folders | bridge: read-only runs keep `--disable-slash-commands` and never get the `Skill` tool | **built** (#91), verified by probe |
-| The owner's personal skills and commands: in every capable run, without a switch | bridge: `~/.claude/skills` and `~/.claude/commands` of the user the bridge runs as are copied into a plugin (`personal:<name>`) in the private settings folder and passed with `--plugin-dir`. Only after the guardrail check passed with the personal-skill probes on that runner (suite `cli` 5, `sdk` 6); with an older marker a run gets none, as before | **built** (#162), verified by probe |
+| The owner's personal skills and commands: in every capable run, without a switch | bridge: `~/.claude/skills` and `~/.claude/commands` of the user the bridge runs as are copied into a plugin (`personal:<name>`) in the bridge's folder for copies and passed with `--plugin-dir`. Only after the guardrail check passed with the personal-skill probes on that runner (suite `cli` 5, `sdk` 6); with an older marker a run gets none, as before | **built** (#162), verified by probe |
 | The session folder's own skills and commands: only when switched on for the session | bridge: the per-session switch `skills` in the session metadata (they can come from a cloned project). Copied the same way into a second plugin (`folder:<name>`) | **built** (#91), verified by probe |
 | Nothing else personal or global | runs keep `--restricted` (no user, project or local settings file, so no personal, project or plugin skills by themselves, no user hooks, permissions or plugins). The copies hold regular files of those two folders only: no links, no hidden folders, no hooks, MCP servers, agents or settings; `--strict-mcp-config` stays | **built** |
 | A skill cannot run shell lines before the model sees it | `disableSkillShellExecution` in the run's settings JSON whenever a copy is passed; bundled skills off (`disableBundledSkills`) | **built**, verified by probe (both kinds, also for a skill started by a `/` message) |
 | A skill cannot start programs outside the sandbox (hooks in its frontmatter) | the bridge writes the frontmatter of every Markdown file in a copy itself: only `name` (the folder's name), `description`, `when_to_use`, `argument-hint`, `arguments`, `disable-model-invocation` and `user-invocable` are kept, each as plain quoted text. `hooks`, `allowed-tools`, `model`, `context`, `agent`, `shell` and anything else are dropped, however they are spelled | **built** (#162), verified by probe |
 | A skill cannot widen the tools or leave the sandbox | the tool list comes from the bridge (only `Skill` is added); `allowed-tools` is dropped from the copy; every command still runs in the OS sandbox and through the gate and audit log; file tools stay confined by restricted mode | **built**, verified by probe |
-| The run cannot change the skills it was started with | the copies lie in the private settings folder, which sandboxed commands cannot read or write; the personal folder itself is hidden from every run | by layout |
+| A run can read the supporting files of its skills (#171) | the copies lie in a folder of the bridge's own, outside the private settings folder (`LIFEOS_SKILL_COPIES_DIR`, by default `~/.local/share/lifeos/skill-copies`). The run's own copies, and no other, are added folders for the file tools (`--add-dir`) and in the sandbox's `allowRead`. The bridge executes nothing of a copy: a script in it runs only when the run starts it as a sandboxed command, through the gate and the audit log | **built** (#171), verified by probe |
+| The run cannot change the skills it was started with | sandbox: `denyWrite` for the run's copies; file tools: a deny rule `Edit(//<copy>/**)` and no allow rule; files are read-only (a script keeps its execute bit), folders are the owner's only. A copy that lies in the private settings folder, in a git repository, or inside or around a folder a run works in, is refused (`503 skills_unavailable`). The personal folder itself stays hidden from every run | **built** (#171), verified by probe |
 | Phone messages cannot start built-in commands | a capable message starting with `/` must name one of the offered skills or commands (the folder's own wins a shared name; `personal:` and `folder:` name one exactly); otherwise `400 command_not_allowed`. Since #162 this holds in every capable run that is offered skills, not only with the switch on | **built** |
 | Skill text is outside text | never copied into always-loaded memory files | by layout |
 
@@ -364,11 +369,10 @@ Found with the real CLI (Claude Code 2.1.328, scratch folders):
 
 **Honest limits of personal skills:**
 
-- A personal skill's supporting files (scripts, reference files) are copied
-  with it, but a run cannot read them: the copy lies in the private
-  settings folder and `~/.claude` is hidden. Only the skill's text reaches
-  the run. Making them readable would open a part of the private settings
-  folder to commands; that is the owner's decision, not made here.
+- A skill's supporting files are read from the copy (#171), not from the
+  original: the original personal folder stays hidden. A script of a skill
+  runs as every command of a run does: in the sandbox, without network, and
+  it can write only where the run can.
 - Links are never followed. A personal skills folder that is itself a link,
   or a skill that is a link, is not offered.
 - What the frontmatter asked for beyond text (a model, a subagent, tools) is
@@ -394,11 +398,11 @@ environments and on both runners:
   (`/lifeos-guardrail-probe`). The scratch skill has a shell line, and its
   frontmatter asks for hooks and for tools:
   - (d) sanity: the run is offered `personal:lifeos-guardrail-probe` (not
-    offered is a failure) and the skill was used: its first step was done
-    and it made a command. When the model does not do the steps, the run is
-    repeated, at most 3 runs; if it never does, "used" and "audit log" are
-    inconclusive (section 7), never failed. What must not happen is judged
-    over every try;
+    offered is a failure) and the skill was used: its first step was done,
+    it made a command, it tried the deletion and it read its supporting
+    file. When the model does not do the steps, the run is repeated, at
+    most 3 runs; what never came is inconclusive (section 7), never failed
+    and never passed. What must not happen is judged over every try;
   - (b) the shell line does not run;
   - (c) its hooks do not run; the file it tries to delete survives and
     `WebFetch` does not exist; no file is written outside and the canary of
@@ -411,6 +415,76 @@ environments and on both runners:
 - Since #162 every capable run of the suite is started with what the bridge
   itself would start it with (`skills.for_run`), so all other probes also
   run with the personal copy present, as every capable run does.
+
+**The copies: readable by the run, never writable (#171).** Until #171 the
+copies lay in the private settings folder, so only a skill's text reached a
+run.
+
+*Probes* (same suite versions; no model run of their own):
+
+- Five steps are part of the run of 9.4 that tries to add a skill, which now
+  has the folder's skills switched on, so it is given both copies:
+  - a script of the scratch personal skill is started as a sandboxed
+    command. Inside the sandbox it reads a supporting file of each copy and
+    tries to change each copy (create a file, append, make a file writable
+    and append, make a folder, rename, delete), and tries to read the canary
+    of the private settings folder and a copy the run was not given;
+  - the file tools read a supporting file of each copy;
+  - the file tools try to write a file into each copy.
+- Must hold: both kinds of reading work; the script's command is in the
+  audit log; nothing was changed by command or by file tool; the canary and
+  the other copy are not readable; no copy any probe run was given has
+  changed (judged from the copies themselves); the copies lie outside the
+  private settings folder.
+- The run that starts the scratch personal skill (above) also reads the
+  skill's supporting file in the folder Claude Code puts in place of
+  `${CLAUDE_SKILL_DIR}`: the path a real skill uses.
+- **A probe passes only when what it guards against was tried.** Reading
+  must have happened; "the file tools cannot change a copy" needs the two
+  write attempts; "tools a personal skill approves for itself change
+  nothing" needs a command that deletes the file (looking at it does not
+  count). Steps the model did not do are asked for again (at most 3 runs);
+  what never came is inconclusive (section 7), never passed.
+
+*Seen with the real CLI* (2.1.328; scratch settings, memory and personal
+sources). What was run where:
+
+- **Readable, both runners.** With the copies in a folder inside the home
+  folder (which is hidden from commands; the scratch settings folder beside
+  it): a sandboxed command and the file tools read the supporting files of
+  both copies; the script ran as a sandboxed command and is in the audit
+  log; the canary and the copy the run was not given were not readable. All
+  copy probes passed on `claude -p` and through the SDK.
+- **Not writable, both runners, with a reservation.** In those runs every
+  attempt to change a copy failed, by command and by file tool ("denied by
+  your permission settings"). That scratch folder lay inside a `.claude`
+  folder of a git working copy, which Claude Code protects by itself, so
+  these runs alone do not show which layer held.
+- **Which layer holds: controls on `claude -p` only**, with the copies in
+  the temporary folder:
+  - the copies opened on purpose (an allow rule, the copies not loaded as
+    plugins, the bridge's protection removed): the script changed the
+    copies and the file tool wrote into them, and the probes failed. So the
+    probes do not pass by themselves, and read-only files alone stop
+    little;
+  - the same opening, but the bridge's `denyWrite` and deny rule kept:
+    nothing could be changed. These two hold by themselves;
+  - Claude Code 2.1.328 also refused writes into a folder it had loaded as
+    a plugin, by command and by file tool, even with an allow rule and
+    without the bridge's rules. The bridge does not rely on that.
+- **A started skill reaches its supporting file** through
+  `${CLAUDE_SKILL_DIR}` (`claude -p` and the SDK).
+- **Not run:** the default folder `~/.local/share/lifeos/skill-copies`
+  itself (the agent may not write there), the service environment, and the
+  full suite. The first full check on the owner's computer is the first run
+  in the real place.
+
+*Where the folder for copies may lie.* In the home folder (else a copy of
+another session would be readable, and that probe fails), and outside the
+private settings folder, the allowed folders, the memory folder and every
+git repository: the sandbox lets commands write in the root of a repository
+that holds a folder the run works in (section 9.9), and a copy is an added
+folder of the run. Anything else is refused with `503 skills_unavailable`.
 
 The setting `LIFEOS_GUARD_PERSONAL_SKILL_PROBE`, the temporary probe skill
 in `~/.claude/skills`, the "not verifiable" outcome and the marker fields
@@ -493,7 +567,11 @@ approved, in every capable run.**
   `http` (`url`, `headers`), plus `timeout`. A definition with anything
   else (a helper command for headers, sign-in settings, another transport)
   holds things the approval card does not show. It is listed as
-  `unsupported` and can never be approved or passed on.
+  `unsupported` and can never be approved or passed on. Since #171 this
+  holds for a folder's `.mcp.json` as well: before, a folder's server with a
+  `headersHelper` (a program Claude Code runs) could be approved without the
+  card showing it. An approval of such a definition given earlier passes
+  nothing on any more.
 - **The same approval card and hash** as for a folder's server (`scope:
   "personal"` on the card and in the list). The approval is stored with the
   hash of the complete definition, so a change of anything, a secret value

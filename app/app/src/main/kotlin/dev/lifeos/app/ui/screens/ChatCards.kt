@@ -115,14 +115,14 @@ internal fun InteractionCard(
         if (interaction.sendFailed && open) Notice(stringResource(R.string.interaction_send_failed), alert = true)
         // The computer did not act on the yes; the card still waits there and can be answered again.
         if (open) interaction.refusal?.let { Notice(stringResource(it.textRes(interaction.kind)), alert = true) }
-        interaction.status.resultRes(interaction.kind)?.let { Notice(stringResource(it), alert = false) }
+        interaction.status.resultRes(interaction.kind, personal = interaction.server?.personal == true)?.let { Notice(stringResource(it), alert = false) }
     }
 }
 
-/** What the card says once it is no longer open for an answer. */
-private fun Interaction.Status.resultRes(kind: Interaction.Kind): Int? {
+/** What the card says once it is no longer open for an answer; [personal]: the MCP server is one of the owner's own. */
+private fun Interaction.Status.resultRes(kind: Interaction.Kind, personal: Boolean = false): Int? {
     val install = kind == Interaction.Kind.SKILL_INSTALL
-    if (kind == Interaction.Kind.MCP_SERVER) return mcpResultRes()
+    if (kind == Interaction.Kind.MCP_SERVER) return mcpResultRes(personal)
     return when (this) {
         Interaction.Status.WAITING -> null
         Interaction.Status.SENDING -> R.string.interaction_sending

@@ -332,7 +332,9 @@ Subfolders of the memory folder are fine. Details:
     skills and personal MCP servers (#162) and for chat folders (#163)
     changed both, so the next start checks both once. The approval probes
     may add up to 8 more per environment when the model does not make the
-    needed call at once, and the personal-skill run up to 2 more.
+    needed call at once, the personal-skill run and the skill-copy steps
+    (#171, part of an existing run) up to 2 more each, and the chat-folder
+    shell run 1 more.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner
@@ -861,8 +863,13 @@ user the bridge runs as); it runs nothing and uses no model.
 - **What a run gets is a copy.** Of a skill's or command's frontmatter only
   the name, the description, the argument hints and the two "who may invoke
   it" flags are kept; `hooks`, `allowed-tools`, a model or a subagent are
-  dropped, and shell lines do not run. A personal skill's supporting files
-  are copied but cannot be read by the run (section 9.2, "Honest limits").
+  dropped, and shell lines do not run. The copies lie in the bridge's
+  folder for copies (`LIFEOS_SKILL_COPIES_DIR`, by default
+  `~/.local/share/lifeos/skill-copies`; never inside the private settings
+  folder, an allowed folder, the memory folder or a git repository, else
+  `503 skills_unavailable`). A run can read the supporting files of its
+  skills there (reference files, scripts), with the file tools and from its
+  sandboxed commands, and can never change them (#171; section 9.2).
 - `kind` is `skill` or `command`. A command in a sub-folder is named with
   `:` between the parts (`git/log.md` is `git:log`).
 - `description` is the `description:` of the file's frontmatter, otherwise
@@ -1131,10 +1138,10 @@ the session's pending approvals:
     Claude Code keeps user-scope servers. Nothing else of that file is
     read: no per-project servers, no claude.ai connectors, no plugins.
   - `state` is `not_approved`, `approved` or `changed` (approved, but the
-    definition changed since: not used). A personal server can also be
-    `unsupported`: its definition is not a plain stdio or http one (for
-    example it names a helper command for headers), so it can never be
-    approved.
+    definition changed since: not used), or `unsupported`: its definition
+    is not a plain stdio or http one (for example it names a helper command
+    for headers, which the card would not show), so it can never be
+    approved. Since #171 this holds for a folder's servers too.
   - Values of environment variables and headers are never returned, only
     their names.
   - The same name can appear once per scope: two servers, two approvals.

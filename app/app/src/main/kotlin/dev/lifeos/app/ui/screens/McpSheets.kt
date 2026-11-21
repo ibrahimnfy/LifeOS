@@ -77,15 +77,26 @@ internal fun McpDefinition(server: McpServer) {
     if (server.headerNames.isNotEmpty()) Exact(stringResource(R.string.mcp_headers), server.headerNames.joinToString(", "))
 }
 
-/** What an approval card asks: the server by name, the warning, the definition, the folder. */
+/**
+ * What an approval card asks: the server by name, the warning, the definition, and where the
+ * approval holds: the folder for a folder's server, every folder for a personal one.
+ */
 @Composable
 private fun McpQuestion(server: McpServer, folder: String) {
     val colors = LifeTheme.colors
     CardLabel(stringResource(R.string.mcp_card_label))
-    Text(text = stringResource(R.string.mcp_card_title, server.name), style = LifeType.rowTitle, color = colors.text)
+    Text(
+        text = stringResource(if (server.personal) R.string.mcp_card_title_personal else R.string.mcp_card_title, server.name),
+        style = LifeType.rowTitle,
+        color = colors.text,
+    )
     McpWarning()
     McpDefinition(server)
-    if (folder.isNotBlank()) Exact(stringResource(R.string.mcp_card_folder), folder)
+    if (server.personal) {
+        Text(text = stringResource(R.string.mcp_card_every_folder), style = LifeType.label, color = colors.warn)
+    } else if (folder.isNotBlank()) {
+        Exact(stringResource(R.string.mcp_card_folder), folder)
+    }
 }
 
 @Composable
@@ -105,9 +116,9 @@ internal fun ColumnScope.McpApprovalCard(interaction: Interaction, open: Boolean
     if (open) McpButtons(onApprove)
 }
 
-/** What a settled MCP approval says. */
-internal fun Interaction.Status.mcpResultRes(): Int? = when (this) {
-    Interaction.Status.ALLOWED -> R.string.mcp_approved
+/** What a settled MCP approval says; a [personal] server's approval covers every folder. */
+internal fun Interaction.Status.mcpResultRes(personal: Boolean): Int? = when (this) {
+    Interaction.Status.ALLOWED -> if (personal) R.string.mcp_approved_personal else R.string.mcp_approved
     Interaction.Status.REFUSED -> R.string.mcp_refused
     Interaction.Status.EXPIRED -> R.string.mcp_expired
     Interaction.Status.NOT_DONE -> R.string.mcp_not_done
@@ -117,9 +128,10 @@ internal fun Interaction.Status.mcpResultRes(): Int? = when (this) {
 }
 
 /**
- * The MCP servers of [session]'s folder, from its sheet: each with what would start and its
- * state, "Review and approve" (the computer makes the approval card for exactly that
- * definition, shown here at once and answered like any approval) and "Revoke approval".
+ * The MCP servers [session] can be given, from its sheet: its folder's, then the owner's
+ * personal ones, each with its scope, what would start and its state, "Review and approve"
+ * (the computer makes the approval card for exactly that definition, shown here at once and
+ * answered like any approval) and "Revoke approval". Every request names the scope.
  */
 @Composable
 internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -> Unit) {
@@ -138,6 +150,7 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
     var outcome by remember { mutableStateOf<Interaction.Status?>(null) }
     val notSent = stringResource(R.string.mcp_request_failed)
     val notThere = stringResource(R.string.mcp_request_gone)
+    val unsupported = stringResource(R.string.mcp_request_unsupported)
     val revoked = stringResource(R.string.mcp_revoked)
     val nothingRevoked = stringResource(R.string.mcp_revoke_none)
     val unrecorded = stringResource(R.string.mcp_refusal_unrecorded)
@@ -166,7 +179,11 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
             try {
                 block()
             } catch (error: ApiException) {
-                message = if (error.code == "mcp_server_not_found") notThere else notSent
+                message = when (error.code) {
+                    "mcp_server_not_found" -> notThere
+                    "mcp_server_unsupported" -> unsupported
+                    else -> notSent
+                }
             } finally {
                 busy = false
                 version++
@@ -176,7 +193,7 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
     }
 
     val reviewed = card
-    val server = reviewed?.server
+    val server = reviewed?.scopedServer
     if (reviewed != null && server != null) {
         SheetFrame(stringResource(R.string.mcp_title), onDismiss) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -190,7 +207,7 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
                     }
                     result == null -> McpButtons { approve -> request { answer(reviewed.id, approve) } }
                     else -> {
-                        result.mcpResultRes()?.let { Notice(stringResource(it), alert = false) }
+                        result.mcpResultRes(server.personal)?.let { Notice(stringResource(it), alert = false) }
                         SecondaryButton(
                             text = stringResource(R.string.mcp_back),
                             onClick = {
@@ -224,7 +241,7 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
                                 card = McpApprovals.card(api, session.id, item)
                             }
                         },
-                        onRevoke = { request { message = if (api.revokeMcp(session.id, item.name)) revoked else nothingRevoked } },
+                        onRevoke = { request { message = if (McpApprovals.revoke(api, session.id, item)) revoked else nothingRevoked } },
                     )
                 }
             }
@@ -248,21 +265,34 @@ private fun McpServerRow(server: McpServer, enabled: Boolean, onReview: () -> Un
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(text = server.name, style = LifeType.rowTitle, color = colors.text, modifier = Modifier.semantics { heading() })
+        // Whose server it is, and so where an approval holds.
+        Text(
+            text = stringResource(if (server.personal) R.string.mcp_scope_personal else R.string.mcp_scope_folder),
+            style = LifeType.small,
+            color = colors.muted,
+        )
         Text(
             text = stringResource(
                 when (server.approval) {
                     McpServer.State.NOT_APPROVED -> R.string.mcp_state_not_approved
-                    McpServer.State.APPROVED -> R.string.mcp_state_approved
+                    McpServer.State.APPROVED -> if (server.personal) R.string.mcp_state_approved_personal else R.string.mcp_state_approved
                     McpServer.State.CHANGED -> R.string.mcp_state_changed
+                    McpServer.State.UNSUPPORTED -> R.string.mcp_state_unsupported
                 },
             ),
             style = LifeType.label,
-            color = if (server.approval == McpServer.State.NOT_APPROVED) colors.muted else colors.warn,
+            color = when (server.approval) {
+                McpServer.State.NOT_APPROVED, McpServer.State.UNSUPPORTED -> colors.muted
+                else -> colors.warn
+            },
         )
         McpDefinition(server)
-        Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            if (!approved) LinkAction(stringResource(R.string.mcp_review), onClick = onReview, enabled = enabled)
-            if (server.approval != McpServer.State.NOT_APPROVED) LinkAction(stringResource(R.string.mcp_revoke), onClick = onRevoke, enabled = enabled)
+        // An unsupported server can never be approved: no action at all.
+        if (server.approvable || server.revocable) {
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                if (server.approvable) LinkAction(stringResource(R.string.mcp_review), onClick = onReview, enabled = enabled)
+                if (server.revocable) LinkAction(stringResource(R.string.mcp_revoke), onClick = onRevoke, enabled = enabled)
+            }
         }
     }
 }

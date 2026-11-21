@@ -347,6 +347,31 @@ def check_repositories(writable: list[Path], memory: Path) -> None:
         )
 
 
+def check_copies(copies: list[Path], open_folders: list[Path]) -> None:
+    """Refuse skill copies that lie where they must never be (#171).
+
+    Not in the private settings folder (a run may read its copies, and nothing
+    there may become readable), and neither inside nor around a folder a run
+    works in (it could change them, or read what lies beside them).
+    """
+    private = config_dir().resolve()
+    for copy in copies:
+        misplaced = copy == private or copy.is_relative_to(private) or private.is_relative_to(copy)
+        for folder in open_folders:
+            folder = folder.resolve()
+            misplaced = misplaced or copy.is_relative_to(folder) or folder.is_relative_to(copy)
+        # The sandbox lets commands write in the root of a git repository that holds a
+        # folder the run works in (section 9.9); a copy is an added folder of the run.
+        if misplaced or repository_root(copy) is not None:
+            raise ClaudeError(
+                "skills_unavailable",
+                503,
+                "the folder for the copies of skills (LIFEOS_SKILL_COPIES_DIR) must lie outside "
+                "the private settings folder, the allowed folders, the memory folder and every "
+                "git repository",
+            )
+
+
 def build_policy(
     settings: Settings,
     run_dir: Path,
@@ -368,6 +393,11 @@ def build_policy(
     ``mcp``: the approved, unchanged MCP servers of the folder and of the owner
     (``mcp_servers.for_run``), passed explicitly with permission to call their
     tools; they run outside the sandbox by the owner's approval (#108, #162).
+
+    The copies are readable by the run and never writable (#171): file tools read
+    them as added folders, sandboxed commands through ``allowRead``; ``denyWrite``
+    and a deny rule for the file tools keep both from changing them. A copy that
+    lies where a run could write, or in the private settings folder, is refused.
 
     A blank chat's folder (#163) is accepted like an allowed folder, with the same
     guardrails: the run may write its own chat folder and the memory folder, and
@@ -394,6 +424,8 @@ def build_policy(
         [run_dir] if run_dir == memory or run_dir.is_relative_to(memory) else [run_dir, memory]
     )
     check_repositories(writable, memory)
+    copies = [folder.resolve() for folder in (skills_dir, personal_skills_dir) if folder]
+    check_copies(copies, [*roots, run_dir, memory])
     # The conversation index (#164): in reach of the file tools, read-only. It gets no
     # write permission, and the sandbox is told to deny writes there as well.
     from . import conversations  # local: it needs chats, which needs this module
@@ -409,8 +441,7 @@ def build_policy(
             "excludedCommands": [],
             "filesystem": {
                 "denyRead": list(SANDBOX_HIDDEN),
-                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *shared)}),
-                "denyWrite": [str(p) for p in shared],
+                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *copies, *shared)}),
             },
             "network": {
                 "allowedDomains": [],
@@ -429,7 +460,9 @@ def build_policy(
                 for folder in writable
                 for name in (".claude/**", ".mcp.json")
             ]
-            + [f"Edit({_rule_path(folder)}/**)" for folder in shared],
+            # The copies of the skills a run was started with (#171): read, never changed.
+            # ...and the conversation index (#164).
+            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared)],
         },
         "hooks": {
             "PreToolUse": [
@@ -440,6 +473,12 @@ def build_policy(
             ]
         },
     }
+    if copies or shared:
+        # Whatever else would let commands write there (an added folder, an allow
+        # rule): never the copies, and never the conversation index.
+        settings_json["sandbox"]["filesystem"]["denyWrite"] = [
+            str(folder) for folder in (*copies, *shared)
+        ]
     mcp_config = None
     if mcp:
         from . import mcp_servers  # local: only runs with approved servers need it
@@ -454,7 +493,12 @@ def build_policy(
         tools=claude.CAPABLE_TOOLS,
         capable=True,
         settings_json=json.dumps(settings_json),
-        add_dirs=(*(folder for folder in writable if folder != run_dir), *shared),
+        # Added folders are what the file tools may read besides the run folder.
+        add_dirs=(
+            *(folder for folder in writable if folder != run_dir),
+            *copies,
+            *shared,
+        ),
         skills_dir=skills_dir,
         personal_skills_dir=personal_skills_dir,
         mcp_config=mcp_config,
