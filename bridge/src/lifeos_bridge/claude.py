@@ -50,6 +50,7 @@ PROFILE_TOOLS = frozenset({"Read", "Glob", "Grep", "WebSearch", "WebFetch"})
 CAPABLE_TOOLS = "Read,Glob,Grep,Edit,Write,Bash"
 # The terminal's structured question tool; only runs with an answering host get it.
 QUESTION_TOOL = "AskUserQuestion"
+SKILL_TOOL = "Skill"
 # Not passed to capable runs: they point commands at the desktop session bus.
 SESSION_BUS_VARS = ("XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS")
 
@@ -63,6 +64,9 @@ class Policy:
     # Capable runs: one JSON carrying the sandbox requirement and all grants.
     settings_json: str | None = None
     add_dirs: tuple[Path, ...] = ()
+    # Capable runs with the session's skills on (#91): a copy of the folder's skills
+    # and commands, loaded as a plugin; slash commands and the skill tool are enabled.
+    skills_dir: Path | None = None
     # Allow rules for tools that would otherwise ask, and so be denied in dontAsk
     # (the web tools of the course-resources profile).
     allowed: str = ""
@@ -196,6 +200,8 @@ def run_flags(
         # Nobody is at the computer: never wait for an approval, deny instead.
         prompts = ["--permission-mode", "dontAsk", "--permission-prompts", "none"]
         tools = policy.tools
+    if policy.capable and policy.skills_dir is not None:
+        tools += "," + SKILL_TOOL
     command = [
         *prompts,
         # File tools confined to the working directories; user and project
@@ -203,9 +209,14 @@ def run_flags(
         "--restricted",
         "--tools", tools,
         "--strict-mcp-config",
-        "--disable-slash-commands",
         "--max-turns", str(settings.max_turns),
     ]  # fmt: skip
+    if policy.capable and policy.skills_dir is not None:
+        # Only the copy of the folder's own skills and commands: no personal, project
+        # or plugin ones (restricted mode ignores every settings file and source).
+        command += ["--plugin-dir", str(policy.skills_dir)]
+    else:
+        command += ["--disable-slash-commands"]
     if policy.allowed:
         command += ["--allowedTools", policy.allowed]
     if policy.capable:

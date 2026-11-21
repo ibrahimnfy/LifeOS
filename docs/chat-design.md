@@ -72,10 +72,18 @@ cancel request.
 
 ## 3. Skills and slash commands
 
-**Today:** switched off on purpose. Every run starts with skills and
+**Before #91:** switched off on purpose. Every run starts with skills and
 commands disabled, without MCP servers and with project settings ignored;
 the guardrail probes check that a hook or MCP server inside the run folder
 does not run.
+
+**Built (#91):** capable runs of a session whose `skills` switch is on get
+a copy of the folder's own skills and commands, loaded as a plugin
+(`folder:<name>`). Everything else stays as described here: read-only
+runs, no personal skills, no shell lines, no hooks, MCP servers or project
+settings. It is enabled only after the guardrail check with the skill
+probes passed. Details: `docs/permission-policy.md`, section 9.2; API:
+`docs/bridge.md`, `GET /sessions/{id}/commands`.
 
 What the documentation says, and what follows:
 

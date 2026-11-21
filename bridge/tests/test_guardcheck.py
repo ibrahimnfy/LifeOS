@@ -19,6 +19,7 @@ def signed(runner="cli", **fields):
         "sdk_version": capable.sdk_version(),
         "all_passed": True,
         "scope": "all_allowed_folders",
+        "suite_version": capable.SUITE_VERSION,
     } | fields
     capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
 

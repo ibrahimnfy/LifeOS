@@ -58,7 +58,8 @@ CHECK_TIMEOUT = 3 * 3600
 ORDER = ("cli", "sdk")
 # Short model runs of one check, per environment (terminal, then service).
 # Probes that need no model (invalid settings, nested folders) are not counted.
-PLAN_RUNS = {"cli": 8, "sdk": 12}
+# Suite version 2 (#91) added two skill runs (the skill probes, then read-only).
+PLAN_RUNS = {"cli": 10, "sdk": 14}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 
@@ -97,8 +98,14 @@ def enrolled(settings: Settings) -> list[str]:
 
 
 async def version_key(settings: Settings, runner: str) -> str:
-    """The versions a runner's check depends on, as one text: both, for both runners."""
-    return await capable.claude_version(settings) + " | sdk " + capable.installed_sdk_version()
+    """What a runner's check depends on, as one text: both versions and the probe suite."""
+    return (
+        await capable.claude_version(settings)
+        + " | sdk "
+        + capable.installed_sdk_version()
+        + f" | suite {capable.SUITE_VERSION}"
+        + f" | personal probe {'on' if settings.guard_personal_skill_probe else 'off'}"
+    )
 
 
 def probe_failed(runner: str, check_id: str) -> bool:
@@ -195,9 +202,15 @@ class GuardCheck:
                 entry = {"versions": key, "attempts": 0, "result": "", "next_try": 0}
             try:
                 await capable.check_available(self.settings, None, runner=runner)
-                if entry.get("result") != "passed":
-                    self._save(runner, entry | {"result": "passed"})
-                continue  # verified for exactly these versions
+                # Unverified skill probes are final until the versions or the owner's
+                # setting change (no loop): a changed setting runs the check again.
+                if not capable.suite_outdated(runner) and not capable.skills_recheck_needed(
+                    self.settings, runner
+                ):
+                    if entry.get("result") != "passed":
+                        self._save(runner, entry | {"result": "passed"})
+                    continue  # verified for exactly these versions and this suite
+                # Verified, but by an older probe suite (new probes, #91): run it again.
             except ClaudeError:
                 pass
             if entry.get("result") == "passed" and runner in self.recheck_passed:

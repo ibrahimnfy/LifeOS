@@ -300,12 +300,14 @@ Subfolders of the memory folder are fine. Details:
   with the fixed name `lifeos-guardrail-check`). It also moves an old
   scratch folder to the memory folder's trash.
 - **Plan usage of one restart:** a runner needs a check after an update of
-  Claude Code or the Agent SDK, or when it was never checked.
-  - The `claude -p` suite takes about 8 short runs on the small model per
+  Claude Code or the Agent SDK, after a new version of the probe suite (the
+  skill probes of #91 are suite version 2), or when it was never checked.
+  - The `claude -p` suite takes about 10 short runs on the small model per
     environment.
-  - The SDK suite takes about 12 per environment, because it adds the
+  - The SDK suite takes about 14 per environment, because it adds the
     approval probes.
-  - Both runners in both environments come to **about 40 short runs**.
+  - Both runners in both environments come to **about 48 short runs**. The
+    skill probes add 8 of these (2 runs per environment and runner).
     Probes without a model run (invalid settings, nested folders) are not
     counted.
   - A restart where both markers still match costs nothing.
@@ -454,15 +456,35 @@ the app's composer. It reads only the documented project locations,
 `<folder>/.claude/commands/**/*.md`; it runs nothing and uses no model.
 
 ```json
-{"enabled": false,
- "reason": "skills and commands are not switched on for this session",
+{"enabled": false, "switched_on": false, "capable_only": true, "prefix": "folder:",
+ "reason": "skills are switched off for this session",
  "commands": [{"name": "review", "kind": "command", "description": "…",
                "argument_hint": "<file>", "warnings": ["shell_lines"]}]}
 ```
 
-- **Listed, not yet usable.** Runs still start with skills and commands
-  switched off, so `enabled` is always `false` for now; the per-session
-  switch comes later (see [`chat-design.md`](chat-design.md), section 3).
+- **Usable in capable runs of the session when switched on (#91).**
+  - The owner switches them on per session with `PATCH /sessions/{id}`
+    `{"skills": true}`. The session list and the PATCH answer carry
+    `"skills": true|false`.
+  - `enabled` is true only when the switch is on **and** the guardrail check
+    passed with the skill probes (`docs/permission-policy.md`, section 9.2).
+    Otherwise `reason` says why, in one sentence.
+  - `switched_on` is the owner's switch alone. `capable_only` is always
+    true: read-only runs never get skills.
+  - In a run the skills are named with `prefix` (`folder:review`). A capable
+    message that starts with `/` must name one of the listed entries, with or
+    without the prefix (the bridge adds it). Any other `/...` message (for
+    example a built-in command such as `/config`) is refused with
+    `400 command_not_allowed`.
+  - The assistant can also use the listed skills itself (its `Skill` tool).
+  - If the check passed but could not verify that personal skills are kept
+    out, `reason` is the marker's `skills_unverified_reason`. This happens
+    when there is no personal skill to test with and
+    `LIFEOS_GUARD_PERSONAL_SKILL_PROBE` is off.
+  - A capable message in a session whose switch is on, while the check with
+    the skill probes has not passed yet, is refused with
+    `503 skills_unavailable`. It never runs silently without the skills;
+    switch them off to continue without.
 - `kind` is `skill` or `command`. A command in a sub-folder is named with
   `:` between the parts (`git/log.md` is `git:log`). Sorted by name.
 - `description` is the `description:` of the file's frontmatter, otherwise

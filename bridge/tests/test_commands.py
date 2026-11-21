@@ -5,7 +5,7 @@ import uuid
 from conftest import user_line
 from lifeos_bridge import commands
 
-REASON = "skills and commands are not switched on for this session"
+REASON = "skills are switched off for this session"
 
 
 def write(path, content):
@@ -57,7 +57,8 @@ def test_session_outside_allowed_folders_is_404(client, auth, tmp_path, write_se
 
 def test_folder_without_claude_directory_lists_nothing(client, auth, ask_dir, write_session):
     body = get_commands(client, auth, session_in(ask_dir, write_session))
-    assert body == {"enabled": False, "reason": REASON, "commands": []}
+    assert body == {"enabled": False, "switched_on": False, "reason": REASON, "capable_only": True,
+                    "prefix": "folder:", "commands": []}  # fmt: skip
 
 
 def test_lists_skill_command_and_nested_command(client, auth, ask_dir, write_session):

@@ -12,9 +12,9 @@ link cannot lead the reader elsewhere. Nothing is executed and no model is
 involved; of each file only the name, a one-line description, the argument
 hint and a few fixed warning words are returned, never the content.
 
-The listing is information for the app's composer. **Skills and commands
-are not usable in runs yet**: ``enabled`` is always ``False`` until the
-per-session switch exists (a later issue).
+The listing is information for the app's composer. Whether a session's
+capable runs may use them is decided in ``skills`` and the app
+(``GET /sessions/{id}/commands``, #91).
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ MAX_ENTRIES = 200
 MAX_FILE_BYTES = 64 * 1024
 MAX_SCAN = 2000
 MAX_DESCRIPTION = 200
-DISABLED_REASON = "skills and commands are not switched on for this session"
 
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}")
 _KEY_LINE = re.compile(r"([A-Za-z][A-Za-z0-9_-]*)\s*:(.*)")
@@ -185,8 +184,3 @@ def list_commands(folder: Path) -> list[dict]:
         scripts = kind == "skill" and _has_scripts(path.parent)
         entries.append(describe(name, kind, _read(resolved), has_scripts=scripts))
     return entries
-
-
-def listing(folder: Path) -> dict:
-    """The response of ``GET /sessions/{id}/commands``; ``enabled`` is always false for now."""
-    return {"enabled": False, "reason": DISABLED_REASON, "commands": list_commands(folder)}
