@@ -48,6 +48,8 @@ STREAM_WINDOW = 4
 STREAM_STALL_SECONDS = 45.0
 STREAM_CHECK_SECONDS = 5.0  # how often the mailbox is looked at while a stream runs
 DETACH_PATH = "/relay/detach"  # the phone's own "I stopped reading this stream"
+EARLY_MAX = 256  # detaches remembered for requests still waiting for a worker (#158)
+EARLY_SECONDS = 600.0
 FILE_WINDOW = 3  # at most this many file chunks wait in the mailbox
 FILE_STALL_SECONDS = 120.0  # give up when the phone stops taking chunks
 FILE_POLL_SECONDS = 0.3
@@ -180,6 +182,7 @@ class Stream:
     def __init__(self, device_id: bytes, rid: str, path: str) -> None:
         self.device_id = device_id
         self.rid = rid
+        self.path = path
         # Following a run (GET /sessions/{id}/live) is read-only: it may simply be closed.
         self.follower = path.startswith("/sessions/") and path.endswith("/live")
         self.events: object | None = None  # the local server-sent event reader
@@ -212,6 +215,8 @@ class Relay:
         self._send_locks: dict[bytes, threading.Lock] = {}
         self._streams: dict[tuple[bytes, str], Stream] = {}  # answers being sent, by request
         self._streams_lock = threading.Lock()
+        self._waiting: set[tuple[bytes, str]] = set()  # requests no worker has picked up yet
+        self._early: dict[tuple[bytes, str], float] = {}  # detached while waiting: until when
         self._pool = ThreadPoolExecutor(max_workers=MAX_WORKERS, thread_name_prefix="relay")
         self._thread: threading.Thread | None = None
 
@@ -243,6 +248,8 @@ class Relay:
             # At once, not behind the streams it frees (they may hold every worker).
             self._answer(message)
             return
+        with self._streams_lock:
+            self._waiting.add((message.header.device_id, message.request_id))
         self._pool.submit(self._answer, message)
 
     def _answer(self, message: e2e.Message) -> None:
@@ -251,6 +258,8 @@ class Relay:
         try:
             self._handle(message)
         finally:
+            with self._streams_lock:  # also for the requests that are not streams
+                self._waiting.discard((message.header.device_id, message.request_id))
             request = message.payload if isinstance(message.payload, dict) else {}
             method = request.get("m")
             # Best effort: the request has been answered already; a full disk must
@@ -281,21 +290,32 @@ class Relay:
                     else {"status": 400, "error": "bad_request"},
                 )
             return
-        if isinstance(request, dict) and str(request.get("path") or "").startswith("/files/"):
-            with contextlib.suppress(Exception):
-                self.send_file(device_id, rid, request)
-            return
         if isinstance(request, dict) and request.get("path") == DETACH_PATH:
             body = request.get("body") if isinstance(request.get("body"), dict) else {}
             found = request.get("m") == "POST" and self.detach(device_id, str(body.get("r") or ""))
             with contextlib.suppress(Exception):
                 self.send(device_id, e2e.END, rid, {"status": 200, "body": {"detached": found}})
             return
-        stream = Stream(
-            device_id, rid, str(request.get("path") if isinstance(request, dict) else "")
-        )
+        path = str(request.get("path") if isinstance(request, dict) else "")
+        stream = Stream(device_id, rid, path)
+        # In one step: no longer waiting for a worker, and either detached already or
+        # known as a stream (so a detach never falls between the two).
         with self._streams_lock:
-            self._streams[(device_id, rid)] = stream
+            self._waiting.discard((device_id, rid))
+            early = self._early.pop((device_id, rid), 0.0) > time.monotonic()
+            if not early:
+                self._streams[(device_id, rid)] = stream
+        if early:
+            self._start_detached(stream, message.payload)
+            return
+        if path.startswith("/files/"):
+            try:
+                with contextlib.suppress(Exception):
+                    self.send_file(device_id, rid, request, stream)
+            finally:
+                with self._streams_lock:
+                    self._streams.pop((device_id, rid), None)
+            return
         answer = stream.answer = self.dispatch(message.payload, stream)
         try:
             for kind, payload in answer:
@@ -327,18 +347,45 @@ class Relay:
 
         A ``/live`` follower is read-only, so its connection is closed at once. A
         chat stream is never cut (that would stop the run): the worker hands it to
-        a reader that lets the run finish.
+        a reader that lets the run finish. A file transfer stops before its next
+        chunk. A request still waiting for a worker is remembered (#158).
         """
+        key = (device_id, rid)
         with self._streams_lock:
-            stream = self._streams.get((device_id, rid))
-        if stream is None:
-            return False
+            stream = self._streams.get(key)
+            if stream is None:
+                if key not in self._waiting:
+                    return False  # unknown, or over already
+                # Still waiting for a free worker (#158): remembered for when it starts.
+                now = time.monotonic()
+                self._early = {k: t for k, t in self._early.items() if t > now}
+                while len(self._early) >= EARLY_MAX:
+                    self._early.pop(next(iter(self._early)))
+                self._early[key] = now + EARLY_SECONDS
+                return True
         stream.detached.set()
         if stream.follower and stream.events is not None:
             close = getattr(stream.events, "close", None)
             if close is not None:
                 close()  # wakes the worker that waits for the next event
         return True
+
+    def _start_detached(self, stream: Stream, request: object) -> None:
+        """A request the phone detached before a worker picked it up (#158).
+
+        Following a run and fetching a file only read: they are not started. Anything
+        else (a chat message) still runs, since the owner's message is never dropped,
+        but in a thread of its own that reads its answer to the end and sends nothing,
+        so it holds no worker.
+        """
+        if stream.follower or stream.path.startswith("/files/"):
+            return
+
+        def drain() -> None:
+            with contextlib.suppress(Exception):
+                collections.deque(self.dispatch(request), maxlen=0)
+
+        threading.Thread(target=drain, daemon=True, name="relay-drain").start()
 
     def _abandoned(self, stream: Stream) -> bool:
         """Detached by the phone, or its chunks wait unread in the mailbox for too long."""
@@ -385,7 +432,9 @@ class Relay:
             target=lambda: collections.deque(answer, maxlen=0), daemon=True, name="relay-drain"
         ).start()
 
-    def send_file(self, device_id: bytes, rid: str, request: dict) -> None:
+    def send_file(
+        self, device_id: bytes, rid: str, request: dict, stream: Stream | None = None
+    ) -> None:
         """Send an offered file in sealed chunks; only a few wait in the mailbox at a time.
 
         The phone takes a chunk out of the mailbox as soon as it has it, which
@@ -409,13 +458,19 @@ class Relay:
         side = f"lifeos/{device_id.hex()}/p"
         total = max(1, -(-offer.size // files.CHUNK_BYTES))
         written: list[str] = []
+
+        def cancelled() -> bool:  # the phone detached this request (#158)
+            return stream is not None and stream.detached.is_set()
+
         try:
             for index, block in enumerate(files.chunks(offer)):
                 if index < first:
                     continue
                 waited = 0.0
+                if cancelled():
+                    raise TimeoutError
                 while len(set(self.box.keys(side)) & set(written)) >= FILE_WINDOW:
-                    if waited >= FILE_STALL_SECONDS or self.stop.is_set():
+                    if waited >= FILE_STALL_SECONDS or self.stop.is_set() or cancelled():
                         raise TimeoutError
                     time.sleep(FILE_POLL_SECONDS)
                     waited += FILE_POLL_SECONDS
@@ -429,8 +484,11 @@ class Relay:
             for key in set(self.box.keys(side)) & set(written):
                 with contextlib.suppress(mailbox.MailboxError):
                     self.box.delete(f"{side}/{key}")
-            with contextlib.suppress(Exception):
-                self.send(device_id, e2e.ERROR, rid, {"status": 504, "error": "transfer_abandoned"})
+            if not cancelled():  # a phone that cancelled needs no word about it
+                with contextlib.suppress(Exception):
+                    self.send(
+                        device_id, e2e.ERROR, rid, {"status": 504, "error": "transfer_abandoned"}
+                    )
 
     def dispatch(
         self, request: object, stream: Stream | None = None

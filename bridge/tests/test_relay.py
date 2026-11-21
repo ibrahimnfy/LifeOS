@@ -576,6 +576,62 @@ def test_a_stream_nobody_reads_frees_its_worker_by_itself(long_runs, monkeypatch
         events.run_over.set()
 
 
+def test_a_detach_before_a_worker_is_free_is_remembered(long_runs):
+    """#158: every worker busy; the phone leaves two requests that still wait for one."""
+    service, phone, streams = long_runs
+    for index in range(relay.MAX_WORKERS):
+        phone.request("POST", "/sessions/s1/messages", rid=f"s{index}")
+        until(lambda index=index: len(streams) == index + 1)
+    phone.request("GET", "/sessions/s9/live", rid="follow")  # waits for a worker
+    phone.request("POST", "/sessions/s9/messages", rid="chat")  # waits too
+    until(lambda: len(service._waiting) == 2)
+    for rid in ("follow", "chat"):
+        phone.request("POST", relay.DETACH_PATH, {"r": rid}, rid=f"d-{rid}")
+        assert answer_of(phone, f"d-{rid}")[0].payload["body"] == {"detached": True}
+    phone.request("POST", relay.DETACH_PATH, {"r": "s0"}, rid="d-s0")  # one worker frees
+    answer_of(phone, "d-s0")
+    until(lambda: len(streams) == relay.MAX_WORKERS + 1)
+    paths = [path for path, _e in streams]
+    assert "/sessions/s9/live" not in paths  # a follower that nobody reads: not started
+    chat = dict(streams)["/sessions/s9/messages"]  # the owner's message still runs …
+    phone.request("GET", "/whoami", rid="who")
+    (who,) = answer_of(phone, "who")  # … without holding the only free worker
+    assert who.payload["status"] == 200
+    assert not chat.closed.is_set()
+    chat.run_over.set()
+    assert chat.finished.wait(5)  # read to its end
+    assert answer_of(phone, "follow", timeout=0.3) == []  # nothing sent for either
+    assert answer_of(phone, "chat", timeout=0.3) == []
+    assert service._early == {} and service._waiting == set()
+    for _path, events in streams:
+        events.run_over.set()
+
+
+def test_early_detaches_are_bounded(long_runs, monkeypatch):
+    service, phone, _streams = long_runs
+    monkeypatch.setattr(relay, "EARLY_MAX", 2)
+    for rid in ("a", "b", "c"):
+        service._waiting.add((phone.id, rid))
+        assert service.detach(phone.id, rid) is True
+    assert list(service._early) == [(phone.id, "b"), (phone.id, "c")]
+    assert service.detach(phone.id, "never-sent") is False
+
+
+def test_a_cancelled_file_transfer_stops(with_file):
+    _service, phone, box, offer, _ = with_file
+    phone.request("GET", f"/files/{offer}", query={"session_id": "session-1"}, rid="file")
+    side = f"lifeos/{phone.id.hex()}/p"
+    until(lambda: len(box.keys(side)) == relay.FILE_WINDOW)  # the phone takes nothing
+    phone.request("POST", relay.DETACH_PATH, {"r": "file"}, rid="cancel")
+    deadline = time.time() + 5
+    while time.time() < deadline and box.keys(side):
+        time.sleep(0.02)
+        answer_of(phone, "cancel", timeout=0.05)
+    assert box.keys(side) == []  # chunks removed, and no "abandoned" notice
+    phone.request("GET", "/whoami", rid="who")
+    assert answer_of(phone, "who")[0].payload["status"] == 200
+
+
 def test_closing_a_follower_wakes_its_waiting_read():
     """On a real connection: the worker that waits for the next event is freed at once."""
     release = threading.Event()
