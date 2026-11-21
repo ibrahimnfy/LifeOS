@@ -250,6 +250,39 @@ with plain HTTPS requests.
   session is opened), also after the app was closed: the Chat tab then opens
   it directly, once per start, with its last few messages read from the
   computer. The folder is in the header.
+  - **Earlier messages:** a conversation opens with its last few exchanges.
+    Scrolling to the top (or tapping "Earlier messages") reads the page
+    before, and so on; the screen keeps its place.
+  - **While the assistant works** the composer stays usable: a message sent
+    then waits on the computer and is sent when the run has ended. The
+    waiting messages are listed above the composer ("Waiting to be sent");
+    each can be **edited**, **removed** or **sent now**, which interrupts the
+    run and sends that message at once. **Stop** next to "Working…" ends the
+    run. Both ask first and say: changes the assistant has already made to
+    files are kept. After a stop the waiting messages are on hold until the
+    owner's next message or "Send them".
+  - **Files:** a file the assistant offers appears as a card under its
+    answer (name, kind, size) with a download button. Nothing is transferred
+    before the tap; the file then goes into the phone's Downloads folder,
+    with the progress on the card, and **Open** hands it to the phone's app
+    for its kind, as for course files. A file the computer does not send (too
+    large, outside the allowed folders, hidden) has a card that says why. An
+    offer is good for 15 minutes; after that, and for files offered in
+    earlier answers, the card asks to request the file again.
+  - **Model and effort:** the header shows the folder, the model and the
+    effort of the conversation; the pill above the composer ("opus · high")
+    opens the choice: the default for chat sessions, or one of the models and
+    effort levels the computer offers. It applies from the next message of
+    that conversation. **The default** for all chat sessions is changed under
+    Settings → Models ("Chat sessions").
+  - **"/" commands:** a message that starts with "/" lists the skills and
+    commands of the session's folder above the composer, narrowed while the
+    name is typed, each with its description, argument hint and warnings; a
+    tap completes the name. A recognised command is coloured in the
+    composer. The list appears only where the folder's skills are switched
+    on for the session and usable; otherwise one line says why not (switched
+    off, the computer's check has not passed, not one of this folder's,
+    needs "Changes allowed").
   - **Read-only or "Changes allowed"** (the pill above the composer): every
     conversation starts read-only. Switched on, its next messages ask the
     computer for the capable mode, in which the assistant may change files
@@ -263,9 +296,15 @@ with plain HTTPS requests.
     the time left. A deletion has a red frame and a warning. Nothing runs
     without the tap on Allow; when the time is over the card says that it
     counted as "no".
-  - **Questions:** when the assistant asks with its question tool, a card
-    shows each question with its choices (one or several) and a field for
-    the owner's own words, with **Send** and **Skip**.
+  - **Questions (option cards):** when the assistant asks with its question
+    tool, the run waits and a card shows each question (up to four) with its
+    choices as rows to tap (one choice, or several where the question allows
+    it) and a field for the owner's own words, with **Send** and **Skip**
+    and the time left. Send is possible once every question has an answer.
+    Afterwards the card keeps what was answered. Without an answer in time
+    the assistant goes on without one. The cards use only the bridge's
+    interactions (the Agent SDK's documented question callback); a client
+    that could not show them would get the question as text instead.
 - **Sessions** (the clock in Chat, or under More): a field that filters by
   title and folder, pinned sessions, then every folder with its sessions,
   newest first; "Working" marks a session the computer is answering right
@@ -467,6 +506,38 @@ Nothing on these screens is sample content any more. Not paired, they show
   - A refusal (session open on the computer, too many runs, folder gone,
     message too long) keeps the message with **Retry**; a run that breaks off
     keeps what was written and says why.
+  - **Model and effort** are the session's own on the computer (`PATCH
+    /sessions/{id}` with `model` and `effort`, `null` for the default); a new
+    conversation sends them with its first message. The choices come from
+    `GET /models`. **Commands** come from `GET /sessions/{id}/commands`, asked
+    for when a message starts with "/"; the app only completes and colours
+    names, the computer checks the message (`command_not_allowed`,
+    `skills_unavailable`).
+  - **Offered files** (`files` and `files_refused` of a finished answer):
+    the card holds only the offer's id, name, kind and size. The download is
+    `Downloads.startOffer`: the computer's copy in sealed chunks straight
+    into the Downloads collection (`RelayDownload`, the same code as the
+    fallback route of course files: chunks in sequence, announced size and
+    SHA-256 checked, an incomplete file removed, hidden until complete). The
+    app keeps no copy and no record; "Saved to Downloads" lives until the app
+    is closed. Offers exist only in the bridge's memory, so an answer read
+    from the conversation later (after a lock, or an earlier page) shows the
+    file's name without a download.
+  - **Earlier messages** are asked for one page at a time (`GET
+    /sessions/{id}/history?before=<cursor>`) and held only while the
+    conversation is on screen; nothing of a session is written to the phone.
+  - **The queue is the computer's** (`GET /sessions/{id}/queue`, at most ten
+    messages): a message sent during a run is the same request as any
+    message and is answered with its place in the line (`202`). Editing and
+    removing are `PATCH` and `DELETE …/queue/{qid}`. **Send now** sends the
+    text again with `"when": "now"` (to the front, interrupting the run) and
+    then takes the old entry out; if that second step fails the list shows
+    both. **Stop** is `POST /sessions/{id}/cancel`. The computer answers
+    waiting messages in the background, not as a stream: the app shows "still
+    working" and reads the conversation when the line is empty, so their
+    answers appear whole, and they cannot ask for approvals or questions.
+    "Send them" (`POST …/queue/resume`) is answered by the computer only
+    after the first waiting message is done, so the app does not wait for it.
   - While the app is locked nothing of the conversation is in memory; it is
     read again after unlocking.
   - **Approvals and questions** (`data/Interactions.kt`, the bridge's
@@ -629,8 +700,10 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   folders, five sessions, one conversation, and an invented answer that
   arrives piece by piece for any message. A message that contains one of
   these words shows another state: `in use` (the session is open on the
-  computer), `fail` (the run breaks off), `offline` (nothing is sent, the
-  text comes back), `silent` (the answer stops arriving and the message is
+  computer), `fail` (the run breaks off), `file` (the answer offers a small file and names one that is
+  too large), `slow` (the answer takes half a
+  minute: time to send more messages, which wait in line, to send one now
+  and to stop), `offline` (nothing is sent, the text comes back), `silent` (the answer stops arriving and the message is
   not found on the computer), `delete` or `push` (the run waits for an
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
@@ -647,10 +720,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- Chat: older messages than the last few (scrolling up), messages while a
-  run is in progress (queue, send now) and cancelling a run, "/" commands,
-  the model picker, file cards (a file the assistant offers is only named in
-  its answer) and tables in answers (shown as text). Sessions: groups,
+- Chat: tables in answers (shown as text). Sessions: groups,
   renaming, pinning and reminders. The coach conversation and Projects are
   placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
@@ -879,6 +949,77 @@ aid shows the same screens with invented answers.
 8. Settings → Language → **Türkçe** and Appearance → **Dark**: the Chat
    list, a conversation and Sessions are fully in Turkish and readable.
 
+### Earlier messages, waiting messages, send now and stop
+
+Paired (each message is a run on the plan), or on an emulator with the
+`sample_data` test aid, where "slow" in a message makes its answer take half a
+minute:
+
+1. Open a session with more than four exchanges (Sessions → a longer one).
+   Its last messages are shown. Scroll to the very top: "Loading earlier
+   messages…", then older messages appear above and the message you were
+   looking at stays in place. Repeat until nothing is added.
+2. Send "Count slowly from 1 to 40, one number per line". While the answer
+   is written, send "Then say done" and "And say it in Turkish": both appear
+   under "Waiting to be sent · 2", not in the conversation. On the computer,
+   `GET /sessions/<id>/queue` lists them.
+3. Tap **Edit** on the first, change it, Save: the row shows the new text.
+   Tap **Remove** on the second: it is gone.
+4. When the count is finished the conversation shows "The computer is still
+   working on this…", and a little later the waiting message and its answer.
+5. Start a long answer again, send a second message, tap **Send now** on it:
+   a question says that changes made to files are kept. Confirm: the count
+   breaks off ("Stopped. Changes … are kept."), and the second message is
+   answered next.
+6. Start a long answer, send a second message and tap **Stop** → confirm:
+   the answer breaks off, the second message stays under "Waiting to be
+   sent" with "On hold since the run was stopped". **Send them** lets it go
+   on; so does sending another message.
+
+### Model, effort and "/" commands
+
+1. Open a conversation: the header shows "folder · model · effort" (the
+   defaults until something is chosen). Tap the model pill above the
+   composer, choose another model and effort, **Save**: header and pill
+   change. Send a message; on the computer `GET /sessions` shows the
+   session's `model` and `effort`. Choose "Default (…)" for both again.
+2. Settings → Models → "Chat sessions" → **Change** sets the default: a
+   conversation without its own choice shows it in its header afterwards.
+3. In a session of a folder that has `.claude/skills` or `.claude/commands`,
+   with the folder's skills switched on for the session (`PATCH
+   /sessions/<id>` with `{"skills": true}` until the switch is in the app),
+   type "/": the folder's skills and commands are listed. Type two letters:
+   the list narrows. Tap one: its name is completed, coloured in the
+   composer, and the line says that commands run only with "Changes
+   allowed". Switch that on and send: the skill runs.
+4. Type "/nothing-like-this x": "This is not one of this folder's skills or
+   commands"; sent with "Changes allowed", the computer refuses it and the
+   message can be corrected. In a session without the switch, "/" shows
+   "Skills and commands are switched off for this session".
+
+### Files in chat
+
+1. In a conversation in a folder with a small text file, send "Give me the
+   file notes.md" (name a file that exists). The answer is followed by a card
+   with the file's name, kind and size. On the computer, nothing was read
+   yet: the audit log (`tail -n 2 ~/.config/lifeos/audit/$(date -u
+   +%Y-%m).jsonl`) has a `FileOffer` line and no `FileDownload`.
+2. Tap the download arrow: "Downloading… %", then "Saved to Downloads" and
+   **Open**. The file is in the phone's Downloads folder with the same size;
+   the audit log now has `FileDownload` (name and size only). Tap **Open**:
+   the phone's app for that kind of file shows it.
+3. Ask for a file larger than the limit (50 MB unless changed), or one
+   outside the allowed folders: the card says that it is not sent and why.
+4. Wait 15 minutes (or restart the bridge) and tap the download arrow of an
+   older card: "The computer no longer sends this file…". Lock and unlock
+   the app: the earlier answer shows the file's name with "Ask for this file
+   again".
+5. Start a larger download and switch flight mode on: the card says that the
+   computer could not be reached, and no partial file is in Downloads.
+
+On an emulator with `sample_data`, "file" in a message gives an answer with a
+20-byte file to download and a refused one.
+
 ### Approvals and questions
 
 On an emulator with the `sample_data` test aid (no computer, nothing runs):
@@ -892,10 +1033,13 @@ On an emulator with the `sample_data` test aid (no computer, nothing runs):
    nothing was changed. Send it again and tap **Allow**: "You allowed this."
 3. Send "hurry push it" and wait 20 seconds without tapping: the buttons go
    away and the card says that it was not answered in time.
-4. Send "choose for me": two questions with choices. Send stays grey until
-   both have an answer; choose one for the first, two for the second (or
-   type your own words), **Send**: "Answered." and the reply repeats the
-   choices. **Skip** declines instead.
+4. **Option cards:** send "choose for me": two questions with choices.
+   Send stays grey until both have an answer; choose one for the first, two
+   for the second (or type your own words), **Send**: the card shows "Your
+   answer: …" under each question and "Answered.", and the reply repeats
+   the choices. **Skip** declines instead. With "hurry choose" and no tap,
+   the card says after 20 seconds that the assistant went on without an
+   answer.
 
 With the computer (the bridge with `LIFEOS_RUNNER=sdk` and the capable mode
 switched on by its guardrail check; each step is a short run on the plan):
@@ -914,8 +1058,12 @@ switched on by its guardrail check; each step is a short run on the plan):
 7. Lock the phone while a card is waiting, unlock and open the conversation:
    "The computer is still working on this" and the same card, which can
    still be answered.
-8. Send "Use the question tool to ask me Red or Blue, then say what I
-   chose": a question card; choose one, **Send**: the reply names it.
+8. **Option cards:** send "Use the question tool to ask me Red or Blue,
+   then say what I chose": a question card with the two choices; choose one,
+   **Send**: the reply names it. Send it again and type "Green" into "Or
+   write your own answer" instead: the reply names Green. Ask "Use the
+   question tool to ask me which of Mon, Tue, Wed suit me, several can be
+   chosen": the rows have check boxes and the reply lists all chosen days.
 9. With "Changes allowed" on and the capable mode switched off on the
    computer, a message is refused with "Making changes is switched off on
    the computer right now…" and **Retry**.

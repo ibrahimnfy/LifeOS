@@ -33,6 +33,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -49,7 +50,9 @@ import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -58,7 +61,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
+import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.Chat
+import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.CommandList
+import dev.lifeos.app.data.Commands
+import dev.lifeos.app.data.Endpoints
+import dev.lifeos.app.data.UiState
+import dev.lifeos.app.ui.components.rememberLoad
 import dev.lifeos.app.data.ChatFailure
 import dev.lifeos.app.data.ChatFolder
 import dev.lifeos.app.data.ChatMessage
@@ -80,6 +90,8 @@ import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** How often the app asks about a run it is not receiving, while the conversation is on screen. */
 private const val CHECK_MILLIS = 5_000L
@@ -99,6 +111,41 @@ fun ChatScreen(
     onNewChat: () -> Unit,
 ) {
     val chat = core.chat
+    val state by chat.state.collectAsStateWithLifecycle()
+    val models = (rememberLoad(core, Endpoints.modelChoices) { false }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
+    Column(
+        Modifier
+            .fillMaxSize()
+            .imePadding(),
+    ) {
+        TopBar(
+            title = stringResource(R.string.nav_chat),
+            // Where it runs and with what: the folder, the model and the effort.
+            subtitle = listOfNotNull(state.folder?.let { folderName(it) }, state.choice.label(models).takeIf { it.isNotEmpty() }).joinToString(" · ").takeIf { it.isNotEmpty() },
+            onBack = onBack,
+            onConnectionClick = onConnectionClick,
+            actions = {
+                TopBarAction(LifeIcons.Sessions, stringResource(R.string.more_sessions), onClick = onSessions)
+                TopBarAction(LifeIcons.Compose, stringResource(R.string.chat_new), onClick = onNewChat)
+            },
+        )
+        ConversationPane(core, chat, onPair = onPair, onSessions = onSessions)
+    }
+}
+
+/**
+ * Everything of a conversation below the top bar: the thread, the waiting messages, the mode
+ * pill ([modes]) and the composer. [chat] is the conversation it shows.
+ */
+@Composable
+internal fun ColumnScope.ConversationPane(
+    core: LifeOsCore,
+    chat: Chat,
+    onPair: () -> Unit,
+    onSessions: () -> Unit,
+    modes: Boolean = true,
+    empty: @Composable ColumnScope.(onPrompt: (String) -> Unit) -> Unit = { EmptyChat(it) },
+) {
     val state by chat.state.collectAsStateWithLifecycle()
     val paired = core.pairing.collectAsStateWithLifecycle().value != null
     val locked by core.locked.collectAsStateWithLifecycle()
@@ -127,53 +174,117 @@ fun ChatScreen(
         chat.takeDraft()
     }
 
-    Column(
-        Modifier
-            .fillMaxSize()
-            .imePadding(),
-    ) {
-        TopBar(
-            title = stringResource(R.string.nav_chat),
-            subtitle = state.folder?.let { folderName(it) },
-            onBack = onBack,
-            onConnectionClick = onConnectionClick,
-            actions = {
-                TopBarAction(LifeIcons.Sessions, stringResource(R.string.more_sessions), onClick = onSessions)
-                TopBarAction(LifeIcons.Compose, stringResource(R.string.chat_new), onClick = onNewChat)
-            },
-        )
-        val scroll = rememberScrollState()
-        // Follow the answer while it grows, unless the owner scrolled up to read.
-        var follow by remember { mutableStateOf(true) }
-        LaunchedEffect(scroll) {
-            snapshotFlow { Triple(scroll.value, scroll.maxValue, scroll.isScrollInProgress) }.collect { (value, max, moving) ->
-                if (moving) follow = max - value < 120 else if (follow && value < max) scroll.scrollTo(max)
-            }
+    val scroll = rememberScrollState()
+    // Follow the answer while it grows, unless the owner scrolled up to read.
+    var follow by remember { mutableStateOf(true) }
+    // Earlier messages are put on top: the screen keeps its place by the height that was added.
+    var heightBefore by remember { mutableStateOf<Int?>(null) }
+    val current by rememberUpdatedState(state)
+    val older = {
+        if (current.olderExist && !current.loadingOlder) {
+            follow = false
+            heightBefore = scroll.maxValue
+            chat.loadOlder()
         }
-        LaunchedEffect(state.generation, state.messages.size, state.interactions.size) { follow = true }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .verticalScroll(scroll)
-                .padding(horizontal = LifeDimens.pad, vertical = 12.dp),
-            verticalArrangement = if (paired && state.isEmpty && state.loaded) Arrangement.spacedBy(10.dp, Alignment.CenterVertically) else Arrangement.spacedBy(10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+    }
+    LaunchedEffect(scroll) {
+        snapshotFlow { Triple(scroll.value, scroll.maxValue, scroll.isScrollInProgress) }.collect { (value, max, moving) ->
             when {
-                !paired -> NotPairedNotice(onPair)
-                state.loading && state.messages.isEmpty() -> SkeletonCard(rows = 2)
-                state.loadProblem != null -> ErrorNotice(checkNotNull(state.loadProblem), 0, onRetry = chat::load)
-                state.isEmpty && state.loaded -> EmptyChat(onPrompt = { draft = it })
-                else -> Thread(state, chat, onSessions = onSessions)
+                // Scrolled up to the very top: the page before is asked for.
+                moving && value == 0 && max > 0 -> older()
+                moving -> follow = max - value < 120
+                follow && value < max -> scroll.scrollTo(max)
             }
         }
-        if (paired) ModeRow(state.capable, enabled = state.phase == ChatPhase.IDLE, onChange = chat::setCapable)
-        Composer(
-            draft = draft,
-            onDraftChange = { draft = it },
-            canSend = paired && state.canSend && draft.isNotBlank(),
-            onSend = { if (chat.send(draft)) draft = "" },
+    }
+    LaunchedEffect(state.olderLoads) {
+        val before = heightBefore ?: return@LaunchedEffect
+        heightBefore = null
+        val after = withTimeoutOrNull(1_000) { snapshotFlow { scroll.maxValue }.first { it != before } } ?: return@LaunchedEffect
+        // A drag or fling that is still going on would cancel the correction: it comes right after.
+        snapshotFlow { scroll.isScrollInProgress }.first { !it }
+        scroll.scrollTo(scroll.value + (after - before))
+    }
+    LaunchedEffect(state.generation, state.messages.lastOrNull()?.key, state.interactions.size) { follow = true }
+    var confirmStop by rememberSaveable { mutableStateOf(false) }
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxWidth()
+            .verticalScroll(scroll)
+            .padding(horizontal = LifeDimens.pad, vertical = 12.dp),
+        verticalArrangement = if (paired && state.isEmpty && state.loaded) Arrangement.spacedBy(10.dp, Alignment.CenterVertically) else Arrangement.spacedBy(10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        when {
+            !paired -> NotPairedNotice(onPair)
+            state.loading && state.messages.isEmpty() -> SkeletonCard(rows = 2)
+            state.loadProblem != null -> ErrorNotice(checkNotNull(state.loadProblem), 0, onRetry = chat::load)
+            state.isEmpty && state.loaded -> empty { draft = it }
+            else -> Thread(core, state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true })
+        }
+    }
+    if (paired && state.queue.isNotEmpty()) QueueList(state, chat, locked)
+    // "/" commands of the session's folder: asked for when a message starts with "/".
+    var commands by remember(state.sessionId) { mutableStateOf<CommandList?>(null) }
+    val slash = modes && draft.startsWith("/")
+    LaunchedEffect(state.sessionId, slash, reload) {
+        val id = state.sessionId
+        if (slash && id != null && paired && !locked) {
+            try {
+                commands = core.api.commands(id)
+            } catch (_: ApiException) {
+                // Without the list the message is sent as typed; the computer checks it.
+            }
+        }
+    }
+    if (paired && slash) CommandHelp(commands, draft, state, onPick = { draft = Commands.complete(it) })
+    if (paired && modes) {
+        val modelChoices = (rememberLoad(core, Endpoints.modelChoices) { false }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
+        val sessions = (rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
+        // A conversation restored after a start learns its model from the session list.
+        LaunchedEffect(sessions, state.sessionId, state.choiceKnown) {
+            if (!state.choiceKnown) sessions?.sessions?.firstOrNull { it.id == state.sessionId }?.let(chat::noteChoice)
+        }
+        var pickingModel by rememberSaveable { mutableStateOf(false) }
+        ModeRow(
+            capable = state.capable,
+            enabled = state.phase == ChatPhase.IDLE,
+            onChange = chat::setCapable,
+            model = state.choice.label(modelChoices).ifEmpty { stringResource(R.string.chat_model_default) },
+            onModel = { pickingModel = true },
+        )
+        if (pickingModel && !locked) {
+            ModelSheet(
+                choice = state.choice,
+                choices = modelChoices,
+                onDismiss = { pickingModel = false },
+                onSave = {
+                    pickingModel = false
+                    chat.setModel(it)
+                },
+            )
+        }
+    }
+    Composer(
+        draft = draft,
+        onDraftChange = { draft = it },
+        commandLength = if (modes) Commands.recognisedLength(commands, draft) else 0,
+        canSend = paired && (state.canSend || state.canQueue) && draft.isNotBlank(),
+        // While an answer is awaited the message waits in line on the computer.
+        sendLabel = stringResource(if (state.canQueue) R.string.chat_queue_add else R.string.chat_send),
+        onSend = { if (chat.send(draft)) draft = "" },
+    )
+    if (confirmStop && state.canStop && !locked) {
+        ConfirmDialog(
+            title = stringResource(R.string.chat_stop_title),
+            text = stringResource(R.string.chat_stop_text),
+            confirm = stringResource(R.string.chat_stop),
+            onDismiss = { confirmStop = false },
+            onConfirm = {
+                confirmStop = false
+                chat.cancel()
+            },
         )
     }
 }
@@ -183,7 +294,7 @@ internal fun folderName(folder: ChatFolder): String = if (folder.memory) stringR
 
 /** The empty state: what this is, and three example prompts that fill the composer. */
 @Composable
-private fun EmptyChat(onPrompt: (String) -> Unit) {
+internal fun EmptyChat(onPrompt: (String) -> Unit) {
     val colors = LifeTheme.colors
     Text(text = stringResource(R.string.chat_empty_title), style = LifeType.featured, color = colors.text)
     Text(
@@ -211,8 +322,12 @@ private fun EmptyChat(onPrompt: (String) -> Unit) {
 }
 
 @Composable
-private fun ColumnScope.Thread(state: ChatState, chat: Chat, onSessions: () -> Unit) {
-    if (state.olderExist) SystemLine(stringResource(R.string.chat_older))
+private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, onSessions: () -> Unit, onOlder: () -> Unit, onStop: () -> Unit) {
+    if (state.loadingOlder) {
+        SystemLine(stringResource(R.string.chat_older_loading))
+    } else if (state.olderExist) {
+        LinkAction(stringResource(R.string.chat_older_load), onClick = onOlder)
+    }
     // Questions and approvals of the last run. Those that wait for the owner come last, where
     // the eye is; those that are settled stay as a record above the answer that followed them.
     val (waiting, settled) = state.interactions.partition { it.status == Interaction.Status.WAITING || it.status == Interaction.Status.SENDING }
@@ -232,20 +347,24 @@ private fun ColumnScope.Thread(state: ChatState, chat: Chat, onSessions: () -> U
     val answer = state.messages.lastOrNull()?.takeIf { !it.fromOwner }
     state.messages.forEach { message ->
         if (message === answer) cards(settled)
-        if (message.fromOwner) OwnerBubble(message) else AssistantBubble(message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
+        if (message.fromOwner) OwnerBubble(message) else AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
     }
     if (answer == null) cards(settled)
     cards(waiting)
     val asked = state.interactions.any { it.status == Interaction.Status.WAITING }
     when (state.phase) {
-        ChatPhase.SENDING, ChatPhase.ANSWERING -> Working(state.sinceMillis) {
-            if (asked) stringResource(R.string.chat_waiting_for_you) else stringResource(R.string.chat_working, it)
+        ChatPhase.SENDING, ChatPhase.ANSWERING -> Working(state.sinceMillis, onStop.takeIf { state.canStop }) {
+            when {
+                state.stopping -> stringResource(R.string.chat_stopping)
+                asked -> stringResource(R.string.chat_waiting_for_you)
+                else -> stringResource(R.string.chat_working, it)
+            }
         }
         ChatPhase.ELSEWHERE -> {
-            Working(state.sinceMillis) {
+            Working(state.sinceMillis, onStop.takeIf { state.canStop }) {
                 when {
+                    state.stopping -> stringResource(R.string.chat_stopping)
                     asked -> stringResource(R.string.chat_waiting_for_you)
-                    state.queued -> stringResource(R.string.chat_elsewhere_queued, it)
                     else -> stringResource(R.string.chat_elsewhere, it)
                 }
             }
@@ -262,14 +381,35 @@ private fun ColumnScope.Thread(state: ChatState, chat: Chat, onSessions: () -> U
  * commands inside the guardrails, and asks here before a deletion and the like.
  */
 @Composable
-private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit, model: String, onModel: () -> Unit) {
     val colors = LifeTheme.colors
     val label = stringResource(R.string.chat_mode_toggle)
+    val modelLabel = stringResource(R.string.chat_model_label, model)
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = LifeDimens.pad),
     ) {
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // The conversation's model and effort; a tap changes them.
+        Box(
+            modifier = Modifier
+                .heightIn(min = LifeDimens.minTouch)
+                .clip(RoundedCornerShape(50))
+                .clickable(onClickLabel = modelLabel, role = Role.Button, onClick = onModel)
+                .semantics { contentDescription = modelLabel },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = model,
+                style = LifeType.label,
+                color = colors.text,
+                maxLines = 1,
+                modifier = Modifier
+                    .border(1.5.dp, colors.divider, RoundedCornerShape(50))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            )
+        }
         Box(
             modifier = Modifier
                 .heightIn(min = LifeDimens.minTouch)
@@ -293,6 +433,7 @@ private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> U
                 )
             }
         }
+      }
         if (capable) Text(text = stringResource(R.string.chat_mode_capable_note), style = LifeType.small, color = colors.muted)
     }
 }
@@ -338,9 +479,16 @@ private fun AssistantBubble(message: ChatMessage, cutOff: Boolean) {
     }
 }
 
+/** The files offered with an answer, one card each, under the answer. */
+@Composable
+private fun AnswerWithFiles(core: LifeOsCore, message: ChatMessage, cutOff: Boolean) {
+    if (message.text.isNotBlank() || cutOff) AssistantBubble(message, cutOff)
+    message.files.forEach { FileCard(core, it) }
+}
+
 /** "Working… 0:42": a small spinner and the time since the message was sent. */
 @Composable
-private fun Working(sinceMillis: Long, text: @Composable (String) -> String) {
+private fun Working(sinceMillis: Long, onStop: (() -> Unit)?, text: @Composable (String) -> String) {
     val colors = LifeTheme.colors
     val elapsed by produceState(0L, sinceMillis) {
         while (true) {
@@ -359,7 +507,8 @@ private fun Working(sinceMillis: Long, text: @Composable (String) -> String) {
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = colors.primary, trackColor = colors.surface2, strokeWidth = 2.dp)
-        Text(text = label, style = LifeType.small, color = colors.muted)
+        Text(text = label, style = LifeType.small, color = colors.muted, modifier = Modifier.weight(1f))
+        if (onStop != null) LinkAction(stringResource(R.string.chat_stop), onClick = onStop)
     }
 }
 
@@ -414,16 +563,21 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.NOT_SET_UP -> R.string.chat_fail_not_set_up
     ChatProblem.TOO_LONG -> R.string.chat_fail_too_long
     ChatProblem.STOPPED -> R.string.chat_fail_stopped
+    ChatProblem.STOPPED_HERE -> R.string.chat_fail_stopped_here
+    ChatProblem.STOP_FAILED -> R.string.chat_fail_stop_failed
+    ChatProblem.QUEUE_FAILED -> R.string.chat_fail_queue_failed
+    ChatProblem.COMMAND_UNKNOWN -> R.string.chat_fail_command_unknown
+    ChatProblem.SKILLS_OFF -> R.string.chat_fail_skills_off
+    ChatProblem.SETTING_FAILED -> R.string.chat_fail_setting_failed
     ChatProblem.TOO_LARGE -> R.string.chat_fail_too_large
     ChatProblem.NOT_PAIRED -> R.string.chat_fail_not_paired
     ChatProblem.FAILED -> R.string.chat_fail_failed
 }
 
 @Composable
-private fun Composer(draft: String, onDraftChange: (String) -> Unit, canSend: Boolean, onSend: () -> Unit) {
+private fun Composer(draft: String, onDraftChange: (String) -> Unit, canSend: Boolean, sendLabel: String, onSend: () -> Unit, commandLength: Int = 0) {
     val colors = LifeTheme.colors
     val shape = RoundedCornerShape(24.dp)
-    val sendLabel = stringResource(R.string.chat_send)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -442,13 +596,22 @@ private fun Composer(draft: String, onDraftChange: (String) -> Unit, canSend: Bo
                 Text(text = stringResource(R.string.chat_composer_hint), style = LifeType.body, color = colors.muted)
             }
             // Usable at any time: a message can be written while an answer is still arriving.
+            // The field keeps its own cursor; text put in from outside (an example prompt, a completed
+            // command, a message handed back) places the cursor at its end.
+            var field by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+            if (field.text != draft) field = TextFieldValue(draft, TextRange(draft.length))
             BasicTextField(
-                value = draft,
-                onValueChange = onDraftChange,
+                value = field,
+                onValueChange = {
+                    field = it
+                    if (it.text != draft) onDraftChange(it.text)
+                },
                 textStyle = LifeType.body.copy(color = colors.text),
                 cursorBrush = SolidColor(colors.primary),
                 maxLines = 5,
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                // A recognised "/" command stands out in the message.
+                visualTransformation = remember(commandLength, colors.link) { CommandHighlight(commandLength, colors.link) },
                 modifier = Modifier.fillMaxWidth(),
             )
         }

@@ -2,7 +2,6 @@ package dev.lifeos.app.data
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
 import java.time.Instant
 
 // ---------------------------------------------------------------- chat and sessions (docs/bridge.md)
@@ -15,6 +14,9 @@ data class Folder(val path: String, val label: String = "", val kind: String = "
 
 @Serializable
 data class FolderList(val folders: List<Folder> = emptyList())
+
+/** What the bridge puts where a session has no title. */
+private const val NO_TITLE = "(untitled)"
 
 /**
  * A Claude Code session on the computer. [inUse] means that the computer is answering a
@@ -30,16 +32,17 @@ data class SessionSummary(
     @SerialName("in_use") val inUse: Boolean = false,
     @SerialName("auto_group") val autoGroup: String = "",
     val pinned: Boolean = false,
+    /** The session's own model and effort; null: the default for chat sessions. */
+    val model: String? = null,
+    val effort: String? = null,
+    /** The owner switched the folder's skills and commands on for this session. */
+    val skills: Boolean = false,
 ) {
     /** The folder's name as the rows show it. */
     val folderLabel: String get() = autoGroup.ifEmpty { folder.trimEnd('/').substringAfterLast('/') }
 
     /** The title, or empty when the computer found none (it then says "(untitled)"). */
     val shownTitle: String get() = title.trim().takeIf { it != NO_TITLE }.orEmpty()
-
-    private companion object {
-        const val NO_TITLE = "(untitled)"
-    }
 }
 
 @Serializable
@@ -55,13 +58,24 @@ data class Exchange(
     val truncated: Boolean = false,
 )
 
+/** `POST /sessions/{id}/cancel`. */
+@Serializable
+data class CancelResult(val cancelled: Boolean = false, @SerialName("queue_paused") val queuePaused: Boolean = false)
+
 /** [older] is set when the computer has earlier exchanges than these. */
 @Serializable
 data class HistoryPage(val exchanges: List<Exchange> = emptyList(), val older: String? = null)
 
-/** `GET /sessions/{id}/queue`: is the computer working on the session, and is anything waiting behind that. */
+/** A message that waits on the computer for the session's current run to end. */
 @Serializable
-data class RunState(val running: Boolean = false, val paused: String? = null, val queue: List<JsonElement> = emptyList()) {
+data class QueuedData(val id: String = "", val prompt: String = "")
+
+/**
+ * `GET /sessions/{id}/queue`: is the computer working on the session, and what waits behind
+ * that. [paused]: why the queue is on hold ("cancel", "error", "restart"), else null.
+ */
+@Serializable
+data class RunState(val running: Boolean = false, val paused: String? = null, val queue: List<QueuedData> = emptyList()) {
     /** An answer is still to come: a run is in progress, or a message waits for its turn. */
     val busy: Boolean get() = running || (queue.isNotEmpty() && paused == null)
 }

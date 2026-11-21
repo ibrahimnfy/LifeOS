@@ -537,10 +537,8 @@
     <string name="chat_you">You</string>
     <string name="chat_working">Working… %1$s</string>
     <string name="chat_elsewhere">The computer is still working on this. The answer appears here when it is ready. %1$s</string>
-    <string name="chat_elsewhere_queued">Your message waits on the computer until the run before it has ended. %1$s</string>
     <string name="chat_elsewhere_unreachable">The computer does not answer right now. The app keeps asking; a run that was started goes on there.</string>
     <string name="chat_incomplete">This answer was cut off.</string>
-    <string name="chat_older">Earlier messages are on the computer.</string>
     <string name="chat_open_sessions">Open sessions</string>
     <string name="chat_dismiss">Dismiss</string>
     <string name="chat_fail_not_reached">Not sent: the computer cannot be reached right now. Your message is back in the box below; send it when the connection is back.</string>
@@ -598,4 +596,65 @@
     <string name="question_skip">Skip</string>
     <string name="question_answered">Answered.</string>
     <string name="question_skipped">Skipped.</string>
+
+    <!-- Chat: earlier messages, the queue, send now and stop (#94) -->
+    <string name="chat_older_load">Earlier messages</string>
+    <string name="chat_older_loading">Loading earlier messages…</string>
+    <string name="chat_stop">Stop</string>
+    <string name="chat_stop_title">Stop the assistant?</string>
+    <string name="chat_stop_text">Stops the assistant. Changes it has already made to files are kept.</string>
+    <string name="chat_stopping">Stopping…</string>
+    <string name="chat_send_now">Send now</string>
+    <string name="chat_send_now_title">Send this message now?</string>
+    <string name="chat_send_now_text">The assistant is interrupted and this message is sent at once. Changes the assistant has already made to files are kept.</string>
+    <string name="chat_queue_add">Add to the waiting messages</string>
+    <string name="chat_queue_title">Waiting to be sent · %1$d</string>
+    <string name="chat_queue_note">Sent one after the other when the current answer is finished.</string>
+    <string name="chat_queue_hold_cancel">On hold since the run was stopped. Your next message lets them go on, or “Send them”.</string>
+    <string name="chat_queue_hold_error">On hold: a waiting message could not be answered.</string>
+    <string name="chat_queue_hold_restart">On hold: the bridge on the computer was restarted.</string>
+    <string name="chat_queue_resume">Send them</string>
+    <string name="chat_queue_remove">Remove</string>
+    <string name="chat_queue_busy">On its way…</string>
+    <string name="chat_queue_edit_title">Edit message</string>
+    <string name="chat_fail_stopped_here">Stopped. Changes the assistant has already made to files are kept.</string>
+    <string name="chat_fail_stop_failed">The request to stop did not reach the computer. The run goes on.</string>
+    <string name="chat_fail_queue_failed">That did not get through. The list shows what the computer has.</string>
+
+    <!-- Chat: files the assistant offers (#96) -->
+    <string name="chat_file_past">Offered in an earlier answer. Ask for this file again to download it.</string>
+    <string name="chat_file_expired">This offer has run out (after 15 minutes). Ask for the file again.</string>
+    <string name="chat_file_failed_gone">The computer no longer sends this file: the offer has run out, or the file changed. Ask for it again.</string>
+    <string name="chat_file_refused_large">Not sent: larger than the size limit set on the computer.</string>
+    <string name="chat_file_refused_outside">Not sent: it is outside the allowed folders.</string>
+    <string name="chat_file_refused_hidden">Not sent: hidden files and folders are never sent.</string>
+    <string name="chat_file_refused_many">Not offered: too many files in one answer. Ask for this one again.</string>
+    <string name="chat_file_refused_other">The computer does not send this file.</string>
+
+    <!-- Chat: option cards for questions of the assistant (#98) -->
+    <string name="question_time_left">Without an answer the assistant goes on in %1$s</string>
+    <string name="question_expired">Not answered in time: the assistant went on without an answer.</string>
+    <string name="question_your_answer">Your answer: %1$s</string>
+
+    <!-- Chat: "/" commands and the model of a conversation (#95) -->
+    <string name="chat_model_default">Default model</string>
+    <string name="chat_model_label">Model and effort: %1$s. Change</string>
+    <string name="chat_model_title">Model for this conversation</string>
+    <string name="chat_model_note">Used from the next message of this conversation. The default for all chat sessions is under Settings → Models.</string>
+    <string name="chat_commands_title">Skills and commands of this folder</string>
+    <string name="chat_commands_none">This folder has no skills or commands.</string>
+    <string name="chat_commands_no_match">No skill or command of this folder starts like this.</string>
+    <string name="chat_commands_off">Skills and commands are switched off for this session, so a message that starts with “/” is sent as plain text.</string>
+    <string name="chat_commands_unavailable">Skills and commands cannot be used here right now: the computer\'s check for them has not passed.</string>
+    <string name="chat_commands_new">The folder\'s skills and commands can be listed once the conversation has its first message.</string>
+    <string name="chat_commands_capable">Skills and commands run only with “Changes allowed”.</string>
+    <string name="chat_commands_unknown">This is not one of this folder\'s skills or commands.</string>
+    <string name="chat_command_skill">Skill</string>
+    <string name="chat_command_command">Command</string>
+    <string name="chat_command_warn_shell">contains shell lines (not run)</string>
+    <string name="chat_command_warn_tools">asks for tools of its own (not granted)</string>
+    <string name="chat_command_warn_scripts">comes with scripts</string>
+    <string name="chat_fail_command_unknown">Not sent on: a message that starts with “/” must name one of this folder\'s skills or commands.</string>
+    <string name="chat_fail_skills_off">This folder\'s skills cannot be used right now: the computer\'s check for them has not passed. Switch them off for this session, or try again later.</string>
+    <string name="chat_fail_setting_failed">That could not be changed on the computer.</string>
 </resources>

@@ -114,7 +114,8 @@ object TestAids {
             Json.parseToJsonElement(context.assets.open("sample-data.json").use { it.readBytes().decodeToString() }).jsonObject
         }
 
-        private fun mine(path: String) = sampleCourses && (path.startsWith("/courses") || path.startsWith("/files/"))
+        private fun mine(path: String) =
+            (sampleCourses && (path.startsWith("/courses") || path.startsWith("/files/"))) || (sampleData && path.startsWith("/files/"))
 
         /** The sample data: GETs from the file (dates made relative to today), every write simply accepted. */
         private fun sample(method: String, path: String): RelayResponse {
@@ -148,7 +149,7 @@ object TestAids {
             if (sampleData) chat.events(path, body) else real.events(method, path, body, idleTimeoutMillis)
 
         override suspend fun request(method: String, path: String, query: Map<String, String>, body: JsonElement?, timeoutMillis: Long): RelayResponse {
-            if (sampleData) return chat.request(method, path, body) ?: sample(method, path)
+            if (sampleData) return chat.request(method, path, query, body) ?: sample(method, path)
             if (!mine(path)) return real.request(method, path, query, body, timeoutMillis)
             val key = "$method " + path.replace(Regex("/files/[^/]+/(address|offer)$"), "/files/KEY/$1")
             if (key == "POST /courses/refresh") return RelayResponse(202, answers.getValue("GET /courses/sync").jsonObject.getValue("body"))
