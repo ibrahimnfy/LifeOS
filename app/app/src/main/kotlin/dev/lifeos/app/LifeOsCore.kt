@@ -217,7 +217,9 @@ class LifeOsCore(private val app: Application) {
             val client = session?.client ?: throw ApiException(ApiException.Kind.NOT_SENT)
             var answered = false
             try {
-                client.stream(method, path, emptyMap(), body, idleTimeoutMillis, firstTimeoutMillis = FIRST_ANSWER_MILLIS).collect { event ->
+                // The coach conversation may be tidied up first, a whole run before the first sign (#114).
+                val first = if (path == Api.COACH_MESSAGES) COACH_FIRST_ANSWER_MILLIS else FIRST_ANSWER_MILLIS
+                client.stream(method, path, emptyMap(), body, idleTimeoutMillis, firstTimeoutMillis = first).collect { event ->
                     if (!answered) reached(client, true)
                     answered = true
                     emit(event)
@@ -723,6 +725,23 @@ class LifeOsCore(private val app: Application) {
         uptimeMillis = SystemClock::elapsedRealtime,
     )
 
+    // ---- the coach conversation (#114): its own conversation next to the Chat tab's
+
+    /** The one conversation with the coach. Which session it is, the computer knows: nothing is stored here. */
+    val coach = Chat(
+        api,
+        object : ChatStore {
+            override fun load(): ChatPointer? = null
+
+            override fun save(pointer: ChatPointer?) = Unit
+        },
+        scope,
+        System::currentTimeMillis,
+        reachable = { connectionState.value == ConnectionState.CONNECTED || (session != null && check() is TestResult.Ok) },
+        uptimeMillis = SystemClock::elapsedRealtime,
+        coach = true,
+    )
+
     // ---- sessions: what the owner changed from this phone (#74)
 
     private val sessionsVersionState = MutableStateFlow(0)
@@ -797,6 +816,7 @@ class LifeOsCore(private val app: Application) {
             lockedState.value = true
             connectionState.value = ConnectionState.CONNECTING
             chat.onLocked()
+            coach.onLocked()
         }
     }
 
@@ -1049,6 +1069,7 @@ class LifeOsCore(private val app: Application) {
         confirmed.wipe()
         downloads.clear()
         chat.forget()
+        coach.forget()
         rerunState.value = CoachRerun.State.Idle
         looksState.value = Looks.EMPTY
         lookStore.wipe()
@@ -1077,6 +1098,7 @@ class LifeOsCore(private val app: Application) {
 
         /** Chat: how long the computer may take to take a message (it answers at once, the model later). */
         const val FIRST_ANSWER_MILLIS = 45_000L
+        const val COACH_FIRST_ANSWER_MILLIS = 6 * 60_000L
     }
 }
 

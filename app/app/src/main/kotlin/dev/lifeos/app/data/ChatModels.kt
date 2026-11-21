@@ -98,6 +98,50 @@ data class RunState(val running: Boolean = false, val paused: String? = null, va
     val busy: Boolean get() = running || (queue.isNotEmpty() && paused == null)
 }
 
+// ---------------------------------------------------------------- the coach conversation (#114)
+
+/** When the coach conversation was last tidied up, and how many facts went to the memory. */
+@Serializable
+data class CoachCompaction(val at: String? = null, val result: String = "", val facts: Int = 0)
+
+/**
+ * `GET /coach/chat`: the one conversation with the coach. It is an ordinary session
+ * ([sessionId]) that the computer renews when it has grown long ([transcriptBytes] against
+ * [compactAtBytes]): what matters goes to the memory, a [summary] stays, and a new session
+ * continues. [usage] is the plan usage of this conversation; [morningUsage] that of the
+ * coach's morning run, counted apart.
+ */
+@Serializable
+data class CoachChatView(
+    @SerialName("session_id") val sessionId: String = "",
+    val started: Boolean = false,
+    @SerialName("transcript_bytes") val transcriptBytes: Long = 0,
+    @SerialName("compact_at_bytes") val compactAtBytes: Long = 0,
+    val compactions: Int = 0,
+    val summary: String? = null,
+    @SerialName("last_compaction") val lastCompaction: CoachCompaction? = null,
+    @SerialName("earlier_sessions") val earlierSessions: List<String> = emptyList(),
+    val model: String? = null,
+    val effort: String? = null,
+    val usage: JobUsagePeriods = JobUsagePeriods(),
+    @SerialName("morning_usage") val morningUsage: JobUsagePeriods = JobUsagePeriods(),
+) {
+    /** The next message is answered only after the conversation was tidied up (one more run). */
+    val dueForCompaction: Boolean get() = compactAtBytes > 0 && transcriptBytes >= compactAtBytes
+
+    /** How full the conversation is before it is tidied up, 0 to 100. */
+    val fullPercent: Int get() = if (compactAtBytes <= 0) 0 else (transcriptBytes * 100 / compactAtBytes).coerceIn(0, 100).toInt()
+}
+
+/** `POST /coach/chat/compact`: the files that got new facts, whether a summary was kept, the new session. */
+@Serializable
+data class CoachCompacted(val facts: List<String> = emptyList(), val summary: Boolean = false, @SerialName("session_id") val sessionId: String = "")
+
+object CoachEndpoints {
+    /** The coach conversation; the lists of sessions need it to know which session is the coach's. */
+    val chat = Endpoint("coach-chat", "/coach/chat", serializer = CoachChatView.serializer())
+}
+
 object ChatEndpoints {
     /** Where a new conversation may run. */
     val folders = Endpoint("folders", "/folders", serializer = FolderList.serializer())

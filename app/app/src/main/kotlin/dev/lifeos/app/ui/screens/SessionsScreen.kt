@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.SessionLists
 import dev.lifeos.app.data.SessionSummary
 import dev.lifeos.app.ui.components.EmptyLine
@@ -70,6 +71,7 @@ fun SessionsScreen(
     onPair: () -> Unit,
     onOpenChat: () -> Unit,
     onNewChat: () -> Unit,
+    onOpenCoach: () -> Unit = {},
 ) {
     val sessions = rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }
     val state by sessions.state.collectAsStateWithLifecycle()
@@ -83,9 +85,15 @@ fun SessionsScreen(
     var groupFor by rememberSaveable { mutableStateOf<String?>(null) }
     var newGroup by rememberSaveable { mutableStateOf(false) }
     RefreshOnSessionChange(core, sessions)
+    // The coach conversation is a session too (#114), but it has its own screen and its own rules.
+    val coachId = (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
     val open: (SessionSummary) -> Unit = { session ->
-        core.chat.open(session, memory = isMemory(folderState, session))
-        onOpenChat()
+        if (session.id == coachId) {
+            onOpenCoach()
+        } else {
+            core.chat.open(session, memory = isMemory(folderState, session))
+            onOpenChat()
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -107,7 +115,7 @@ fun SessionsScreen(
                     SearchField(query) { query = it }
                     val found = SessionLists.matching(list.sessions, query)
                     if (found.isEmpty()) EmptyLine(stringResource(R.string.sessions_none_found))
-                    val menu: (SessionSummary) -> Unit = { menuFor = it.id }
+                    val menu: (SessionSummary) -> Unit = { if (it.id != coachId) menuFor = it.id }
                     val pinned = SessionLists.pinned(found)
                     if (pinned.isNotEmpty()) {
                         LifeCard {

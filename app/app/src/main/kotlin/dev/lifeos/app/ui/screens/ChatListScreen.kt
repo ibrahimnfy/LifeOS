@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.ChatState
 import dev.lifeos.app.data.Folder
 import dev.lifeos.app.data.SessionLists
@@ -91,6 +92,8 @@ fun ChatListScreen(
     val folders = rememberLoad(core, ChatEndpoints.folders) { it.folders.isEmpty() }
     val folderState by folders.state.collectAsStateWithLifecycle()
     RefreshOnSessionChange(core, sessions)
+    // The coach conversation is the pinned entry on top (#114), not one of the recent sessions.
+    val coachId = (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
     // What can be done with a session (#74): the same sheet as on the Sessions screen.
     val change = rememberSessionChange(core)
     var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
@@ -128,7 +131,7 @@ fun ChatListScreen(
                 StateHost(state, stringResource(R.string.chat_list_empty), sessions::refresh, onPair) { list ->
                     LifeCard {
                         SectionHeader(title = stringResource(R.string.chat_recent))
-                        val recent = SessionLists.newestFirst(list.sessions).take(RECENT)
+                        val recent = SessionLists.newestFirst(list.sessions.filter { it.id != coachId }).take(RECENT)
                         recent.forEachIndexed { index, session ->
                             if (index > 0) RowDivider()
                             SessionRow(session, onMenu = { menuFor = session.id }) {

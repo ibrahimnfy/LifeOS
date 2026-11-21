@@ -43,6 +43,7 @@ import dev.lifeos.app.ui.components.LocalLooks
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
+import dev.lifeos.app.ui.screens.CoachScreen
 import dev.lifeos.app.ui.screens.ChatListScreen
 import dev.lifeos.app.ui.screens.NewChatSheet
 import dev.lifeos.app.ui.screens.SessionsScreen
@@ -138,6 +139,15 @@ fun LifeOsApp(
         }
     }
 
+    // The coach conversation (#114), below the Chat tab like every other conversation.
+    val openCoach: () -> Unit = {
+        if (Tab.forRoute(navController.currentDestination?.route) != Tab.CHAT) navController.openTab(Tab.CHAT)
+        navController.navigate(Routes.CHAT_COACH) {
+            popUpTo(Routes.CHAT)
+            launchSingleTop = true
+        }
+    }
+
     val undoLabel = stringResource(R.string.action_undo)
     val showUndo: (String, () -> Unit) -> Unit = { message, onUndo ->
         scope.launch {
@@ -220,12 +230,17 @@ fun LifeOsApp(
                     onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
                 )
             }
-            composable(Routes.COACH) {
-                PlaceholderScreen(
-                    title = stringResource(R.string.coach_conversation),
-                    onBack = { navController.popBackStack() },
-                    onConnectionClick = openSettings,
-                )
+            // The coach conversation (#114): the same screen from the coach card on Today and from the Chat tab.
+            listOf(Routes.COACH, Routes.CHAT_COACH).forEach { route ->
+                composable(route) {
+                    CoachScreen(
+                        core = core,
+                        onBack = { navController.popBackStack() },
+                        onConnectionClick = openSettings,
+                        onPair = openPair,
+                        onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
+                    )
+                }
             }
             composable(Routes.CHAT) {
                 ChatListScreen(
@@ -234,7 +249,7 @@ fun LifeOsApp(
                     onPair = openPair,
                     onOpenChat = openChat,
                     onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
-                    onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
+                    onOpenCoach = openCoach,
                     onNewChat = { newChatOpen = true },
                 )
             }
@@ -258,6 +273,7 @@ fun LifeOsApp(
                         onPair = openPair,
                         onOpenChat = openChat,
                         onNewChat = { newChatOpen = true },
+                        onOpenCoach = openCoach,
                     )
                 }
             }

@@ -222,7 +222,7 @@ with plain HTTPS requests.
   opens Settings.
 - **Today:** three cards from the coach's plan and the agenda. The coach
   card shows one message of the plan, another one each time the app is
-  opened (tapping it opens a "Coach conversation" placeholder);
+  opened (tapping it opens the coach conversation, see Chat);
   "Assistant's picks" is the plan's top three with their reasons; "Today"
   lists overdue and today's tasks, three visible and the rest by scrolling
   inside the card. Pulling down only reads the plan and the agenda again; it
@@ -238,8 +238,8 @@ with plain HTTPS requests.
   (here and on Today) opens the task to change its title and due date (or
   remove the date); the change is shown at once with "Waiting to sync" until
   the computer confirmed it.
-- **Chat** (the tab): the coach's conversation pinned on top (a placeholder
-  for now), the chat in progress, the three most recent sessions with **All
+- **Chat** (the tab): the coach's conversation pinned on top, the chat in
+  progress, the three most recent sessions with **All
   sessions**, and **New chat**. New chat asks where it should run: the
   memory folder (the default) or one of the allowed folders, as the computer
   lists them. A conversation shows the owner's messages on the right and the
@@ -305,6 +305,24 @@ with plain HTTPS requests.
     the assistant goes on without one. The cards use only the bridge's
     interactions (the Agent SDK's documented question callback); a client
     that could not show them would get the question as text instead.
+  - **The coach conversation (#114):** one conversation with the coach that
+    goes on, opened from the coach card on Today and from the pinned entry
+    of the Chat tab (the same conversation; there is no fifth tab). It looks
+    and works like any other conversation (earlier messages, waiting
+    messages, stop, questions), but it is read-only and always on the
+    coach's model, so it has neither the model pill nor "Changes allowed";
+    the top bar says "Read-only" and the model. **Its plan usage** stands
+    under the top bar in plain numbers, today's runs, tokens and estimated
+    cost of this conversation and, apart from it, of the morning run; a tap
+    (or the bars icon) opens the same for the week, how full the
+    conversation is, the summary of what came before and **Tidy up now**.
+    The computer tidies a long conversation up by itself before the next
+    message (what matters goes to the memory, a summary stays, a new
+    session continues): the screen then says that it tidies up first, and
+    marks the place with one line. Which session the conversation is, the
+    computer says each time (`GET /coach/chat`); the phone stores nothing
+    about it. In the lists of sessions the coach's session opens this
+    screen, and it is left out of "Recent".
 - **Sessions** (the clock in Chat, or under More): a field that filters by
   title and folder, pinned sessions, then every folder with its sessions,
   newest first; "Working" marks a session the computer is answering right
@@ -721,6 +739,9 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
   minutes, to see what running out of time looks like.
+  **The coach conversation** starts empty there and counts as long after
+  five messages, or at once for a message that contains `tidy`: the next
+  answer then begins only after six seconds, in a renewed session.
 
   ```sh
   adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --ez lifeos.test.sample_data true
@@ -733,8 +754,10 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- Chat: tables in answers (shown as text). Sessions: reminders. The coach
-  conversation and Projects are placeholders.
+- Chat: tables in answers (shown as text). Sessions: reminders. Projects is
+  a placeholder. The coach conversation shows only its current session: the
+  messages from before it was tidied up are under Sessions ("Coach
+  (earlier)").
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course".
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -960,6 +983,35 @@ aid shows the same screens with invented answers.
    working on this…", and a little later the whole answer, once.
 8. Settings → Language → **Türkçe** and Appearance → **Dark**: the Chat
    list, a conversation and Sessions are fully in Turkish and readable.
+
+### The coach conversation
+
+Paired (each message is a run on the plan, on the coach's model), or on an
+emulator with the `sample_data` test aid:
+
+1. Today → tap the coach card: "Coach conversation", "Read-only · model ·
+   effort" under the title, "Plan usage today" with one line for this
+   conversation and one for the morning run. Back, Chat tab → the pinned
+   entry on top: the same screen with the same messages.
+2. Send "What should I do first today?": the answer arrives as in any
+   chat. There is no model pill and no "Read-only / Changes allowed" pill.
+   On the computer, `GET /coach/chat` shows the session and the usage of
+   `coach_chat` one run higher; the numbers under the top bar follow.
+3. Tap the usage block: today and this week for the conversation and for
+   the morning run, "x% of the length at which it is tidied up", and
+   **Tidy up now**.
+4. **Tidy up now** → confirm: "Tidying up…", then the conversation is
+   empty ("…was tidied up and starts short again") and the sheet shows
+   "Tidied up once so far" and the summary. On the computer the earlier
+   session is listed as "Coach (earlier)" and `coach/conversation.md` in
+   the memory has the summary.
+5. A long conversation (sample mode: a message with "tidy"; on the
+   computer: a transcript over the limit of `GET /coach/chat`): after
+   sending, "The conversation had grown long: the computer tidies it up
+   first…", then the answer, with the line "Tidied up here…" above the
+   message.
+6. Sessions: the session "Coach" opens the coach screen, not an ordinary
+   conversation. Lock and unlock the app: the conversation is read again.
 
 ### Session groups, rename and pin
 

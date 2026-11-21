@@ -588,6 +588,38 @@
     <string name="session_edit_too_many">Bilgisayar şu ankinden fazla grup tutmuyor. Önce birini sil.</string>
     <string name="session_edit_failed">Bu, bilgisayarda değiştirilemedi.</string>
 
+    <!-- The coach conversation (#114) -->
+    <string name="coach_about">Bu sohbet ve plan kullanımı hakkında</string>
+    <string name="coach_usage_today">Bugünkü plan kullanımı</string>
+    <string name="coach_usage_chat">Bu sohbet</string>
+    <string name="coach_usage_morning">Sabah çalıştırması</string>
+    <string name="coach_usage_note">Ayrı sayılır: sabah çalıştırması planı ve koç kartını hazırlar, bu sohbet yalnızca burada sana yanıt verir. Token sayısına önbellek dahildir; tutar Claude Code\'un kendi tahminidir.</string>
+    <string name="coach_size">Uzunluk</string>
+    <string name="coach_size_percent">Toparlanacağı uzunluğun %%%1$d kadarı</string>
+    <string name="coach_size_note">Sohbet uzadığında bilgisayar onu bir sonraki mesajından önce kendiliğinden toparlar: seninle ilgili önemli şeyler belleğe yazılır, bir özet kalır ve sohbet devam eder. Bu, fazladan bir çalıştırma demektir.</string>
+    <plurals name="coach_tidied_times">
+        <item quantity="one">Şimdiye kadar bir kez toparlandı.</item>
+        <item quantity="other">Şimdiye kadar %1$d kez toparlandı.</item>
+    </plurals>
+    <plurals name="coach_tidied_last">
+        <item quantity="one">Son olarak %1$s: belleğe %2$d bilgi yazıldı.</item>
+        <item quantity="other">Son olarak %1$s: belleğe %2$d bilgi yazıldı.</item>
+    </plurals>
+    <string name="coach_summary">Öncesinin özeti</string>
+    <string name="coach_tidy">Şimdi toparla</string>
+    <string name="coach_tidy_title">Sohbet şimdi toparlansın mı?</string>
+    <string name="coach_tidy_text">Plandan bir çalıştırma: koç önemli şeyleri belleğe yazar ve bir özet tutar. Sohbet sonra yeniden kısa başlar; önceki mesajlar bilgisayarda Oturumlar altında kalır.</string>
+    <string name="coach_tidying_now">Toparlanıyor… bu bir yanıt kadar sürer.</string>
+    <string name="coach_tidying">Sohbet uzamıştı: bilgisayar önce onu toparlıyor, sonra yanıtlayacak. %1$s</string>
+    <string name="coach_renewed">Burada toparlandı: yukarıdakiler özetlendi, önemli olanlar belleğe yazıldı.</string>
+    <string name="coach_tidy_failed">Bilgisayar sohbetin toparlandığını doğrulamadı. Hiçbir şey kaybolmadı; daha sonra yeniden dene.</string>
+    <string name="coach_empty_title">Koçunla konuş</string>
+    <string name="coach_empty_text">Süren tek bir sohbet: görevlerin, neyin zor olduğu, önce neyi yapman gerektiği üzerine. Koç belleğini okur, hiçbir şeyi değiştirmez.</string>
+    <string name="coach_empty_tidied">Sohbet toparlandı ve yeniden kısa başlıyor. Koç öncesinin özetini hâlâ biliyor.</string>
+    <string name="coach_prompt_1">Bugün önce ne yapmalıyım?</string>
+    <string name="coach_prompt_2">Hangi görevi erteliyorum ve neden?</string>
+    <string name="coach_prompt_3">Bu hafta nasıl geçti?</string>
+
     <!-- Approvals and questions in chat (#53) -->
     <string name="chat_mode_read_only">Salt okunur</string>
     <string name="chat_mode_capable">Değişikliğe izin var</string>

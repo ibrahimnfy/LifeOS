@@ -45,6 +45,10 @@ import java.util.concurrent.ConcurrentHashMap
  * "delete" and "push" (the run waits for an approval; the first is a deletion), "choose"
  * (the run waits for an answer to two questions). With "hurry" the wait lasts 20 seconds
  * instead of ten minutes.
+ *
+ * The coach conversation (#114) is one more session, empty at first. It counts as long after
+ * five messages, or at once when a message contains "tidy": the next answer then starts only
+ * after six seconds, in a new session, as when the computer tidies the conversation up.
  */
 internal class SampleChat(private val context: Context) {
     private val data: JsonObject by lazy {
@@ -71,7 +75,52 @@ internal class SampleChat(private val context: Context) {
     }
 
     private val sessions = ConcurrentHashMap<String, Session>()
-    private fun session(id: String) = sessions.getOrPut(id) { Session(seeded = id != NEW) }
+    private fun session(id: String) = sessions.getOrPut(id) { Session(seeded = id != NEW && !id.startsWith(COACH)) }
+
+    // ---- the coach conversation (#114)
+    private var coachRound = 1
+    private var coachRuns = 0
+    private val coachId get() = "$COACH-$coachRound"
+    private fun coachDue() = session(coachId).exchanges.size >= COACH_FULL
+
+    private fun renewCoach() {
+        coachRound++
+        coachRuns++
+    }
+
+    private fun usage(runs: Int) = buildJsonObject {
+        put("runs", JsonPrimitive(runs))
+        put("input_tokens", JsonPrimitive(runs * 2_400))
+        put("output_tokens", JsonPrimitive(runs * 610))
+        put("cache_creation_input_tokens", JsonPrimitive(runs * 9_000))
+        put("cache_read_input_tokens", JsonPrimitive(runs * 41_000))
+        put("cost_usd", JsonPrimitive(runs * 0.11))
+        put("models", buildJsonArray { if (runs > 0) add(JsonPrimitive("opus")) })
+    }
+
+    private fun periods(today: Int, week: Int) = buildJsonObject {
+        put("today", usage(today))
+        put("week", usage(week))
+    }
+
+    private fun coachView() = ok {
+        val exchanges = session(coachId).exchanges.size
+        put("session_id", JsonPrimitive(coachId))
+        put("started", JsonPrimitive(exchanges > 0))
+        put("transcript_bytes", JsonPrimitive(exchanges * 80_000))
+        put("compact_at_bytes", JsonPrimitive(COACH_FULL * 80_000))
+        put("compactions", JsonPrimitive(coachRound - 1))
+        put("summary", if (coachRound > 1) JsonPrimitive("The owner works on **Project Alpha** first and keeps mornings for the outline.\n\n- Exercise sheets are done on the day they arrive.\n- The essay topic waits for a reply.") else JsonNull)
+        put(
+            "last_compaction",
+            if (coachRound > 1) buildJsonObject { put("at", JsonPrimitive(java.time.OffsetDateTime.now().withNano(0).toString())); put("result", JsonPrimitive("ok")); put("facts", JsonPrimitive(3)) } else JsonNull,
+        )
+        put("earlier_sessions", buildJsonArray { for (round in 1 until coachRound) add(JsonPrimitive("$COACH-$round")) })
+        put("model", JsonPrimitive("opus"))
+        put("effort", JsonPrimitive("high"))
+        put("usage", periods(coachRuns, coachRuns + 9))
+        put("morning_usage", periods(1, 6))
+    }
 
     /** Questions and approvals a sample run waits for, by id. */
     private val waiting = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
@@ -80,6 +129,17 @@ internal class SampleChat(private val context: Context) {
 
     /** The answer to a plain request, or null when it is not one of Chat's. */
     fun request(method: String, path: String, query: Map<String, String>, body: JsonElement?): RelayResponse? {
+        if (method == "GET" && path == "/coach/chat") return coachView()
+        if (method == "POST" && path == "/coach/chat/compact") {
+            if (session(coachId).exchanges.isEmpty()) return error(409, "nothing_to_compact")
+            Thread.sleep(4000) // one run on the computer
+            renewCoach()
+            return ok {
+                put("facts", buildJsonArray { add(JsonPrimitive("profile/work.md")) })
+                put("summary", JsonPrimitive(true))
+                put("session_id", JsonPrimitive(coachId))
+            }
+        }
         val parts = Regex("^/sessions/([^/]+)/(.+)$").find(path)?.groupValues
         if (parts != null) {
             val session = session(parts[1])
@@ -92,6 +152,8 @@ internal class SampleChat(private val context: Context) {
                         ok { put("answered", JsonPrimitive(true)) }
                     }
                     method == "GET" && rest == "interactions" -> ok { put("pending", JsonArray(emptyList())) }
+                    // The coach conversation has no thread to read before its first message.
+                    method == "GET" && rest == "history" && parts[1].startsWith(COACH) && session.exchanges.isEmpty() -> error(404, "session_not_found")
                     method == "GET" && rest == "history" -> history(session, query["before"])
                     // The folder's skills and commands; switched on per session (PATCH below).
                     method == "GET" && rest == "commands" -> ok {
@@ -166,8 +228,21 @@ internal class SampleChat(private val context: Context) {
     private val meta = HashMap<String, JsonObject>()
     private val groups = mutableListOf<Pair<String, String>>()
 
-    private fun listedSessions(): List<JsonObject> =
-        relative(data.getValue("GET /sessions")).jsonObject.getValue("sessions").jsonArray.map { it.jsonObject }
+    private fun listedSessions(): List<JsonObject> {
+        val listed = relative(data.getValue("GET /sessions")).jsonObject.getValue("sessions").jsonArray.map { it.jsonObject }
+        // The coach conversation is a session like the others once it has a message; the app gives it its own screen.
+        if (session(coachId).exchanges.isEmpty()) return listed
+        val coach = buildJsonObject {
+            put("id", JsonPrimitive(coachId))
+            put("title", JsonPrimitive("Coach"))
+            put("folder", JsonPrimitive("/home/owner/brain"))
+            put("last_activity", JsonPrimitive(Instant.now().toString()))
+            put("in_use", JsonPrimitive(session(coachId).running))
+            put("auto_group", JsonPrimitive("brain"))
+            put("pinned", JsonPrimitive(true))
+        }
+        return listOf(coach) + listed
+    }
 
     private fun groupList() = synchronized(meta) {
         buildJsonArray { groups.forEach { (id, name) -> add(buildJsonObject { put("id", JsonPrimitive(id)); put("name", JsonPrimitive(name)) }) } }
@@ -246,9 +321,19 @@ internal class SampleChat(private val context: Context) {
         val request = body as? JsonObject
         val text = (request?.get("prompt") as? JsonPrimitive)?.content.orEmpty()
         val prompt = text.lowercase()
-        val id = Regex("^/sessions/([^/]+)/").find(path)?.groupValues?.get(1) ?: NEW
-        val session = session(id)
+        val toCoach = path == "/coach/chat/messages"
+        var id = Regex("^/sessions/([^/]+)/").find(path)?.groupValues?.get(1) ?: if (toCoach) coachId else NEW
         if ("offline" in prompt) throw ApiException(ApiException.Kind.NOT_SENT)
+        if (toCoach) {
+            if (!session(id).running && session(id).exchanges.isNotEmpty() && (coachDue() || "tidy" in prompt)) {
+                // The conversation had grown long: one run without any sign, then a new session.
+                delay(6000)
+                renewCoach()
+                id = coachId
+            }
+            coachRuns++
+        }
+        val session = session(id)
         if ("in use" in prompt) {
             emit(AnswerEvent.Done(error(409, "session_in_use")))
             return@flow
@@ -422,6 +507,8 @@ internal class SampleChat(private val context: Context) {
 
     private companion object {
         const val NEW = "sample-session-new"
+        const val COACH = "sample-coach"
+        const val COACH_FULL = 5
         const val PAGE = 4
         const val QUESTIONS = """[
             {"question": "Which draft should the summary be based on?", "header": "Draft", "multi_select": false, "options": [

@@ -590,6 +590,38 @@
     <string name="session_edit_too_many">The computer keeps no more groups than it has now. Delete one first.</string>
     <string name="session_edit_failed">That could not be changed on the computer.</string>
 
+    <!-- The coach conversation (#114) -->
+    <string name="coach_about">About this conversation and its plan usage</string>
+    <string name="coach_usage_today">Plan usage today</string>
+    <string name="coach_usage_chat">This conversation</string>
+    <string name="coach_usage_morning">Morning run</string>
+    <string name="coach_usage_note">Counted apart: the morning run prepares the plan and the coach card, this conversation only answers you here. Tokens include the cache; the amount is Claude Code\'s own estimate.</string>
+    <string name="coach_size">Length</string>
+    <string name="coach_size_percent">%1$d%% of the length at which it is tidied up</string>
+    <string name="coach_size_note">When the conversation has grown long, the computer tidies it up by itself before your next message: what matters about you is written to the memory, a summary stays, and the conversation goes on. That takes one more run.</string>
+    <plurals name="coach_tidied_times">
+        <item quantity="one">Tidied up once so far.</item>
+        <item quantity="other">Tidied up %1$d times so far.</item>
+    </plurals>
+    <plurals name="coach_tidied_last">
+        <item quantity="one">Last on %1$s: %2$d fact went to the memory.</item>
+        <item quantity="other">Last on %1$s: %2$d facts went to the memory.</item>
+    </plurals>
+    <string name="coach_summary">Summary of what came before</string>
+    <string name="coach_tidy">Tidy up now</string>
+    <string name="coach_tidy_title">Tidy the conversation up now?</string>
+    <string name="coach_tidy_text">One run on the plan: the coach writes what matters to the memory and keeps a summary. The conversation then starts short again; the earlier messages stay on the computer under Sessions.</string>
+    <string name="coach_tidying_now">Tidying up… this takes as long as an answer.</string>
+    <string name="coach_tidying">The conversation had grown long: the computer tidies it up first, then answers. %1$s</string>
+    <string name="coach_renewed">Tidied up here: what stands above was summarised, and what matters was written to the memory.</string>
+    <string name="coach_tidy_failed">The computer did not confirm that the conversation was tidied up. Nothing is lost; try again later.</string>
+    <string name="coach_empty_title">Talk to your coach</string>
+    <string name="coach_empty_text">One conversation that goes on: about your tasks, what is hard, what to do first. The coach reads your memory and changes nothing.</string>
+    <string name="coach_empty_tidied">The conversation was tidied up and starts short again. The coach still knows the summary of what came before.</string>
+    <string name="coach_prompt_1">What should I do first today?</string>
+    <string name="coach_prompt_2">Which task have I been putting off, and why?</string>
+    <string name="coach_prompt_3">How did this week go?</string>
+
     <!-- Approvals and questions in chat (#53) -->
     <string name="chat_mode_read_only">Read-only</string>
     <string name="chat_mode_capable">Changes allowed</string>
