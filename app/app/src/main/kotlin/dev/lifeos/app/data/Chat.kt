@@ -265,6 +265,12 @@ data class ChatState(
     val renewedAt: Long? = null,
     /** The owner asked to tidy the conversation up now; the computer is at it. */
     val compacting: Boolean = false,
+    /**
+     * A message is sent and the computer has not said yet in which session it runs. Until
+     * then whatever runs may be the tidying up in the session before: a stop would hit that
+     * (the session is renewed without its facts and summary) and not the owner's message.
+     */
+    val unnamed: Boolean = false,
 ) {
     val canSend: Boolean get() = phase == ChatPhase.IDLE && !loading && loadProblem == null && loaded && !compacting
 
@@ -275,7 +281,7 @@ data class ChatState(
     val olderExist: Boolean get() = olderCursor != null
 
     /** A run can be stopped once the computer has named its session. */
-    val canStop: Boolean get() = phase != ChatPhase.IDLE && sessionId != null && !stopping
+    val canStop: Boolean get() = phase != ChatPhase.IDLE && sessionId != null && !stopping && !unnamed
     val isEmpty: Boolean get() = messages.isEmpty() && phase == ChatPhase.IDLE && failure == null
 }
 
@@ -605,6 +611,8 @@ class Chat(
         return state.copy(
             coach = view,
             sessionId = id,
+            // An answer that is not heard: once the session is renewed, or no longer due for it, what runs is the message.
+            unnamed = state.unnamed && view.dueForCompaction && !renewed,
             // Earlier messages of the session before are not part of the new one.
             olderCursor = if (renewed) null else state.olderCursor,
             renewedAt = if (renewed) awaiting?.second ?: state.renewedAt else state.renewedAt,
@@ -771,6 +779,7 @@ class Chat(
                 stopping = false,
                 interactions = emptyList(),
                 tidying = coach && it.coach?.dueForCompaction == true,
+                unnamed = coach,
                 // As on the computer: the hold a stop put on the queue ends with the owner's next message.
                 queueHold = it.queueHold.takeIf { hold -> hold != HOLD_CANCEL },
             )
@@ -1187,6 +1196,7 @@ class Chat(
                         sessionId = id,
                         startingId = null,
                         tidying = false,
+                        unnamed = false,
                         olderCursor = if (renewed) null else state.olderCursor,
                         renewedAt = if (renewed) awaiting?.second ?: state.renewedAt else state.renewedAt,
                     )
@@ -1239,6 +1249,7 @@ class Chat(
                         loaded = true,
                         stopping = false,
                         tidying = false,
+                        unnamed = false,
                         interactions = closed(state.interactions),
                     )
                 }
@@ -1252,7 +1263,7 @@ class Chat(
                     // The owner stopped it from here: that is what was asked for, not a failure to retry.
                     val failure = if (problem == ChatProblem.STOPPED && state.stopping) ChatFailure(ChatProblem.STOPPED_HERE) else ChatFailure(problem, prompt)
                     // The run had started: the message is part of the conversation, a retry is a new message.
-                    state.copy(messages = messages, phase = ChatPhase.IDLE, stopping = false, tidying = false, failure = failure, interactions = closed(state.interactions))
+                    state.copy(messages = messages, phase = ChatPhase.IDLE, stopping = false, tidying = false, unnamed = false, failure = failure, interactions = closed(state.interactions))
                 }
                 return true
             }
@@ -1300,15 +1311,17 @@ class Chat(
         }
         // Nothing ran: "Retry" sends the same message in place of this one.
         change(generation) {
-            it.copy(phase = ChatPhase.IDLE, startingId = null, failure = ChatFailure(problem, prompt, replaces = key, status = response.status))
+            it.copy(phase = ChatPhase.IDLE, startingId = null, unnamed = false, failure = ChatFailure(problem, prompt, replaces = key, status = response.status))
         }
     }
 
     /** Nothing left the phone: the text goes back to the composer, to be sent by the owner later. */
     private fun notSent(generation: Int, prompt: String, key: Long, problem: ChatProblem) {
         awaiting = null
+        // A first message: there is no conversation to find again (its id is kept for the next try).
+        if (mutable.value.let { it.generation == generation && it.sessionId == null }) store.save(null)
         change(generation) { state ->
-            state.copy(messages = state.messages.filter { it.key != key }, phase = ChatPhase.IDLE, draft = prompt, failure = ChatFailure(problem))
+            state.copy(messages = state.messages.filter { it.key != key }, phase = ChatPhase.IDLE, unnamed = false, draft = prompt, failure = ChatFailure(problem))
         }
     }
 

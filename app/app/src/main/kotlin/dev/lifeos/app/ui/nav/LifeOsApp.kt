@@ -69,6 +69,8 @@ import dev.lifeos.app.ui.screens.TasksScreen
 import dev.lifeos.app.ui.screens.TodayScreen
 import dev.lifeos.app.ui.screens.titleRes
 import dev.lifeos.app.ui.theme.LifeTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** The whole app: navigation host, bottom bar, capture sheet and snackbar. */
@@ -174,10 +176,19 @@ fun LifeOsApp(
     LaunchedEffect(openPush, locked) {
         val push = openPush ?: return@LaunchedEffect
         if (locked) return@LaunchedEffect
+        // A session's notification asks the computer where it leads. Right after a start the
+        // pairing may not be read yet, and the first request may fail: wait a little, try twice.
+        suspend fun sessionOf(id: String): SessionLookup.Found {
+            withTimeoutOrNull(8_000) { core.pairing.first { it != null } }
+            val found = SessionLookup.find(core.api, id)
+            if (found != SessionLookup.Found.Unreachable) return found
+            delay(2_500)
+            return SessionLookup.find(core.api, id)
+        }
         when (val destination = push.destination) {
             // An answer, a question or an approval of a session (#148): that conversation, read
             // afresh, so that what waits for the owner is on screen at once.
-            is Destination.Chat -> when (val found = SessionLookup.find(core.api, destination.sessionId)) {
+            is Destination.Chat -> when (val found = sessionOf(destination.sessionId)) {
                 is SessionLookup.Found.Session -> {
                     core.chat.open(found.session, found.memory, fresh = true)
                     openChat()
@@ -212,12 +223,13 @@ fun LifeOsApp(
             Destination.Sleep -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
             // A session reminder (#75): its session, and its note in one line.
             is Destination.Reminder -> {
+                withTimeoutOrNull(8_000) { core.pairing.first { it != null } }
                 val reminder = try {
                     SessionLookup.reminder(core.api, destination.reminderId)
                 } catch (_: ApiException) {
                     null
                 }
-                val found = reminder?.let { SessionLookup.find(core.api, it.sessionId) }
+                val found = reminder?.let { sessionOf(it.sessionId) }
                 when (found) {
                     is SessionLookup.Found.Session -> {
                         core.chat.open(found.session, found.memory)

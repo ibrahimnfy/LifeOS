@@ -201,6 +201,24 @@ class ChatStartTest {
     }
 
     @Test
+    fun `a first message that never left the phone leaves nothing to find again`() = runTest {
+        val chat = chat()
+        chat.newChat(memory)
+        transport.events = { flow { throw ApiException(ApiException.Kind.NOT_SENT) } }
+        chat.send("Hi")
+        advanceUntilIdle()
+        assertEquals("Hi", chat.state.value.draft)
+        // After a restart the Chat tab does not open a conversation that never began.
+        assertNull(store.pointer)
+        // The same text again is the same start.
+        answers(event("session", """{"session_id":"${id(1)}"}"""), event("done", """{"answer":"Hello.","session_id":"${id(1)}"}"""), done())
+        chat.send("Hi")
+        advanceUntilIdle()
+        assertEquals(listOf(id(1), id(1)), posts().map(::sentId))
+        assertEquals(id(1), store.pointer?.sessionId)
+    }
+
+    @Test
     fun `another first message is another start`() = runTest {
         val chat = chat()
         chat.newChat(memory)

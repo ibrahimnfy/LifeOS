@@ -180,7 +180,14 @@ internal fun SessionSheet(
             }
             SheetSwitch(stringResource(R.string.session_notify), stringResource(R.string.session_notify_note), checked = notify) { on ->
                 notify = on
-                change { api.patchSession(session.id, SessionEdits.notifyReplies(on)) }
+                change {
+                    try {
+                        api.patchSession(session.id, SessionEdits.notifyReplies(on))
+                    } catch (error: ApiException) {
+                        notify = !on
+                        throw error
+                    }
+                }
             }
         }
         SessionSheetPage.REMINDERS -> RemindersSheet(

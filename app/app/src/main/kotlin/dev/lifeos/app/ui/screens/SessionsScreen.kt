@@ -91,7 +91,8 @@ fun SessionsScreen(
     RefreshOnSessionChange(core, reminders)
     val reminded = Reminders.sessionsWithOne((reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty())
     // The coach conversation is a session too (#114), but it has its own screen and its own rules.
-    val coachId = (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
+    val coachId = core.coach.state.collectAsStateWithLifecycle().value.sessionId
+        ?: (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
     val open: (SessionSummary) -> Unit = { session ->
         if (session.id == coachId) {
             onOpenCoach()
@@ -120,12 +121,12 @@ fun SessionsScreen(
                     SearchField(query) { query = it }
                     val found = SessionLists.matching(list.sessions, query)
                     if (found.isEmpty()) EmptyLine(stringResource(R.string.sessions_none_found))
-                    val menu: (SessionSummary) -> Unit = { if (it.id != coachId) menuFor = it.id }
+                    val menu: (SessionSummary) -> Unit = { menuFor = it.id }
                     val pinned = SessionLists.pinned(found)
                     if (pinned.isNotEmpty()) {
                         LifeCard {
                             SectionHeader(title = stringResource(R.string.chat_pinned))
-                            Rows(pinned, showFolder = true, reminded, onOpen = open, onMenu = menu)
+                            Rows(pinned, showFolder = true, reminded, coachId, onOpen = open, onMenu = menu)
                         }
                     }
                     // The owner's own groups (#74). While searching, only those with a match.
@@ -144,7 +145,7 @@ fun SessionsScreen(
                                 if (group.sessions.isEmpty()) {
                                     Text(stringResource(R.string.sessions_group_empty), style = LifeType.small, color = LifeTheme.colors.muted, modifier = Modifier.padding(vertical = 8.dp))
                                 }
-                                Rows(group.sessions, showFolder = true, reminded, onOpen = open, onMenu = menu)
+                                Rows(group.sessions, showFolder = true, reminded, coachId, onOpen = open, onMenu = menu)
                             }
                         }
                     }
@@ -166,7 +167,7 @@ fun SessionsScreen(
                                     color = LifeTheme.colors.muted,
                                 )
                             }
-                            LifeCard { Rows(group.sessions, showFolder = false, reminded, onOpen = open, onMenu = menu) }
+                            LifeCard { Rows(group.sessions, showFolder = false, reminded, coachId, onOpen = open, onMenu = menu) }
                         }
                     }
                 }
@@ -185,10 +186,19 @@ fun SessionsScreen(
 }
 
 @Composable
-private fun Rows(sessions: List<SessionSummary>, showFolder: Boolean, reminded: Set<String>, onOpen: (SessionSummary) -> Unit, onMenu: (SessionSummary) -> Unit) {
+private fun Rows(
+    sessions: List<SessionSummary>,
+    showFolder: Boolean,
+    reminded: Set<String>,
+    coachId: String?,
+    onOpen: (SessionSummary) -> Unit,
+    onMenu: (SessionSummary) -> Unit,
+) {
     sessions.forEachIndexed { index, session ->
         if (index > 0) RowDivider()
-        SessionRow(session, showFolder = showFolder, onMenu = { onMenu(session) }, reminder = session.id in reminded) { onOpen(session) }
+        // The coach's session is not the owner's to rename, pin or group: no sheet.
+        val menu: (() -> Unit)? = if (session.id == coachId) null else ({ onMenu(session) })
+        SessionRow(session, showFolder = showFolder, onMenu = menu, reminder = session.id in reminded) { onOpen(session) }
     }
 }
 

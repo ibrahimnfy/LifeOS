@@ -112,6 +112,7 @@ class CoachChatTest {
         assertEquals("""{"prompt":"What first?","stream":true,"interactive":true}""", sent.body.toString())
         assertEquals(listOf("me:What first?", "it:Start with the outline."), texts(coach))
         assertEquals(0, store.saved)
+        assertFalse(coach.state.value.unnamed)
     }
 
     @Test
@@ -134,8 +135,10 @@ class CoachChatTest {
         }
         coach.send("And now?")
         testScheduler.advanceTimeBy(30_000)
-        // No sign yet: the screen says why it takes long.
+        // No sign yet: the screen says why it takes long. What runs now is the tidying up in
+        // the session before, so there is nothing of the owner's to stop.
         assertTrue(coach.state.value.tidying)
+        assertFalse(coach.state.value.canStop)
         assertEquals(ChatPhase.SENDING, coach.state.value.phase)
         view("c-2", bytes = 2_000, compactions = 1, runs = 4)
         release = true

@@ -94,7 +94,8 @@ fun ChatListScreen(
     val folderState by folders.state.collectAsStateWithLifecycle()
     RefreshOnSessionChange(core, sessions)
     // The coach conversation is the pinned entry on top (#114), not one of the recent sessions.
-    val coachId = (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
+    val coachId = core.coach.state.collectAsStateWithLifecycle().value.sessionId
+        ?: (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
     // What can be done with a session (#74): the same sheet as on the Sessions screen.
     val change = rememberSessionChange(core)
     var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
