@@ -41,6 +41,7 @@ import java.util.concurrent.ConcurrentHashMap
  * "in use" (the session is open on the computer), "fail" (the run breaks off after a few
  * words), "offline" (nothing leaves the phone), "silent" (the answer stops arriving),
  * "slow" (the answer takes half a minute, time enough to queue and stop),
+ * "file" (the answer offers a small file for download and names one that is too large),
  * "delete" and "push" (the run waits for an approval; the first is a deletion), "choose"
  * (the run waits for an answer to two questions). With "hurry" the wait lasts 20 seconds
  * instead of ten minutes.
@@ -250,6 +251,11 @@ internal class SampleChat(private val context: Context) {
                     buildJsonObject {
                         put("answer", JsonPrimitive(answer))
                         put("session_id", JsonPrimitive(id))
+                        // "file": one file is offered (the 20-byte sample file) and one is refused.
+                        if ("file" in prompt) {
+                            put("files", Json.parseToJsonElement("""[{"offer":"sample-offer-${++asked}","name":"outline.md","type":"text/markdown","size":20}]"""))
+                            put("files_refused", Json.parseToJsonElement("""[{"name":"recordings.zip","reason":"larger than the limit of 50 MB"}]"""))
+                        }
                     },
                 ),
             )

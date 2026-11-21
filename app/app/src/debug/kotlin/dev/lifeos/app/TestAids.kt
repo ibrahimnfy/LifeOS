@@ -114,7 +114,8 @@ object TestAids {
             Json.parseToJsonElement(context.assets.open("sample-data.json").use { it.readBytes().decodeToString() }).jsonObject
         }
 
-        private fun mine(path: String) = sampleCourses && (path.startsWith("/courses") || path.startsWith("/files/"))
+        private fun mine(path: String) =
+            (sampleCourses && (path.startsWith("/courses") || path.startsWith("/files/"))) || (sampleData && path.startsWith("/files/"))
 
         /** The sample data: GETs from the file (dates made relative to today), every write simply accepted. */
         private fun sample(method: String, path: String): RelayResponse {

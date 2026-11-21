@@ -256,3 +256,8 @@ a new entry is added that says what changed and why.
 - **"Send now" acts on a waiting message** as the design says, although the bridge only knows `when: now` for a new message: the app sends the text again with it and then removes the old entry. The message is never lost that way; at worst it is listed twice and one can be removed.
 - **Stop and send now ask first** with the sentence the owner asked for ("changes it has already made to files are kept"); a run the owner stopped ends with that note instead of a failure with "Retry".
 - **After the current answer the waiting messages are followed by asking** (every five seconds while the conversation is on screen): the bridge answers them in the background, so their answers appear whole and without approval or question cards.
+
+### Implementation choices for files in chat (agent, #96; cheap to change)
+- **File cards sit under the answer that offered them** and use the existing relay download of course files (`RelayDownload` into the Downloads collection) and the same "Open"; no second download path was written.
+- **A card stops offering the download a minute before the bridge's 15 minutes are over** and then asks to request the file again; a refused file gets a card with the reason in the app's language (too large, outside the allowed folders, hidden, too many in one answer, other).
+- **Answers read from the conversation later show the file's name only**: the bridge keeps offers in memory and the conversation only has the marker line.

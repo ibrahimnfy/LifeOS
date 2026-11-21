@@ -590,4 +590,14 @@
     <string name="chat_fail_stopped_here">Stopped. Changes the assistant has already made to files are kept.</string>
     <string name="chat_fail_stop_failed">The request to stop did not reach the computer. The run goes on.</string>
     <string name="chat_fail_queue_failed">That did not get through. The list shows what the computer has.</string>
+
+    <!-- Chat: files the assistant offers (#96) -->
+    <string name="chat_file_past">Offered in an earlier answer. Ask for this file again to download it.</string>
+    <string name="chat_file_expired">This offer has run out (after 15 minutes). Ask for the file again.</string>
+    <string name="chat_file_failed_gone">The computer no longer sends this file: the offer has run out, or the file changed. Ask for it again.</string>
+    <string name="chat_file_refused_large">Not sent: larger than the size limit set on the computer.</string>
+    <string name="chat_file_refused_outside">Not sent: it is outside the allowed folders.</string>
+    <string name="chat_file_refused_hidden">Not sent: hidden files and folders are never sent.</string>
+    <string name="chat_file_refused_many">Not offered: too many files in one answer. Ask for this one again.</string>
+    <string name="chat_file_refused_other">The computer does not send this file.</string>
 </resources>

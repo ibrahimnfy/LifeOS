@@ -588,4 +588,14 @@
     <string name="chat_fail_stopped_here">Durduruldu. Asistanın dosyalarda yaptığı değişiklikler kalır.</string>
     <string name="chat_fail_stop_failed">Durdurma isteği bilgisayara ulaşmadı. Çalışma sürüyor.</string>
     <string name="chat_fail_queue_failed">Bu ulaşmadı. Liste bilgisayardaki durumu gösteriyor.</string>
+
+    <!-- Chat: files the assistant offers (#96) -->
+    <string name="chat_file_past">Önceki bir cevapta sunuldu. İndirmek için bu dosyayı yeniden iste.</string>
+    <string name="chat_file_expired">Bu teklifin süresi doldu (15 dakika). Dosyayı yeniden iste.</string>
+    <string name="chat_file_failed_gone">Bilgisayar bu dosyayı artık göndermiyor: teklifin süresi doldu ya da dosya değişti. Yeniden iste.</string>
+    <string name="chat_file_refused_large">Gönderilmedi: bilgisayarda ayarlı boyut sınırından büyük.</string>
+    <string name="chat_file_refused_outside">Gönderilmedi: izin verilen klasörlerin dışında.</string>
+    <string name="chat_file_refused_hidden">Gönderilmedi: gizli dosya ve klasörler hiç gönderilmez.</string>
+    <string name="chat_file_refused_many">Sunulmadı: tek cevapta çok fazla dosya var. Bunu yeniden iste.</string>
+    <string name="chat_file_refused_other">Bilgisayar bu dosyayı göndermiyor.</string>
 </resources>

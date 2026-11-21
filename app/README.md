@@ -261,6 +261,14 @@ with plain HTTPS requests.
     run. Both ask first and say: changes the assistant has already made to
     files are kept. After a stop the waiting messages are on hold until the
     owner's next message or "Send them".
+  - **Files:** a file the assistant offers appears as a card under its
+    answer (name, kind, size) with a download button. Nothing is transferred
+    before the tap; the file then goes into the phone's Downloads folder,
+    with the progress on the card, and **Open** hands it to the phone's app
+    for its kind, as for course files. A file the computer does not send (too
+    large, outside the allowed folders, hidden) has a card that says why. An
+    offer is good for 15 minutes; after that, and for files offered in
+    earlier answers, the card asks to request the file again.
   - **Read-only or "Changes allowed"** (the pill above the composer): every
     conversation starts read-only. Switched on, its next messages ask the
     computer for the capable mode, in which the assistant may change files
@@ -471,6 +479,16 @@ Nothing on these screens is sample content any more. Not paired, they show
   - A refusal (session open on the computer, too many runs, folder gone,
     message too long) keeps the message with **Retry**; a run that breaks off
     keeps what was written and says why.
+  - **Offered files** (`files` and `files_refused` of a finished answer):
+    the card holds only the offer's id, name, kind and size. The download is
+    `Downloads.startOffer`: the computer's copy in sealed chunks straight
+    into the Downloads collection (`RelayDownload`, the same code as the
+    fallback route of course files: chunks in sequence, announced size and
+    SHA-256 checked, an incomplete file removed, hidden until complete). The
+    app keeps no copy and no record; "Saved to Downloads" lives until the app
+    is closed. Offers exist only in the bridge's memory, so an answer read
+    from the conversation later (after a lock, or an earlier page) shows the
+    file's name without a download.
   - **Earlier messages** are asked for one page at a time (`GET
     /sessions/{id}/history?before=<cursor>`) and held only while the
     conversation is on screen; nothing of a session is written to the phone.
@@ -622,7 +640,8 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   folders, five sessions, one conversation, and an invented answer that
   arrives piece by piece for any message. A message that contains one of
   these words shows another state: `in use` (the session is open on the
-  computer), `fail` (the run breaks off), `slow` (the answer takes half a
+  computer), `fail` (the run breaks off), `file` (the answer offers a small file and names one that is
+  too large), `slow` (the answer takes half a
   minute: time to send more messages, which wait in line, to send one now
   and to stop), `offline` (nothing is sent, the text comes back), `silent` (the answer stops arriving and the message is
   not found on the computer), `delete` or `push` (the run waits for an
@@ -642,8 +661,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 ## What is not in it yet
 
 - Chat: "/" commands,
-  the model picker, file cards (a file the assistant offers is only named in
-  its answer) and tables in answers (shown as text). Sessions: groups,
+  the model picker and tables in answers (shown as text). Sessions: groups,
   renaming, pinning and reminders. The coach conversation and Projects are
   placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
@@ -875,6 +893,29 @@ minute:
    the answer breaks off, the second message stays under "Waiting to be
    sent" with "On hold since the run was stopped". **Send them** lets it go
    on; so does sending another message.
+
+### Files in chat
+
+1. In a conversation in a folder with a small text file, send "Give me the
+   file notes.md" (name a file that exists). The answer is followed by a card
+   with the file's name, kind and size. On the computer, nothing was read
+   yet: the audit log (`tail -n 2 ~/.config/lifeos/audit/$(date -u
+   +%Y-%m).jsonl`) has a `FileOffer` line and no `FileDownload`.
+2. Tap the download arrow: "Downloading… %", then "Saved to Downloads" and
+   **Open**. The file is in the phone's Downloads folder with the same size;
+   the audit log now has `FileDownload` (name and size only). Tap **Open**:
+   the phone's app for that kind of file shows it.
+3. Ask for a file larger than the limit (50 MB unless changed), or one
+   outside the allowed folders: the card says that it is not sent and why.
+4. Wait 15 minutes (or restart the bridge) and tap the download arrow of an
+   older card: "The computer no longer sends this file…". Lock and unlock
+   the app: the earlier answer shows the file's name with "Ask for this file
+   again".
+5. Start a larger download and switch flight mode on: the card says that the
+   computer could not be reached, and no partial file is in Downloads.
+
+On an emulator with `sample_data`, "file" in a message gives an answer with a
+20-byte file to download and a refused one.
 
 ### Approvals and questions
 

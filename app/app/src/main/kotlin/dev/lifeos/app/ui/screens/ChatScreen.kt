@@ -208,7 +208,7 @@ internal fun ColumnScope.ConversationPane(
             state.loading && state.messages.isEmpty() -> SkeletonCard(rows = 2)
             state.loadProblem != null -> ErrorNotice(checkNotNull(state.loadProblem), 0, onRetry = chat::load)
             state.isEmpty && state.loaded -> empty { draft = it }
-            else -> Thread(state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true })
+            else -> Thread(core, state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true })
         }
     }
     if (paired && state.queue.isNotEmpty()) QueueList(state, chat, locked)
@@ -268,7 +268,7 @@ internal fun EmptyChat(onPrompt: (String) -> Unit) {
 }
 
 @Composable
-private fun ColumnScope.Thread(state: ChatState, chat: Chat, onSessions: () -> Unit, onOlder: () -> Unit, onStop: () -> Unit) {
+private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, onSessions: () -> Unit, onOlder: () -> Unit, onStop: () -> Unit) {
     if (state.loadingOlder) {
         SystemLine(stringResource(R.string.chat_older_loading))
     } else if (state.olderExist) {
@@ -293,7 +293,7 @@ private fun ColumnScope.Thread(state: ChatState, chat: Chat, onSessions: () -> U
     val answer = state.messages.lastOrNull()?.takeIf { !it.fromOwner }
     state.messages.forEach { message ->
         if (message === answer) cards(settled)
-        if (message.fromOwner) OwnerBubble(message) else AssistantBubble(message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
+        if (message.fromOwner) OwnerBubble(message) else AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
     }
     if (answer == null) cards(settled)
     cards(waiting)
@@ -401,6 +401,13 @@ private fun AssistantBubble(message: ChatMessage, cutOff: Boolean) {
         }
         Spacer(Modifier.weight(1f))
     }
+}
+
+/** The files offered with an answer, one card each, under the answer. */
+@Composable
+private fun AnswerWithFiles(core: LifeOsCore, message: ChatMessage, cutOff: Boolean) {
+    if (message.text.isNotBlank() || cutOff) AssistantBubble(message, cutOff)
+    message.files.forEach { FileCard(core, it) }
 }
 
 /** "Working… 0:42": a small spinner and the time since the message was sent. */

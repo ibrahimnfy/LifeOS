@@ -74,6 +74,32 @@ class Downloads(private val context: Context, private val api: Api, private val 
         }
     }
 
+    // ---- a file the assistant offered in chat: only the computer's copy, through the sealed channel
+
+    /** The key of an offer's download in [states]. */
+    fun offerKey(offer: FileOffer): String = "offer:" + offer.offer
+
+    /** Fetch an offered file into Downloads. [target] is the place the owner picked (only where [needsPicker]). */
+    fun startOffer(offer: FileOffer, target: Uri? = null) {
+        val key = offerKey(offer)
+        if (jobs[key]?.isActive == true) return
+        set(key, DownloadState.Running(0, offer.size))
+        jobs[key] = scope.launch(Dispatchers.IO) {
+            try {
+                val sink = newSink(offer.name, offer.type, target)
+                RelayDownload.receive(api, offer, sink) { set(key, DownloadState.Running(it, offer.size)) }
+                set(key, DownloadState.Saved(sink.uri, offer.type?.takeIf { it.isNotBlank() }))
+            } catch (error: DownloadFailure) {
+                set(key, DownloadState.Failed(error.reason))
+            } catch (error: CancellationException) {
+                set(key, null)
+                throw error
+            } catch (_: Exception) {
+                set(key, DownloadState.Failed(DownloadFailure.Reason.STORAGE))
+            }
+        }
+    }
+
     fun cancel(key: String) {
         jobs.remove(key)?.cancel()
     }
@@ -125,11 +151,13 @@ class Downloads(private val context: Context, private val api: Api, private val 
         stateFlow.value = if (state == null) stateFlow.value - key else stateFlow.value + (key to state)
     }
 
-    private fun newSink(file: CourseFile, target: Uri?): SavedSink = try {
+    private fun newSink(file: CourseFile, target: Uri?): SavedSink = newSink(file.name, file.type, target)
+
+    private fun newSink(name: String, type: String?, target: Uri?): SavedSink = try {
         if (target != null) {
             PickedFileSink(context.contentResolver, target)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            DownloadsFolderSink(context.contentResolver, DownloadRules.safeName(file.name), file.type)
+            DownloadsFolderSink(context.contentResolver, DownloadRules.safeName(name), type)
         } else {
             throw DownloadFailure(DownloadFailure.Reason.STORAGE)
         }

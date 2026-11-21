@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -59,8 +60,41 @@ class ChatFile(private val file: File) : ChatStore {
     }
 }
 
-/** One bubble. [incomplete]: the answer was cut off (a failed or stopped run), or is still being written elsewhere. */
-data class ChatMessage(val key: Long, val fromOwner: Boolean, val text: String, val incomplete: Boolean = false)
+/**
+ * One bubble. [incomplete]: the answer was cut off (a failed or stopped run), or is still being
+ * written elsewhere. [files]: what the assistant offered with this answer.
+ */
+data class ChatMessage(
+    val key: Long,
+    val fromOwner: Boolean,
+    val text: String,
+    val incomplete: Boolean = false,
+    val files: List<OfferedFile> = emptyList(),
+)
+
+/**
+ * A file the assistant offered. Nothing of it is on the phone: [offer] only names it, and the
+ * file is fetched when the owner taps "Download" (while the offer is valid, [open]).
+ * [refused]: why the computer does not send it. Neither: it was offered in an earlier answer
+ * that is shown from the computer's conversation, where offers are not kept; the owner asks again.
+ */
+data class OfferedFile(val name: String, val offer: FileOffer? = null, val refused: Refusal? = null, val offeredAt: Long = 0) {
+    enum class Refusal { TOO_LARGE, OUTSIDE, HIDDEN, TOO_MANY, OTHER }
+
+    /** Whether the offer can still be used at [now] (the phone's running clock). */
+    fun open(now: Long): Boolean = offer != null && now - offeredAt < Chat.OFFER_MILLIS
+
+    companion object {
+        /** The bridge's reason (files.py) as what the card says. */
+        fun refusal(reason: String): Refusal = when {
+            reason.startsWith("larger than") -> Refusal.TOO_LARGE
+            reason.startsWith("outside") -> Refusal.OUTSIDE
+            reason.startsWith("hidden") -> Refusal.HIDDEN
+            reason.startsWith("too many") -> Refusal.TOO_MANY
+            else -> Refusal.OTHER
+        }
+    }
+}
 
 enum class ChatPhase {
     /** Nothing in progress: the owner can write. */
@@ -486,8 +520,29 @@ class Chat(
     private fun bubbles(page: HistoryPage): List<ChatMessage> = buildList {
         for (exchange in page.exchanges) {
             if (exchange.user.isNotBlank()) add(ChatMessage(keys.incrementAndGet(), true, exchange.user))
-            if (exchange.assistant.isNotBlank()) add(ChatMessage(keys.incrementAndGet(), false, exchange.assistant, incomplete = !exchange.complete))
+            // The conversation on the computer still has the lines that offered files; the offers themselves are gone.
+            val text = visible(exchange.assistant)
+            val files = offeredNames(exchange.assistant).map { OfferedFile(it) }
+            if (text.isNotBlank() || files.isNotEmpty()) add(ChatMessage(keys.incrementAndGet(), false, text, incomplete = !exchange.complete, files = files))
         }
+    }
+
+    /** The file cards of a finished answer: offers with the session they belong to, and refusals. */
+    private fun files(data: JsonObject?, sessionId: String?): List<OfferedFile> {
+        val now = uptimeMillis()
+        val offered = (data?.get("files") as? JsonArray).orEmpty().mapNotNull { item ->
+            val offer = try {
+                BridgeJson.decodeFromJsonElement(FileOffer.serializer(), item)
+            } catch (_: Exception) {
+                return@mapNotNull null
+            }
+            if (sessionId == null || !validId(offer.offer)) null else OfferedFile(offer.name, offer.copy(sessionId = sessionId), offeredAt = now)
+        }
+        val refused = (data?.get("files_refused") as? JsonArray).orEmpty().mapNotNull { item ->
+            val entry = item as? JsonObject ?: return@mapNotNull null
+            OfferedFile(entry.text("name") ?: return@mapNotNull null, refused = OfferedFile.refusal(entry.text("reason").orEmpty()))
+        }
+        return offered + refused
     }
 
     /** The queue as the computer lists it; rows that are on their way there stay as they are. */
@@ -917,8 +972,9 @@ class Chat(
                 // The finished answer replaces what was streamed: the computer has tidied it.
                 val text = data.text("answer")?.takeIf { it.isNotBlank() } ?: visible(streamed)
                 val id = data.text("session_id")?.takeIf(::validId)
+                val files = files(data, id ?: mutable.value.sessionId)
                 change(generation) { state ->
-                    val messages = if (text.isBlank()) state.messages else put(state.messages, ChatMessage(answer, false, text))
+                    val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
                     state.copy(
                         messages = messages,
@@ -1016,12 +1072,21 @@ class Chat(
         /** How long the answer may take to say that it was stopped before the app asks instead. */
         private const val STOP_WAIT_MILLIS = 12_000L
         private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[file:[^\\n]*]][ \\t]*\\n?")
+        private val FILE_PATH = Regex("(?m)^[ \\t]*\\[\\[file:([^\\n]*?)]][ \\t]*$")
 
         /** Ids are put into request paths: only the characters a session id can have. */
         fun validId(id: String): Boolean = ID.matches(id)
 
         /** The streamed text without the marker lines the computer turns into file cards at the end. */
         fun visible(streamed: CharSequence): String = FILE_LINE.replace(streamed, "").trimEnd()
+
+        /** The names of the files a text offers with its marker lines (the last part of each path). */
+        fun offeredNames(text: String): List<String> = FILE_PATH.findAll(text).mapNotNull { match ->
+            match.groupValues[1].trim().trim('`', '\'', '"').trimEnd('/').substringAfterLast('/').takeIf { it.isNotEmpty() }
+        }.toList()
+
+        /** An offer is valid for 15 minutes on the computer; the card stops a little earlier. */
+        const val OFFER_MILLIS = 14 * 60_000L
 
         private fun put(messages: List<ChatMessage>, message: ChatMessage): List<ChatMessage> =
             if (messages.any { it.key == message.key }) messages.map { if (it.key == message.key) message else it } else messages + message
