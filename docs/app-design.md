@@ -64,6 +64,14 @@ Why this shape:
   everywhere, not a place.
 - Sessions, Notes, Projects, Calendar, Courses and Activity are opened a few
   times a day at most; one extra tap is acceptable. Today links directly into each of them.
+- **A tab always opens its root screen** (*set by the owner, #166*): tapping
+  the selected tab on a sub-page goes back to its root, and switching tabs
+  never brings back the sub-page that was open there before. The Chat tab
+  therefore opens on its list, also right after the app starts; the
+  conversation that was open last is its "current chat".
+- **"+" offers note, task and new chat**, in this order (*set by the owner,
+  #166*): the capture sheet's switch reads Note · Task · New chat; New chat
+  opens a blank chat at once and takes along what was already typed.
 
 The connection dot in the top bar opens a small sheet: computer reachable or
 not, last successful sync, and a shortcut to settings.
@@ -93,7 +101,8 @@ every section in its own clearly visible card.*
 
   Nothing else. Events, deadline lists, sleep and screen-time tiles live on
   their own screens.
-- **Actions:** tick a task; tap a task to open it; pull to refresh (reads the
+- **Actions:** tick a task; tap a task (also a pick) to open it, as on Tasks
+  (section 3.5); pull to refresh (reads the
   plan and the agenda again, never starts a model run); **Rerun** on the
   coach card asks the computer for a fresh batch (a model run; refused within
   ten minutes of the last one).
@@ -110,7 +119,8 @@ every section in its own clearly visible card.*
   Markdown (code blocks, lists, tables); a composer with send button.
 - **Behaviour:** a conversation continues the same session until the owner
   presses "New chat" in the top bar, also across closing and reopening the
-  app (*confirmed by the owner*). While the computer works, a
+  app (*confirmed by the owner*; it is the Chat tab's "current chat", the
+  tab itself opens on its list). While the computer works, a
   progress indicator shows elapsed time, with a cancel button. If streaming is
   available the answer appears as it is written. The owner may leave: a
   push notification arrives when the answer is ready.
@@ -120,8 +130,11 @@ every section in its own clearly visible card.*
   what it learns about the owner goes to the memory, so it improves over
   time. Its plan usage is shown in its header, separate from the morning
   run.
-- **New chat:** starting a conversation asks in which folder it should run:
-  the memory folder (default) or one of the allowed folders.
+- **New chat:** opens a blank chat at once; there is no folder picker
+  (*set by the owner, #166*). Its first message is sent without a folder and
+  the computer gives the chat its own new, empty folder (#163). The owner
+  moves to other work by asking; an existing conversation continues in its
+  own folder, and "Ask about this project" starts in the project's folder.
 - **History:** opening a conversation loads only the last few exchanges
   (default 4); older ones load when the owner scrolls up. The computer keeps
   the full transcript; the phone does not store whole sessions.
@@ -212,8 +225,10 @@ every section in its own clearly visible card.*
 
 - **Purpose:** get a thought out of the head in seconds.
 - **Content:** a bottom sheet over the current screen: one text field,
-  keyboard already open, a switch between **Note** and **Task**; for a task an
-  optional due date.
+  keyboard already open, then **Note** · **Task** · **New chat** (#166); for
+  a task an optional due date. Note and Task are a switch with Save; New
+  chat closes the sheet and opens a blank chat at once, with what was typed
+  in its composer (nothing is sent).
 - **Behaviour:** saving closes the sheet and shows a short confirmation.
   The item is saved on the phone and shown on every screen at once (Tasks,
   Today, Notes), marked "waiting to sync" until the bridge confirms it, then
@@ -235,9 +250,16 @@ every section in its own clearly visible card.*
   (n)"**, which opens the complete list in the same order, with filters
   (overdue, today, upcoming, no date, done). Each row: checkbox, title, due
   date, source (e.g. a course name when it came from a deadline).
-- **Actions:** tick (the round check), add (through Capture), edit title and
-  date (tap the rest of the row; `PATCH /tasks/{id}` through the outbox),
-  move a task up or down (the coach learns from it; not built yet).
+- **Actions:** tick (the round check), add (through Capture), open (tap the
+  rest of the row, *set by the owner, #167*): a task made from a course
+  assignment opens that **assignment's page** (below the same tab); any
+  other task opens its **card**, a bottom sheet, not a page: title, due
+  date, note (the coach's next step; the memory has no other task note),
+  course or project label, **Mark as done** and **Edit**. Edit turns the
+  card into the form for title and date (`PATCH /tasks/{id}` through the
+  outbox). A task captured on this phone that has not been sent yet opens
+  the same card and can be edited and ticked offline. Move a task up or
+  down (the coach learns from it; not built yet).
 - **States:** loading · saved copy · empty ("All clear") · no plan yet (date
   order) · error with retry; ticks made offline are queued like captures.
 - **Endpoints:** list tasks, complete task, add task *(planned, Phase 3)*;
@@ -570,6 +592,8 @@ layout, subtle motion (short fades and slides, nothing bouncy).
 | Tasks: prioritised, the rest behind "show all" | set by the owner |
 | Sessions: groups, rename, pin, reminders, reply notifications | set by the owner |
 | Coach: questions in chat, nudges with limits | set by the owner; design in `coach-design.md` |
-| Today in cards, "Assistant's picks", scrolling Today card; Courses with summary, all grades and four tabs; coach conversation pinned in Chat; folder choice for new chats | set by the owner (2026-11-20) |
+| Today in cards, "Assistant's picks", scrolling Today card; Courses with summary, all grades and four tabs; coach conversation pinned in Chat | set by the owner (2026-11-20) |
+| Tabs open their root; "+" offers note, task, new chat; new chat without a folder picker | set by the owner (2026-11-21, #166) |
+| An assignment's task opens the assignment; other tasks open a bottom-sheet card | set by the owner (2026-11-21, #167) |
 | Chat: lazy history, queue / send now / cancel, "/" commands, model per session, file cards, questions | set by the owner; design in `chat-design.md` |
 | Visual direction | **D3 approved**; light theme by default, switch in settings |

@@ -85,6 +85,42 @@ class ChatStartTest {
     }
 
     @Test
+    fun `a blank chat sends its first message without a folder and survives a restart`() = runTest {
+        val chat = chat()
+        chat.newChat(draft = "Shared text")
+        var state = chat.state.value
+        assertEquals(ChatFolder.BLANK, state.folder)
+        assertEquals("Shared text", state.draft)
+        assertNull(store.pointer)
+        answers(event("session", """{"session_id":"${id(1)}"}"""), event("done", """{"answer":"Hello.","session_id":"${id(1)}"}"""), done())
+        chat.send("Hi")
+        // Found again whatever happens to the answer, although it names no folder.
+        assertEquals(ChatPointer(id(1)), store.pointer)
+        advanceUntilIdle()
+        val first = posts().single()
+        assertEquals("/ask", first.path)
+        assertFalse("folder" in (first.body as JsonObject))
+        assertEquals(id(1), chat.state.value.sessionId)
+        assertEquals(ChatPointer(id(1)), store.pointer)
+        // After a restart the same conversation is continued, in the folder the computer gave it.
+        val again = chat()
+        again.restore()
+        state = again.state.value
+        assertEquals(id(1), state.sessionId)
+        assertTrue(state.folder?.blank == true)
+    }
+
+    @Test
+    fun `a chat about a project still runs in its folder`() = runTest {
+        val chat = chat()
+        chat.newChat(Folder("/home/owner/project-alpha", "project-alpha"))
+        answers(event("done", """{"answer":"Hello.","session_id":"${id(1)}"}"""), done())
+        chat.send("Hi")
+        advanceUntilIdle()
+        assertEquals("\"/home/owner/project-alpha\"", (posts().single().body as JsonObject)["folder"].toString())
+    }
+
+    @Test
     fun `a first message whose answer was lost is followed under its id when it did arrive`() = runTest {
         val chat = chat()
         chat.newChat(memory)

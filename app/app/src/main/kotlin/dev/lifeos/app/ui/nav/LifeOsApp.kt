@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,15 +40,17 @@ import dev.lifeos.app.ui.components.CaptureSheet
 import dev.lifeos.app.data.AssignmentMatch
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.SessionLookup
+import dev.lifeos.app.data.Task
+import dev.lifeos.app.data.TaskTarget
 import dev.lifeos.app.push.Destination
 import dev.lifeos.app.push.PushOpen
 import dev.lifeos.app.ui.components.LocalLooks
+import dev.lifeos.app.ui.components.LocalOpenTask
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
 import dev.lifeos.app.ui.screens.CoachScreen
 import dev.lifeos.app.ui.screens.ChatListScreen
-import dev.lifeos.app.ui.screens.NewChatSheet
 import dev.lifeos.app.ui.screens.ConsolidationScreen
 import dev.lifeos.app.ui.screens.ProjectScreen
 import dev.lifeos.app.ui.screens.ProjectsScreen
@@ -70,6 +73,8 @@ import dev.lifeos.app.ui.screens.MoreScreen
 import dev.lifeos.app.ui.screens.PairScreen
 import dev.lifeos.app.ui.screens.PlaceholderScreen
 import dev.lifeos.app.ui.screens.SettingsScreen
+import dev.lifeos.app.ui.screens.TaskCardSheet
+import dev.lifeos.app.ui.screens.TaskSaver
 import dev.lifeos.app.ui.screens.TasksScreen
 import dev.lifeos.app.ui.screens.TodayScreen
 import dev.lifeos.app.ui.screens.titleRes
@@ -139,13 +144,18 @@ fun LifeOsApp(
     }
 
     // Chat: the conversation is one for the whole app; it opens on the Chat tab, above the list.
-    var newChatOpen by rememberSaveable { mutableStateOf(false) }
     val openChat: () -> Unit = {
         if (Tab.forRoute(navController.currentDestination?.route) != Tab.CHAT) navController.openTab(Tab.CHAT)
         navController.navigate(Routes.CHAT_THREAD) {
             popUpTo(Routes.CHAT)
             launchSingleTop = true
         }
+    }
+
+    // "+" → New chat and every "New chat" (#166): a blank chat at once, no folder to pick.
+    val newChat: (String?) -> Unit = { draft ->
+        core.chat.newChat(draft = draft)
+        openChat()
     }
 
     // The coach conversation (#114), below the Chat tab like every other conversation.
@@ -268,7 +278,21 @@ fun LifeOsApp(
         push.noticeTitle?.let { showMessage(it) }
         onPushOpened()
     }
-    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks) {
+    // ---- a tapped task (#167): a course assignment's task opens the assignment's page (below the
+    // tab it was tapped on), any other task its card. The card shows the task as it was tapped.
+    var taskCard by rememberSaveable(stateSaver = TaskSaver) { mutableStateOf<Task?>(null) }
+    val openTask: (Task) -> Unit = { task ->
+        when (val target = TaskTarget.of(task, looks::match)) {
+            is TaskTarget.AssignmentPage -> {
+                val root = Tab.forRoute(navController.currentDestination?.route).route
+                navController.navigate(Routes.assignment(target.courseId, target.assignmentId, root)) { launchSingleTop = true }
+            }
+            TaskTarget.Card -> taskCard = task
+        }
+    }
+    // Nothing of a task stays on screen behind the lock.
+    LaunchedEffect(locked) { if (locked) taskCard = null }
+    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks, LocalOpenTask provides openTask) {
     Scaffold(
         containerColor = LifeTheme.colors.bg,
         contentColor = LifeTheme.colors.text,
@@ -321,7 +345,7 @@ fun LifeOsApp(
                     onOpenChat = openChat,
                     onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
                     onOpenCoach = openCoach,
-                    onNewChat = { newChatOpen = true },
+                    onNewChat = { newChat(null) },
                 )
             }
             composable(Routes.CHAT_THREAD) {
@@ -331,7 +355,7 @@ fun LifeOsApp(
                     onConnectionClick = openSettings,
                     onPair = openPair,
                     onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
-                    onNewChat = { newChatOpen = true },
+                    onNewChat = { newChat(null) },
                 )
             }
             // The same list from the Chat tab and from More.
@@ -343,7 +367,7 @@ fun LifeOsApp(
                         onConnectionClick = openSettings,
                         onPair = openPair,
                         onOpenChat = openChat,
-                        onNewChat = { newChatOpen = true },
+                        onNewChat = { newChat(null) },
                         onOpenCoach = openCoach,
                     )
                 }
@@ -458,9 +482,10 @@ fun LifeOsApp(
                     onOpenAssignment = { navController.navigate(Routes.assignment(courseId, it)) { launchSingleTop = true } },
                 )
             }
-            // ---- assignment detail (#129)
+            // ---- assignment detail (#129); below Today and Tasks too, for a task of an assignment (#167)
+            Routes.ASSIGNMENT_ROUTES.forEach { route ->
             composable(
-                route = Routes.ASSIGNMENT,
+                route = route,
                 arguments = listOf(
                     navArgument(Routes.COURSE_ARG) { type = NavType.LongType },
                     navArgument(Routes.ASSIGNMENT_ARG) { type = NavType.LongType },
@@ -487,6 +512,7 @@ fun LifeOsApp(
                     onPair = openPair,
                     onOpenCourse = { navController.navigate(Routes.course(it)) { launchSingleTop = true } },
                 )
+            }
             }
             composable(Routes.MORE) {
                 MoreScreen(
@@ -530,25 +556,12 @@ fun LifeOsApp(
         }
     }
 
-    }
-
-    if (newChatOpen && !locked) {
-        NewChatSheet(
-            core = core,
-            onDismiss = { newChatOpen = false },
-            onPair = {
-                newChatOpen = false
-                openPair()
-            },
-            onStart = { folder ->
-                newChatOpen = false
-                core.chat.newChat(folder)
-                openChat()
-            },
-        )
-    }
-
     // Sheets are windows of their own: while the app is locked none may be open above the lock screen.
+    taskCard?.takeIf { !locked }?.let { task ->
+        key(task.id) { TaskCardSheet(core, task, scope, onClose = { taskCard = null }) }
+    }
+    }
+
     if (captureOpen && !locked) {
         CaptureSheet(
             prefill = capturePrefill,
@@ -560,15 +573,22 @@ fun LifeOsApp(
                     snackbarHostState.showSnackbar(if (sent) savedMessage else waitingMessage)
                 }
             },
+            onNewChat = { draft ->
+                captureOpen = false
+                newChat(draft)
+            },
         )
     }
 }
 
-/** Switches the bottom-bar tab, keeping each tab's own back stack and state. */
+/** Opens a bottom-bar tab at its root screen (#166, see [TabTaps]): no sub-page is kept or brought back. */
 private fun NavHostController.openTab(tab: Tab) {
-    navigate(tab.route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
+    val options = TabTaps.options(tab)
+    // Already on the tab's root: nothing to do (the screen keeps its place, nothing is read again).
+    if (currentDestination?.route == options.route) return
+    navigate(options.route) {
+        if (options.popUpToStart) popUpTo(graph.findStartDestination().id) { saveState = options.saveState }
+        launchSingleTop = options.singleTop
+        restoreState = options.restoreState
     }
 }

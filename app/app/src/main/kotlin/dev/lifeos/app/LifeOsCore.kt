@@ -434,12 +434,40 @@ class LifeOsCore(private val app: Application) {
             OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId).let { saved ->
                 val task = saved.task()
                 if (task != null && item.clientId != null) confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), task = task))
+                if (task != null) taskConfirmed(LocalItems.PREFIX + item.id, task.id)
             }
-            OutboxItem.Kind.COMPLETE -> api.completeTask(checkNotNull(item.taskId))
+            OutboxItem.Kind.COMPLETE -> toTask(checkNotNull(item.taskId)) { api.completeTask(it) }
             OutboxItem.Kind.EVENT_CREATE -> api.createEvent(checkNotNull(item.event))
             OutboxItem.Kind.EVENT_UPDATE -> api.updateEvent(checkNotNull(item.eventId), checkNotNull(item.event))
-            OutboxItem.Kind.TASK_EDIT -> api.editTask(checkNotNull(item.taskId), item.text, item.due)
+            OutboxItem.Kind.TASK_EDIT -> toTask(checkNotNull(item.taskId)) { api.editTask(it, item.text, item.due) }
             OutboxItem.Kind.NOTE_EDIT -> api.editNote(checkNotNull(item.noteId), item.text)
+        }
+    }
+
+    /** Tasks made on this phone that the computer confirmed in this run of the app: phone id → its id (#167). */
+    private val confirmedTaskIds = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * A task made on this phone reached the computer: what waits for it (a tick, an edit) now
+     * names its real id, and a tick still in its undo time hides it under that id too.
+     */
+    private fun taskConfirmed(localId: String, id: String) {
+        confirmedTaskIds[localId] = id
+        outbox.retarget(localId, id)
+        if (localId in tickedState.value) tickedState.value += id
+    }
+
+    /** The id to name a task by now: a task made on this phone by the computer's id once it has one. */
+    private fun taskIdNow(taskId: String): String = LocalItems.currentId(taskId, confirmedTaskIds, confirmed.items.value)
+
+    /** Send a tick or an edit to its task (see [LocalItems.sendTo]). */
+    private suspend fun toTask(taskId: String, send: suspend (String) -> Unit) {
+        when (val to = LocalItems.sendTo(taskId, confirmedTaskIds, confirmed.items.value, outbox.items.value)) {
+            is LocalItems.SendTo.Computer -> send(to.id)
+            // Nothing left the phone: the item keeps waiting behind its task.
+            LocalItems.SendTo.Later -> throw ApiException(ApiException.Kind.NOT_SENT)
+            // The task never reached the computer: there is nothing to tick or change there.
+            LocalItems.SendTo.Nowhere -> Unit
         }
     }
 
@@ -574,13 +602,17 @@ class LifeOsCore(private val app: Application) {
      */
     fun tick(task: Task) {
         if (task.id in tickedState.value) return
-        tickedState.value += task.id
+        // Hidden under both ids when a task made on this phone was confirmed meanwhile (its card shows it as tapped).
+        tickedState.value += setOf(task.id, taskIdNow(task.id))
         tickTimers[task.id] = scope.launch {
             delay(UNDO_MILLIS)
             tickTimers.remove(task.id)
-            val item = OutboxItem(newItemId(), OutboxItem.Kind.COMPLETE, System.currentTimeMillis(), text = task.title, taskId = task.id)
+            // A task made on this phone (#167) is ticked by the computer's id once it has one;
+            // until then the tick waits behind it in the outbox and is renamed when it arrives.
+            val id = taskIdNow(task.id)
+            val item = OutboxItem(newItemId(), OutboxItem.Kind.COMPLETE, System.currentTimeMillis(), text = task.title, taskId = id)
             val stored = outbox.add(item)
-            tickedState.value -= task.id
+            tickedState.value -= setOf(task.id, id)
             if (stored && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
         }
     }
@@ -589,7 +621,7 @@ class LifeOsCore(private val app: Application) {
     fun undoTick(task: Task): Boolean {
         val timer = tickTimers.remove(task.id) ?: return false
         timer.cancel()
-        tickedState.value -= task.id
+        tickedState.value -= setOf(task.id, taskIdNow(task.id))
         return true
     }
 
@@ -613,11 +645,21 @@ class LifeOsCore(private val app: Application) {
         ),
     )
 
-    /** Change a task's title and date ([due] null: no date). Shown changed at once (see [TaskLists.open]). */
+    /**
+     * Change a task's title and date ([due] null: no date). Shown changed at once (see
+     * [TaskLists.open]). A task made on this phone that has not left it yet (#167) simply
+     * leaves with the new title and date; one on its way, or one that may have arrived already
+     * (an attempt without an answer), gets the edit right after it.
+     */
     suspend fun editTask(task: Task, title: String, due: String?): Boolean {
-        val waiting = TaskLists.pendingEdit(task.id, outbox.items.value)
+        val id = taskIdNow(task.id)
+        if (LocalItems.isWaiting(id)) {
+            val own = id.removePrefix(LocalItems.PREFIX)
+            if (outbox.revise(own, title, due, unsentOnly = true)) return sendWaiting(own)
+        }
+        val waiting = TaskLists.pendingEdit(id, outbox.items.value)
         if (waiting != null && outbox.revise(waiting.id, title, due)) return sendWaiting(waiting.id)
-        return submit(OutboxItem(newItemId(), OutboxItem.Kind.TASK_EDIT, System.currentTimeMillis(), text = title, due = due, taskId = task.id))
+        return submit(OutboxItem(newItemId(), OutboxItem.Kind.TASK_EDIT, System.currentTimeMillis(), text = title, due = due, taskId = id))
     }
 
     /**

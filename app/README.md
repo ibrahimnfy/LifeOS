@@ -233,7 +233,10 @@ with plain HTTPS requests.
 ## What is in the app
 
 - Bottom bar: Today, Chat, Tasks, More as icon-only items with a gradient
-  bar under the active one, and the capture (+) button in the centre.
+  bar under the active one, and the capture (+) button in the centre. A
+  tab always opens its root screen (#166): tapping it again on a sub-page
+  goes back to the root, and coming from another tab never brings back the
+  sub-page that was open there before.
 - Top bar: bold title and the connection dot: grey (not paired), hollow
   (connecting), green (the computer answered), amber (not reachable). It
   opens Settings.
@@ -259,23 +262,35 @@ with plain HTTPS requests.
   (overdue, today, upcoming, no date). Without a plan, the open tasks by
   date. The round check ticks a task: it is hidden at once and the tick can
   be undone for a few seconds; then it is sent. Tapping the rest of the row
-  (here and on Today) opens the task to change its title and due date (or
-  remove the date); the change is shown at once with "Waiting to sync" until
-  the computer confirmed it.
+  (here, on Show all and on Today, also a pick) opens the task (#167): a
+  task the course sync made from an assignment (`assignment: moodle-<id>`,
+  its course folder ending in the course id) opens that assignment's page
+  below the same tab; any other task opens its card, a bottom sheet with
+  its title, due date, its note (the coach's next step, when it has one),
+  its course or project, **Mark as done** and **Edit**. Edit turns the card
+  into the form for the title and the due date (or no date); the change is
+  shown at once with "Waiting to sync" until the computer confirmed it. A
+  task captured on this phone that has not been sent yet opens the same
+  card and can be edited (it then leaves with the new title and date) and
+  ticked (the tick waits behind it and names the computer's id once the
+  task arrived).
 - **Chat** (the tab): the coach's conversation pinned on top, the chat in
   progress, the three most recent sessions with **All
-  sessions**, and **New chat**. New chat asks where it should run: the
-  memory folder (the default) or one of the allowed folders, as the computer
-  lists them. A conversation shows the owner's messages on the right and the
+  sessions**, and **New chat**. New chat (here, in a conversation's and the
+  Sessions top bar, and under "+") opens a blank chat at once, with no
+  folder to pick (#166): its first message is sent without a folder, so the
+  computer gives the chat a folder of its own (a bridge without that answers
+  in its default folder). "Ask about this project" still starts the chat in
+  the project's folder. A conversation shows the owner's messages on the right and the
   assistant's answers on the left (paragraphs, headings, lists, code blocks,
   bold, italic, inline code and web links are rendered by the app's one
   Markdown reader, which also shows assignment descriptions; the text can be
   selected), "Working…"
   with the time since the message was sent, and the answer as it is written.
   **The same conversation is continued until New chat** (or until another
-  session is opened), also after the app was closed: the Chat tab then opens
-  it directly, once per start, with its last few messages read from the
-  computer. The folder is in the header.
+  session is opened), also after the app was closed: it is the "Current
+  chat" on the Chat tab, and opening it reads its last few messages from
+  the computer. The folder is in the header (a blank chat shows none).
   - **A silent run and a lost answer (#148):** a run that says nothing for a
     while sends keep-alives, so the app listens only 75 seconds without any
     sign before it asks the computer instead (the run goes on there). A new
@@ -440,9 +455,11 @@ with plain HTTPS requests.
     conversation the same sheet opens from the dots next to the pills above
     the composer. The coach conversation's session has neither the skills
     switch nor the MCP servers in its sheet (it is always read-only).
-- **Capture:** a note or a task with an optional due date. Also reachable
-  from the home-screen shortcut (long-press on the app icon) and from other
-  apps' "share" (text or a link).
+- **Capture** ("+"): one text field and, in this order, **Note**, **Task**
+  (with an optional due date) and **New chat** (#166). New chat closes the
+  sheet and opens a blank chat at once; what was typed goes into its
+  composer. Also reachable from the home-screen shortcut (long-press on the
+  app icon) and from other apps' "share" (text or a link).
 - **Calendar** (under More): the agenda by day from a week ago to two months
   ahead, a month strip to jump, adding and changing events (all day, timed,
   several days). Course deadlines are ordinary events here.
@@ -1024,11 +1041,19 @@ Without pairing:
    **Later**. Today shows "Not connected yet" with the pair button.
 2. Tap the four bottom-bar icons in turn: Today, Chat, Tasks, More. The
    gradient bar moves to the active icon.
-3. More → Settings → Language → **Türkçe**: every text switches to Turkish
-   at once and the Settings screen stays open. Switch back as you like.
-4. Settings → Appearance → **Dark**: the app turns dark, including
+3. **Tabs open their root (#166):** More → Settings, then tap **More**
+   again: the More list. More → Settings, tap **Chat**, then **More**: the
+   More list, not Settings. The same for Tasks → Show all (tap Tasks), Chat
+   → Sessions (tap Chat) and Today → the coach conversation (tap Today).
+4. **"+" (#166):** tap **+**: the sheet offers **Note**, **Task** and
+   **New chat**, in this order. **New chat** closes the sheet and opens an
+   empty conversation at once.
+5. More → Settings → Language → **Türkçe**: every text switches to Turkish
+   at once and the Settings screen stays open. Switch back as you like
+   (with Turkish, the three options of "+" still fit on one line each).
+6. Settings → Appearance → **Dark**: the app turns dark, including
    the status-bar icons. Close and reopen the app: the choice is kept.
-5. With a larger system font size the text grows and nothing is cut off.
+7. With a larger system font size the text grows and nothing is cut off.
 
 ### Pairing and connection
 
@@ -1080,8 +1105,9 @@ running on the computer with the relay set up.
    "Just added" when the coach has a plan) and on Today at once, marked
    "Waiting to sync", without pulling down. Switch flight mode off: within
    seconds the note is in `inbox.md` and the task in `tasks.md`, each once;
-   on the screens they lose the mark and can be ticked and edited, with no
-   flicker and no duplicate. (If the connection drops in the middle of a
+   on the screens they lose the mark, with no flicker and no duplicate (the
+   task could be ticked and edited while it waited too, see "Tapping a
+   task"). (If the connection drops in the middle of a
    send, the item is simply sent again later; the computer recognises it.)
 6. **Notes and task edits:** capture a note; More → Notes shows it at the
    top of the list (newest first) together with the older captures and the
@@ -1089,10 +1115,11 @@ running on the computer with the relay set up.
    remain. Tap the note → **Edit**, change the text, Save: "Saved", the
    screen closes and the list shows the new text; on the computer the line in
    `inbox.md` has the new text and its original time. A topic note opens
-   read-only. On Tasks, tap a task's title (not the check): change the title,
-   pick another date (or **Remove** it), Save; the row changes at once and
-   `tasks.md` has the new title and date. In flight mode the same edits show
-   "Waiting to sync" and reach the computer once it is off.
+   read-only. On Tasks, tap a task's title (not the check): its card opens
+   (#167); tap **Edit**, change the title, pick another date (or **Remove**
+   it), Save; the row changes at once and `tasks.md` has the new title and
+   date. In flight mode the same edits show "Waiting to sync" and reach the
+   computer once it is off.
 7. **Shortcut and share:** long-press the app icon → "Capture"; in another
    app, share a piece of text → "Capture in LifeOS": the sheet opens with it.
 8. **Courses** (More → Courses; needs the course sync on the computer and a
@@ -1159,6 +1186,40 @@ The bridge runs on the computer; the app is paired and unlocked.
    it from the recent apps), switch flight mode off. Nothing is sent yet;
    open the app and confirm with fingerprint or screen lock: the note
    arrives within seconds.
+
+### Tapping a task (#167)
+
+Paired, with the bridge running; for step 1 the course sync must have made a
+task from an assignment (its line in `tasks.md` has `(assignment: moodle-…)`).
+
+1. **An assignment's task:** on Tasks (also Show all, the Today card and the
+   picks) tap such a task's title (not the check): the assignment's page
+   opens with its due ticket and description, and the Tasks tab stays
+   selected. Back returns to the list. The same from Today keeps Today
+   selected.
+2. **Any other task:** tap a task you captured yourself: a card slides up
+   from the bottom (not a new page) with its title, its due date ("No due
+   date" without one, "Overdue" when late), its course or project label in
+   its colour, and **Mark as done** and **Edit**. A task the coach gave a
+   next step shows it under "Next step". Swipe the card down: nothing
+   changed.
+3. **Edit in the card:** **Edit** → the same sheet shows the title and the
+   date; change both, **Save**: "Saved" and the row shows the change;
+   `tasks.md` has it. **Cancel** goes back to the card.
+4. **Mark as done in the card:** the card closes, the task leaves the list
+   and "Marked as done · Undo" appears; **Undo** brings it back. Without
+   Undo, `tasks-done.md` has it a few seconds later.
+5. **A task still waiting (flight mode):** switch flight mode on, capture a
+   task with **+** → **Task**; on Tasks it shows "Waiting to sync". Tap it:
+   the card opens with "Waiting to sync". **Edit** it (new title and date),
+   Save: "Waiting to sync" and the row shows the change. Capture a second
+   task and tap **Mark as done** in its card (or its check), let the undo
+   time pass. Switch flight mode off: within seconds `tasks.md` has the first
+   task with the new title and date (once), and the second task is in
+   `tasks-done.md` (added and finished), not left open.
+6. Turn the phone while a card is open: it stays open. Lock the app with a
+   card open: after unlocking the card is closed.
+7. In Turkish and in dark mode the card is fully translated and readable.
 
 ### Renewing the Moodle sign-in on the phone
 
@@ -1318,18 +1379,23 @@ Paired, with the bridge running (each message is a model run on the plan;
 keep them small). On an emulator without a computer, the `sample_data` test
 aid shows the same screens with invented answers.
 
-1. **New chat:** open the Chat tab and tap **New chat**. "Where should this
-   chat run?" lists **Memory (default)** and the allowed folders. Choose one,
-   **Start**: an empty conversation with three example prompts; the header
-   shows the folder.
+1. **New chat (#166):** open the Chat tab and tap **New chat**: an empty
+   conversation with three example prompts opens at once, with no folder to
+   choose and no folder in the header. The same from the pen icon in a
+   conversation's top bar and on Sessions, and from **+** → **New chat**
+   (type a few words first: they are in the composer, nothing is sent).
+   Send a message: the first message goes out without a folder, so on
+   Sessions the new session is listed under the chat's own new folder (a
+   bridge with #163) or under the default folder (an older bridge).
 2. **Send:** type "Say hello in one sentence" and send. The message appears
    on the right, then "Working… 0:03" counts up, then the answer is written
    on the left. Send a second message that refers to the first ("Say it in
    Turkish"): the answer shows that it is the same conversation. On the
    computer, `claude --resume` in that folder lists the session.
 3. **Continues after a restart:** close the app completely, open it, unlock
-   and tap the Chat tab: the same conversation opens with its last messages.
-   Back leads to the Chat list, where it is under "Current chat".
+   and tap the Chat tab: the Chat list opens (not the conversation), with
+   the conversation under "Current chat"; tapping it shows its last
+   messages, and a new message continues it.
 4. **Sessions:** tap the clock (or More → Sessions): sessions grouped by
    folder, newest first, also the ones started in a terminal. Type a word
    into the search field: only matching sessions remain. Tap a session: its
@@ -1439,7 +1505,7 @@ with the `sample_data` test aid (see "Test aids" for its notification):
 
 On an emulator with the `sample_data` test aid:
 
-1. New chat → Start → send "lost hello" (in the sample mode the message
+1. New chat → send "lost hello" (in the sample mode the message
    arrives but no answer reaches the phone): after a moment "The computer is
    still working on this…", and a few seconds later the answer. The app
    found the conversation under the id it had chosen; nothing was sent
@@ -1537,7 +1603,9 @@ minute:
 
 ### Files in chat
 
-1. In a conversation in a folder with a small text file, send "Give me the
+1. In a conversation in a folder with a small text file (there is no folder
+   picker since #166: open a session of that folder from Sessions, or use
+   **Ask about this project**), send "Give me the
    file notes.md" (name a file that exists). The answer is followed by a card
    with the file's name, kind and size. On the computer, nothing was read
    yet: the audit log (`tail -n 2 ~/.config/lifeos/audit/$(date -u
@@ -1564,7 +1632,7 @@ On an emulator with `sample_data`, "file" in a message gives an answer with a
 
 On an emulator with the `sample_data` test aid (no computer, nothing runs):
 
-1. Chat → **New chat** → Start. Tap the pill **Read-only**: it becomes
+1. Chat → **New chat**. Tap the pill **Read-only**: it becomes
    **Changes allowed** with a line of explanation.
 2. Send "delete the old drafts": a card with a red frame, "The assistant
    wants to delete files permanently", the warning, the whole `rm` command,
@@ -1584,7 +1652,8 @@ On an emulator with the `sample_data` test aid (no computer, nothing runs):
 With the computer (the bridge with `LIFEOS_RUNNER=sdk` and the capable mode
 switched on by its guardrail check; each step is a short run on the plan):
 
-5. In a conversation in the memory folder switch **Changes allowed** on and
+5. In a conversation in the memory folder (an existing session of that
+   folder, opened from Sessions) switch **Changes allowed** on and
    send "Create the file approval-test.txt here with one line of text, then
    delete it again with rm". The card shows the `rm` command and the memory
    folder. **Don't allow**: the assistant says it was not allowed, the file

@@ -309,8 +309,13 @@ internal fun ColumnScope.ConversationPane(
     }
 }
 
+/** The folder as the header names it; null for a blank chat (#166), whose folder the computer chooses. */
 @Composable
-internal fun folderName(folder: ChatFolder): String = if (folder.memory) stringResource(R.string.chat_memory_label) else folder.label
+internal fun folderName(folder: ChatFolder): String? = when {
+    folder.memory -> stringResource(R.string.chat_memory_label)
+    folder.blank -> null
+    else -> folder.label.ifBlank { null }
+}
 
 /** The empty state: what this is, and three example prompts that fill the composer. */
 @Composable

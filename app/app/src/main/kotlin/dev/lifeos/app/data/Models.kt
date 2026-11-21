@@ -34,6 +34,10 @@ data class Task(
     val project: String? = null,
     val course: String? = null,
     val added: String? = null,
+    /** The coach's first step for it (`next`), the one note a task carries; null when it has none. */
+    val next: String? = null,
+    /** The course assignment it was made from (`moodle-<assignment id>`, #167); null for other tasks. */
+    val assignment: String? = null,
 )
 
 @Serializable
@@ -286,6 +290,37 @@ object AssignmentMatch {
 
 @Serializable
 data class Assignments(val assignments: List<Assignment> = emptyList())
+
+/** What tapping a task opens (#167). */
+sealed interface TaskTarget {
+    /** The page of the course assignment the task was made from. */
+    data class AssignmentPage(val courseId: Long, val assignmentId: Long) : TaskTarget
+
+    /** The task's own card (a bottom sheet). */
+    data object Card : TaskTarget
+
+    companion object {
+        /** The marker the course sync writes into an assignment's task: `(assignment: moodle-<id>)`. */
+        private val MARKER = Regex("^moodle-(\\d+)$")
+
+        /** A course folder as the bridge names it (`<short name>-<course id>`): the id is its last part. */
+        private val FOLDER = Regex("^[a-z0-9-]*-(\\d+)$")
+
+        /**
+         * A task made from a course assignment opens the assignment, when both ids can be told:
+         * the assignment's from the marker, the course's from the course list ([courseOf]) or else
+         * from the course folder's name. Anything else (and a task still waiting on the phone)
+         * opens the card, so a tap never leads nowhere.
+         */
+        fun of(task: Task, courseOf: (String) -> Course? = { null }): TaskTarget {
+            if (LocalItems.isWaiting(task)) return Card
+            val assignmentId = task.assignment?.trim()?.let { MARKER.matchEntire(it) }?.groupValues?.get(1)?.toLongOrNull()?.takeIf { it > 0 } ?: return Card
+            val course = task.course?.trim()?.takeIf { it.isNotEmpty() } ?: return Card
+            val courseId = courseOf(course)?.id ?: FOLDER.matchEntire(course)?.groupValues?.get(1)?.toLongOrNull()
+            return if (courseId != null && courseId > 0) AssignmentPage(courseId, assignmentId) else Card
+        }
+    }
+}
 
 @Serializable
 data class GradeItem(

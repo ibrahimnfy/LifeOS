@@ -47,7 +47,15 @@ object Routes {
     const val ASSIGNMENT_NAME_ARG = "name"
     const val ASSIGNMENT_DUE_ARG = "due"
 
-    fun assignment(courseId: Long, assignmentId: Long): String = "more/course/$courseId/assignment/$assignmentId"
+    /**
+     * The same page below Today and Tasks (#167): a task of a course assignment opens it there,
+     * so that tab stays selected and Back returns to the task list.
+     */
+    val ASSIGNMENT_ROUTES = listOf(MORE, TODAY, TASKS).map { root -> ASSIGNMENT.replaceFirst(MORE, root) }
+
+    /** The assignment page below [root] (a tab's route: More, Today or Tasks; others fall back to More). */
+    fun assignment(courseId: Long, assignmentId: Long, root: String = MORE): String =
+        "${root.takeIf { it == TODAY || it == TASKS } ?: MORE}/course/$courseId/assignment/$assignmentId"
 
     fun deadline(courseId: Long, name: String, due: Long?): String =
         "more/course/$courseId/assignment/0?name=${android.net.Uri.encode(name)}&due=${due ?: -1}"
@@ -83,6 +91,26 @@ enum class Tab(val route: String) {
             val root = route.orEmpty().substringBefore('/')
             return entries.firstOrNull { it.route == root } ?: TODAY
         }
+    }
+}
+
+/**
+ * What a tap on a bottom-bar tab does (#166): it always opens the tab's root screen, never a
+ * sub-page kept from an earlier visit, also when the tab is already selected. Everything above
+ * the start screen goes and is not saved; the tab's root is put on top unless it is the start
+ * screen itself (no second copy of it).
+ */
+object TabTaps {
+    /** How the navigation is told: pop to the start screen, save nothing, restore nothing. */
+    data class Options(val route: String, val popUpToStart: Boolean, val saveState: Boolean, val restoreState: Boolean, val singleTop: Boolean)
+
+    fun options(tab: Tab): Options = Options(tab.route, popUpToStart = true, saveState = false, restoreState = false, singleTop = true)
+
+    /** The back stack after a tap on [tab], from any [stack] that begins with [start]. */
+    fun stackAfter(stack: List<String>, tab: Tab, start: String = Routes.TODAY): List<String> {
+        val options = options(tab)
+        val kept = if (options.popUpToStart) stack.take(stack.indexOf(start).coerceAtLeast(0) + 1) else stack
+        return if (options.singleTop && kept.lastOrNull() == options.route) kept else kept + options.route
     }
 }
 
