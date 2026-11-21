@@ -23,13 +23,16 @@ from . import (
     approvals,
     audit,
     capable,
+    chats,
     claude,
     coach,
     coach_chat,
     commands,
     consolidation,
     contextmap,
+    conversations,
     files,
+    folders,
     guardcheck,
     history,
     live,
@@ -38,6 +41,7 @@ from . import (
     moodle_api,
     moodle_sync,
     moodle_watch,
+    moves,
     projects,
     push,
     relay,
@@ -140,6 +144,7 @@ def sse(event: str, data: dict) -> bytes:
 
 KEEPALIVE_SECONDS = 20.0  # a run that is quiet this long (a long tool call) sends a sign of life
 HELD_SECONDS = 10.0  # how long the list of sessions open elsewhere is reused
+CHAT_SWEEP_SECONDS = 60.0  # how often chat folders without files are looked for
 
 
 async def with_keepalives(events: AsyncIterator, every: float | None = None) -> AsyncIterator:
@@ -250,8 +255,17 @@ def create_app(settings: Settings) -> FastAPI:
             consolidation_runs.add(run)
             run.add_done_callback(consolidation_runs.discard)
 
+        async def sweep_chats_forever() -> None:
+            """Chat folders without files go once nothing runs in them (an SDK session
+            that was closed for being idle, a first message that was refused)."""
+            while True:
+                with contextlib.suppress(Exception):
+                    sweep_chats()
+                await asyncio.sleep(CHAT_SWEEP_SECONDS)
+
         _app.state.start_consolidation = start_consolidation
         task = asyncio.create_task(watch_reminders())
+        sweeping = asyncio.create_task(sweep_chats_forever())
         # SDK runner: live sessions close after a while without messages.
         reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
         # After an update of Claude Code or the Agent SDK the guardrail check reruns by itself.
@@ -271,7 +285,9 @@ def create_app(settings: Settings) -> FastAPI:
             if phone_relay is not None:
                 phone_relay.close()
             moodle_sync.cancel()  # a running course sync starts no further download
-            running = (task, *coach_runs, *course_syncs, *resource_runs, *consolidation_runs)
+            running = (
+                task, sweeping, *coach_runs, *course_syncs, *resource_runs, *consolidation_runs
+            )  # fmt: skip
             for pending in (*running, *([reaper] if reaper else [])):
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -282,6 +298,8 @@ def create_app(settings: Settings) -> FastAPI:
             await guard.close()  # a running check is stopped; the mode stays off
             if sdk_pool is not None:
                 await sdk_pool.close_all()  # the transcripts keep every conversation
+            with contextlib.suppress(Exception):
+                sweep_chats()  # nothing runs any more
 
     app = FastAPI(
         title="LifeOS bridge",
@@ -337,6 +355,32 @@ def create_app(settings: Settings) -> FastAPI:
             "options; when it is refused, ask in your reply as described."
         )
 
+    def known_sessions() -> list[sessions.SessionInfo]:
+        """The sessions the bridge lists: in the allowed folders, and the blank chats."""
+        found = sessions.list_sessions(settings.session_roots)
+        return [info for info in found if chats.session_ok(settings, info.folder)]
+
+    def known_session(session_id: object) -> sessions.SessionInfo | None:
+        if not isinstance(session_id, str):
+            return None
+        info = sessions.find_session(session_id, settings.session_roots)
+        return info if info is not None and chats.session_ok(settings, info.folder) else None
+
+    # Moving between conversations by asking (#164): where the index is, and the answer.
+    phone_instructions += " " + conversations.instructions(settings)
+
+    def with_switch(payload: dict, session_id: str) -> None:
+        """A fresh answer that asks to open, offer or start a conversation: the ``switch``
+        item. Everything it names is checked against the bridge's own lists."""
+        answer = str(payload.get("answer") or "")
+        if "[[switch" not in answer:
+            return
+        found = known_sessions()
+        text, switch = conversations.from_answer(settings, answer, session_id, found)
+        payload["answer"] = text
+        if switch is not None:
+            payload["switch"] = switch
+
     def with_installs(payload: dict, session_id: str, cwd: Path) -> None:
         """Skill-install proposals of a capable run: cards, then a download into quarantine."""
         text, cards = skill_installs.from_answer(str(payload.get("answer") or ""), session_id, cwd)
@@ -364,8 +408,8 @@ def create_app(settings: Settings) -> FastAPI:
         Best effort: the answer is not held up by a failure here.
         """
         try:
-            info = sessions.find_session(session_id, settings.allowed_roots)
-            path = history.transcript_path(info, settings.allowed_roots) if info else None
+            info = known_session(session_id)
+            path = history.transcript_path(info, settings.session_roots) if info else None
             page = history.read_page(path, 1) if path is not None else {"exchanges": []}
             if not page["exchanges"]:
                 return
@@ -383,6 +427,8 @@ def create_app(settings: Settings) -> FastAPI:
         for entry in approvals.take_expired():
             if entry.get("kind") == skill_installs.KIND:
                 skill_installs.expire(entry)
+            elif entry.get("kind") == moves.KIND:
+                moves.expire(entry)
 
     def with_files(payload: dict, session_id: str, cwd: Path) -> dict:
         """Turn file-offer lines of a finished answer into cards."""
@@ -392,6 +438,39 @@ def create_app(settings: Settings) -> FastAPI:
         if refused:
             payload["files_refused"] = refused
         return payload
+
+    def with_moves(payload: dict, session_id: str, cwd: Path) -> None:
+        """Proposals of a blank chat to move its files into a project: approval cards."""
+        text, cards = moves.from_answer(settings, str(payload.get("answer") or ""), session_id, cwd)
+        if not cards:
+            return
+        payload["answer"] = text
+        payload["file_moves"] = cards
+        if any(card.get("state") == "ready" for card in cards):
+            wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", session_id))
+            background.add(wake)
+            wake.add_done_callback(background.discard)
+
+    # Blank chats (#163): the folder of every chat a run is using right now, so that it is
+    # never removed under a run. A live SDK session keeps its folder too (it is the
+    # working directory of its process).
+    chat_runs: dict[str, Path] = {}
+
+    def chat_folders_in_use() -> set[Path]:
+        held = set(chat_runs.values())
+        if sdk_pool is not None:
+            held |= {live.launch.cwd for live in sdk_pool.live.values() if not live.dead}
+        return held
+
+    def tidy_chat(folder: Path) -> None:
+        """Remove a chat's folder when it holds no files and nothing uses it."""
+        if folder.resolve() not in {held.resolve() for held in chat_folders_in_use()}:
+            chats.remove_if_empty(settings, folder)
+
+    def sweep_chats() -> list[Path]:
+        return chats.sweep(settings, chat_folders_in_use())
+
+    app.state.sweep_chats = sweep_chats
 
     control = runcontrol.RunControl()
     app.state.control = control
@@ -447,6 +526,10 @@ def create_app(settings: Settings) -> FastAPI:
         """A run of the session ended: free it and send what is waiting, if anything."""
         slots.release(session_id)
         control.finished(session_id)
+        chat_folder = chat_runs.pop(session_id, None)
+        if chat_folder is not None:
+            with contextlib.suppress(Exception):
+                tidy_chat(chat_folder)  # a chat that made no files leaves no folder behind
         silent = session_id in silent_runs  # the bridge's own turn (a coach compaction)
         silent_runs.discard(session_id)
         if not silent and session_meta.entry_for(session_id)["notify_replies"]:
@@ -544,15 +627,22 @@ def create_app(settings: Settings) -> FastAPI:
             "job": default["job"],
             "on_process": control.tracker(session_id),
         }
+        # Clean chats (#163): only the coach conversation gets personal context. A blank
+        # chat gets one fixed instruction (where the memory is, used only when asked); a
+        # conversation in any other folder gets nothing more than that folder in reach.
+        is_chat = chats.is_chat_folder(settings, cwd)
         instructions = phone_instructions
+        read_only_policy = claude.READ_ONLY
         if is_coach:
             instructions += "\n\n" + await asyncio.to_thread(coach_chat.context)
-        run_args["context"] = instructions
-        if cwd.resolve() == settings.ask_dir.resolve():
-            # Conversations in the memory folder start with the memory loaded.
-            loaded = await asyncio.to_thread(memory.context_for_prompt, cwd)
+            loaded = await asyncio.to_thread(memory.context_for_prompt, settings.ask_dir)
             if loaded:
-                run_args["context"] = instructions + "\n\n" + loaded
+                instructions += "\n\n" + loaded
+        elif is_chat:
+            instructions += " " + chats.context(settings)
+            # The memory folder is in reach (read on request); no memory file is loaded.
+            read_only_policy = chats.read_only_policy(settings)
+        run_args["context"] = instructions
         streaming = bool(data.get("stream"))
         use_sdk = sdk_pool is not None
         watch = None
@@ -564,6 +654,17 @@ def create_app(settings: Settings) -> FastAPI:
             control.unpause(session_id, only="cancel")
         started = False
         try:
+            if is_chat:
+                # Held from here to the end of the run; a folder that was removed for
+                # holding no files is created again at the same path (the conversation
+                # is bound to that path).
+                chat_runs[session_id] = cwd
+                chats.ensure(settings, cwd)
+            # The conversation index is written anew before every run (#164) and given
+            # to the run as a folder its file tools may read.
+            listed = await asyncio.to_thread(known_sessions)
+            index = await asyncio.to_thread(conversations.refresh, settings, listed)
+            read_only_policy = conversations.with_index(read_only_policy, index)
             # Never write into a conversation that is open somewhere else. The
             # bridge's own live SDK processes are not "somewhere else".
             own = sdk_pool.pids() if sdk_pool is not None else frozenset()
@@ -618,6 +719,8 @@ def create_app(settings: Settings) -> FastAPI:
                     personal_skills_dir=offer.personal_dir, mcp=servers,
                 )  # fmt: skip
                 run_args |= {"policy": policy, "observer": watch}
+            elif read_only_policy is not claude.READ_ONLY:
+                run_args["policy"] = read_only_policy
             if use_sdk:
                 # Questions and approvals wait only for a client that streams the answer
                 # and said it can show them; anything else is refused at once, as before.
@@ -640,7 +743,7 @@ def create_app(settings: Settings) -> FastAPI:
                     raise
                 if control.take_stopped(session_id):
                     raise runcontrol.stopped_error()
-                return with_files(
+                answer = with_files(
                     {
                         "answer": result.answer,
                         "session_id": result.session_id or session_id,
@@ -651,6 +754,10 @@ def create_app(settings: Settings) -> FastAPI:
                     session_id,
                     cwd,
                 )
+                if is_chat:
+                    with_moves(answer, session_id, cwd)
+                await asyncio.to_thread(with_switch, answer, session_id)
+                return answer
             started = True
         finally:
             if not started:
@@ -705,6 +812,9 @@ def create_app(settings: Settings) -> FastAPI:
                             payload["refused_actions"] = watch.refused_actions()
                         if is_capable:
                             with_installs(payload, session_id, cwd)
+                        if is_chat:
+                            with_moves(payload, session_id, cwd)
+                        await asyncio.to_thread(with_switch, payload, session_id)
                         if used_servers:
                             payload["mcp_servers"] = [
                                 {"name": name, "scope": scope, "outside_sandbox": True}
@@ -841,7 +951,7 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/sessions/{session_id}/interactions")
     async def list_interactions(session_id: str):
         """Questions and approvals that wait for the owner: those of a running turn (SDK
-        runner), and those that wait across runs (skill installs, MCP servers)."""
+        runner), and those that wait across runs (skill installs, MCP servers, file moves)."""
         await asyncio.to_thread(expire_approvals)
         live = sdk_pool.asking.pending(session_id) if sdk_pool is not None else []
         return {"pending": live + await asyncio.to_thread(approvals.pending, session_id)}
@@ -858,10 +968,15 @@ def create_app(settings: Settings) -> FastAPI:
                     return skill_installs.answer(entry, approve)
                 if entry["kind"] == mcp_servers.KIND:
                     return mcp_servers.answer(entry, approve, settings.personal_mcp_file)
+                if entry["kind"] == moves.KIND:
+                    return moves.answer(settings, entry, approve)
                 raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
 
             # A refused answer (409, 503) leaves the card waiting (#157).
             done = await asyncio.to_thread(approvals.settle, session_id, interaction_id, handle)
+            if "moved" in done:
+                with contextlib.suppress(Exception):
+                    sweep_chats()  # a chat whose files all moved away leaves no folder
             return {"answered": True, "id": interaction_id, **done}
         if sdk_pool is None:
             raise ClaudeError("not_pending", 404, "this question is no longer waiting")
@@ -998,43 +1113,68 @@ def create_app(settings: Settings) -> FastAPI:
         """The session's file offers that can still be fetched (cards after a re-read)."""
         return {"files": offers.listing(session_id)}
 
-    def chosen_folder(data: dict) -> Path:
-        """The folder of a new conversation: the memory folder, or an allowed folder by name."""
+    def chosen_folder(data: dict) -> Path | None:
+        """The folder of a new conversation. ``None``: a blank chat, which gets a new folder
+        of its own (no ``folder``, or the chat root itself); else an allowed folder by path."""
         folder = data.get("folder")
         if folder is None:
-            return settings.ask_dir
+            return None
         if not isinstance(folder, str) or not folder.strip() or len(folder) > 4096:
             raise ClaudeError("bad_request", 400, "`folder` must be one of the folders of /folders")
         wanted = Path(folder).expanduser()
+        if wanted.is_absolute() and wanted.resolve() == chats.root(settings).resolve():
+            return None
         for root in settings.allowed_roots:
             if wanted == root or (wanted.is_absolute() and wanted.resolve() == root):
                 return root
         raise ClaudeError("folder_not_allowed", 403, "this folder is not an allowed folder")
 
+    def new_chat_folder() -> Path:
+        return chats.new_folder(settings, memory.now_local().date())
+
+    def session_folder(info: sessions.SessionInfo) -> Path | None:
+        """The folder a listed session continues in. A blank chat's folder may have been
+        removed for holding no files: the run creates the same path again."""
+        if info.folder.is_dir() or chats.is_chat_folder(settings, info.folder):
+            return info.folder
+        return None
+
     @app.get("/folders")
     async def list_folders():
-        """Where a new conversation may run: the memory folder and the allowed folders."""
-        memory_dir = settings.ask_dir.resolve()
-        return {
-            "folders": [
-                {
-                    "path": str(root),
-                    "label": root.name,
-                    "kind": "memory" if root == memory_dir else "allowed",
-                    "default": root == memory_dir,
-                }
-                for root in settings.allowed_roots
-                if root.is_dir()
-            ]
-        }
+        """Where a new conversation may run: a blank chat (the default: its own new, empty
+        folder under the chat root), the memory folder and the allowed folders. ``usable``
+        is false, with ``reason``, when blank chats are refused on this computer."""
+        known = await asyncio.to_thread(folders.Folders, settings)
+        reason = await asyncio.to_thread(chats.root_refusal, settings)
+        if reason is not None and not chats.root(settings).exists():
+            reason = None  # the bridge creates the chat root with the first blank chat
+        listed = []
+        for entry in known.entries:
+            if entry["kind"] == "coach" or (
+                entry["kind"] != "chat" and not Path(entry["path"]).is_dir()
+            ):
+                continue
+            item = {
+                "path": entry["path"],
+                "label": entry["name"],
+                "kind": entry["kind"],
+                "default": entry["kind"] == "chat",
+                "colour": entry["colour"],
+            }
+            if entry["kind"] == "chat":
+                item |= {"usable": reason is None, "reason": reason}
+            listed.append(item)
+        return {"folders": listed}
 
     @app.post("/ask")
     async def ask(request: Request):
         """Run a prompt through headless Claude.
 
         Body: ``{"prompt": str, "session_id": str?, "folder": str?, "stream": bool?}``.
-        A new conversation runs in the memory folder, or in the allowed folder
-        named by ``folder``. ``session_id`` continues an earlier conversation in
+        A new conversation without ``folder`` is a blank chat: it runs in its own
+        new, empty folder under the chat root, with no personal context (#163).
+        ``folder`` names the memory folder or an allowed folder instead.
+        ``session_id`` continues an earlier conversation in
         the folder it was started in. ``new_session_id`` (a UUID the phone chose)
         names a new conversation, so its first message can be sent again safely:
         a repeat answers ``{"repeat": true, "session_id", "running"}`` and runs
@@ -1049,14 +1189,17 @@ def create_app(settings: Settings) -> FastAPI:
                 raise ClaudeError("bad_request", 400, "give `session_id` or `new_session_id`")
             if not isinstance(chosen_id, str) or not claude.is_session_id(chosen_id):
                 raise ClaudeError("bad_request", 400, "`new_session_id` must be a lowercase UUID")
-            cwd = chosen_folder(data)
-            fingerprint = hashlib.sha256(f"{cwd}\n{prompt}".encode()).hexdigest()[:16]
+            chosen = chosen_folder(data)
+            # A blank chat has no folder yet: a repeat must not look like another start
+            # (and must not make a second folder), so its fingerprint names no path.
+            place = "blank chat" if chosen is None else str(chosen)
+            fingerprint = hashlib.sha256(f"{place}\n{prompt}".encode()).hexdigest()[:16]
             claimed = await asyncio.to_thread(
                 session_meta.claim_new_session, chosen_id, fingerprint
             )
             exists = claimed == "new" and (
-                claude.session_exists(cwd, chosen_id)
-                or sessions.find_session(chosen_id, settings.allowed_roots) is not None
+                (chosen is not None and claude.session_exists(chosen, chosen_id))
+                or known_session(chosen_id) is not None
             )
             if claimed == "conflict" or exists:
                 if exists:
@@ -1070,7 +1213,10 @@ def create_app(settings: Settings) -> FastAPI:
                 return {"repeat": True, "session_id": chosen_id,
                         "running": chosen_id in slots.active}  # fmt: skip
             admitted: dict = {}
+            cwd = chosen
             try:
+                if cwd is None:
+                    cwd = new_chat_folder()
                 return await run_prompt(
                     {**data, "_admitted": admitted}, session_id=chosen_id, resume=False, cwd=cwd
                 )
@@ -1079,6 +1225,8 @@ def create_app(settings: Settings) -> FastAPI:
                     await asyncio.to_thread(
                         session_meta.release_new_session, chosen_id, fingerprint
                     )
+                    if chosen is None and cwd is not None:
+                        tidy_chat(cwd)  # the folder made for a chat that never began
                 raise
         resume = data.get("session_id") is not None
         if resume:
@@ -1088,16 +1236,23 @@ def create_app(settings: Settings) -> FastAPI:
             if claude.session_exists(settings.ask_dir, session_id):
                 cwd = settings.ask_dir
             else:
-                info = sessions.find_session(session_id, settings.allowed_roots)
-                if info is None or not info.folder.is_dir():
+                info = known_session(session_id)
+                found = session_folder(info) if info is not None else None
+                if found is None:
                     raise ClaudeError("session_not_found", 404, "unknown session")
-                cwd = info.folder
-        else:
-            cwd = chosen_folder(data)
-            # No --name: a fixed name would hide the first prompt, which is the
-            # more useful title in the session list.
-            session_id = str(uuid.uuid4())
-        return await run_prompt(data, session_id=session_id, resume=resume, cwd=cwd)
+                cwd = found
+            return await run_prompt(data, session_id=session_id, resume=True, cwd=cwd)
+        chosen = chosen_folder(data)
+        cwd = chosen if chosen is not None else new_chat_folder()
+        # No --name: a fixed name would hide the first prompt, which is the
+        # more useful title in the session list.
+        session_id = str(uuid.uuid4())
+        try:
+            return await run_prompt(data, session_id=session_id, resume=False, cwd=cwd)
+        except ClaudeError:
+            if chosen is None:
+                tidy_chat(cwd)  # refused before it ran: no empty folder is left behind
+            raise
 
     @app.post("/sessions/{session_id}/messages")
     async def resume_session(session_id: str, request: Request):
@@ -1108,10 +1263,10 @@ def create_app(settings: Settings) -> FastAPI:
         data = await read_json_object(request)
         read_prompt(data)
         read_mode(data)
-        info = sessions.find_session(session_id, settings.allowed_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
-        if not info.folder.is_dir():
+        if session_folder(info) is None:
             raise ClaudeError("folder_missing", 409, "the session's folder no longer exists")
         return await run_prompt(data, session_id=info.id, resume=True, cwd=info.folder)
 
@@ -1158,26 +1313,32 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions")
     async def list_sessions(limit: int = 50):
-        """Claude Code sessions in the allowed folders: pinned first, then newest first.
+        """Claude Code sessions in the allowed folders and the blank chats: pinned first,
+        then newest first.
 
         ``running_here``: the bridge is answering a message of it (same as ``in_use``).
         ``open_elsewhere``: another Claude Code process on the computer holds it
         (a terminal, the desktop app); ``null`` when that could not be checked.
+        ``folder_key``, ``folder_label``, ``kind`` and ``colour`` say which folder a
+        session belongs to; ``folders`` has one entry per folder (all blank chats are
+        one), counted over all sessions, not only the listed ones (``folders.py``).
         """
         limit = max(1, min(limit, 200))
-        found = sessions.list_sessions(settings.allowed_roots)
+        found = known_sessions()
         meta = session_meta.load()
         held = await held_elsewhere()
+        known = await asyncio.to_thread(folders.Folders, settings)
         items = []
         for info in found:
             item = session_meta.describe(info, in_use=info.id in slots.active, data=meta)
+            item |= known.describe(info)
             item["running_here"] = item["in_use"]
             item["open_elsewhere"] = (
                 None if held is None else info.id in held and info.id not in slots.active
             )
             items.append(item)
         items.sort(key=lambda item: not item["pinned"])  # stable: keeps newest first
-        return {"sessions": items[:limit], "total": len(found), "groups": meta["groups"]}
+        return {"sessions": items[:limit], "total": len(found), "folders": known.summary(found)}
 
     held_cache: dict = {"at": -1e9, "held": None}
 
@@ -1198,10 +1359,11 @@ def create_app(settings: Settings) -> FastAPI:
     async def read_session(session_id: str):
         """One session as in the list, read fresh: title, folder, model, effort, switches,
         ``running_here``, ``open_elsewhere``, and its waiting messages."""
-        info = sessions.find_session(session_id, settings.allowed_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         item = session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
+        item |= (await asyncio.to_thread(folders.Folders, settings)).describe(info)
         held = await held_elsewhere()
         item["running_here"] = item["in_use"]
         item["open_elsewhere"] = None if held is None else (info.id in held and not item["in_use"])
@@ -1212,38 +1374,19 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.patch("/sessions/{session_id}")
     async def update_session(session_id: str, request: Request):
-        """Set the owner's title, group, pin or reply-notification switch for a session.
+        """Set the owner's title, pin or reply-notification switch for a session.
 
-        Body: any of ``{"title": str|null, "group": id|null, "pinned": bool,
-        "notify_replies": bool}``. Only the bridge's own metadata changes.
+        Body: any of ``{"title": str|null, "pinned": bool, "notify_replies": bool,
+        "model", "effort", "skills"}``. Only the bridge's own metadata changes.
         """
         changes = await read_json_object(request)
         read_model_choice(changes)  # refuses unknown models and effort levels
-        info = sessions.find_session(session_id, settings.allowed_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         session_meta.update_session(info.id, changes)
-        return session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
-
-    @app.get("/session-groups")
-    async def list_groups():
-        return {"groups": session_meta.load()["groups"]}
-
-    @app.post("/session-groups", status_code=201)
-    async def create_group(request: Request):
-        """Body: ``{"name": str}``."""
-        return session_meta.create_group((await read_json_object(request)).get("name"))
-
-    @app.patch("/session-groups/{group_id}")
-    async def rename_group(group_id: str, request: Request):
-        """Body: ``{"name": str}``."""
-        return session_meta.rename_group(group_id, (await read_json_object(request)).get("name"))
-
-    @app.delete("/session-groups/{group_id}")
-    async def delete_group(group_id: str):
-        """Sessions of the group become ungrouped; no session is deleted."""
-        session_meta.delete_group(group_id)
-        return {"deleted": True}
+        item = session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
+        return item | (await asyncio.to_thread(folders.Folders, settings)).describe(info)
 
     @app.get("/reminders")
     async def list_reminders(session_id: str | None = None, state: str | None = None):
@@ -1255,11 +1398,7 @@ def create_app(settings: Settings) -> FastAPI:
         """Body: ``{"session_id", "at", "note"?, "repeat"?: none|daily|weekly, "timezone"?}``."""
         data = await read_json_object(request)
         session_id = data.pop("session_id", None)
-        info = (
-            sessions.find_session(session_id, settings.allowed_roots)
-            if isinstance(session_id, str)
-            else None
-        )
+        info = known_session(session_id) if isinstance(session_id, str) else None
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         return reminders.create(info.id, data)
@@ -1641,7 +1780,7 @@ def create_app(settings: Settings) -> FastAPI:
             return await compact_coach()
 
     def listed_session(session_id: str) -> sessions.SessionInfo:
-        info = sessions.find_session(session_id, settings.allowed_roots)
+        info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         return info
@@ -1650,7 +1789,7 @@ def create_app(settings: Settings) -> FastAPI:
     def session_history(session_id: str, limit: int = history.DEFAULT_LIMIT, before: str = ""):
         """A page of the session's earlier exchanges, oldest first; ``before`` pages back."""
         info = listed_session(session_id)
-        path = history.transcript_path(info, settings.allowed_roots)
+        path = history.transcript_path(info, settings.session_roots)
         if path is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
         page = history.read_page(path, limit, before or None)
@@ -1658,6 +1797,8 @@ def create_app(settings: Settings) -> FastAPI:
         for exchange in page["exchanges"]:
             names = used.get(exchange["id"], [])
             exchange["mcp_servers"] = [{"name": n, "outside_sandbox": True} for n in names]
+            # A switch line of an earlier answer is not shown and never switches (#164).
+            exchange["assistant"] = conversations.strip(exchange["assistant"])
         return page
 
     @app.get("/sessions/{session_id}/commands")

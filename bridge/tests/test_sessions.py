@@ -24,7 +24,13 @@ def test_requires_token(client):
 
 
 def test_empty_when_nothing_is_stored(client, auth):
-    assert get_sessions(client, auth) == {"sessions": [], "total": 0, "groups": []}
+    body = get_sessions(client, auth)
+    assert (body["sessions"], body["total"]) == ([], 0) and "groups" not in body
+    # the folders are known before any session exists: all blank chats, then the memory folder
+    assert [(f["key"], f["kind"], f["count"], f["last_activity"]) for f in body["folders"]] == [
+        ("chats", "chat", 0, None),
+        (str(client.app.state.settings.ask_dir), "memory", 0, None),
+    ]
 
 
 def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir, write_session):
@@ -42,14 +48,21 @@ def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir
         "running_here": False,
         "open_elsewhere": False,
         "detected_title": "second question",
-        "group": None,
-        "auto_group": ask_dir.name,
         "pinned": False,
         "notify_replies": True,
         "model": None,
         "effort": None,
         "skills": False,
+        "folder_key": str(ask_dir),
+        "folder_label": ask_dir.name,
+        "kind": "memory",
+        "colour": 1,
     }
+    memory_folder = body["folders"][1]
+    assert memory_folder == {
+        "key": str(ask_dir), "name": ask_dir.name, "kind": "memory", "path": str(ask_dir),
+        "colour": 1, "count": 2, "last_activity": "2027-01-15T08:08:20Z",
+    }  # fmt: skip
 
 
 def test_limit(client, auth, ask_dir, write_session):

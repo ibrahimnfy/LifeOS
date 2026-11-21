@@ -30,7 +30,7 @@ from .config import Settings
 
 # What a phone may call. Everything else answers 404 without touching the local API.
 ALLOWED_PREFIXES = (
-    "/ask", "/sessions", "/session-groups", "/reminders", "/notes", "/tasks", "/events",
+    "/ask", "/sessions", "/reminders", "/notes", "/tasks", "/events",
     "/agenda", "/coach", "/context-map", "/allowed-paths", "/models", "/moodle", "/courses", "/whoami",
     "/folders", "/activity", "/app", "/memory", "/projects",
 )  # fmt: skip

@@ -163,9 +163,8 @@ def test_chunks_and_digest_for_the_relay(world, auth):
 def test_streamed_answers_carry_the_cards_in_the_final_event(world, auth):
     client, _brain, home = world
     (home / ".fake-claude-answer").write_text("[[file: notes/slides.pdf]]")
-    with client.stream(
-        "POST", "/ask", headers=auth, json={"prompt": "x", "stream": True}
-    ) as response:
+    body = {"prompt": "x", "stream": True, "folder": str(_brain)}
+    with client.stream("POST", "/ask", headers=auth, json=body) as response:
         text = response.read().decode()
     done = json.loads(text.split("event: done\ndata: ")[1].split("\n")[0])
     assert done["files"][0]["name"] == "slides.pdf" and done["answer"] == ""

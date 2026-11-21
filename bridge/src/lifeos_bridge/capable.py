@@ -45,10 +45,13 @@ KEY_FILE_NAME = "guardrail-key"
 # held or broke; the escape probe targets a file outside the sandbox (#106).
 # cli 5 and sdk 6: the owner's personal skills and personal MCP servers (#162).
 # Each runner reruns only when its own suite changed.
+# The same versions also probe a blank chat's folder as the run folder (#163).
 SUITE_VERSIONS = {"cli": 5, "sdk": 6}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
+# The first suite of each runner that probes a chat folder as the run folder (#163).
+CHAT_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
 # Personal skills and personal MCP servers (#162) need the probes of these suite
 # versions, per runner: the SDK runner's suite 5 still proved the opposite rule.
 PERSONAL_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
@@ -198,7 +201,17 @@ async def check_available(
         raise unavailable(
             "the Agent SDK was updated since the guardrail check; run scripts/verify-guardrails"
         )
-    if run_dir is not None and marker.get("scope") != "all_allowed_folders":
+    if run_dir is not None and _is_chat_folder(settings, run_dir):
+        # A blank chat's folder (#163): only after a check whose chat-folder probes passed.
+        version = marker.get("suite_version")
+        probed = isinstance(version, int) and version >= CHAT_SUITE_VERSIONS[runner]
+        if not probed or marker.get("chat_folders") is not True:
+            raise unavailable(
+                "the guardrail check has not covered chat folders yet; run "
+                "scripts/verify-guardrails (and with --runner sdk) once the chat folder "
+                "can be used"
+            )
+    elif run_dir is not None and marker.get("scope") != "all_allowed_folders":
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
         if folder != memory and not folder.is_relative_to(memory):
             raise unavailable("the guardrail check covers runs in the memory folder only so far")
@@ -265,6 +278,12 @@ def skills_unavailable() -> ClaudeError:
         "passed (it runs by itself at the next start of the bridge); switch skills off for "
         "this session to work without them",
     )
+
+
+def _is_chat_folder(settings: Settings, folder: Path) -> bool:
+    from . import chats  # local: chats needs this module
+
+    return chats.is_chat_folder(settings, folder)
 
 
 def suite_version(runner: str) -> int:
@@ -379,11 +398,22 @@ def build_policy(
     them as added folders, sandboxed commands through ``allowRead``; ``denyWrite``
     and a deny rule for the file tools keep both from changing them. A copy that
     lies where a run could write, or in the private settings folder, is refused.
+
+    A blank chat's folder (#163) is accepted like an allowed folder, with the same
+    guardrails: the run may write its own chat folder and the memory folder, and
+    read the allowed folders; the chat root and every other chat stay out of reach.
     """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
     roots = settings.allowed_roots
-    if not any(run_dir == root or run_dir.is_relative_to(root) for root in roots):
+    is_chat = _is_chat_folder(settings, run_dir)
+    if is_chat:
+        from . import chats  # local: chats needs this module
+
+        reason = chats.root_refusal(settings)
+        if reason is not None:
+            raise chats.unusable(reason)
+    elif not any(run_dir == root or run_dir.is_relative_to(root) for root in roots):
         raise ClaudeError("folder_not_allowed", 403, "this folder is not an allowed folder")
     for folder in (run_dir, memory):
         reason = refusal_reason(folder)
@@ -396,6 +426,12 @@ def build_policy(
     check_repositories(writable, memory)
     copies = [folder.resolve() for folder in (skills_dir, personal_skills_dir) if folder]
     check_copies(copies, [*roots, run_dir, memory])
+    # The conversation index (#164): in reach of the file tools, read-only. It gets no
+    # write permission, and the sandbox is told to deny writes there as well.
+    from . import conversations  # local: it needs chats, which needs this module
+
+    index = conversations.index_dir(settings)
+    shared = [] if index is None else [index]
     settings_json = {
         "sandbox": {
             "enabled": True,
@@ -405,7 +441,7 @@ def build_policy(
             "excludedCommands": [],
             "filesystem": {
                 "denyRead": list(SANDBOX_HIDDEN),
-                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *copies)}),
+                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *copies, *shared)}),
             },
             "network": {
                 "allowedDomains": [],
@@ -425,7 +461,8 @@ def build_policy(
                 for name in (".claude/**", ".mcp.json")
             ]
             # The copies of the skills a run was started with (#171): read, never changed.
-            + [f"Edit({_rule_path(folder)}/**)" for folder in copies],
+            # ...and the conversation index (#164).
+            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared)],
         },
         "hooks": {
             "PreToolUse": [
@@ -436,10 +473,12 @@ def build_policy(
             ]
         },
     }
-    if copies:
+    if copies or shared:
         # Whatever else would let commands write there (an added folder, an allow
-        # rule): never the copies.
-        settings_json["sandbox"]["filesystem"]["denyWrite"] = [str(folder) for folder in copies]
+        # rule): never the copies, and never the conversation index.
+        settings_json["sandbox"]["filesystem"]["denyWrite"] = [
+            str(folder) for folder in (*copies, *shared)
+        ]
     mcp_config = None
     if mcp:
         from . import mcp_servers  # local: only runs with approved servers need it
@@ -455,10 +494,15 @@ def build_policy(
         capable=True,
         settings_json=json.dumps(settings_json),
         # Added folders are what the file tools may read besides the run folder.
-        add_dirs=(*(folder for folder in writable if folder != run_dir), *copies),
+        add_dirs=(
+            *(folder for folder in writable if folder != run_dir),
+            *copies,
+            *shared,
+        ),
         skills_dir=skills_dir,
         personal_skills_dir=personal_skills_dir,
         mcp_config=mcp_config,
+        clean=is_chat,  # a blank chat: no memory file of any level is loaded
     )
 
 

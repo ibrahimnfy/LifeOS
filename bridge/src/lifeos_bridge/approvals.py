@@ -1,4 +1,5 @@
-"""Approvals that wait for the owner outside a run: skill installs (#92), MCP servers (#108).
+"""Approvals that wait for the owner outside a run: skill installs (#92), MCP servers (#108),
+moves of a blank chat's files into a project (#163).
 
 They appear in the same list as the questions and approvals of a running
 turn (``GET /sessions/{id}/interactions``) and are answered the same way

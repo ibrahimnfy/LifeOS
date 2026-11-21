@@ -89,13 +89,13 @@ documented here as they are built.
 |---|---|---|---|
 | GET | `/health` | no | Liveness check; returns `{"status":"ok"}` and nothing else |
 | GET | `/whoami` | yes | Lets a client verify its token; returns the bridge version |
-| POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer |
-| GET | `/folders` | yes | Folders a new conversation may run in |
-| GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders |
+| POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer; a new conversation without a folder is a blank chat |
+| GET | `/folders` | yes | Where a new conversation may run: a blank chat, the memory folder, the allowed folders |
+| GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders and the blank chats, each with its folder kind, and one summary entry per folder |
 | POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
 | GET | `/sessions/{id}/history` | yes | A session's earlier messages, a few exchanges per page |
 | GET | `/sessions/{id}/commands` | yes | Lists the skills and commands of the session's folder (not usable in runs yet) |
-| PATCH | `/sessions/{id}` | yes | Sets the owner's title, group, pin, reply-notification switch, model and effort |
+| PATCH | `/sessions/{id}` | yes | Sets the owner's title, pin, reply-notification switch, model and effort |
 | POST | `/sessions/{id}/cancel` | yes | Stops the session's current run |
 | GET | `/sessions/{id}/queue` | yes | Shows whether the session is answering and what is waiting |
 | PATCH / DELETE | `/sessions/{id}/queue/{qid}` | yes | Changes or removes a waiting message |
@@ -106,8 +106,6 @@ documented here as they are built.
 | GET | `/app/release` | yes | The registered release of the app: version, size, SHA-256, certificate |
 | POST | `/app/release/offer` | yes | Offers the release APK for `GET /files/{offer}?session_id=app-release` |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
-| GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
-| PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
 | GET / POST | `/reminders` | yes | Lists or creates session reminders |
 | PATCH / DELETE | `/reminders/{id}` | yes | Changes or deletes a reminder |
 | GET / POST | `/notes` | yes | Lists notes, or captures one into the memory's inbox |
@@ -168,6 +166,7 @@ Request body (JSON):
 |---|---|---|
 | `prompt` | string, required | The prompt, at most 100 000 characters |
 | `session_id` | string, optional | Continue an earlier `/ask` conversation |
+| `folder` | string, optional | For a new conversation: a path from `GET /folders`. Left out: a blank chat in its own new folder (see "Blank chats") |
 | `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. A first message refused before its run began (for example `429 busy`, or a failed check) does not keep the id: sending it again starts it. Follow-ups go to `POST /sessions/{id}/messages` as usual |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
 | `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
@@ -183,12 +182,14 @@ Response:
 
 How a prompt runs:
 
-- In the folder `LIFEOS_ASK_DIR` (default `~/brain`), through
-  `claude -p` with every flag set explicitly.
-- **Read-only for now**: Claude may read and search files inside that folder
-  and nothing else — no shell commands, no edits, no web access, no files
-  outside the folder. This stays until the owner decides the permission
-  policy.
+- A new conversation runs in its own new folder under the chat root (a
+  blank chat), or in the folder named by `folder`; a continued one in the
+  folder it was started in. Through `claude -p` (or the Agent SDK runner)
+  with every flag set explicitly.
+- **Read-only unless the request says `"mode": "capable"`**: Claude may
+  read and search files inside the run's folder and nothing else: no shell
+  commands, no edits, no web access, no files outside the folder. A blank
+  chat also has the memory folder in reach, to read it when the owner asks.
 - The prompt is passed on standard input, never on the command line, and is
   never logged.
 - The Claude process gets a minimal environment; API keys and other
@@ -210,6 +211,7 @@ Errors are JSON `{"error": "<code>", "message": "<text>"}`:
 | 502 | `audit_mismatch` | Capable mode: a tool ran without an audit record; the run was stopped |
 | 502 | `claude_failed`, `bad_output`, `claude_error`, `error_…` | The Claude run failed (e.g. `error_max_turns`) |
 | 503 | `claude_not_found`, `working_directory_missing` | Set-up problem on the computer |
+| 503 | `chat_root_unusable` | A blank chat was asked for, and the chat root may not be used (the message says why) |
 | 503 | `capable_mode_unavailable` | Capable mode is switched off on this computer |
 | 504 | `timeout` | The run took too long and was stopped |
 
@@ -247,7 +249,8 @@ transient user service, prints one line per probe and switches the mode on
 only if every probe passed in both. It takes a few minutes and about twenty
 short runs of the owner's Claude plan. Results:
 `~/.config/lifeos/guardrail-results.json`. The check covers runs in the
-memory folder; capable runs in other allowed folders stay refused for now.
+memory folder and in a blank chat's folder (#163); capable runs in other
+allowed folders stay refused for now.
 
 **Each runner has its own check (#106).** `scripts/verify-guardrails
 --runner sdk` runs the same suite through the Agent SDK runner. It adds
@@ -311,24 +314,27 @@ Subfolders of the memory folder are fine. Details:
 - **Plan usage of one restart:** a runner needs a check after an update of
   Claude Code or the Agent SDK, after a new version of the probe suite (the
   skill probes of #91 are suite version 2), or when it was never checked.
-  - The `claude -p` suite takes about 12 short runs on the small model per
+  - The `claude -p` suite takes about 15 short runs on the small model per
     environment.
-  - The SDK suite takes about 16 per environment, because it adds the
+  - The SDK suite takes about 19 per environment, because it adds the
     approval probes.
-  - Both runners in both environments come to **about 56 short runs**. The
+  - Both runners in both environments come to **about 68 short runs**. The
     skill probes of #91 and #92 add 12 of these (3 runs per environment and
-    runner) and the personal-skill probes of #162 add 4 (1 run per
+    runner), the personal-skill probes of #162 add 4 (1 run per environment
+    and runner), and the chat-folder probes of #163 add 12 (a shell run, a
+    file-tool run and a read-only run in a blank chat's folder, per
     environment and runner); the MCP probes of #108 and #162 need no model
     run. Probes without a model run (invalid settings, nested folders) are
     not counted.
   - A restart where both markers still match costs nothing.
   - Each runner has its own suite version (`cli` 5, `sdk` 6), and only a
     runner whose suite changed is checked again. The probes for personal
-    skills and personal MCP servers (#162) changed both, so the next start
-    checks both once. The approval probes may add up to 8 more per
-    environment when the model does not make the needed call at once, and
-    the personal-skill run and the skill-copy steps (#171, part of an
-    existing run) up to 2 more each.
+    skills and personal MCP servers (#162) and for chat folders (#163)
+    changed both, so the next start checks both once. The approval probes
+    may add up to 8 more per environment when the model does not make the
+    needed call at once, the personal-skill run and the skill-copy steps
+    (#171, part of an existing run) up to 2 more each, and the chat-folder
+    shell run 1 more.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner
@@ -342,7 +348,9 @@ What a capable run looks like:
 
 - It works in the run's folder and the memory folder; other allowed folders
   are readable. The home folder, the private settings, keys and browser
-  profiles are hidden from it, and its commands have no network.
+  profiles are hidden from it, and its commands have no network. In a blank
+  chat the run's folder is the chat's own folder; the chat root and every
+  other chat are out of its reach.
 - It requires Claude Code's OS sandbox and refuses to start without it.
 - Every tool call is written to the audit log
   `~/.config/lifeos/audit/YYYY-MM.jsonl` **before** it runs (commands in
@@ -365,20 +373,302 @@ folder and the private settings folder. Symbolic links are resolved first.
 
 ### Choosing the folder of a new conversation
 
-`GET /folders` lists where a new conversation may run: the memory folder
-(the default) and the allowed folders, each with `path`, `label`, `kind`
-and `default`. `POST /ask` accepts `"folder": "<path from that list>"` for a
-new conversation; anything else is refused (`403 folder_not_allowed`).
-Later messages need only the `session_id`: a session always continues in the
-folder it was started in. Only conversations in the memory folder start with
-the memory loaded.
+**A new conversation without `folder` is a blank chat** (owner's decision,
+#163): it runs in a new, empty folder of its own and starts with no
+personal context; see "Blank chats" below. The app's "+" and "New chat"
+send the first message without `folder`.
+
+`GET /folders` lists where a new conversation may run, each with `path`,
+`label`, `kind`, `default` and `colour` (the folder's colour number, as in
+`GET /sessions`):
+
+- first the blank chat (`kind: "chat"`, `default: true`, `path` the chat
+  root, plus `usable` and, when blank chats are refused on this computer,
+  the `reason`);
+- the memory folder (`kind: "memory"`);
+- the allowed folders (`kind: "project"`, or `"course"` for the course
+  folder of the Moodle sync).
+
+`POST /ask` accepts `"folder": "<path from that list>"` for a new
+conversation; the chat root's path means a blank chat too. Anything else is
+refused (`403 folder_not_allowed`). Later messages need only the
+`session_id`: a session always continues in the folder it was started in.
+
+**What a conversation is given** (clean chats, #163):
+
+| Conversation | Context |
+|---|---|
+| Blank chat | nothing personal; one short fixed instruction (below) |
+| In an allowed folder (project, course) | that folder in reach of the file tools, nothing else; no memory text. Claude Code's restricted mode loads no `CLAUDE.md`, also not the folder's own |
+| Started in the memory folder by naming it | as for an allowed folder: the files are in reach, no memory text is passed |
+| The coach conversation | its full personal context, as before (the memory's always-loaded part, the coach's instructions and summary) |
+| A conversation that existed before | it continues in the folder it was started in, with the system prompt Claude Code recorded at its first message |
+
+Claude Code records a conversation's system prompt at its first message
+and sends that record on every later message and resume, until the
+conversation is compacted (`--system-prompt-snapshot`, on by default;
+observed with the real CLI: a resume that passed another appended text
+still answered from the first one). So a conversation started before this
+change keeps what it was started with, and a new conversation keeps its
+fixed instruction for its whole life.
+
+### Blank chats (#163)
+
+**An own folder per chat.** The bridge creates
+`<chat root>/<YYYY-MM-DD>-<six hex digits>/` (mode 700) for every blank
+chat and runs it there. The chat root is `LIFEOS_CHAT_DIR` (default
+`~/LifeOS-Chats`); the bridge creates it at the first blank chat. It must be
+a folder inside the home folder that
+
+- is not hidden and is neither the LifeOS program folder nor the private
+  settings folder (nor inside or around them);
+- neither contains nor is contained in the memory folder or an allowed
+  folder;
+- holds none of `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.claude`,
+  `.mcp.json`;
+- is not a git repository and is not inside one.
+
+When that is not true, a blank chat is refused with
+`503 chat_root_unusable` and the reason, and nothing runs. The root is
+never an allowed folder: a run works in its own chat folder and never
+reaches another chat's folder. Of what lies under the root only the
+bridge's own chat folders count: sessions and files of anything else there
+are never listed, continued or offered, and a root that lies where none may
+lie (the home folder itself, a hidden folder, around an allowed folder)
+makes no session known at all.
+
+**No personal context.** Nothing from the memory, the tasks, the courses or
+the daily logs is put into the prompt or the system prompt. Claude Code
+gives the run nothing either:
+
+- the restricted mode (as for every run of the bridge) loads no `CLAUDE.md`
+  of the folder or of any folder above it, and no auto-memory;
+- on top of that a blank chat's process gets
+  `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` and
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` (Claude Code's own switches; fixed
+  values, no secret).
+
+Checked with the real Claude Code 2.1.328 (small model, probe folders
+under the chat root, a scratch settings and memory folder; 2026-11-21):
+
+| What was run | What was seen |
+|---|---|
+| A blank chat through the bridge, with canary instructions planted in a `CLAUDE.md` of a folder above the chat root and in the memory folder's `CLAUDE.md`, and a task in the memory's `tasks.md`; asked to list every canary word, what it knows about the owner's tasks, and the memory folder it was told | no canary, "nothing", the memory folder's path |
+| The same chat continued, after a canary was planted in Claude Code's auto-memory for that chat's folder | no canary |
+| The same question with Claude Code started in that folder **without** the restricted mode (control) | both canaries reported, with the two files' paths: the check does see them when they are loaded |
+| The control again with the two switches set | no canary: the switches work on their own too |
+| A probe chat folder holding its own `CLAUDE.md` (the guardrail probes, both runners) | not loaded |
+
+Not checkable here: a **user-level** `~/.claude/CLAUDE.md`. None exists on
+this computer, and writing one would reach the owner's running sessions.
+What stands for it: the restricted mode ignores the user-level settings
+files, and the switch above, named for every `CLAUDE.md`, turned off both
+kinds that could be tested.
+
+**Memory on request only.** The memory folder is in reach: a read-only run
+gets it as an added folder for the file tools (there is no write tool); a
+capable run may also write it, as every capable run may. One fixed
+instruction is appended to the system prompt (about 90 words, no personal
+data; `chats.context`): the chat starts without personal context; the
+memory is the folder at this path, read only when the owner asks to use it
+and written only when the owner asks to remember something; files are
+moved into a project with a `[[move-files: …]]` line. Checked with the real
+CLI: asked to use the memory, a read-only blank chat read a note from the
+memory folder; the memory folder's own `CLAUDE.md` was not loaded by being
+an added folder.
+
+**A chat that made no files leaves no folder.** When a run ends, the
+chat's folder is removed if it holds no files:
+
+- "No files" means: at every depth nothing but folders. Any other entry
+  counts as a file and keeps the folder: a regular file, a hidden file, a
+  symbolic link (also one to a folder).
+- Only empty folders are removed, one by one, so nothing can be destroyed.
+  Only the bridge's own chat folders (the name pattern above, directly
+  under the chat root) are ever touched.
+- Claude Code itself leaves nothing in the folder (seen after read-only
+  and capable runs with the real CLI: a read-only run left it empty, a
+  capable run left only the file it was asked to create).
+- **The conversation stays.** Claude Code keeps it under the folder's
+  path, so the next message creates the same path again and resumes there
+  (checked with the real CLI on both runners: the resumed run remembered
+  the earlier message). `409 folder_missing` is therefore never answered
+  for a blank chat. To continue such a chat in a terminal, create the
+  folder first.
+- On the SDK runner a chat's folder is the working directory of its live
+  process, so it is kept while that process lives and removed after it was
+  closed (idle time, shutdown); the bridge looks for such folders every
+  minute. A first message that is refused before it runs leaves no folder.
+
+**Capable mode** works in a chat folder with the same guardrails: the
+sandbox lets commands write the chat's own folder and the memory folder,
+and read the allowed folders; the gate, the audit log and the
+nested-repository rule apply unchanged. It needs a guardrail check whose
+chat-folder probes passed (`"chat_folders": true` in the marker, suite
+version `cli` 5 / `sdk` 6); until then a capable request in a chat folder
+answers `503 capable_mode_unavailable`. A marker written by a check from
+before these probes does not have that field, and **nothing reruns the
+check by itself for it**: run `scripts/verify-guardrails` (and with
+`--runner sdk`) once after this change. Details: `permission-policy.md`,
+section 9.11.
+
+As in every capable run, the owner's personal skills and approved personal
+MCP servers are offered in a capable blank chat too (#162): the run is told
+their names and descriptions. That is the owner's own tooling, not the
+memory, but it is something personal in an otherwise clean chat; whether a
+blank chat should get it is the owner's call. A read-only blank chat has
+none. (Not covered by a real run here: a chat folder together with a copy
+of personal skills.)
+
+**Moving a chat's files into a project.** A run cannot write into a
+project from a chat. It proposes the move with a line of its own,
+`[[move-files: <target folder> | <file> | <file>]]`. The bridge removes the
+line from the answer and lists the proposal in the answer (JSON answer and
+`done` event): `"file_moves": [card]`. A usable proposal also waits among
+the session's pending approvals:
+
+```json
+{"id": "a1b2c3d4e5f6", "kind": "move_files", "session_id": "…",
+ "folder": "<the chat's folder>", "state": "ready",
+ "target": "<absolute target folder>", "target_label": "project/notes",
+ "files": [{"path": "report.md", "size": 812}], "total_size": 812,
+ "created_at": "…", "expires_at": "…"}
+```
+
+- **Target:** an allowed folder other than the memory folder, named by its
+  path or its folder name, or an existing folder inside one; never a hidden
+  folder.
+- **Files:** regular files inside the chat's own folder, relative to it; no
+  symbolic links (the file or a folder on the way), nothing hidden (so no
+  `.claude`, `.mcp.json` or `.git` content can reach a project this way), at
+  most 50 per proposal and 3 proposals per answer.
+- A proposal that cannot be carried out is answered at once, only in the
+  answer, with `"state": "refused"`, an `error` sentence and an
+  `error_code`: `target_not_allowed`, `file_missing`, `file_not_regular`,
+  `file_not_in_chat`, `file_hidden`, `file_exists`, `no_files`,
+  `too_many_files`, `too_many`, `not_a_chat`, `audit_unavailable`.
+- `POST /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`
+  answers the card. On approval everything is checked again, the audit
+  record is written first, and the bridge moves the files itself: each keeps
+  its relative path below the target, is created exclusively (**nothing is
+  ever overwritten**) as a plain file (mode 644), and then its source is
+  removed. The reply is `{"answered": true, "id", "moved": true|false,
+  "files": [...], "failed": [...], "target", "target_label"}` (`moved` is
+  false with a non-empty `failed` only when writing broke off part-way).
+- **A refused answer leaves the card waiting**, with nothing moved:
+  `409 file_exists` (something is at a target path now), `409
+  files_changed` (a file changed since the card), the codes above, `503
+  audit_unavailable`. A refusal (`false`) answers `{"moved": false}`.
+- Paired phones get a sealed `approval` push hint. A proposal waits 24
+  hours. Audit records: `move_files_proposed`, `_approved`, `_done`,
+  `_refused`, `_expired`, with the file names, never their content.
+- A chat whose files all moved away leaves no folder.
+- In any other folder the line is plain text: only a blank chat's files are
+  moved this way.
+
+### Moving between conversations by asking (#164)
+
+There is no folder picker. The owner asks in any chat ("continue my last
+chat in the courses folder", "start a chat in the project folder"), and the
+answer carries a `switch` item the app acts on.
+
+**The index a run reads.** Before every run the bridge writes
+`<chat root>/.bridge/conversations.md` (mode 600, folder mode 700):
+
+```
+id | last activity (UTC) | kind | folder | title
+<session id> | 2027-01-15 08:03 | chat | Chats | <title>
+...
+# Folders a new conversation can start in
+label | kind
+Chats | chat
+<memory folder's name> | memory
+<allowed folder's name> | project
+```
+
+- At most 300 conversations, newest first: the id, the last activity, the
+  folder's kind and label, and the title (the owner's own title, else the
+  one in the list). **Never a message.** The file says that its content is
+  information, never instructions (titles are the beginning of what was
+  written in a chat). Two folders of one name are listed with their paths.
+- Every run gets that folder as an added folder, so Claude Code's file
+  tools can read it under the read-only rules and inside the sandbox, on
+  both runners, **without another model run**. The standing instructions of
+  every conversation name the file and the marker lines (about 100 words;
+  the list itself is never part of a prompt).
+- Runs cannot change it: a read-only run has no write tool; a capable run
+  has no `Edit` permission there, an explicit `Edit` denial, and the
+  sandbox is told to deny writes (`denyWrite`). Seen with the real CLI: a
+  command's write there fails with "Read-only file system", the file tool
+  is refused.
+- The bridge writes the file anew before every run and **never reads it
+  back**: whatever a marker names is checked against the bridge's own
+  lists.
+- It needs a usable chat root; without one, runs go on without the index
+  (and asking cannot switch).
+
+**The answer.** The run ends its answer with a line of its own:
+
+| Line | Meaning |
+|---|---|
+| `[[switch: <id>]]` | open that conversation |
+| `[[switch: <id>, <id>, …]]` | offer these to choose from (at most five) |
+| `[[switch-new: <folder label or path>]]` | a new conversation in that folder: an allowed folder, the memory folder, or `Chats` for a blank chat |
+
+The bridge takes every such line out of the answer and reports the first
+usable one as `switch`, in the JSON answer and in the stream's `done`
+event:
+
+```json
+{"answer": "Opening it.", "session_id": "…",
+ "switch": {"action": "open",
+            "sessions": [{"id": "…", "title": "…", "folder_label": "project",
+                          "kind": "project", "colour": 2,
+                          "last_activity": "2027-01-15T08:01:40Z"}],
+            "folder": null}}
+```
+
+- `action` is `open` (one conversation: the app opens it), `choose` (one to
+  five: the app shows a card to pick from) or `new` (`sessions` is empty and
+  `folder` is `{"path", "label", "kind", "colour"}`: the app opens an empty
+  chat whose first message is sent with `"folder": <path>`).
+- **Validation.** An id the bridge does not list is dropped, and so is the
+  conversation's own id. A line that named one id is `open`; a line that
+  named several is `choose`, also when only one of them is listed. A folder
+  must be exactly one of the folders of `GET /folders` (label in any case,
+  or path); the coach is not a folder. When nothing usable is left, there
+  is no `switch` item; the line is removed all the same.
+- **Only a fresh answer switches.** The item exists only in the answer of
+  the run that wrote the line. `GET /sessions/{id}/history` removes such
+  lines from the text and never carries a `switch` item, and nothing else
+  reads a transcript for them.
+- While the answer is streamed, the line can appear in `delta` text before
+  the `done` event replaces it; the app hides lines of this form as it does
+  the other marker lines.
+- The switched-to conversation continues in its own folder with its own
+  history: the app sends the next message to `POST
+  /sessions/{id}/messages`.
+- **Limit: conversations started before this change.** Claude Code keeps
+  the system prompt a conversation was started with, so an older
+  conversation (the current coach session included) does not know these
+  lines until it is compacted or renewed. New conversations do.
+
+Checked with the real CLI through the bridge (2026-11-21, small model):
+from a blank chat, "open the chat in which I asked you to remember a
+number" gave `open` with that conversation; from a conversation in a
+project folder, "start a new chat in my <folder> folder" gave `new` with
+that folder; "open one of my earlier chats about numbers or files, I am not
+sure which" gave `choose` with the two that fit. An earlier, weaker wording
+of the instruction made the model list the chats with letters instead of
+writing the line; the wording now forbids that.
 
 ### `GET /sessions`
 
 Lists the Claude Code sessions stored on the computer whose folder is the
-ask folder or one of the folders in `~/.config/lifeos/allowed_paths` (one
-absolute path per line, `#` for comments), including their sub-folders.
-Sessions of any other folder are never opened or listed.
+ask folder, one of the folders in `~/.config/lifeos/allowed_paths` (one
+absolute path per line, `#` for comments) or a blank chat's folder under
+the chat root, including their sub-folders. Sessions of any other folder
+are never opened or listed.
 
 Sessions started in a terminal on the computer appear here like any other,
 as long as their folder is allowed.
@@ -390,15 +680,46 @@ then newest first:
 {"sessions": [{"id": "…", "title": "…", "detected_title": "…",
                "folder": "/path/to/folder",
                "last_activity": "2027-01-15T08:08:20Z", "in_use": false,
-               "group": null, "auto_group": "folder", "pinned": false,
-               "notify_replies": true}],
- "total": 1, "groups": [{"id": "…", "name": "…"}]}
+               "pinned": false, "notify_replies": true,
+               "folder_key": "/path/to/folder", "folder_label": "folder",
+               "kind": "project", "colour": 2}],
+ "total": 1,
+ "folders": [{"key": "chats", "name": "Chats", "kind": "chat",
+              "path": "<chat root>", "colour": 0, "count": 12,
+              "last_activity": "2027-01-15T08:08:20Z"},
+             {"key": "/path/to/folder", "name": "folder", "kind": "project",
+              "path": "/path/to/folder", "colour": 2, "count": 1,
+              "last_activity": "2027-01-15T08:08:20Z"}]}
 ```
+
+- **Folders (#163).** Every session says which folder it belongs to:
+  `folder_key`, `folder_label`, `kind` and `colour`; `folder` stays the
+  exact working directory. `folders` has one entry per folder for the
+  app's tiles, with the `count` and newest `last_activity` of **all** its
+  sessions (not only the listed ones; `0` and `null` when it has none):
+
+  | `kind` | Sessions | `key` | `name` |
+  |---|---|---|---|
+  | `chat` | every blank chat: **all of them form one entry** | `chats` | `Chats` |
+  | `coach` | the coach conversation and its earlier sessions (only once it exists) | `coach` | `Coach` |
+  | `memory` | other sessions in the memory folder | the folder's path | its name |
+  | `course` | sessions in the course folder of the Moodle sync | the folder's path | its name |
+  | `project` | sessions in any other allowed folder | the folder's path | its name |
+
+  A session in a sub-folder belongs to the root that contains it. The
+  entries come in this order: chats, coach, memory, then the allowed
+  folders as listed.
+- **`colour`** is a small number the app maps to a colour of its palette.
+  A folder keeps the number it was first given for as long as it exists
+  (it is an allowed folder, or the chats or coach entry); a folder that is
+  gone frees its number; a new folder takes the lowest free one. Stored in
+  `folder-colours.json` in the private settings folder.
 
 - `title` is the owner's own title when one was set (see below), otherwise
   `detected_title`.
-- `group` is the id of one of the owner's groups, or `null`; a session
-  without a group is shown under `auto_group`, the name of its folder.
+- Custom session groups were removed (#164): there is no `group`,
+  `auto_group` or `groups` any more. The app groups sessions by
+  `folder_key` (see "Folders" below).
 
 - `title` is the session's own title when it has one, otherwise the
   beginning of its first prompt. Titles are conversation content: they are
@@ -430,7 +751,8 @@ same as for `/ask`.
   The bridge asks Claude Code which sessions are active
   (`claude agents --json`) right before starting. If that check itself fails,
   nothing is resumed (`503 in_use_check_failed`).
-- `409 folder_missing` when the session's folder no longer exists.
+- `409 folder_missing` when the session's folder no longer exists. Not for
+  a blank chat: its folder is created again at the same path.
 
 Limits of the in-use check: there is a short gap between the check and the
 start of the run, and sessions held by other Claude apps (desktop or editor
@@ -627,7 +949,8 @@ still answering (`POST /ask` with `session_id`, or
   before); listing reads nothing.
 - **One session.** `GET /sessions/{id}` → the item of `GET /sessions`
   (`id`, `title`, `detected_title`, `folder`, `last_activity`, `in_use`,
-  `running_here`, `open_elsewhere`, `group`, `auto_group`, `pinned`,
+  `running_here`, `open_elsewhere`, `folder_key`, `folder_label`, `kind`,
+  `colour`, `pinned`,
   `notify_replies`, `skills`, `model`, `effort`), read fresh, plus
   `followable`, `queue` (the waiting messages) and `queue_paused`. `404
   session_not_found`.
@@ -946,23 +1269,26 @@ answer and returns a card instead:
 - Through the relay the same offer is sent as sealed chunks (see "Paired
   phones and the relay").
 
-### Organising sessions: `PATCH /sessions/{id}` and `/session-groups`
+### Organising sessions: `PATCH /sessions/{id}`
 
-The owner's own order on top of the list: groups, titles, pins and a
-per-session switch for reply notifications.
+The owner's own order on top of the list: titles, pins and a per-session
+switch for reply notifications.
 
-- `POST /session-groups` with `{"name": "…"}` creates a group (`201`, returns
-  `{"id", "name"}`; names are unique, at most 60 characters);
-  `PATCH /session-groups/{id}` renames it; `DELETE` removes it, and its
-  sessions become ungrouped.
 - `PATCH /sessions/{id}` accepts any of `{"title": "…" | null,
-  "group": "<group id>" | null, "pinned": true | false,
-  "notify_replies": true | false}` and returns the session as in the list.
-  `null` returns to the detected title or to no group.
-- Only sessions inside the allowed folders can be changed (`404` otherwise).
+  "pinned": true | false, "notify_replies": true | false}` (and `model`,
+  `effort`, `skills`) and returns the session as in the list. `null`
+  returns to the detected title.
+- **Custom session groups were removed (#164).** `/session-groups` no
+  longer exists (`404`), and `group` is not a field any more (`400` in a
+  `PATCH`, like any unknown field). The app shows sessions by folder
+  (`GET /sessions`, "Folders"). Metadata stored before still loads: its
+  `groups` list and an entry's `group` are ignored without an error and
+  left out the next time the file is written; titles and pins are kept.
+- Only sessions inside the allowed folders and blank chats can be changed
+  (`404` otherwise).
 - **Claude Code's session files are never modified.** The metadata is one
   file, `~/.config/lifeos/sessions-meta.json` (mode 600). Deleting that file
-  loses the groups, titles and pins, nothing else.
+  loses the titles and pins, nothing else.
 - `notify_replies` is stored now and used once phone push exists: a finished
   run then sends a push unless the switch is off.
 
@@ -1117,11 +1443,13 @@ git, or **has a git remote**: the memory must stay on the computer.
   day replaces the line; at most 20 apps are kept). `GET /activity?start=
   &end=` returns the recorded days (default: the last 30).
 
-**Memory in `/ask`.** A conversation in the memory folder starts with the
-memory loaded: the bridge passes the memory's `CLAUDE.md`, `INDEX.md`,
-`profile.md`, the open tasks and the daily logs of today and yesterday to
-the model explicitly (at most about 60,000 characters), on every request of
-that conversation. Resumed sessions of other folders do not get it. The text
+**Memory in conversations.** Only the coach conversation starts with the
+memory loaded (clean chats, #163): the bridge passes the memory's
+`CLAUDE.md`, `INDEX.md`, `profile.md`, the open tasks and the daily logs of
+today and yesterday to the model explicitly (at most about 60,000
+characters). No other conversation gets it: a blank chat reads the memory
+only when the owner asks ("Blank chats"), and a conversation in an allowed
+folder or one started in the memory folder gets no memory text. The text
 goes to the model only; it is never logged.
 
 ### `/context-map`
@@ -1664,7 +1992,7 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
   its messages are dropped. It needs no network; the phone's mailbox is
   removed the next time the relay runs.
 - **What a phone may call:** the endpoints of this document under `/ask`,
-  `/sessions`, `/session-groups`, `/reminders`, `/notes`, `/tasks`,
+  `/sessions`, `/reminders`, `/notes`, `/tasks`,
   `/events`, `/agenda`, `/coach`, `/context-map`, `/allowed-paths`,
   `/models`, `/moodle`, `/courses` and `/whoami`. A request is `{"m": method, "path":
   "/…", "q": {query}, "body": {…}}`; the answer is one final message
@@ -1929,7 +2257,7 @@ printed.
 
 ```
 scripts/ask --health                          # bridge reachable, token accepted?
-scripts/ask "Which files are in this folder?" # ask
+scripts/ask "What is a monad? Two lines."      # ask (a blank chat, in its own new folder)
 scripts/ask -c "And the newest one?"          # continue the last conversation
 scripts/ask --stream "Explain it step by step"
 scripts/ask --sessions                        # list sessions
@@ -1953,16 +2281,22 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" http://127.0.0.1:8787/wh
                                                           # {"status":"ok","version":"..."}
 ```
 
-Ask a question (this uses the owner's Claude plan; keep it small). The
-folder in `LIFEOS_ASK_DIR` must exist and contain a file to ask about:
+Ask a question (this uses the owner's Claude plan; keep it small). Without
+`"folder"` it is a blank chat; with `"folder":"<the memory folder's path>"`
+it runs there, and that folder must exist and contain a file to ask about:
 
 ```
 curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"prompt":"Which files are in this folder? Answer in one line."}' \
+  -d '{"prompt":"Which files are in this folder? Answer in one line.","folder":"/home/<you>/brain"}' \
   http://127.0.0.1:8787/ask
 # {"answer":"...","session_id":"...","duration_ms":...,"num_turns":...,"denied_tools":[]}
 
 # continue the same conversation: add "session_id":"<id from above>"
+# moving by asking: in any chat ask "open my chat about <topic>" -> the answer has a
+#   "switch" item with "action":"open" and that session; `GET /sessions/<id>/history` has none
+# blank chat: leave "folder" out and ask "What do you know about me?" -> nothing; afterwards
+#   `ls ~/LifeOS-Chats` shows no folder for it, and `/sessions` lists it with "kind":"chat";
+#   continue it with its session id -> it answers, and remembers the first message
 # read-only check: ask it to create a file -> the answer says it cannot, and no file appears
 # streaming: add "stream":true and use `curl -N`
 ```
@@ -1999,13 +2333,12 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 # remove it again with  -X DELETE  and the same body
 ```
 
-Session groups, pins and reminders (replace `<id>` with a session id from
+Titles, pins and reminders (replace `<id>` with a session id from
 `/sessions`; these change only the bridge's own two files under
 `~/.config/lifeos/`):
 
 ```
 H="Authorization: Bearer $LIFEOS_BRIDGE_TOKEN"; B=http://127.0.0.1:8787
-curl -s -H "$H" -H 'Content-Type: application/json' -d '{"name":"Example group"}' $B/session-groups
 curl -s -H "$H" -H 'Content-Type: application/json' -X PATCH \
   -d '{"title":"My title","pinned":true}' $B/sessions/<id>
 curl -s -H "$H" $B/sessions            # the session is first, with the new title

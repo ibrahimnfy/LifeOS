@@ -63,7 +63,9 @@ ORDER = ("cli", "sdk")
 # Personal skills (#162, cli 5 and sdk 6): one more (a run that starts a personal
 # skill with a "/" message); the read-only skill run and the MCP probes cost nothing
 # extra.
-PLAN_RUNS = {"cli": 12, "sdk": 16}
+# The chat-folder probes (#163, the same suite versions) add three per runner: a
+# shell run, a file-tool run and a read-only run in a blank chat's folder.
+PLAN_RUNS = {"cli": 15, "sdk": 19}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 

@@ -151,7 +151,8 @@ def test_live_file_offers_and_one_session(client, auth, ask_dir, write_session, 
     one = client.get(f"/sessions/{session}", headers=auth).json()
     assert one["id"] == session and one["running_here"] is False
     for name in ("title", "folder", "model", "effort", "skills", "notify_replies", "pinned",
-                 "group", "open_elsewhere", "followable", "queue", "queue_paused"):  # fmt: skip
+                 "kind", "folder_label", "open_elsewhere", "followable", "queue",
+                 "queue_paused"):  # fmt: skip
         assert name in one, name
     assert client.get("/sessions/00000000-0000-4000-8000-000000000000",
                       headers=auth).status_code == 404  # fmt: skip

@@ -194,11 +194,14 @@ def test_a_capable_run_through_the_api_is_given_its_copies_to_read(
     log = ask_dir / ".fake-claude-calls.jsonl"
     capable_call, read_only = [json.loads(line) for line in log.read_text().splitlines()][-2:]
     copies = options(capable_call["args"], "--plugin-dir")
-    assert len(copies) == 2 and options(capable_call["args"], "--add-dir") == copies
+    # besides the copies, every run is given the conversation index to read (#164)
+    index = str(ask_dir.parent / "LifeOS-Chats" / ".bridge")
+    assert len(copies) == 2 and options(capable_call["args"], "--add-dir") == [*copies, index]
     assert all("/skill-copies/" in copy for copy in copies)
     files = json.loads(option(capable_call["args"], "--settings"))["sandbox"]["filesystem"]
-    assert files["denyWrite"] == copies and set(copies) <= set(files["allowRead"])
-    assert "--add-dir" not in read_only["args"] and "--plugin-dir" not in read_only["args"]
+    assert files["denyWrite"] == [*copies, index] and set(copies) <= set(files["allowRead"])
+    assert options(read_only["args"], "--add-dir") == [index]
+    assert "--plugin-dir" not in read_only["args"]
 
 
 # ------------------------------------------------------------------- the probes

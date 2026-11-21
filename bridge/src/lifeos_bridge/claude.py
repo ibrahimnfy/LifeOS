@@ -78,6 +78,9 @@ class Policy:
     # Allow rules for tools that would otherwise ask, and so be denied in dontAsk
     # (the web tools of the course-resources profile).
     allowed: str = ""
+    # A blank chat (#163): Claude Code is told to load no memory file at all (no
+    # CLAUDE.md of any level, no auto-memory), on top of the restricted mode.
+    clean: bool = False
 
     @property
     def plugin_dirs(self) -> tuple[Path, ...]:
@@ -141,10 +144,21 @@ def session_exists(cwd: Path, session_id: str, home: Path | None = None) -> bool
     return is_session_id(session_id) and (project_dir(cwd, home) / f"{session_id}.jsonl").is_file()
 
 
-def child_env(environ: Mapping[str, str] | None = None, *, capable: bool = False) -> dict[str, str]:
+# Claude Code's own switches (fixed values, no secret): no CLAUDE.md of any level is
+# loaded, and no auto-memory is read or written. Set for blank chats (Policy.clean).
+NO_MEMORY_FILES_ENV = {
+    "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
+    "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+}
+
+
+def child_env(
+    environ: Mapping[str, str] | None = None, *, capable: bool = False, clean: bool = False
+) -> dict[str, str]:
     environ = os.environ if environ is None else environ
     names = [n for n in ENV_ALLOW_LIST if not (capable and n in SESSION_BUS_VARS)]
-    return {name: environ[name] for name in names if name in environ}
+    env = {name: environ[name] for name in names if name in environ}
+    return {**env, **NO_MEMORY_FILES_ENV} if clean else env
 
 
 STREAM_OUTPUT_FLAGS = ("--output-format", "stream-json", "--verbose", "--include-partial-messages")
@@ -245,8 +259,11 @@ def run_flags(
         if not policy.settings_json:
             raise ClaudeError("capable_mode_unavailable", 503, "capable run without settings")
         command += ["--settings", policy.settings_json]
-        for folder in policy.add_dirs:
-            command += ["--add-dir", str(folder)]
+    # More folders in reach of the file tools: the memory folder of a capable run (its
+    # write permission comes from the settings above) and of a blank chat (a read-only
+    # run has no write tool).
+    for folder in policy.add_dirs:
+        command += ["--add-dir", str(folder)]
     # A model named for this run wins; then the fixed override; then the default.
     chosen = model or settings.claude_model or settings.default_model
     if chosen:
@@ -271,7 +288,7 @@ def run_flags(
 
 
 async def _start(
-    settings: Settings, command: list[str], cwd: Path, *, capable: bool = False
+    settings: Settings, command: list[str], cwd: Path, *, capable: bool = False, clean: bool = False
 ) -> asyncio.subprocess.Process:
     if not cwd.is_dir():
         raise ClaudeError("working_directory_missing", 503, "the configured folder does not exist")
@@ -279,7 +296,7 @@ async def _start(
         return await asyncio.create_subprocess_exec(
             *command,
             cwd=cwd,
-            env=child_env(capable=capable),
+            env=child_env(capable=capable, clean=clean),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -409,21 +426,26 @@ async def run(
     on_process: Callable[[asyncio.subprocess.Process], None] | None = None,
     persist: bool = True,
     tools: str | None = None,
+    policy: Policy | None = None,
 ) -> RunResult:
     """Run one read-only prompt to completion and return the answer.
 
     ``tools`` replaces the read-only tool list for a profile of
     docs/permission-policy.md (the course-resources run); never a write tool.
+    ``policy`` is a read-only policy with more folders in reach (a blank chat);
+    a capable policy is refused here: capable runs are always streamed.
 
     ``job`` names the run for the plan-usage counters (routing.py). When the
     CLI refuses to start with ``advisor`` (the documented launch error for a
     pairing or allow-list it does not accept), the run is made once without it.
     """
+    if policy is not None and (policy.capable or tools):
+        raise ClaudeError("bad_policy", 500, "only a read-only policy can be run unstreamed")
     try:
         return await _run_once(
             settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
             grace=grace, context=context, model=model, effort=effort, advisor=advisor,
-            job=job, on_process=on_process, persist=persist, tools=tools,
+            job=job, on_process=on_process, persist=persist, tools=tools, policy=policy,
         )  # fmt: skip
     except ClaudeError as error:
         if not advisor or error.code != "claude_failed":
@@ -431,7 +453,7 @@ async def run(
     return await _run_once(
         settings, prompt, session_id=session_id, resume=resume, cwd=cwd, name=name,
         grace=grace, context=context, model=model, effort=effort, advisor=None, job=job,
-        on_process=on_process, persist=persist, tools=tools,
+        on_process=on_process, persist=persist, tools=tools, policy=policy,
     )  # fmt: skip
 
 
@@ -452,7 +474,9 @@ async def _run_once(
     on_process: Callable[[asyncio.subprocess.Process], None] | None,
     persist: bool = True,
     tools: str | None = None,
+    policy: Policy | None = None,
 ) -> RunResult:
+    policy = policy or (profile_policy(tools) if tools else READ_ONLY)
     command = build_command(
         settings,
         session_id=session_id,
@@ -464,9 +488,9 @@ async def _run_once(
         effort=effort,
         advisor=advisor,
         persist=persist,
-        policy=profile_policy(tools) if tools else READ_ONLY,
+        policy=policy,
     )
-    process = await _start(settings, command, cwd or settings.ask_dir)
+    process = await _start(settings, command, cwd or settings.ask_dir, clean=policy.clean)
     if on_process is not None:
         on_process(process)
     try:
@@ -524,7 +548,9 @@ async def stream(
         effort=effort,
         advisor=advisor,
     )
-    process = await _start(settings, command, cwd or settings.ask_dir, capable=policy.capable)
+    process = await _start(
+        settings, command, cwd or settings.ask_dir, capable=policy.capable, clean=policy.clean
+    )
     if on_process is not None:
         on_process(process)
     assert process.stdin and process.stdout and process.stderr  # noqa: S101

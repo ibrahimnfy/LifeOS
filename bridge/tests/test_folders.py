@@ -27,12 +27,18 @@ def test_folders_lists_the_memory_folder_and_the_allowed_ones(world, auth):
     client, ask_dir, project, _ = world
     assert client.get("/folders").status_code == 401
     body = client.get("/folders", headers=auth).json()
+    chats = ask_dir.parent / "LifeOS-Chats"
     assert body == {
         "folders": [
-            {"path": str(ask_dir), "label": ask_dir.name, "kind": "memory", "default": True},
-            {"path": str(project), "label": "project", "kind": "allowed", "default": False},
+            # a blank chat is the default: its own new folder under the chat root
+            {"path": str(chats), "label": "Chats", "kind": "chat", "default": True, "colour": 0,
+             "usable": True, "reason": None},
+            {"path": str(ask_dir), "label": ask_dir.name, "kind": "memory", "default": False,
+             "colour": 1},
+            {"path": str(project), "label": "project", "kind": "project", "default": False,
+             "colour": 2},
         ]
-    }
+    }  # fmt: skip
 
 
 def test_new_conversation_runs_in_the_chosen_folder_and_stays_there(world, auth):
@@ -49,10 +55,22 @@ def test_new_conversation_runs_in_the_chosen_folder_and_stays_there(world, auth)
     assert call["cwd"] == str(project) and "--resume" in call["args"]
 
 
-def test_default_is_the_memory_folder(world, auth):
+def test_the_memory_folder_can_still_be_named(world, auth):
     client, ask_dir, _, _ = world
-    assert client.post("/ask", headers=auth, json={"prompt": "hello"}).status_code == 200
+    body = {"prompt": "hello", "folder": str(ask_dir)}
+    assert client.post("/ask", headers=auth, json=body).status_code == 200
     assert last_call(ask_dir)["cwd"] == str(ask_dir)
+
+
+@pytest.mark.blank_chats
+def test_default_is_a_blank_chat_in_its_own_folder(world, auth):
+    client, ask_dir, project, _ = world
+    assert client.post("/ask", headers=auth, json={"prompt": "hello"}).status_code == 200
+    for folder in (ask_dir, project):
+        assert not (folder / ".fake-claude-calls.jsonl").exists()
+    log = ask_dir.parent / ".fake-claude-chat-calls.jsonl"
+    cwd = json.loads(log.read_text().splitlines()[-1])["cwd"]
+    assert cwd.startswith(str(ask_dir.parent / "LifeOS-Chats") + "/")
 
 
 def test_folders_outside_the_list_are_refused(world, auth, tmp_path):

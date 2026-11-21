@@ -1,9 +1,13 @@
-"""Groups, titles, pins and the reply-notification switch. All transcripts are synthetic."""
+"""Titles, pins and the reply-notification switch. All transcripts are synthetic.
+
+Custom session groups were removed (#164): the app shows sessions by folder.
+"""
 
 import hashlib
 import json
 
 from conftest import user_line
+from lifeos_bridge import session_meta
 
 
 def snapshot(folder):
@@ -18,51 +22,81 @@ def listing(client, auth):
     return client.get("/sessions", headers=auth).json()
 
 
-def make_group(client, auth, name="Thesis"):
-    response = client.post("/session-groups", headers=auth, json={"name": name})
-    assert response.status_code == 201
-    return response.json()
-
-
 def test_routes_require_the_token(client):
-    assert client.get("/session-groups").status_code == 401
-    assert client.post("/session-groups", json={"name": "x"}).status_code == 401
     assert client.patch("/sessions/abc", json={"pinned": True}).status_code == 401
 
 
-def test_group_lifecycle(client, auth):
-    group = make_group(client, auth)
-    assert client.get("/session-groups", headers=auth).json() == {"groups": [group]}
-    assert client.post("/session-groups", headers=auth, json={"name": "thesis"}).status_code == 409
-    renamed = client.patch(f"/session-groups/{group['id']}", headers=auth, json={"name": "Side"})
-    assert renamed.json() == {"id": group["id"], "name": "Side"}
-    assert client.delete(f"/session-groups/{group['id']}", headers=auth).json() == {"deleted": True}
-    assert client.get("/session-groups", headers=auth).json() == {"groups": []}
-    assert client.delete(f"/session-groups/{group['id']}", headers=auth).status_code == 404
+def test_session_groups_are_gone_from_the_api(client, auth, ask_dir, write_session):
+    session = write_session(ask_dir, [user_line(ask_dir, "first")])
+    one = "/session-groups/abc"
+    for method, path in [("GET", "/session-groups"), ("POST", "/session-groups"),
+                         ("PATCH", one), ("DELETE", one)]:  # fmt: skip
+        response = client.request(method, path, headers=auth, json={"name": "Thesis"})
+        assert response.status_code in (404, 405), (method, path)
+    # ...and so is the `group` field: not accepted, not reported
+    refused = client.patch(f"/sessions/{session}", headers=auth, json={"group": "abc"})
+    assert refused.status_code == 400 and "group" not in refused.json()["message"]
+    body = listing(client, auth)
+    assert "groups" not in body
+    for item in (body["sessions"][0], client.get(f"/sessions/{session}", headers=auth).json()):
+        assert "group" not in item and "auto_group" not in item
+        assert item["folder_label"] == ask_dir.name  # what the app groups by instead
+    from lifeos_bridge import relay
+
+    assert "/session-groups" not in relay.ALLOWED_PREFIXES
 
 
-def test_group_name_is_validated(client, auth):
-    for name in ["", "   ", "a\nb", "x" * 61, 5, None]:
-        response = client.post("/session-groups", headers=auth, json={"name": name})
-        assert response.status_code == 400, name
+def test_metadata_stored_with_groups_still_works(
+    client, auth, ask_dir, write_session, isolated_config
+):
+    """A file written before the removal: its groups are ignored without an error, pins and
+    titles are kept, and the next change leaves the old fields behind."""
+    grouped = write_session(ask_dir, [user_line(ask_dir, "first")], mtime=1_800_000_000)
+    plain = write_session(ask_dir, [user_line(ask_dir, "second")], mtime=1_800_000_500)
+    meta_file = isolated_config / "sessions-meta.json"
+    old = {
+        "groups": [{"id": "abc123", "name": "Thesis"}, "damaged"],
+        "sessions": {
+            grouped: {"title": "My plan", "group": "abc123", "pinned": True},
+            plain: {"group": "gone"},
+            "not-an-entry": 5,
+        },
+    }
+    meta_file.write_text(json.dumps(old))
+    body = listing(client, auth)
+    assert [s["id"] for s in body["sessions"]] == [grouped, plain]  # the pin still counts
+    first, second = body["sessions"]
+    assert (first["title"], first["pinned"]) == ("My plan", True)
+    assert (second["title"], second["pinned"]) == ("second", False)
+    assert "group" not in first and "groups" not in body
+    assert session_meta.entry_for(grouped) == session_meta.DEFAULTS | {
+        "title": "My plan", "pinned": True,
+    }  # fmt: skip
+
+    renamed = client.patch(f"/sessions/{plain}", headers=auth, json={"title": "Renamed"})
+    assert renamed.status_code == 200 and renamed.json()["title"] == "Renamed"
+    stored = json.loads(meta_file.read_text())
+    assert "groups" not in stored
+    assert stored["sessions"][grouped] == {"title": "My plan", "pinned": True}
+    assert (
+        stored["sessions"][plain]["title"] == "Renamed" and "group" not in stored["sessions"][plain]
+    )
+    assert "not-an-entry" not in stored["sessions"]
 
 
-def test_title_group_pin_and_switch(client, auth, ask_dir, write_session, isolated_config):
+def test_title_pin_and_switch(client, auth, ask_dir, write_session, isolated_config):
     old = write_session(ask_dir, [user_line(ask_dir, "first")], mtime=1_800_000_000)
     new = write_session(ask_dir, [user_line(ask_dir, "second")], mtime=1_800_000_500)
-    group = make_group(client, auth)
-    changes = {"title": " My plan ", "group": group["id"], "pinned": True, "notify_replies": False}
+    changes = {"title": " My plan ", "pinned": True, "notify_replies": False}
     updated = client.patch(f"/sessions/{old}", headers=auth, json=changes)
     assert updated.status_code == 200
     body = updated.json()
     assert (body["title"], body["detected_title"]) == ("My plan", "first")
-    assert (body["group"], body["pinned"], body["notify_replies"]) == (group["id"], True, False)
+    assert (body["pinned"], body["notify_replies"]) == (True, False)
 
     body = listing(client, auth)
     assert [s["id"] for s in body["sessions"]] == [old, new]  # pinned first
-    assert body["groups"] == [group]
-    assert body["sessions"][1]["group"] is None
-    assert body["sessions"][1]["auto_group"] == ask_dir.name
+    assert body["sessions"][1]["pinned"] is False
 
     meta_file = isolated_config / "sessions-meta.json"
     assert meta_file.stat().st_mode & 0o777 == 0o600
@@ -78,21 +112,12 @@ def test_clearing_returns_to_the_detected_values(client, auth, ask_dir, write_se
     assert (cleared["title"], cleared["pinned"]) == ("first", False)
 
 
-def test_deleting_a_group_ungroups_its_sessions(client, auth, ask_dir, write_session):
-    session = write_session(ask_dir, [user_line(ask_dir, "first")])
-    group = make_group(client, auth)
-    client.patch(f"/sessions/{session}", headers=auth, json={"group": group["id"]})
-    client.delete(f"/session-groups/{group['id']}", headers=auth)
-    body = listing(client, auth)
-    assert body["total"] == 1 and body["sessions"][0]["group"] is None
-
-
 def test_bad_changes_are_refused(client, auth, ask_dir, write_session):
     session = write_session(ask_dir, [user_line(ask_dir, "first")])
     for changes in [{}, {"colour": "red"}, {"pinned": "yes"}, {"group": "nope"}, {"title": ""},
-                    {"group": 7}, {"title": "x" * 121}]:  # fmt: skip
+                    {"group": None}, {"title": "x" * 121}]:  # fmt: skip
         response = client.patch(f"/sessions/{session}", headers=auth, json=changes)
-        assert response.status_code in (400, 404), changes
+        assert response.status_code == 400, changes
 
 
 def test_sessions_outside_the_allowed_folders_cannot_be_changed(
@@ -110,14 +135,12 @@ def test_claude_session_storage_is_never_written(client, auth, ask_dir, tmp_path
     session = write_session(ask_dir, [user_line(ask_dir, "first")])
     storage = tmp_path / "home" / ".claude"
     before = snapshot(storage)
-    group = make_group(client, auth)
     client.patch(
         f"/sessions/{session}",
         headers=auth,
-        json={"title": "Renamed", "group": group["id"], "pinned": True, "notify_replies": False},
+        json={"title": "Renamed", "pinned": True, "notify_replies": False},
     )
     listing(client, auth)
-    client.delete(f"/session-groups/{group['id']}", headers=auth)
     assert snapshot(storage) == before
 
 

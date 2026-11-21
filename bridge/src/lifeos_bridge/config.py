@@ -45,6 +45,9 @@ class Settings:
     port: int = DEFAULT_PORT
     # Folder in which prompts from the phone run. Checked when a prompt arrives.
     ask_dir: Path = field(default_factory=lambda: Path.home() / "brain")
+    # Folder under which every blank chat gets its own new folder (chats.py). It is not
+    # an allowed folder: nothing but the bridge's own chat folders is used in it.
+    chat_root: Path = field(default_factory=lambda: Path.home() / "LifeOS-Chats")
     ask_timeout: int = DEFAULT_ASK_TIMEOUT
     max_concurrent: int = DEFAULT_MAX_CONCURRENT
     max_turns: int = DEFAULT_MAX_TURNS
@@ -105,6 +108,24 @@ class Settings:
             if resolved not in roots:
                 roots.append(resolved)
         return tuple(roots)
+
+    @property
+    def session_roots(self) -> tuple[Path, ...]:
+        """Folders whose sessions are listed and continued: the allowed roots and the chat root.
+
+        The chat root is never an allowed folder (no run may work in the root itself,
+        and one chat never reaches another chat's folder). It is added only while it
+        lies where a chat root may lie (``chats.placement_refusal``), and of what is
+        under it only the bridge's own chat folders count (``chats.session_ok``): a
+        chat root set to the home folder or to a folder with other work never makes
+        that work's sessions known.
+        """
+        from .chats import placement_refusal  # local import: chats needs this module
+
+        roots = self.allowed_roots
+        if placement_refusal(self) is not None:
+            return roots
+        return (*roots, self.chat_root.expanduser().resolve())
 
     def __repr__(self) -> str:  # never leak the token into logs or tracebacks
         return f"Settings(token=<hidden>, host={self.host!r}, port={self.port!r})"
@@ -208,6 +229,13 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             f"LIFEOS_ASK_DIR must be an absolute path or start with ~, got {raw_ask_dir!r}"
         )
 
+    raw_chat_root = values.get("LIFEOS_CHAT_DIR") or "~/LifeOS-Chats"
+    chat_root = Path(raw_chat_root).expanduser()
+    if not chat_root.is_absolute():
+        raise ConfigError(
+            f"LIFEOS_CHAT_DIR must be an absolute path or start with ~, got {raw_chat_root!r}"
+        )
+
     raw_copies = values.get("LIFEOS_SKILL_COPIES_DIR") or ""
     copies = Path(raw_copies).expanduser() if raw_copies else default_skill_copies_dir()
     if not copies.is_absolute():
@@ -231,6 +259,7 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         host=host,
         port=port,
         ask_dir=ask_dir,
+        chat_root=chat_root,
         model_routing=model_routing,
         ask_timeout=_int_setting(values, "LIFEOS_ASK_TIMEOUT", DEFAULT_ASK_TIMEOUT, 5, 3600),
         max_concurrent=_int_setting(values, "LIFEOS_MAX_CONCURRENT", DEFAULT_MAX_CONCURRENT, 1, 16),

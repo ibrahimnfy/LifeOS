@@ -39,6 +39,37 @@ from lifeos_bridge.config import Settings  # noqa: E402
 
 TEST_TOKEN = "test-token-" + "x" * 32
 
+# A new conversation without a folder is a blank chat in a folder of its own (#163).
+# Most tests are about how a run is started, not where, and read the stand-in CLI's
+# call log from the memory folder: their first messages name that folder. Tests marked
+# ``blank_chats`` send exactly what they wrote.
+_first_messages_in_memory = True
+_plain_post = TestClient.post
+
+
+def _post(self, url, **kwargs):
+    body = kwargs.get("json")
+    if (
+        _first_messages_in_memory
+        and url == "/ask"
+        and isinstance(body, dict)
+        and "folder" not in body
+        and "session_id" not in body
+    ):
+        kwargs["json"] = {**body, "folder": str(self.app.state.settings.ask_dir)}
+    return _plain_post(self, url, **kwargs)
+
+
+TestClient.post = _post
+
+
+@pytest.fixture(autouse=True)
+def first_messages(request):
+    global _first_messages_in_memory
+    _first_messages_in_memory = request.node.get_closest_marker("blank_chats") is None
+    yield
+    _first_messages_in_memory = True
+
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
@@ -103,6 +134,16 @@ def client(settings):
 @pytest.fixture
 def auth():
     return {"Authorization": f"Bearer {TEST_TOKEN}"}
+
+
+def added_dirs(args):
+    """The folders a run was given with ``--add-dir``, in order."""
+    return [args[i + 1] for i, arg in enumerate(args) if arg == "--add-dir"]
+
+
+def index_dir(ask_dir):
+    """The folder of the conversation index every run may read (#164)."""
+    return str(ask_dir.parent / "LifeOS-Chats" / ".bridge")
 
 
 def user_line(cwd, text, **extra):
