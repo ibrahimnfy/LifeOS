@@ -36,6 +36,7 @@ import dev.lifeos.app.settings.ThemeSetting
 import dev.lifeos.app.ui.components.BottomBar
 import dev.lifeos.app.ui.components.CaptureKind
 import dev.lifeos.app.ui.components.CaptureSheet
+import dev.lifeos.app.data.AssignmentMatch
 import dev.lifeos.app.push.Destination
 import dev.lifeos.app.push.PushOpen
 import dev.lifeos.app.ui.components.LocalLooks
@@ -54,6 +55,7 @@ import dev.lifeos.app.ui.screens.CalendarScreen
 import dev.lifeos.app.ui.screens.CourseScreen
 import dev.lifeos.app.ui.screens.CoursesScreen
 import dev.lifeos.app.ui.screens.ModelsScreen
+import dev.lifeos.app.ui.screens.renewMoodleSignIn
 import dev.lifeos.app.ui.screens.NoteScreen
 import dev.lifeos.app.ui.screens.NotesScreen
 import dev.lifeos.app.ui.screens.MoreScreen
@@ -153,6 +155,7 @@ fun LifeOsApp(
     val connected = core.connection.collectAsStateWithLifecycle().value == dev.lifeos.app.ConnectionState.CONNECTED
     LaunchedEffect(pairing != null, locked, connected) { if (pairing != null && !locked) core.loadLooks() }
     // ---- a tapped push notification (#38): its screen, once the app is unlocked
+    val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(openPush, locked) {
         val push = openPush ?: return@LaunchedEffect
         if (locked) return@LaunchedEffect
@@ -164,9 +167,15 @@ fun LifeOsApp(
                 navController.navigate(Routes.COURSES) { launchSingleTop = true }
                 navController.navigate(Routes.course(destination.courseId)) { launchSingleTop = true }
             }
-            Destination.Courses, Destination.CourseSignIn -> {
+            Destination.Courses -> {
                 navController.openTab(Tab.MORE)
                 navController.navigate(Routes.COURSES) { launchSingleTop = true }
+            }
+            // The sign-in ran out (#100): Courses, and the site's sign-in opens at once (one tap).
+            Destination.CourseSignIn -> {
+                navController.openTab(Tab.MORE)
+                navController.navigate(Routes.COURSES) { launchSingleTop = true }
+                renewMoodleSignIn(core, context)
             }
             Destination.Coach -> {
                 navController.openTab(Tab.TODAY)
@@ -299,7 +308,13 @@ fun LifeOsApp(
                     onOpenCourse = { navController.navigate(Routes.course(it)) { launchSingleTop = true } },
                     onGrades = { navController.navigate(Routes.GRADES) { launchSingleTop = true } },
                     onOpenDeadline = { deadline ->
-                        deadline.courseId?.let { navController.navigate(Routes.deadline(it, deadline.name, deadline.due)) { launchSingleTop = true } }
+                        // The assignment's own id when the bridge sends it (#144); else the lookup by name and time.
+                        val courseId = deadline.courseId
+                        val direct = AssignmentMatch.direct(deadline)
+                        if (courseId != null) {
+                            val route = if (direct != null) Routes.assignment(courseId, direct) else Routes.deadline(courseId, deadline.name, deadline.due)
+                            navController.navigate(route) { launchSingleTop = true }
+                        }
                     },
                 )
             }

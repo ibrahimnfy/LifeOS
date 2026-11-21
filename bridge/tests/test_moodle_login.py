@@ -477,3 +477,94 @@ def test_the_real_command_runners_with_a_harmless_command(tmp_path):
             break
         time.sleep(0.02)
     assert marker.exists()
+
+
+# ---- sign-in from the phone (#100) ---------------------------------------------
+
+
+def _passport_of(link):
+    from urllib.parse import parse_qs, urlsplit
+
+    return parse_qs(urlsplit(link).query)["passport"][0]
+
+
+def test_the_phone_gets_a_launch_link_and_its_passport_without_any_question(
+    env_file, site, monkeypatch
+):
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("never asks"))
+    env_file.write_text(env_file.read_text() + "MOODLE_LOGIN_ISSUER=3\n")
+    started = ml.start_phone_signin(now=1000)
+    assert started["link"].startswith(f"{SITE}/admin/tool/mobile/launch.php?")
+    assert "oauthsso=3" in started["link"]
+    assert started["passport"] == _passport_of(started["link"])
+    assert started["wwwroot"] == SITE
+    assert started["scheme"] == "moodlemobile"
+
+
+def test_the_phone_s_address_is_checked_tested_and_then_stored(env_file, site):
+    started = ml.start_phone_signin(now=1000)
+    answer = ml.finish_phone_signin(redirect(passport=started["passport"]), now=1010)
+    assert answer["stored"] is True
+    assert answer["release"] == "4.1.9"
+    assert "MOODLE_TOKEN=tok-123" in env_file.read_text()
+    assert "tok-123" not in json.dumps(answer)
+    # One attempt, one use.
+    with pytest.raises(ml.SignInNotStarted):
+        ml.finish_phone_signin(redirect(passport=started["passport"]), now=1020)
+
+
+def test_a_wrong_expired_or_refused_answer_stores_nothing(env_file, site):
+    started = ml.start_phone_signin(now=1000)
+    with pytest.raises(ml.LoginError):
+        ml.finish_phone_signin(redirect(passport="another attempt"), now=1010)
+    assert "MOODLE_TOKEN=old" in env_file.read_text()
+    # The attempt is used up by a wrong answer too.
+    with pytest.raises(ml.SignInNotStarted):
+        ml.finish_phone_signin(redirect(passport=started["passport"]), now=1011)
+    started = ml.start_phone_signin(now=2000)
+    with pytest.raises(ml.SignInNotStarted):
+        ml.finish_phone_signin(
+            redirect(passport=started["passport"]), now=2000 + ml.PHONE_SIGNIN_SECONDS + 1
+        )
+    # The site refuses the token: the old one stays.
+    started = ml.start_phone_signin(now=3000)
+    with pytest.raises(ml.TokenRejected):
+        ml.finish_phone_signin(redirect(token="bad", passport=started["passport"]), now=3001)
+    assert "MOODLE_TOKEN=old" in env_file.read_text()
+    with pytest.raises(ml.SignInNotStarted):
+        ml.finish_phone_signin("moodlemobile://token=x", now=3002)
+    ml.start_phone_signin(now=4000)
+    with pytest.raises(ml.LoginError):
+        ml.finish_phone_signin("https://elsewhere.invalid/?token=x", now=4001)
+
+
+def test_the_phone_s_sign_in_routes(env_file, site, client, auth):
+    assert client.post("/moodle/signin/start").status_code == 401
+    started = client.post("/moodle/signin/start", headers=auth).json()
+    wrong = client.post(
+        "/moodle/signin/finish", headers=auth, json={"address": redirect(passport="x")}
+    )
+    assert (wrong.status_code, wrong.json()["error"]) == (400, "signin_mismatch")
+    again = client.post(
+        "/moodle/signin/finish",
+        headers=auth,
+        json={"address": redirect(passport=started["passport"])},
+    )
+    assert (again.status_code, again.json()["error"]) == (409, "signin_not_started")
+    started = client.post("/moodle/signin/start", headers=auth).json()
+    refused = client.post(
+        "/moodle/signin/finish",
+        headers=auth,
+        json={"address": redirect("bad", started["passport"])},
+    )
+    assert (refused.status_code, refused.json()["error"]) == (400, "token_rejected")
+    started = client.post("/moodle/signin/start", headers=auth).json()
+    done = client.post(
+        "/moodle/signin/finish",
+        headers=auth,
+        json={"address": redirect(passport=started["passport"])},
+    )
+    assert done.status_code == 200
+    assert done.json()["stored"] is True
+    assert "MOODLE_TOKEN=tok-123" in env_file.read_text()
+    assert client.post("/moodle/signin/finish", headers=auth, json=[]).status_code == 400

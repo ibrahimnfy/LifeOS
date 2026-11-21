@@ -133,6 +133,8 @@ documented here as they are built.
 | POST | `/coach/chat/messages` | yes | A message to the coach (compacts first when the conversation is long) |
 | POST | `/coach/chat/compact` | yes | Compacts the coach conversation now |
 | GET | `/moodle/status` | yes | Whether the Moodle sign-in is set up, its age and state |
+| POST | `/moodle/signin/start` | yes | Sign-in from the phone (#100): the site's launch link with a one-time passport (`link`, `wwwroot`, `passport`, `scheme`, `expires_in` 600 s); the sign-in button chosen at the computer is reused; never asks anything. `502 signin_unavailable` when the site cannot be asked |
+| POST | `/moodle/signin/finish` | yes | Body `{"address": "moodlemobile://token=…"}`: checked against the waiting passport (used up by this call), tested at the site, and only then stored like `scripts/moodle-login` does; answers `{"stored", "release", "missing"}`, never the token. `409 signin_not_started`, `400 signin_mismatch`, `400 token_rejected`, `502 signin_unavailable` |
 | GET | `/moodle/courses` | yes | The owner's courses on the university Moodle |
 | GET | `/moodle/courses/{id}` | yes | Sections, modules and files of one course |
 | GET | `/moodle/assignments` | yes | Assignments with their dates |

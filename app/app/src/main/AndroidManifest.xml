@@ -65,6 +65,23 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Moodle sign-in from the phone (#100): receives the moodlemobile://token=… address the
+             site's page ends on (the scheme the site uses for the official app), hands it on and
+             closes. No screen of its own. -->
+        <activity
+            android:name=".signin.MoodleRedirectActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="moodlemobile" />
+            </intent-filter>
+        </activity>
+
         <!-- Push (#38): Firebase data messages, opened with the push key; not reachable by other apps. -->
         <service
             android:name=".push.PushService"

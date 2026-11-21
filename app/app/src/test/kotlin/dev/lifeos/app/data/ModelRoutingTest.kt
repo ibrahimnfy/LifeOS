@@ -38,6 +38,67 @@ class ModelRoutingTest {
     }
 
     @Test
+    fun `a change is sent directly as PUT with every field, and the answer is the new overview`() = runTest {
+        val transport = FakeTransport()
+        transport.answer(
+            "PUT /models/routing",
+            200,
+            """{"changed":true,"jobs":[{"job":"summaries","model":"haiku","effort":"low","advisor":null,"source":"app",
+               "default":{"model":"sonnet","effort":null,"advisor":"opus","source":"default"},"usage":{"today":{},"week":{}}}]}""",
+        )
+        val api = Api(transport)
+        val body = RoutingEdit.body("summaries", RoutingChoice.Value("haiku"), RoutingChoice.Value("low"), RoutingChoice.Off)
+        val answer = api.changeRouting(body)
+        val sent = transport.calls.single()
+        assertEquals("PUT", sent.method)
+        assertEquals("/models/routing", sent.path)
+        assertEquals(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"job":"summaries","model":"haiku","effort":"low","advisor":"none"}"""),
+            sent.body,
+        )
+        val job = answer.jobs.single()
+        assertEquals("app", job.source)
+        assertEquals("sonnet", job.defaults?.model)
+        // Default means null (back to what lies underneath); reset is its own body.
+        assertEquals(
+            kotlinx.serialization.json.Json.parseToJsonElement("""{"job":"chat","model":null,"effort":null,"advisor":null}"""),
+            RoutingEdit.body("chat", RoutingChoice.Default, RoutingChoice.Default, RoutingChoice.Default),
+        )
+        assertEquals(kotlinx.serialization.json.Json.parseToJsonElement("""{"job":"chat","reset":true}"""), RoutingEdit.reset("chat"))
+        // A refusal is an error of the call.
+        transport.answer("PUT /models/routing", 400, """{"error":"bad_request"}""")
+        assertEquals(400, runCatching { api.changeRouting(body) }.exceptionOrNull().let { (it as ApiException).status })
+    }
+
+    @Test
+    fun `the editor starts from the app's own choices only`() {
+        val base = JobDefault(model = "sonnet", effort = null, advisor = "opus")
+        // Not chosen in the app: everything at "Default".
+        assertEquals(
+            Triple(RoutingChoice.Default, RoutingChoice.Default, RoutingChoice.Default),
+            RoutingEdit.initial(ModelJob("summaries", model = "sonnet", advisor = "opus", source = "routing", defaults = base)),
+        )
+        // Chosen in the app: the values that differ from the default; a missing advisor over one underneath is "off".
+        assertEquals(
+            Triple(RoutingChoice.Value("haiku"), RoutingChoice.Value("low"), RoutingChoice.Off),
+            RoutingEdit.initial(ModelJob("summaries", model = "haiku", effort = "low", advisor = null, source = "app", defaults = base)),
+        )
+        assertEquals(
+            Triple(RoutingChoice.Default, RoutingChoice.Value("high"), RoutingChoice.Default),
+            RoutingEdit.initial(ModelJob("summaries", model = "sonnet", effort = "high", advisor = "opus", source = "app", defaults = base)),
+        )
+    }
+
+    @Test
+    fun `the models and efforts on offer are read`() = runTest {
+        val transport = FakeTransport()
+        transport.answer("GET /models", 200, """{"models":["opus","sonnet","haiku"],"efforts":["low","medium","high"],"default_model":"opus","default_effort":"high"}""")
+        val choices = Api(transport).get(Endpoints.modelChoices).first
+        assertEquals(listOf("opus", "sonnet", "haiku"), choices.models)
+        assertEquals("high", choices.defaultEffort)
+    }
+
+    @Test
     fun `usage numbers are short`() {
         assertEquals("950", UsageNumbers.compact(950))
         assertEquals("12.3k", UsageNumbers.compact(12_345))

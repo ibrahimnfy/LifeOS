@@ -16,6 +16,7 @@ One answer is as sensitive as the Moodle token: the download address of
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from collections.abc import Callable
@@ -25,7 +26,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from . import audit, moodle, moodle_sync, moodle_watch, resources
+from . import audit, moodle, moodle_login, moodle_sync, moodle_watch, resources
 from .claude import ClaudeError
 
 CACHE_SECONDS = 600
@@ -496,6 +497,40 @@ def router(api: MoodleApi | None = None) -> APIRouter:
     def moodle_status() -> dict:
         """Whether Moodle is set up and how old the sign-in is. Never contacts the site."""
         return moodle_watch.status()
+
+    # ---- sign-in from the phone (#100): the token travels only through the sealed channel
+
+    @routes.post("/signin/start")
+    def moodle_signin_start() -> dict:
+        """A launch link and its one-time passport for the phone's browser tab (10 minutes)."""
+        try:
+            return moodle_login.start_phone_signin()
+        except moodle_login.LoginError as error:
+            raise ClaudeError("signin_unavailable", 502, str(error)) from None
+
+    @routes.post("/signin/finish")
+    async def moodle_signin_finish(request: Request) -> dict:
+        """Body ``{"address": "moodlemobile://token=…"}``: checked against the passport,
+        tested at the site, then stored. Answers only facts, never the token."""
+        try:
+            data = await request.json()
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            raise ClaudeError("bad_request", 400, "the body must be a JSON object")
+        try:
+            return await asyncio.to_thread(moodle_login.finish_phone_signin, data.get("address"))
+        except moodle_login.SignInNotStarted as error:
+            raise ClaudeError("signin_not_started", 409, str(error)) from None
+        except moodle_login.TokenRejected as error:
+            raise ClaudeError("token_rejected", 400, str(error)) from None
+        except moodle_login.LoginError as error:
+            unreachable = "could not be reached" in str(error)
+            raise ClaudeError(
+                "signin_unavailable" if unreachable else "signin_mismatch",
+                502 if unreachable else 400,
+                str(error),
+            ) from None
 
     @routes.get("/courses")
     def moodle_courses(refresh: bool = False) -> dict:

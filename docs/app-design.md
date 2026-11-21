@@ -323,6 +323,12 @@ the platform the data comes from.*
 - **States:** loading · saved copy with last sync time · empty · "Not
   connected yet" · sign-in needed (with the renew action) · error with
   retry.
+- **Renewing the sign-in (#100, built):** one tap (the notice on Courses,
+  Settings → Courses sign-in, or the "sign-in needs renewing" push) opens
+  the site's own sign-in page in a browser tab; the app receives the
+  `moodlemobile://token=…` address, checks it against the one-time
+  passport and passes it sealed to the computer, which tests and stores
+  the token. The app keeps no copy; the page is never automated.
 - **Endpoints:** the course endpoints of the bridge (summary, list with
   markers, materials, announcements, assignments, grades, download address,
   refresh).
@@ -365,10 +371,10 @@ the platform the data comes from.*
 - **Appearance:** light (default) / dark / follow phone.
 - **Assistant:** default model and effort for new conversations (default:
   Opus, high); number of exchanges loaded when a conversation opens.
-- **Models (#124, built read-only):** each model job of the computer with
-  its model, effort, advisor and source, and its plan usage today and this
-  week; what uses no model. Changing the routing from the phone waits for a
-  bridge endpoint.
+- **Models (#124, built):** each model job of the computer with its model,
+  effort, advisor and source, and its plan usage today and this week; what
+  uses no model. Each job can be changed (model, effort, advisor, or back to
+  the default) with `PUT /models/routing`, sent directly, not queued.
 - **Coach:** nudge frequency (off / low / normal), quiet hours (default
   22:00–08:00), questions on / off.
 - **Notifications:** which kinds the phone shows: answers ready, session
