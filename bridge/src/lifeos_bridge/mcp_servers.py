@@ -11,9 +11,11 @@ whole home folder. So nothing here is automatic:
     top-level ``mcpServers`` of ``~/.claude.json``, where the official
     Claude Code documentation says user-scope servers are stored. Only that
     key is read: nothing of the per-project entries of that file (local
-    scope), no claude.ai connectors, no plugins. Only plain stdio and http
-    definitions count (``plain``); any other is listed as ``unsupported``
-    and can never be approved.
+    scope), no claude.ai connectors, no plugins.
+  Only plain stdio and http definitions count, in both places (``plain``;
+  for a folder's servers since #171): any other holds something the approval
+  card does not show, for example a helper program for headers. It is listed
+  as ``unsupported`` and can never be approved or passed on.
   Commands, arguments and addresses are shown; the values of environment
   variables and headers are not (they may hold secrets), only their names.
 - **Approval** per server, through the approval card (``approvals``,
@@ -62,9 +64,9 @@ _used_lock = threading.Lock()
 MAX_BYTES = 64 * 1024
 # The owner's personal file also holds Claude Code's own state and can be large.
 PERSONAL_MAX_BYTES = 32 * 1024 * 1024
-# What a personal definition may consist of. Anything else (a helper command for
-# headers, sign-in settings, another transport) is not shown on the card, so such
-# a server is never offered for approval.
+# What a definition may consist of, in a folder's file and in the personal one.
+# Anything else (a helper command for headers, sign-in settings, another transport)
+# is not shown on the card, so such a server is never offered for approval.
 PLAIN_KEYS = {
     "stdio": frozenset({"type", "command", "args", "env", "timeout"}),
     "http": frozenset({"type", "url", "headers", "timeout"}),
@@ -199,7 +201,7 @@ def _listed(scope: str, key: str, found: dict[str, dict]) -> list[dict]:
     for name, spec in sorted(found.items()):
         item = describe(name, spec, scope)
         stored = approved.get(name)
-        if scope == PERSONAL and not plain(spec):
+        if not plain(spec):
             item["state"] = "unsupported"  # never approvable, never passed on
         elif stored is None:
             item["state"] = "not_approved"
@@ -242,7 +244,7 @@ def request(
     spec = found.get(name)
     if spec is None:
         raise ClaudeError("mcp_server_not_found", 404, "there is no MCP server of that name")
-    if scope == PERSONAL and not plain(spec):
+    if not plain(spec):
         raise ClaudeError(
             "mcp_server_unsupported",
             409,
@@ -296,7 +298,7 @@ def answer(entry: dict, approve: bool, personal_file: Path | None = None) -> dic
     unchanged = (
         current is not None
         and definition_hash(current) == entry["definition_hash"]
-        and (scope == FOLDER or plain(current))
+        and plain(current)
     )
     if not approve or not unchanged:
         why = "owner" if not approve else "changed"
@@ -350,7 +352,9 @@ def _approved(key: str, found: dict[str, dict]) -> dict[str, dict]:
     return {
         name: spec
         for name, spec in found.items()
-        if name in approved and approved[name].get("hash") == definition_hash(spec)
+        if name in approved
+        and approved[name].get("hash") == definition_hash(spec)
+        and plain(spec)  # also an approval from before only plain ones could be approved
     }
 
 
@@ -358,8 +362,7 @@ def personal_for_run(personal_file: Path | None) -> dict[str, dict]:
     """The owner's approved personal servers whose definition is exactly the approved one."""
     if personal_file is None:
         return {}
-    found = {n: s for n, s in personal_definitions(personal_file).items() if plain(s)}
-    return _approved(_personal_key(personal_file), found)
+    return _approved(_personal_key(personal_file), personal_definitions(personal_file))
 
 
 def for_run(folder: Path, personal_file: Path | None = None) -> dict[str, dict]:

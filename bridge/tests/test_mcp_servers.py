@@ -596,3 +596,31 @@ def test_the_personal_server_probes_catch_secrets_on_the_command_line(settings, 
         "the command line"
     ]
     suite.clean_outside()
+
+
+# ------------------------------------------- a folder's servers: plain definitions only (#171)
+
+
+def test_a_folder_server_with_a_field_the_card_does_not_show_cannot_be_approved(
+    settings, ask_dir, auth, write_session
+):
+    helper = dict(REMOTE, headersHelper="./make-headers.sh")  # a program Claude Code would run
+    stream = {"type": "sse", "url": "https://example.org/sse"}
+    define(ask_dir, {"tools": SERVER, "helper": helper, "stream": stream})
+    listed = {s["name"]: s["state"] for s in mcp_servers.listing(ask_dir)}
+    assert listed == {"helper": "unsupported", "stream": "unsupported", "tools": "not_approved"}
+    with pytest.raises(ClaudeError) as caught:
+        mcp_servers.request("s1", ask_dir, "helper")
+    assert caught.value.code == "mcp_server_unsupported" and caught.value.status == 409
+    # An approval given by an older bridge, which showed no such field, passes nothing on.
+    stored = {str(ask_dir.resolve()): {"helper": {"hash": mcp_servers.definition_hash(helper)}}}
+    (capable.config_dir() / mcp_servers.FILE_NAME).write_text(json.dumps(stored))
+    assert mcp_servers.for_run(ask_dir) == {}
+    # A card made for a plain definition does not approve one that got such a field since.
+    card = mcp_servers.request("s1", ask_dir, "tools")
+    define(ask_dir, {"tools": dict(SERVER, headersHelper="x")})
+    assert mcp_servers.answer(approvals.take("s1", card["id"]), True)["approved"] is False
+    session_id = write_session(ask_dir, [user_line(ask_dir, "first")])
+    with TestClient(create_app(settings)) as client:
+        answer = client.post(f"/sessions/{session_id}/mcp-servers/tools/approval", headers=auth)
+    assert answer.status_code == 409 and answer.json()["error"] == "mcp_server_unsupported"

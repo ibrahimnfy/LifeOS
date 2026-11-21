@@ -153,7 +153,7 @@ def test_the_personal_copy_holds_only_regular_files(settings, tmp_path):
     (settings.personal_claude_dir / "agents" / "helper.md").write_text("an agent")
 
     plugin = skills.personal_snapshot(settings.personal_claude_dir)
-    assert plugin.is_relative_to(capable.config_dir())
+    assert plugin.is_relative_to(settings.skill_copies_dir)  # its own folder (#171)
     files = sorted(p.relative_to(plugin).as_posix() for p in plugin.rglob("*") if p.is_file())
     assert files == [
         ".claude-plugin/plugin.json",
@@ -313,7 +313,7 @@ def test_every_capable_run_is_offered_the_personal_skills(settings, ask_dir, aut
     ran = [c for c in calls(ask_dir) if "args" in c and "--session-id" not in c["args"]]
     first, read_only, both = ran[0], ran[-2], ran[-1]
     [plugin] = options(first["args"], "--plugin-dir")
-    assert "/skill-snapshots/personal/" in plugin
+    assert "/skill-copies/personal/" in plugin
     assert "--disable-slash-commands" not in first["args"] and "--restricted" in first["args"]
     assert json.loads(option(first["args"], "--settings"))["disableSkillShellExecution"] is True
     if runner == "cli":

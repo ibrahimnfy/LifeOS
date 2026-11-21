@@ -99,6 +99,8 @@ claude -p --output-format stream-json --verbose
   --restricted --tools "Read,Glob,Grep,Edit,Write,Bash"
   --strict-mcp-config --disable-slash-commands
   --add-dir <memory folder>            (when the run's folder is another one)
+  --plugin-dir <copy> --add-dir <copy>  (per copy of skills, section 9.2; then
+                                         without --disable-slash-commands)
   --settings '<generated JSON>'
 ```
 
@@ -274,6 +276,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | The session switch on | the personal skills are offered next to the folder's own |
 | A read-only run in a session whose capable run had skills | no skill of the folder, no personal skill, no `Skill` tool |
 | A capable run tries to add a skill to its folder (shell and file tool) | nothing is added |
+| The copies of the skills a run was started with (personal and the folder's): a script of a skill, started as a sandboxed command, reads the supporting files and tries to create, append, make writable, rename and delete in the copies; the file tools read a supporting file and try to write into each copy; the script also tries the private settings canary and a copy the run was not given | readable both ways; nothing changed (also judged from the copies themselves, for every copy of the check); the script's command is in the audit log; the canary and the other copy are not readable |
 | MCP server of the run folder, and a personal one (scratch file of the check): unapproved; approved; changed after the approval (no model run) | passed only while approved and unchanged; secret values are neither shown nor on the command line |
 
 **Probes that need the model to make a particular call** (the SDK
@@ -318,13 +321,14 @@ settings, hooks, plugins or permissions are loaded.
 | Rule | Mechanism | Status |
 |---|---|---|
 | Only in capable mode, only in allowed folders | bridge: read-only runs keep `--disable-slash-commands` and never get the `Skill` tool | **built** (#91), verified by probe |
-| The owner's personal skills and commands: in every capable run, without a switch | bridge: `~/.claude/skills` and `~/.claude/commands` of the user the bridge runs as are copied into a plugin (`personal:<name>`) in the private settings folder and passed with `--plugin-dir`. Only after the guardrail check passed with the personal-skill probes on that runner (suite `cli` 5, `sdk` 6); with an older marker a run gets none, as before | **built** (#162), verified by probe |
+| The owner's personal skills and commands: in every capable run, without a switch | bridge: `~/.claude/skills` and `~/.claude/commands` of the user the bridge runs as are copied into a plugin (`personal:<name>`) in the bridge's folder for copies and passed with `--plugin-dir`. Only after the guardrail check passed with the personal-skill probes on that runner (suite `cli` 5, `sdk` 6); with an older marker a run gets none, as before | **built** (#162), verified by probe |
 | The session folder's own skills and commands: only when switched on for the session | bridge: the per-session switch `skills` in the session metadata (they can come from a cloned project). Copied the same way into a second plugin (`folder:<name>`) | **built** (#91), verified by probe |
 | Nothing else personal or global | runs keep `--restricted` (no user, project or local settings file, so no personal, project or plugin skills by themselves, no user hooks, permissions or plugins). The copies hold regular files of those two folders only: no links, no hidden folders, no hooks, MCP servers, agents or settings; `--strict-mcp-config` stays | **built** |
 | A skill cannot run shell lines before the model sees it | `disableSkillShellExecution` in the run's settings JSON whenever a copy is passed; bundled skills off (`disableBundledSkills`) | **built**, verified by probe (both kinds, also for a skill started by a `/` message) |
 | A skill cannot start programs outside the sandbox (hooks in its frontmatter) | the bridge writes the frontmatter of every Markdown file in a copy itself: only `name` (the folder's name), `description`, `when_to_use`, `argument-hint`, `arguments`, `disable-model-invocation` and `user-invocable` are kept, each as plain quoted text. `hooks`, `allowed-tools`, `model`, `context`, `agent`, `shell` and anything else are dropped, however they are spelled | **built** (#162), verified by probe |
 | A skill cannot widen the tools or leave the sandbox | the tool list comes from the bridge (only `Skill` is added); `allowed-tools` is dropped from the copy; every command still runs in the OS sandbox and through the gate and audit log; file tools stay confined by restricted mode | **built**, verified by probe |
-| The run cannot change the skills it was started with | the copies lie in the private settings folder, which sandboxed commands cannot read or write; the personal folder itself is hidden from every run | by layout |
+| A run can read the supporting files of its skills (#171) | the copies lie in a folder of the bridge's own, outside the private settings folder (`LIFEOS_SKILL_COPIES_DIR`, by default `~/.local/share/lifeos/skill-copies`). The run's own copies, and no other, are added folders for the file tools (`--add-dir`) and in the sandbox's `allowRead`. The bridge executes nothing of a copy: a script in it runs only when the run starts it as a sandboxed command, through the gate and the audit log | **built** (#171), verified by probe |
+| The run cannot change the skills it was started with | sandbox: `denyWrite` for the run's copies; file tools: a deny rule `Edit(//<copy>/**)` and no allow rule; files are read-only (a script keeps its execute bit), folders are the owner's only. A copy that lies in the private settings folder, or inside or around a folder a run works in, is refused (`503 skills_unavailable`). The personal folder itself stays hidden from every run | **built** (#171), verified by probe |
 | Phone messages cannot start built-in commands | a capable message starting with `/` must name one of the offered skills or commands (the folder's own wins a shared name; `personal:` and `folder:` name one exactly); otherwise `400 command_not_allowed`. Since #162 this holds in every capable run that is offered skills, not only with the switch on | **built** |
 | Skill text is outside text | never copied into always-loaded memory files | by layout |
 
@@ -358,11 +362,10 @@ Found with the real CLI (Claude Code 2.1.328, scratch folders):
 
 **Honest limits of personal skills:**
 
-- A personal skill's supporting files (scripts, reference files) are copied
-  with it, but a run cannot read them: the copy lies in the private
-  settings folder and `~/.claude` is hidden. Only the skill's text reaches
-  the run. Making them readable would open a part of the private settings
-  folder to commands; that is the owner's decision, not made here.
+- A skill's supporting files are read from the copy (#171), not from the
+  original: the original personal folder stays hidden. A script of a skill
+  runs as every command of a run does: in the sandbox, without network, and
+  it can write only where the run can.
 - Links are never followed. A personal skills folder that is itself a link,
   or a skill that is a link, is not offered.
 - What the frontmatter asked for beyond text (a model, a subagent, tools) is
@@ -405,6 +408,38 @@ environments and on both runners:
 - Since #162 every capable run of the suite is started with what the bridge
   itself would start it with (`skills.for_run`), so all other probes also
   run with the personal copy present, as every capable run does.
+
+**The copies: readable by the run, never writable (#171).** Until #171 the
+copies lay in the private settings folder, so only a skill's text reached a
+run. Found with the real CLI (2.1.328, both runners, scratch folders; the
+copies in a folder inside the home folder, which is hidden from commands):
+
+- A sandboxed command read the supporting files of both copies, and a
+  script of the scratch skill ran as a sandboxed command and is in the audit
+  log. The file tools read the same files.
+- Every attempt to change a copy failed: by command (create a file, append,
+  make a file writable and append, make a folder, rename, delete) and by
+  file tool ("denied by your permission settings").
+- A copy the run was not given, in the same folder, and the canary of the
+  private settings folder were not readable.
+- Controls, to see that the probes do not pass by themselves and which
+  layer holds:
+  - with the copies opened on purpose (an allow rule, the copies not loaded
+    as plugins, the bridge's protection removed) the script changed the
+    copies and the file tool wrote into them: the probes failed;
+  - with the same opening but the bridge's `denyWrite` and deny rule kept,
+    nothing could be changed: these two hold by themselves;
+  - Claude Code 2.1.328 also refused writes into a folder it had loaded as
+    a plugin, by command and by file tool, even with an allow rule and
+    without the bridge's rules. The bridge does not rely on that.
+- The probes take no model run of their own: their five steps are part of
+  the run of 9.4 that tries to add a skill (now with the folder's skills
+  switched on, so that it is given both copies). Steps the model did not do
+  are asked for again (at most 3 runs); what never came is inconclusive
+  (section 7). That no copy changed is judged from the copies themselves.
+- The folder for copies must lie in the home folder to be hidden from other
+  runs; the probe "a copy the run was not given is not readable" fails
+  otherwise.
 
 The setting `LIFEOS_GUARD_PERSONAL_SKILL_PROBE`, the temporary probe skill
 in `~/.claude/skills`, the "not verifiable" outcome and the marker fields
@@ -487,7 +522,11 @@ approved, in every capable run.**
   `http` (`url`, `headers`), plus `timeout`. A definition with anything
   else (a helper command for headers, sign-in settings, another transport)
   holds things the approval card does not show. It is listed as
-  `unsupported` and can never be approved or passed on.
+  `unsupported` and can never be approved or passed on. Since #171 this
+  holds for a folder's `.mcp.json` as well: before, a folder's server with a
+  `headersHelper` (a program Claude Code runs) could be approved without the
+  card showing it. An approval of such a definition given earlier passes
+  nothing on any more.
 - **The same approval card and hash** as for a folder's server (`scope:
   "personal"` on the card and in the list). The approval is stored with the
   hash of the complete definition, so a change of anything, a secret value

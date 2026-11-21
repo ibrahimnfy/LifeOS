@@ -328,6 +328,28 @@ def check_repositories(writable: list[Path], memory: Path) -> None:
         )
 
 
+def check_copies(copies: list[Path], open_folders: list[Path]) -> None:
+    """Refuse skill copies that lie where they must never be (#171).
+
+    Not in the private settings folder (a run may read its copies, and nothing
+    there may become readable), and neither inside nor around a folder a run
+    works in (it could change them, or read what lies beside them).
+    """
+    private = config_dir().resolve()
+    for copy in copies:
+        misplaced = copy == private or copy.is_relative_to(private) or private.is_relative_to(copy)
+        for folder in open_folders:
+            folder = folder.resolve()
+            misplaced = misplaced or copy.is_relative_to(folder) or folder.is_relative_to(copy)
+        if misplaced:
+            raise ClaudeError(
+                "skills_unavailable",
+                503,
+                "the folder for the copies of skills (LIFEOS_SKILL_COPIES_DIR) must lie outside "
+                "the private settings folder, the allowed folders and the memory folder",
+            )
+
+
 def build_policy(
     settings: Settings,
     run_dir: Path,
@@ -349,6 +371,11 @@ def build_policy(
     ``mcp``: the approved, unchanged MCP servers of the folder and of the owner
     (``mcp_servers.for_run``), passed explicitly with permission to call their
     tools; they run outside the sandbox by the owner's approval (#108, #162).
+
+    The copies are readable by the run and never writable (#171): file tools read
+    them as added folders, sandboxed commands through ``allowRead``; ``denyWrite``
+    and a deny rule for the file tools keep both from changing them. A copy that
+    lies where a run could write, or in the private settings folder, is refused.
     """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
@@ -364,6 +391,8 @@ def build_policy(
         [run_dir] if run_dir == memory or run_dir.is_relative_to(memory) else [run_dir, memory]
     )
     check_repositories(writable, memory)
+    copies = [folder.resolve() for folder in (skills_dir, personal_skills_dir) if folder]
+    check_copies(copies, [*roots, run_dir, memory])
     settings_json = {
         "sandbox": {
             "enabled": True,
@@ -373,7 +402,7 @@ def build_policy(
             "excludedCommands": [],
             "filesystem": {
                 "denyRead": list(SANDBOX_HIDDEN),
-                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory)}),
+                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *copies)}),
             },
             "network": {
                 "allowedDomains": [],
@@ -391,7 +420,9 @@ def build_policy(
                 f"Edit({_rule_path(folder)}/{name})"
                 for folder in writable
                 for name in (".claude/**", ".mcp.json")
-            ],
+            ]
+            # The copies of the skills a run was started with (#171): read, never changed.
+            + [f"Edit({_rule_path(folder)}/**)" for folder in copies],
         },
         "hooks": {
             "PreToolUse": [
@@ -402,6 +433,10 @@ def build_policy(
             ]
         },
     }
+    if copies:
+        # Whatever else would let commands write there (an added folder, an allow
+        # rule): never the copies.
+        settings_json["sandbox"]["filesystem"]["denyWrite"] = [str(folder) for folder in copies]
     mcp_config = None
     if mcp:
         from . import mcp_servers  # local: only runs with approved servers need it
@@ -416,7 +451,8 @@ def build_policy(
         tools=claude.CAPABLE_TOOLS,
         capable=True,
         settings_json=json.dumps(settings_json),
-        add_dirs=tuple(folder for folder in writable if folder != run_dir),
+        # Added folders are what the file tools may read besides the run folder.
+        add_dirs=(*(folder for folder in writable if folder != run_dir), *copies),
         skills_dir=skills_dir,
         personal_skills_dir=personal_skills_dir,
         mcp_config=mcp_config,
