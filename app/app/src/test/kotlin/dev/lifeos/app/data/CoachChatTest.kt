@@ -112,7 +112,6 @@ class CoachChatTest {
         assertEquals("""{"prompt":"What first?","stream":true,"interactive":true}""", sent.body.toString())
         assertEquals(listOf("me:What first?", "it:Start with the outline."), texts(coach))
         assertEquals(0, store.saved)
-        assertFalse(coach.state.value.unnamed)
     }
 
     @Test
@@ -127,19 +126,32 @@ class CoachChatTest {
         var release = false
         transport.events = {
             flow {
-                while (!release) kotlinx.coroutines.delay(1_000)
+                // The stream of #155: signs of life while the conversation is tidied up, then what
+                // was done, then the message's own events in the new session.
+                while (!release) {
+                    kotlinx.coroutines.delay(20_000)
+                    emit(event("keepalive", "{}"))
+                }
+                emit(event("compacted", """{"facts":["profile/work.md","projects/alpha.md"],"summary":true,"session_id":"c-2"}"""))
                 emit(event("session", """{"session_id":"c-2"}"""))
+                emit(event("keepalive", "{}"))
                 emit(event("done", """{"answer":"Fresh start.","session_id":"c-2"}"""))
                 emit(done())
             }
         }
         coach.send("And now?")
-        testScheduler.advanceTimeBy(30_000)
-        // No sign yet: the screen says why it takes long. What runs now is the tidying up in
-        // the session before, so there is nothing of the owner's to stop.
+        testScheduler.advanceTimeBy(50_000)
+        // The screen says why it takes long. Stop is there; the computer refuses it for the tidying up.
         assertTrue(coach.state.value.tidying)
-        assertFalse(coach.state.value.canStop)
+        assertTrue(coach.state.value.canStop)
         assertEquals(ChatPhase.SENDING, coach.state.value.phase)
+        transport.answer("POST /sessions/c-1/cancel", 409, """{"error":"compaction_running"}""")
+        coach.cancel()
+        testScheduler.runCurrent()
+        assertEquals(ChatProblem.COMPACTING, coach.state.value.failure?.problem)
+        assertFalse(coach.state.value.stopping)
+        assertEquals(ChatPhase.SENDING, coach.state.value.phase)
+
         view("c-2", bytes = 2_000, compactions = 1, runs = 4)
         release = true
         advanceUntilIdle()
@@ -149,9 +161,84 @@ class CoachChatTest {
         assertEquals(listOf("me:Earlier", "it:Answer", "me:And now?", "it:Fresh start."), texts(coach))
         // What stands above the new message was tidied up; nothing further back belongs to this session.
         assertEquals(state.messages[2].key, state.renewedAt)
+        assertEquals(listOf("profile/work.md", "projects/alpha.md"), state.tidied?.facts)
+        assertTrue(state.tidied?.summary == true)
         assertNull(state.olderCursor)
         assertEquals(1, state.coach?.compactions)
         assertEquals(4, state.coach?.usage?.today?.runs)
+    }
+
+    @Test
+    fun `the tidying up is shown from the stream, also when the app did not expect it, and not for a quiet answer`() = runTest {
+        val coach = coach()
+        view("c-1")
+        running("c-1", false)
+        history("c-1", "Earlier" to "Answer")
+        coach.load()
+        advanceUntilIdle()
+        assertFalse(coach.state.value.coach?.dueForCompaction == true)
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val named = kotlinx.coroutines.CompletableDeferred<Unit>()
+        transport.events = {
+            flow {
+                emit(event("keepalive", "{}"))
+                gate.await()
+                emit(event("compacted", """{"facts":[],"summary":false,"session_id":"c-2"}"""))
+                emit(event("session", """{"session_id":"c-2"}"""))
+                // The message's own run says nothing for a while: that is not tidying up.
+                emit(event("keepalive", "{}"))
+                named.await()
+                emit(event("done", """{"answer":"Here.","session_id":"c-2"}"""))
+                emit(done())
+            }
+        }
+        coach.send("And now?")
+        testScheduler.runCurrent()
+        assertTrue(coach.state.value.tidying)
+        gate.complete(Unit)
+        testScheduler.runCurrent()
+        assertFalse(coach.state.value.tidying)
+        assertEquals("c-2", coach.state.value.sessionId)
+        assertFalse(coach.state.value.tidied?.summary == true)
+        named.complete(Unit)
+        advanceUntilIdle()
+        assertEquals("it:Here.", texts(coach).last())
+    }
+
+    @Test
+    fun `a message that had to wait after all is put in line`() = runTest {
+        val coach = coach()
+        view("c-1", bytes = 400_000)
+        running("c-1", false)
+        history("c-1", "Earlier" to "Answer")
+        coach.load()
+        advanceUntilIdle()
+        transport.events = { flow { emit(event("keepalive", "{}")); emit(event("queued", """{"queued":true,"queue_id":"q-1","position":1}""")); emit(done()) } }
+        transport.answer("GET /sessions/c-1/queue", 200, """{"running":true,"paused":null,"queue":[{"id":"q-1","prompt":"And now?"}]}""")
+        coach.send("And now?")
+        advanceUntilIdle()
+        assertEquals(listOf("q-1" to "And now?"), coach.state.value.queue.map { it.id to it.prompt })
+        assertEquals(listOf("me:Earlier", "it:Answer"), texts(coach))
+        assertEquals(ChatPhase.ELSEWHERE, coach.state.value.phase)
+        assertFalse(coach.state.value.tidying)
+    }
+
+    @Test
+    fun `an error before the coach's message runs ends the wait with its reason`() = runTest {
+        val coach = coach()
+        view("c-1", bytes = 400_000)
+        running("c-1", false)
+        history("c-1", "Earlier" to "Answer")
+        coach.load()
+        advanceUntilIdle()
+        transport.events = { flow { emit(event("keepalive", "{}")); emit(event("error", """{"error":"busy","message":"x"}""")); emit(done()) } }
+        coach.send("And now?")
+        advanceUntilIdle()
+        assertEquals(ChatPhase.IDLE, coach.state.value.phase)
+        assertFalse(coach.state.value.tidying)
+        assertEquals(ChatProblem.BUSY, coach.state.value.failure?.problem)
+        assertEquals("And now?", coach.state.value.failure?.prompt)
+        assertEquals(ChatProblem.COMPACTING, Chat.problemOf("compaction_running", 409))
     }
 
     @Test

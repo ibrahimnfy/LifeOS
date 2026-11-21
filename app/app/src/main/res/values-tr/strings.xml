@@ -640,6 +640,13 @@
     <string name="coach_tidying_now">Toparlanıyor… bu bir yanıt kadar sürer.</string>
     <string name="coach_tidying">Sohbet uzamıştı: bilgisayar önce onu toparlıyor, sonra yanıtlayacak. %1$s</string>
     <string name="coach_renewed">Burada toparlandı: yukarıdakiler özetlendi, önemli olanlar belleğe yazıldı.</string>
+    <string name="coach_renewed_plain">Burada toparlandı: yeni bir oturum, elindeki özetle sürüyor.</string>
+    <string name="coach_renewed_summary">Burada toparlandı: yukarıdakiler özetlendi. Belleğe yeni bir şey yazılmadı.</string>
+    <plurals name="coach_renewed_facts">
+        <item quantity="one">Burada toparlandı: yukarıdakiler özetlendi, önemli olanlar belleğin %1$d dosyasına yazıldı.</item>
+        <item quantity="other">Burada toparlandı: yukarıdakiler özetlendi, önemli olanlar belleğin %1$d dosyasına yazıldı.</item>
+    </plurals>
+    <string name="coach_fail_compacting">Sohbet şu anda toparlanıyor ve bu hiçbir zaman durdurulmaz. Mesajın, toparlama biter bitmez yanıtlanacak.</string>
     <string name="coach_tidy_failed">Bilgisayar sohbetin toparlandığını doğrulamadı. Hiçbir şey kaybolmadı; daha sonra yeniden dene.</string>
     <string name="coach_empty_title">Koçunla konuş</string>
     <string name="coach_empty_text">Süren tek bir sohbet: görevlerin, neyin zor olduğu, önce neyi yapman gerektiği üzerine. Koç belleğini okur, hiçbir şeyi değiştirmez.</string>

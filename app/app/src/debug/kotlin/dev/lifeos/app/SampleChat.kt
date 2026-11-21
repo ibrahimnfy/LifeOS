@@ -121,6 +121,10 @@ internal class SampleChat(private val context: Context) {
 
     // ---- the coach conversation (#114)
     private var coachRound = 1
+
+    /** The coach session that is being tidied up right now; a stop is refused for it. */
+    @Volatile
+    private var coachTidying: String? = null
     private var coachRuns = 0
     private val coachId get() = "$COACH-$coachRound"
     private fun coachDue() = session(coachId).exchanges.size >= COACH_FULL
@@ -384,6 +388,7 @@ internal class SampleChat(private val context: Context) {
                             put("queue", queueJson(session))
                         }
                     }
+                    method == "POST" && rest == "cancel" && coachTidying == parts[1] -> error(409, "compaction_running")
                     method == "POST" && rest == "cancel" -> {
                         val stopped = session.running
                         if (stopped) {
@@ -681,10 +686,29 @@ internal class SampleChat(private val context: Context) {
         }
         if (toCoach) {
             if (!session(id).running && session(id).exchanges.isNotEmpty() && (coachDue() || "tidy" in prompt)) {
-                // The conversation had grown long: one run without any sign, then a new session.
-                delay(6000)
+                // The conversation had grown long (#156): keep-alives while it is tidied up (that run
+                // is never stopped), then what was done, then the message in a new session.
+                coachTidying = id
+                try {
+                    repeat(3) {
+                        delay(3000)
+                        emit(AnswerEvent.Stream("keepalive", JsonObject(emptyMap())))
+                    }
+                } finally {
+                    coachTidying = null
+                }
                 renewCoach()
                 id = coachId
+                emit(
+                    AnswerEvent.Stream(
+                        "compacted",
+                        buildJsonObject {
+                            put("facts", buildJsonArray { add(JsonPrimitive("profile/work.md")); add(JsonPrimitive("projects/project-alpha.md")) })
+                            put("summary", JsonPrimitive(true))
+                            put("session_id", JsonPrimitive(id))
+                        },
+                    ),
+                )
             }
             coachRuns++
         }

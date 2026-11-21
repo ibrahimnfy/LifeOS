@@ -219,9 +219,8 @@ class LifeOsCore(private val app: Application) {
             val client = session?.client ?: throw ApiException(ApiException.Kind.NOT_SENT)
             var answered = false
             try {
-                // The coach conversation may be tidied up first, a whole run before the first sign (#114).
-                val first = if (path == Api.COACH_MESSAGES) COACH_FIRST_ANSWER_MILLIS else FIRST_ANSWER_MILLIS
-                client.stream(method, path, emptyMap(), body, idleTimeoutMillis, firstTimeoutMillis = first).collect { event ->
+                // Also for the coach: while it tidies the conversation up first, keep-alives arrive (#156).
+                client.stream(method, path, emptyMap(), body, idleTimeoutMillis, firstTimeoutMillis = FIRST_ANSWER_MILLIS).collect { event ->
                     if (!answered) reached(client, true)
                     answered = true
                     emit(event)
@@ -1151,7 +1150,6 @@ class LifeOsCore(private val app: Application) {
 
         /** Chat: how long the computer may take to take a message (it answers at once, the model later). */
         const val FIRST_ANSWER_MILLIS = 45_000L
-        const val COACH_FIRST_ANSWER_MILLIS = 6 * 60_000L
     }
 }
 

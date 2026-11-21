@@ -394,7 +394,14 @@ with plain HTTPS requests.
     The computer tidies a long conversation up by itself before the next
     message (what matters goes to the memory, a summary stays, a new
     session continues): the screen then says that it tidies up first, and
-    marks the place with one line. Which session the conversation is, the
+    marks the place with one line that says what was done (summarised, and
+    how many files of the memory got something). Both come from the answer's
+    own stream (#156): signs of life while the tidying up runs, then
+    `compacted` with the files, the summary and the new session; nothing is
+    guessed from a changed session id while the answer is heard. **Stop**
+    stays there meanwhile; the computer never stops the tidying up, and the
+    app then says so ("…is being tidied up right now, and that is never
+    stopped. Your message is answered as soon as it is done."). Which session the conversation is, the
     computer says each time (`GET /coach/chat`); the phone stores nothing
     about it. In the lists of sessions the coach's session opens this
     screen, and it is left out of "Recent".
@@ -629,7 +636,19 @@ Nothing on these screens is sample content any more. Not paired, they show
     itself.
   - The computer takes a message within seconds (it names the session or
     refuses), so no first answer within 45 seconds counts as "no answer". After
-    that a run may stay quiet for up to 11 minutes.
+    that a run may stay quiet for up to 11 minutes. The same holds for the
+    coach conversation: while it is tidied up first, the stream sends a
+    keep-alive every 20 seconds (#156).
+  - **The coach's stream** (`POST /coach/chat/messages`) may begin with
+    `keepalive` events and `compacted {"facts", "summary", "session_id"}`
+    before the message's own `session`: a keep-alive before `session` is
+    shown as "tidies it up first", `compacted` moves the conversation to the
+    new session and marks the place. A `queued {…}` event (the message had
+    to wait after all) puts it in line like a `202`; an `error` event before
+    the run ends the wait with its reason and **Retry**. `409
+    compaction_running` (Stop, or Send now, on the session that is being
+    tidied up) has its own text. When the answer is not heard (a lock, a
+    lost stream), the new session is still learned from `GET /coach/chat`.
   - **Whenever the app stops receiving an answer the computer is still
     writing** (the app was locked, the connection dropped, a long silence),
     the run goes on there, and the app **attaches to it again** (`GET
@@ -918,7 +937,9 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   shows a reminder notification whose tap opens its session.
   **The coach conversation** starts empty there and counts as long after
   five messages, or at once for a message that contains `tidy`: the next
-  answer then begins only after six seconds, in a renewed session.
+  answer then begins only after nine seconds of keep-alives and a
+  `compacted` event (two files, a summary), in a renewed session; a stop
+  during those seconds is refused with `compaction_running`.
 
   ```sh
   adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --ez lifeos.test.sample_data true
@@ -1274,8 +1295,13 @@ emulator with the `sample_data` test aid:
 5. A long conversation (sample mode: a message with "tidy"; on the
    computer: a transcript over the limit of `GET /coach/chat`): after
    sending, "The conversation had grown long: the computer tidies it up
-   first…", then the answer, with the line "Tidied up here…" above the
-   message.
+   first…" with **Stop** next to it, then the answer, with the line "Tidied
+   up here: what stands above was summarised, and what matters was written
+   to 2 files of the memory." above the message. Tap **Stop** → confirm
+   while it tidies up: "The conversation is being tidied up right now, and
+   that is never stopped…"; the answer arrives all the same. On the
+   computer the conversation's summary and facts are complete
+   (`coach/conversation.md` in the memory).
 6. Sessions: the session "Coach" opens the coach screen, not an ordinary
    conversation. Lock and unlock the app: the conversation is read again.
 

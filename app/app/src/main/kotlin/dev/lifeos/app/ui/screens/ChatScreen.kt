@@ -75,6 +75,7 @@ import dev.lifeos.app.data.ChatMessage
 import dev.lifeos.app.data.ChatPhase
 import dev.lifeos.app.data.ChatProblem
 import dev.lifeos.app.data.ChatState
+import dev.lifeos.app.data.CoachCompacted
 import dev.lifeos.app.data.Interaction
 import dev.lifeos.app.data.SkillInstall
 import dev.lifeos.app.ui.components.ErrorNotice
@@ -366,7 +367,7 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
     val answer = state.messages.lastOrNull()?.takeIf { !it.fromOwner }
     state.messages.forEach { message ->
         // Coach (#114): from this message on it is a renewed session; what stands above was tidied up.
-        if (message.key == state.renewedAt) SystemLine(stringResource(R.string.coach_renewed))
+        if (message.key == state.renewedAt) SystemLine(renewedLine(state.tidied))
         if (message === answer) cards(settled)
         if (message.fromOwner) OwnerBubble(message) else AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
     }
@@ -396,6 +397,15 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
         ChatPhase.IDLE -> Unit
     }
     state.failure?.let { FailureNotice(it, chat::retry, chat::dismissFailure, onSessions) }
+}
+
+/** Coach: what the tidying up at this place did, as the computer said it with the answer (#156). */
+@Composable
+private fun renewedLine(tidied: CoachCompacted?): String = when {
+    tidied == null -> stringResource(R.string.coach_renewed)
+    !tidied.summary -> stringResource(R.string.coach_renewed_plain)
+    tidied.facts.isEmpty() -> stringResource(R.string.coach_renewed_summary)
+    else -> pluralStringResource(R.plurals.coach_renewed_facts, tidied.facts.size, tidied.facts.size)
 }
 
 /**
@@ -609,6 +619,7 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.NOT_SET_UP -> R.string.chat_fail_not_set_up
     ChatProblem.TOO_LONG -> R.string.chat_fail_too_long
     ChatProblem.STOPPED -> R.string.chat_fail_stopped
+    ChatProblem.COMPACTING -> R.string.coach_fail_compacting
     ChatProblem.STOPPED_HERE -> R.string.chat_fail_stopped_here
     ChatProblem.STOP_FAILED -> R.string.chat_fail_stop_failed
     ChatProblem.QUEUE_FAILED -> R.string.chat_fail_queue_failed

@@ -642,6 +642,13 @@
     <string name="coach_tidying_now">Tidying up… this takes as long as an answer.</string>
     <string name="coach_tidying">The conversation had grown long: the computer tidies it up first, then answers. %1$s</string>
     <string name="coach_renewed">Tidied up here: what stands above was summarised, and what matters was written to the memory.</string>
+    <string name="coach_renewed_plain">Tidied up here: a new session continues with the summary it had.</string>
+    <string name="coach_renewed_summary">Tidied up here: what stands above was summarised. Nothing new went to the memory.</string>
+    <plurals name="coach_renewed_facts">
+        <item quantity="one">Tidied up here: what stands above was summarised, and what matters was written to %1$d file of the memory.</item>
+        <item quantity="other">Tidied up here: what stands above was summarised, and what matters was written to %1$d files of the memory.</item>
+    </plurals>
+    <string name="coach_fail_compacting">The conversation is being tidied up right now, and that is never stopped. Your message is answered as soon as it is done.</string>
     <string name="coach_tidy_failed">The computer did not confirm that the conversation was tidied up. Nothing is lost; try again later.</string>
     <string name="coach_empty_title">Talk to your coach</string>
     <string name="coach_empty_text">One conversation that goes on: about your tasks, what is hard, what to do first. The coach reads your memory and changes nothing.</string>
