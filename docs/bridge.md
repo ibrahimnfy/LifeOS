@@ -119,6 +119,7 @@ documented here as they are built.
 | PATCH | `/events/{id}` | yes | Changes an event |
 | GET | `/agenda` | yes | Today's events and tasks, overdue tasks, the coming days |
 | GET | `/memory/consolidation` | yes | The waiting consolidation proposal and its operations |
+| GET | `/projects` · `/projects/{id}` | yes | Projects: status, state, last activity, open tasks, sessions (no run) |
 | POST | `/memory/consolidation/approve` · `/reject` | yes | Approves (applies, one commit) or rejects operations, one by one or all |
 | POST | `/memory/consolidation/run` | yes | Prepares a proposal now (one run, in the background) |
 | POST | `/activity/usage`, `/activity/sleep` | yes | The phone's daily screen-time and sleep summaries |
@@ -794,6 +795,31 @@ per-session switch for reply notifications.
   by this authenticated API. Once phone push exists, the same step wakes the
   phone, which fetches the fired reminder and opens the session.
 - Stored in `~/.config/lifeos/reminders.json` (mode 600).
+
+### Projects: `/projects`
+
+For the app's Projects screen (#152), read from files only, without a model
+run. A project is a memory file `projects/<name>.md` and/or an allowed folder
+with its context-map file; they belong together when the project file links
+`[[map/<slug>]]` or has the map's name. The course folder of the Moodle sync
+is not a project.
+
+- `GET /projects` → `{"projects": [P]}`, newest activity first, with `P` =
+  `{"id": "p-<name>" (from a memory file) | "f-<slug>" (a folder only),
+  "name", "title", "status": "active" | "paused" | "done" | null (front
+  matter), "summary": str | null (the file's first paragraph, else the map's
+  "What it is"), "state": str | null (the map's "State"), "folder": path |
+  null (start a chat there with `POST /ask` `"folder"`), "folder_exists",
+  "memory_file", "map_file", "last_activity": ISO | null (the newest of the
+  last session in the folder, the folder's last git commit and the memory
+  file's `updated` day), "open_task_count", "open_tasks": [task as in
+  /tasks, at most 20, those with `(project: <name>)`], "sessions": [{"id",
+  "title", "last_activity"}, at most 5, newest first]}`.
+- `GET /projects/{id}` → one `P`; `404 project_not_found`.
+
+Manual check: `curl -s -H "$H" $B/projects | python3 -m json.tool | head -40`
+lists the allowed folders and the memory's project files, with tasks that
+carry `(project: …)`; `/models/routing` shows no new run.
 
 ### Memory consolidation: `/memory/consolidation`
 

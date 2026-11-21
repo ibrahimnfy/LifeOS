@@ -33,6 +33,7 @@ from . import (
     moodle_api,
     moodle_sync,
     moodle_watch,
+    projects,
     push,
     relay,
     release,
@@ -1093,6 +1094,17 @@ def create_app(settings: Settings) -> FastAPI:
         if first > last or (last - first).days > 400:
             raise ClaudeError("bad_request", 400, "`start` and `end` must span at most 400 days")
         return {"days": await asyncio.to_thread(activity.read, brain, first, last)}
+
+    # ---- projects: from the context map and the memory (no model run) --------------
+
+    @app.get("/projects")
+    async def list_projects():
+        """Projects with status, state, last activity, open tasks and recent sessions."""
+        return {"projects": await asyncio.to_thread(projects.collect, settings)}
+
+    @app.get("/projects/{project_id}")
+    async def get_project(project_id: str):
+        return await asyncio.to_thread(projects.one, settings, project_id)
 
     # ---- memory consolidation: propose, then approve (memory-design.md §6) --------
 
