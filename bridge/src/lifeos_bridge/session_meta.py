@@ -26,6 +26,8 @@ DEFAULTS = {
     "notify_replies": True,
     "model": None,
     "effort": None,
+    # Capable runs may use the skills and commands of the session's folder (#91).
+    "skills": False,
 }
 CHOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}")
 
@@ -108,7 +110,7 @@ def update_session(session_id: str, changes: dict) -> dict:
     """Apply ``title``, ``group``, ``pinned`` and ``notify_replies``; ``None`` clears."""
     unknown = set(changes) - set(DEFAULTS)
     if unknown or not changes:
-        raise bad("allowed fields: title, group, pinned, notify_replies, model, effort")
+        raise bad("allowed fields: title, group, pinned, notify_replies, model, effort, skills")
     data = load()
     entry = {**DEFAULTS, **data["sessions"].get(session_id, {})}
     if "title" in changes:
@@ -127,7 +129,7 @@ def update_session(session_id: str, changes: dict) -> dict:
             if value is not None and (not isinstance(value, str) or not CHOICE.fullmatch(value)):
                 raise bad(f"`{choice}` must be a name or null")
             entry[choice] = value
-    for flag in ("pinned", "notify_replies"):
+    for flag in ("pinned", "notify_replies", "skills"):
         if flag in changes:
             if not isinstance(changes[flag], bool):
                 raise bad(f"`{flag}` must be true or false")
@@ -161,4 +163,5 @@ def describe(info: SessionInfo, *, in_use: bool, data: dict) -> dict:
     item["notify_replies"] = entry["notify_replies"]
     item["model"] = entry["model"]
     item["effort"] = entry["effort"]
+    item["skills"] = entry["skills"]
     return item

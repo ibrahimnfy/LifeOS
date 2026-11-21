@@ -40,6 +40,7 @@ from . import (
     sdk_runner,
     session_meta,
     sessions,
+    skills,
 )
 from .claude import ClaudeError
 from .config import Settings
@@ -430,7 +431,17 @@ def create_app(settings: Settings) -> FastAPI:
                 if not use_sdk and sdk_pool is not None:
                     await sdk_pool.drop(session_id)  # never two kinds of writer at once
                 watch = capable.AuditWatch(session_id)
-                policy = capable.build_policy(settings, cwd, ask_host=use_sdk)
+                skills_dir = None
+                if chosen["skills"]:
+                    # The folder's own skills (#91): only after the check with the skill
+                    # probes; never silently without them (switch them off instead).
+                    runner = "sdk" if use_sdk else "cli"
+                    await capable.skills_available(settings, cwd, runner=runner)
+                    prompt = skills.check_prompt(prompt, cwd)
+                    skills_dir = await asyncio.to_thread(skills.snapshot, cwd, session_id)
+                policy = capable.build_policy(
+                    settings, cwd, ask_host=use_sdk, skills_dir=skills_dir
+                )
                 run_args |= {"policy": policy, "observer": watch}
             if use_sdk:
                 # Questions and approvals wait only for a client that streams the answer
@@ -1074,9 +1085,31 @@ def create_app(settings: Settings) -> FastAPI:
         return history.read_page(path, limit, before or None)
 
     @app.get("/sessions/{session_id}/commands")
-    def session_commands(session_id: str):
-        """Skills and commands of the session's folder. Listed only: not usable in runs yet."""
-        return commands.listing(listed_session(session_id).folder)
+    async def session_commands(session_id: str):
+        """Skills and commands of the session's folder, and whether its capable runs may use them.
+
+        ``enabled`` is true only when the owner switched skills on for the session
+        and the guardrail check with the skill probes passed; ``reason`` says why not.
+        """
+        info = listed_session(session_id)
+        switched = (await asyncio.to_thread(session_meta.entry_for, info.id))["skills"]
+        reason = None if switched else "skills are switched off for this session"
+        if reason is None:
+            try:
+                use_sdk = await capable_on_sdk(info.folder)
+                runner = "sdk" if use_sdk else "cli"
+                await capable.skills_available(settings, info.folder, runner=runner)
+            except ClaudeError as error:
+                reason = error.message
+        found = await asyncio.to_thread(commands.list_commands, info.folder)
+        return {
+            "enabled": reason is None,
+            "switched_on": switched,
+            "reason": reason,
+            "capable_only": True,
+            "prefix": skills.PLUGIN + ":",
+            "commands": found,
+        }
 
     # ---- the university Moodle: status, courses, assignments, deadlines ----
     app.include_router(moodle_api.router())

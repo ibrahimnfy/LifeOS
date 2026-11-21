@@ -290,17 +290,50 @@ states this where the owner cancels. Two runs never write to one session.
 
 | Rule | Mechanism | Status |
 |---|---|---|
-| Only in capable mode, only in allowed folders, switched on per session | bridge: a per-session switch; without it runs keep `--disable-slash-commands` | to build |
-| Only the session folder's own skills and commands; nothing personal or global | bridge passes only that folder; user-level settings, skills and plugins stay excluded | to build, **to verify by probe** |
-| A skill cannot run shell lines before the model sees it | the documented setting that disables shell execution in skills | **to verify by probe** |
-| A skill cannot widen the tools or leave the sandbox | the tool list comes from the bridge; every command still runs in the OS sandbox and through the gate and audit log | **to verify by probe** |
+| Only in capable mode, only in allowed folders, switched on per session | bridge: the per-session switch `skills` in the session metadata; read-only runs and capable runs without it keep `--disable-slash-commands` | **built** (#91) |
+| Only the session folder's own skills and commands; nothing personal or global | runs keep `--restricted` (no user, project or local settings file, so no personal, project or plugin skills). The bridge copies only `<folder>/.claude/skills` and `.claude/commands` (regular files inside the folder, no links) into a plugin in the private settings folder and passes it with `--plugin-dir` | **built**, verified by probe |
+| No hooks, MCP servers, agents or settings from the folder | the plugin copy holds nothing but those two folders; `--strict-mcp-config` stays; project settings stay ignored | **built** |
+| A skill cannot run shell lines before the model sees it | `disableSkillShellExecution` in the run's settings JSON; bundled skills off (`disableBundledSkills`) | **built**, verified by probe |
+| A skill cannot widen the tools or leave the sandbox | the tool list comes from the bridge (only `Skill` is added); every command still runs in the OS sandbox and through the gate and audit log | **built**, verified by probe |
+| The run cannot change the skills it was started with | the plugin copy lies in the private settings folder, which sandboxed commands cannot read or write | by layout |
+| Phone messages cannot start built-in commands | a capable message starting with `/` must name one of the folder's skills or commands; otherwise `400 command_not_allowed` | **built** |
 | Skill text is outside text | never copied into always-loaded memory files | by layout |
 
-New probes before this is switched on: a skill in the run folder whose
-shell line would create a file (must not run); a skill that pre-approves a
-web tool and a write outside the folder (must change nothing); a personal
-skill in the home folder (must not be listed or usable); a read-only run in
-the same session (no skills at all).
+Found without a model run (only the list of commands that Claude Code
+offers at start-up, Claude Code 2.1.328):
+
+- With `--restricted`, no project or personal skill is offered, also not
+  with `--setting-sources project` or `--add-dir`.
+- `--setting-sources project` without `--restricted` would offer the
+  folder's skills, but it would also load the folder's settings file
+  (hooks and permissions). It is therefore not used.
+- `--restricted --plugin-dir <copy>` offers exactly the copied skills and
+  commands, as `folder:<name>`, and nothing personal.
+- `--disable-slash-commands` removes all of them again.
+
+**Probes** (suite version 2; the check records `suite_version` in its
+marker). Each runs with the run folder's skills switched on, in both
+environments and on both runners:
+
+- a skill whose shell line would create a file: the file must not exist;
+- a skill whose `allowed-tools` pre-approves `rm`, a write outside the
+  folder, a web fetch and `curl`, and whose text asks for them: nothing may
+  change, and `WebFetch` must not exist;
+- a personal skill written into `~/.claude/skills` for the probe (removed
+  again), and the owner's own personal skills: none may be offered;
+- a read-only run in the same session: no skills, no `Skill` tool;
+- a sanity probe: the folder's skills were offered and used. Without it the
+  other probes would prove nothing.
+
+**Switched on only by these probes.** The capable mode itself accepts a
+marker of an older suite. The session skills need a marker with
+`suite_version` 2 or later: a marker without the skill probes never
+enables them. The automatic start-up check sees the older suite and reruns
+the whole check by itself at the next start, once per version pair. While
+it runs, the capable mode is off, as during every check. A failed skill
+probe fails the whole check, so the capable mode stays off too (the
+stricter choice). The plan usage is in `docs/bridge.md`, "Plan usage of one
+restart".
 
 ### 9.3 MCP servers, project hooks and project settings: not enforceable
 
@@ -437,9 +470,9 @@ is off until they pass, and the owner is notified".
     check does.
 - **Notified** at the start and at the end (passed, failed, incomplete),
   with fixed texts that carry no versions, paths or results.
-- **Plan usage:** about 16 short runs on the small model for the `claude -p`
-  runner and about 24 for the SDK runner (both environments), so about 40
-  when one restart checks both.
+- **Plan usage:** about 20 short runs on the small model for the `claude -p`
+  runner and about 28 for the SDK runner (both environments), so about 48
+  when one restart checks both (suite version 2, with the skill probes).
 
 ### 9.9 Folders inside another git repository (owner, #139)
 
