@@ -122,6 +122,18 @@ its own git like everything else there):
 - Optional fields on the task line in `tasks.md`: `(blocked-by: …)`,
   `(next: …)`, `(effort: small|medium|large)`.
 
+**Inferred facts (#83).** The filing step may propose, besides what the
+owner said, a conclusion the answer clearly supports (`"source":
+"inferred"`); it is written as `- [inferred <date>] …`, at most three facts
+per answer in all. Every writer of facts (the filing step, the coach
+conversation's compaction, and the consolidation proposal once it exists)
+uses the same check (`bridge/src/lifeos_bridge/facts.py`): only existing
+topic files inside the memory folder, one plain line of at most 240
+characters, appended under `## Facts` and never replacing a line, and not
+written when the file already has a fact with the same text, so an
+`[owner …]` fact is never shadowed or overridden. The filing answer of
+`POST /coach/question/answer` reports `"inferred"`: how many were written.
+
 The `coach/` folder is part of the approved memory layout.
 
 **The owner can always** read `coach/log.md`, correct or delete a fact, and

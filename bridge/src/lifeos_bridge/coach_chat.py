@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from . import claude, coach, memory, session_meta, store
+from . import claude, coach, facts, memory, session_meta, store
 from .config import Settings
 
 STATE_FILE = "chat.json"
@@ -126,29 +126,13 @@ def context() -> str:
 
 
 def compact_prompt(memory_dir: Path) -> str:
-    files = ", ".join(coach._fact_files(memory_dir)) or "(none: propose no facts)"
+    files = ", ".join(facts.files(memory_dir)) or "(none: propose no facts)"
     return f"{COMPACT_PROMPT}\nFiles a fact may go to: {files}\n"
 
 
 def _learned(memory_dir: Path, proposal: dict) -> list[tuple[str, str, str]]:
-    """The checked facts: (file, text, source). Only existing files inside the memory."""
-    root = memory_dir.resolve()
-    found = []
-    raw = proposal.get("facts")
-    for item in raw if isinstance(raw, list) else []:
-        if not isinstance(item, dict):
-            continue
-        file, text = item.get("file"), coach._line(item.get("text"), coach.MAX_FACT)
-        source = "owner" if item.get("source") == "owner" else "inferred"
-        if text is None or not isinstance(file, str) or not coach.FACT_FILE.fullmatch(file):
-            continue
-        path = memory_dir / file
-        if not path.is_file() or not path.resolve().is_relative_to(root):
-            continue
-        found.append((file, text, source))
-        if len(found) == MAX_LEARNED:
-            break
-    return found
+    """The checked facts: (file, text, source); a fact without a source counts as inferred."""
+    return facts.check(memory_dir, proposal.get("facts"), MAX_LEARNED, default_source="inferred")
 
 
 def _summary(proposal: dict) -> str | None:
@@ -215,14 +199,8 @@ def _write_learned(
     """The checked facts and the summary, as one commit in the memory."""
     with memory.LOCK:
         memory.check_repo(memory_dir)
-        day = now.date().isoformat()
-        for file, text, source in learned:
-            path = memory_dir / file
-            memory.write_text(
-                path, coach.add_fact(memory.read_text(path), f"- [{source} {day}] {text}")
-            )
-            written.append(file)
-        paths = list(dict.fromkeys(written))
+        written.extend(facts.write(memory_dir, learned, now.date().isoformat()))
+        paths = list(written)
         if summary:
             log = memory_dir / SUMMARY_FILE
             current = memory.read_text(log) or SUMMARY_HEADER

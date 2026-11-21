@@ -667,6 +667,7 @@ def test_answer_is_logged_and_what_it_says_is_filed(client, auth, planned, propo
         "filed": {
             "facts": ["projects/example-project.md", "profile.md"],
             "task_fields": ["blocked-by", "effort", "next"],
+            "inferred": 0,
         },
     }
     log = (planned / "coach" / "log.md").read_text()
@@ -703,6 +704,46 @@ def test_answer_is_logged_and_what_it_says_is_filed(client, auth, planned, propo
     assert "They only answer on Mondays." in prompt and "projects/example-project.md" in prompt
 
 
+def test_inferred_facts_are_tagged_and_never_shadow_an_owner_fact(client, auth, planned, proposes):
+    proposes(
+        {
+            "facts": [
+                {"file": "profile.md", "text": "Prefers calls in the morning.", "source": "owner"},
+                {"file": "profile.md", "text": "Plans calls around office hours.",
+                 "source": "inferred"},
+                {"file": "projects/example-project.md", "text": "an  OLDER fact.",
+                 "source": "inferred"},  # the owner's fact already says it
+                {"file": "profile.md", "text": "Plans calls around office hours.",
+                 "source": "inferred"},  # twice in one proposal
+            ]
+        }
+    )  # fmt: skip
+    filed = client.post("/coach/question/answer", headers=auth, json={"text": "Mornings."})
+    assert filed.json()["filed"] == {"facts": ["profile.md"], "task_fields": [], "inferred": 1}
+    assert (planned / "profile.md").read_text() == (
+        "# Profile\n\n## Facts\n- [owner 2027-01-15] Prefers calls in the morning.\n"
+        "- [inferred 2027-01-15] Plans calls around office hours.\n"
+    )
+    project = (planned / "projects" / "example-project.md").read_text()
+    assert project.count("older fact") == 1 and "[owner 2027-01-01] An older fact." in project
+
+
+def test_the_fact_rules_are_the_same_for_every_writer(planned):
+    from lifeos_bridge import facts
+
+    proposals = [
+        {"file": "profile.md", "text": "No source given."},
+        {"file": "profile.md", "text": "Stated.", "source": "owner"},
+        {"file": "profile.md", "text": "Something else.", "source": "anything"},
+    ]
+    as_filing = facts.check(planned, proposals, 3, default_source="owner")
+    as_conclusion = facts.check(planned, proposals, 3)
+    assert [s for _f, _t, s in as_filing] == ["owner", "owner", "inferred"]
+    assert [s for _f, _t, s in as_conclusion] == ["inferred", "owner", "inferred"]
+    assert len(facts.check(planned, proposals, 2)) == 2
+    assert facts.files(planned) == ["profile.md", "projects/example-project.md"]
+
+
 def test_invalid_filing_proposals_are_ignored_but_the_answer_is_kept(
     client, auth, planned, proposes, tmp_path
 ):
@@ -732,7 +773,9 @@ def test_invalid_filing_proposals_are_ignored_but_the_answer_is_kept(
         }
     )
     response = client.post("/coach/question/answer", headers=auth, json={"text": "Because."})
-    assert response.json() == {"saved": True, "filed": {"facts": [], "task_fields": []}}
+    assert response.json() == {
+        "saved": True, "filed": {"facts": [], "task_fields": [], "inferred": 0}
+    }  # fmt: skip
     assert commits(planned)[0] == "Record a coach answer"
     assert "A: Because.\n" in (planned / "coach" / "log.md").read_text()
     assert (planned / "tasks.md").read_text() == TASKS
