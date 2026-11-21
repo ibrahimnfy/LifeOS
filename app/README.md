@@ -269,6 +269,20 @@ with plain HTTPS requests.
     large, outside the allowed folders, hidden) has a card that says why. An
     offer is good for 15 minutes; after that, and for files offered in
     earlier answers, the card asks to request the file again.
+  - **Model and effort:** the header shows the folder, the model and the
+    effort of the conversation; the pill above the composer ("opus · high")
+    opens the choice: the default for chat sessions, or one of the models and
+    effort levels the computer offers. It applies from the next message of
+    that conversation. **The default** for all chat sessions is changed under
+    Settings → Models ("Chat sessions").
+  - **"/" commands:** a message that starts with "/" lists the skills and
+    commands of the session's folder above the composer, narrowed while the
+    name is typed, each with its description, argument hint and warnings; a
+    tap completes the name. A recognised command is coloured in the
+    composer. The list appears only where the folder's skills are switched
+    on for the session and usable; otherwise one line says why not (switched
+    off, the computer's check has not passed, not one of this folder's,
+    needs "Changes allowed").
   - **Read-only or "Changes allowed"** (the pill above the composer): every
     conversation starts read-only. Switched on, its next messages ask the
     computer for the capable mode, in which the assistant may change files
@@ -492,6 +506,13 @@ Nothing on these screens is sample content any more. Not paired, they show
   - A refusal (session open on the computer, too many runs, folder gone,
     message too long) keeps the message with **Retry**; a run that breaks off
     keeps what was written and says why.
+  - **Model and effort** are the session's own on the computer (`PATCH
+    /sessions/{id}` with `model` and `effort`, `null` for the default); a new
+    conversation sends them with its first message. The choices come from
+    `GET /models`. **Commands** come from `GET /sessions/{id}/commands`, asked
+    for when a message starts with "/"; the app only completes and colours
+    names, the computer checks the message (`command_not_allowed`,
+    `skills_unavailable`).
   - **Offered files** (`files` and `files_refused` of a finished answer):
     the card holds only the offer's id, name, kind and size. The download is
     `Downloads.startOffer`: the computer's copy in sealed chunks straight
@@ -699,8 +720,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- Chat: "/" commands,
-  the model picker and tables in answers (shown as text). Sessions: groups,
+- Chat: tables in answers (shown as text). Sessions: groups,
   renaming, pinning and reminders. The coach conversation and Projects are
   placeholders.
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
@@ -955,6 +975,27 @@ minute:
    the answer breaks off, the second message stays under "Waiting to be
    sent" with "On hold since the run was stopped". **Send them** lets it go
    on; so does sending another message.
+
+### Model, effort and "/" commands
+
+1. Open a conversation: the header shows "folder · model · effort" (the
+   defaults until something is chosen). Tap the model pill above the
+   composer, choose another model and effort, **Save**: header and pill
+   change. Send a message; on the computer `GET /sessions` shows the
+   session's `model` and `effort`. Choose "Default (…)" for both again.
+2. Settings → Models → "Chat sessions" → **Change** sets the default: a
+   conversation without its own choice shows it in its header afterwards.
+3. In a session of a folder that has `.claude/skills` or `.claude/commands`,
+   with the folder's skills switched on for the session (`PATCH
+   /sessions/<id>` with `{"skills": true}` until the switch is in the app),
+   type "/": the folder's skills and commands are listed. Type two letters:
+   the list narrows. Tap one: its name is completed, coloured in the
+   composer, and the line says that commands run only with "Changes
+   allowed". Switch that on and send: the skill runs.
+4. Type "/nothing-like-this x": "This is not one of this folder's skills or
+   commands"; sent with "Changes allowed", the computer refuses it and the
+   message can be corrected. In a session without the switch, "/" shows
+   "Skills and commands are switched off for this session".
 
 ### Files in chat
 

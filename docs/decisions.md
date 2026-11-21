@@ -286,3 +286,9 @@ a new entry is added that says what changed and why.
 - **File cards sit under the answer that offered them** and use the existing relay download of course files (`RelayDownload` into the Downloads collection) and the same "Open"; no second download path was written.
 - **A card stops offering the download a minute before the bridge's 15 minutes are over** and then asks to request the file again; a refused file gets a card with the reason in the app's language (too large, outside the allowed folders, hidden, too many in one answer, other).
 - **Answers read from the conversation later show the file's name only**: the bridge keeps offers in memory and the conversation only has the marker line.
+
+### Implementation choices for "/" commands and the model picker in the app (agent, #95; cheap to change)
+- **The model control is a pill above the composer** (next to the read-only pill); the header shows folder, model and effort but is not itself the control: the shared top bar has no room for a third action next to Sessions and New chat.
+- **"The default model setting" is the existing Settings → Models screen** (#124), whose "Chat sessions" job is that default; no second setting was added. The conversation's sheet names it.
+- **Commands are asked for only when a message starts with "/"** and are never cached on the phone. The list and the colouring need the skills switch of the session to be on and the bridge's check to have passed (`enabled`); in every other case one line says why. The app does not rewrite the message: the bridge adds its own prefix.
+- **A conversation restored after a start learns its model from the session list** (there is no request for a single session).

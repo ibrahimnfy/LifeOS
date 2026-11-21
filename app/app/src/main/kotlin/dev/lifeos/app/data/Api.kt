@@ -240,6 +240,17 @@ class Api(private val transport: Transport) {
         chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)
     }
 
+    /** The skills and commands of the session's folder, and whether the session may use them. */
+    suspend fun commands(sessionId: String): CommandList =
+        read(CommandList.serializer(), chatCall("GET", "/sessions/$sessionId/commands"))
+
+    /**
+     * Change what the computer keeps about a session (`PATCH /sessions/{id}`): its model and
+     * effort, title, group, pin and switches. A JSON null returns a field to its default.
+     */
+    suspend fun patchSession(sessionId: String, changes: JsonElement): SessionSummary =
+        read(SessionSummary.serializer(), chatCall("PATCH", "/sessions/$sessionId", changes))
+
     /** Chat's own lane: its small requests wait neither for the screens' loaders nor the other way round. */
     private suspend fun chatCall(method: String, path: String, body: JsonElement? = null, query: Map<String, String> = emptyMap()): JsonElement =
         chatLane.withLock { exchange(method, path, query, body, READ_TIMEOUT_MILLIS) }

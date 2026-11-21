@@ -635,4 +635,26 @@
     <string name="question_time_left">Without an answer the assistant goes on in %1$s</string>
     <string name="question_expired">Not answered in time: the assistant went on without an answer.</string>
     <string name="question_your_answer">Your answer: %1$s</string>
+
+    <!-- Chat: "/" commands and the model of a conversation (#95) -->
+    <string name="chat_model_default">Default model</string>
+    <string name="chat_model_label">Model and effort: %1$s. Change</string>
+    <string name="chat_model_title">Model for this conversation</string>
+    <string name="chat_model_note">Used from the next message of this conversation. The default for all chat sessions is under Settings → Models.</string>
+    <string name="chat_commands_title">Skills and commands of this folder</string>
+    <string name="chat_commands_none">This folder has no skills or commands.</string>
+    <string name="chat_commands_no_match">No skill or command of this folder starts like this.</string>
+    <string name="chat_commands_off">Skills and commands are switched off for this session, so a message that starts with “/” is sent as plain text.</string>
+    <string name="chat_commands_unavailable">Skills and commands cannot be used here right now: the computer\'s check for them has not passed.</string>
+    <string name="chat_commands_new">The folder\'s skills and commands can be listed once the conversation has its first message.</string>
+    <string name="chat_commands_capable">Skills and commands run only with “Changes allowed”.</string>
+    <string name="chat_commands_unknown">This is not one of this folder\'s skills or commands.</string>
+    <string name="chat_command_skill">Skill</string>
+    <string name="chat_command_command">Command</string>
+    <string name="chat_command_warn_shell">contains shell lines (not run)</string>
+    <string name="chat_command_warn_tools">asks for tools of its own (not granted)</string>
+    <string name="chat_command_warn_scripts">comes with scripts</string>
+    <string name="chat_fail_command_unknown">Not sent on: a message that starts with “/” must name one of this folder\'s skills or commands.</string>
+    <string name="chat_fail_skills_off">This folder\'s skills cannot be used right now: the computer\'s check for them has not passed. Switch them off for this session, or try again later.</string>
+    <string name="chat_fail_setting_failed">That could not be changed on the computer.</string>
 </resources>

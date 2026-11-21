@@ -57,6 +57,7 @@ internal class SampleChat(private val context: Context) {
         val exchanges = mutableListOf<Pair<String, String>>()
         val queue = mutableListOf<Pair<String, String>>()
         var running = false
+        var skills = true
         var paused: String? = null
         var stop = CompletableDeferred<Unit>()
 
@@ -92,6 +93,15 @@ internal class SampleChat(private val context: Context) {
                     }
                     method == "GET" && rest == "interactions" -> ok { put("pending", JsonArray(emptyList())) }
                     method == "GET" && rest == "history" -> history(session, query["before"])
+                    // The folder's skills and commands; switched on per session (PATCH below).
+                    method == "GET" && rest == "commands" -> ok {
+                        put("enabled", JsonPrimitive(session.skills))
+                        put("switched_on", JsonPrimitive(session.skills))
+                        put("reason", if (session.skills) JsonNull else JsonPrimitive("skills are switched off for this session"))
+                        put("capable_only", JsonPrimitive(true))
+                        put("prefix", JsonPrimitive("folder:"))
+                        put("commands", data.getValue("commands"))
+                    }
                     method == "GET" && rest == "queue" -> ok {
                         put("running", JsonPrimitive(session.running))
                         put("paused", session.paused?.let(::JsonPrimitive) ?: JsonNull)
@@ -125,6 +135,16 @@ internal class SampleChat(private val context: Context) {
                     }
                     else -> null
                 }
+            }
+        }
+        // What the computer keeps about a session (model, effort, title, pin, switches): taken as sent.
+        val patched = Regex("^/sessions/([^/]+)$").find(path)?.groupValues?.get(1)
+        if (method == "PATCH" && patched != null) {
+            val changes = body as? JsonObject ?: JsonObject(emptyMap())
+            (changes["skills"] as? JsonPrimitive)?.let { session(patched).skills = it.content == "true" }
+            return ok {
+                put("id", JsonPrimitive(patched))
+                changes.forEach { (name, value) -> put(name, value) }
             }
         }
         return data["$method $path"]?.let { RelayResponse(200, relative(it)) }

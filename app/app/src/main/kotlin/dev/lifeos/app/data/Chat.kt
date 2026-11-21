@@ -13,8 +13,10 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -164,6 +166,15 @@ enum class ChatProblem {
     /** A change to a waiting message did not get through; the list shows what the computer has. */
     QUEUE_FAILED,
 
+    /** The message starts with "/" but names none of the folder's skills or commands. */
+    COMMAND_UNKNOWN,
+
+    /** The folder's skills cannot be used right now (the computer's check for them has not passed). */
+    SKILLS_OFF,
+
+    /** A setting of the session (its model) could not be changed on the computer. */
+    SETTING_FAILED,
+
     /** The message is longer than the computer accepts. */
     TOO_LARGE,
 
@@ -226,6 +237,10 @@ data class ChatState(
      * every new conversation.
      */
     val capable: Boolean = false,
+    /** The conversation's own model and effort (null: the default for chat sessions). */
+    val choice: ModelChoice = ModelChoice(),
+    /** Whether [choice] is what the computer has for this session (a restored conversation learns it from the session list). */
+    val choiceKnown: Boolean = true,
 ) {
     val canSend: Boolean get() = phase == ChatPhase.IDLE && !loading && loadProblem == null && loaded
 
@@ -301,6 +316,7 @@ class Chat(
             sessionId = pointer.sessionId,
             folder = ChatFolder(pointer.folderPath, pointer.folderLabel, pointer.memory),
             loaded = false,
+            choiceKnown = false,
         )
         resume = true
     }
@@ -328,7 +344,9 @@ class Chat(
         stopWork()
         resume = false
         val folder = ChatFolder(session.folder, session.folderLabel, memory)
-        mutable.update { ChatState(generation = it.generation + 1, sessionId = session.id, folder = folder, loaded = false) }
+        mutable.update {
+            ChatState(generation = it.generation + 1, sessionId = session.id, folder = folder, loaded = false, choice = ModelChoice(session.model, session.effort))
+        }
         store.save(ChatPointer(session.id, folder.path, folder.label, folder.memory))
         load()
     }
@@ -342,6 +360,8 @@ class Chat(
                 generation = it.generation + 1,
                 sessionId = it.sessionId,
                 folder = it.folder,
+                choice = it.choice,
+                choiceKnown = it.choiceKnown,
                 loaded = it.sessionId == null,
                 // A first message whose session is not known yet cannot be followed up.
                 failure = if (lostFirst) ChatFailure(ChatProblem.NO_ANSWER) else null,
@@ -865,6 +885,41 @@ class Chat(
     private fun options(state: ChatState): Map<String, JsonElement> = buildMap {
         put("interactive", JsonPrimitive(true))
         if (state.capable) put("mode", JsonPrimitive("capable"))
+        // A new conversation names its model with its first message; afterwards the computer remembers it.
+        if (state.sessionId == null) {
+            state.choice.model?.let { put("model", JsonPrimitive(it)) }
+            state.choice.effort?.let { put("effort", JsonPrimitive(it)) }
+        }
+    }
+
+    // ------------------------------------------------------------------ model and effort
+
+    /**
+     * The model and effort of this conversation (null: the default). For a session the
+     * computer knows it is stored there and used from its next run; for a new conversation
+     * it goes out with the first message.
+     */
+    fun setModel(choice: ModelChoice) {
+        val state = mutable.value
+        val before = state.choice
+        if (choice == before && state.choiceKnown) return
+        val generation = state.generation
+        change(generation) { it.copy(choice = choice, choiceKnown = true, failure = null) }
+        val id = state.sessionId ?: return
+        launchSide {
+            val body = buildJsonObject {
+                put("model", choice.model?.let(::JsonPrimitive) ?: JsonNull)
+                put("effort", choice.effort?.let(::JsonPrimitive) ?: JsonNull)
+            }
+            if (attempt { api.patchSession(id, body) }.isFailure) {
+                change(generation) { it.copy(choice = before, failure = ChatFailure(ChatProblem.SETTING_FAILED)) }
+            }
+        }
+    }
+
+    /** What the session list says about this session's model, for a conversation restored after a start. */
+    fun noteChoice(session: SessionSummary) = mutable.update {
+        if (it.sessionId == session.id && !it.choiceKnown) it.copy(choice = ModelChoice(session.model, session.effort), choiceKnown = true) else it
     }
 
     // ------------------------------------------------------------------ questions and approvals
@@ -1128,6 +1183,8 @@ class Chat(
             "timeout" -> ChatProblem.TOO_LONG
             "cancelled" -> ChatProblem.STOPPED
             "prompt_too_large", "too_large" -> ChatProblem.TOO_LARGE
+            "command_not_allowed" -> ChatProblem.COMMAND_UNKNOWN
+            "skills_unavailable" -> ChatProblem.SKILLS_OFF
             else -> if (status == 503) ChatProblem.NOT_SET_UP else ChatProblem.FAILED
         }
     }

@@ -633,4 +633,26 @@
     <string name="question_time_left">Cevap gelmezse asistan %1$s sonra devam eder</string>
     <string name="question_expired">Zamanında cevaplanmadı: asistan cevapsız devam etti.</string>
     <string name="question_your_answer">Cevabın: %1$s</string>
+
+    <!-- Chat: "/" commands and the model of a conversation (#95) -->
+    <string name="chat_model_default">Varsayılan model</string>
+    <string name="chat_model_label">Model ve efor: %1$s. Değiştir</string>
+    <string name="chat_model_title">Bu konuşmanın modeli</string>
+    <string name="chat_model_note">Bu konuşmanın bir sonraki mesajından itibaren kullanılır. Tüm sohbet oturumlarının varsayılanı Ayarlar → Modeller altında.</string>
+    <string name="chat_commands_title">Bu klasörün becerileri ve komutları</string>
+    <string name="chat_commands_none">Bu klasörde beceri ya da komut yok.</string>
+    <string name="chat_commands_no_match">Bu klasörde böyle başlayan bir beceri ya da komut yok.</string>
+    <string name="chat_commands_off">Beceriler ve komutlar bu oturum için kapalı; “/” ile başlayan mesaj düz metin olarak gönderilir.</string>
+    <string name="chat_commands_unavailable">Beceriler ve komutlar şu an burada kullanılamıyor: bilgisayarın onlar için yaptığı denetim geçmedi.</string>
+    <string name="chat_commands_new">Klasörün becerileri ve komutları, konuşmanın ilk mesajından sonra listelenebilir.</string>
+    <string name="chat_commands_capable">Beceriler ve komutlar yalnızca “Değişikliğe izin var” açıkken çalışır.</string>
+    <string name="chat_commands_unknown">Bu, bu klasörün becerilerinden ya da komutlarından biri değil.</string>
+    <string name="chat_command_skill">Beceri</string>
+    <string name="chat_command_command">Komut</string>
+    <string name="chat_command_warn_shell">kabuk satırları içeriyor (çalıştırılmaz)</string>
+    <string name="chat_command_warn_tools">kendine araç istiyor (verilmez)</string>
+    <string name="chat_command_warn_scripts">betiklerle geliyor</string>
+    <string name="chat_fail_command_unknown">İletilmedi: “/” ile başlayan bir mesaj bu klasörün becerilerinden ya da komutlarından birini adlandırmalı.</string>
+    <string name="chat_fail_skills_off">Bu klasörün becerileri şu an kullanılamıyor: bilgisayarın onlar için yaptığı denetim geçmedi. Bu oturum için kapat ya da daha sonra yeniden dene.</string>
+    <string name="chat_fail_setting_failed">Bu, bilgisayarda değiştirilemedi.</string>
 </resources>
