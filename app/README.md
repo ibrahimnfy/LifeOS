@@ -297,15 +297,20 @@ with plain HTTPS requests.
     run and sends that message at once. **Stop** next to "Working…" ends the
     run. Both ask first and say: changes the assistant has already made to
     files are kept. After a stop the waiting messages are on hold until the
-    owner's next message or "Send them".
+    owner's next message, "Send them", or **Send now** on one of them (then
+    nothing is interrupted, so it does not ask). **The answer to a waiting
+    message is written on screen like any other** (#154): the message moves
+    from the line into the conversation, with "Working…", Stop, and question
+    and approval cards.
   - **Files:** a file the assistant offers appears as a card under its
     answer (name, kind, size) with a download button. Nothing is transferred
     before the tap; the file then goes into the phone's Downloads folder,
     with the progress on the card, and **Open** hands it to the phone's app
     for its kind, as for course files. A file the computer does not send (too
     large, outside the allowed folders, hidden) has a card that says why. An
-    offer is good for 15 minutes; after that, and for files offered in
-    earlier answers, the card asks to request the file again.
+    offer is good for 15 minutes, also after the conversation was read again
+    (a lock, another session and back): the card then keeps its download for
+    the time that is left. After that the card asks to request the file again.
   - **Model and effort:** the header shows the folder, the model and the
     effort of the conversation; the pill above the composer ("opus · high")
     opens the choice: the default for chat sessions, or one of the models and
@@ -627,9 +632,18 @@ Nothing on these screens is sample content any more. Not paired, they show
     that a run may stay quiet for up to 11 minutes.
   - **Whenever the app stops receiving an answer the computer is still
     writing** (the app was locked, the connection dropped, a long silence),
-    the run goes on there. The conversation then shows "The computer is still
+    the run goes on there, and the app **attaches to it again** (`GET
+    /sessions/{id}/live`, #154): a stream that only reads, first what the run
+    said so far (it replaces the unfinished answer on screen, so nothing is
+    doubled), then the rest as it is written, with its question and approval
+    cards. The same stream carries the answers to waiting messages, which the
+    computer sends by itself. Following never starts or continues a run.
+    Where a run cannot be followed (the computer says `"followable": false`,
+    or the stream cannot be reached or breaks off), it is as before: the
+    conversation shows "The computer is still
     working on this", asks every five seconds while it is on screen (`GET
-    /sessions/{id}/queue`), and reads the last messages (`GET
+    /sessions/{id}/queue`, trying to attach again each time), and reads the
+    last messages (`GET
     /sessions/{id}/history`) when the run has ended. If the conversation
     there does not end with the message, the app says that it probably did
     not arrive and offers **Retry**; it never repeats a message on its own. A first message that
@@ -652,24 +666,34 @@ Nothing on these screens is sample content any more. Not paired, they show
     fallback route of course files: chunks in sequence, announced size and
     SHA-256 checked, an incomplete file removed, hidden until complete). The
     app keeps no copy and no record; "Saved to Downloads" lives until the app
-    is closed. Offers exist only in the bridge's memory, so an answer read
-    from the conversation later (after a lock, or an earlier page) shows the
-    file's name without a download.
+    is closed. An answer read from the conversation later (after a lock, or
+    an earlier page) has only the marker line, so its card is rebuilt from
+    the file's name; the app then asks for the session's live offers (`GET
+    /sessions/{id}/files`, only when such a card is on screen) and puts each
+    offer back on the card of its name, the newest offer on the newest
+    answer, each once. The card counts the time that is *left* of the 15
+    minutes (the computer's end time), not a new window.
   - **Earlier messages** are asked for one page at a time (`GET
     /sessions/{id}/history?before=<cursor>`) and held only while the
     conversation is on screen; nothing of a session is written to the phone.
   - **The queue is the computer's** (`GET /sessions/{id}/queue`, at most ten
     messages): a message sent during a run is the same request as any
     message and is answered with its place in the line (`202`). Editing and
-    removing are `PATCH` and `DELETE …/queue/{qid}`. **Send now** sends the
-    text again with `"when": "now"` (to the front, interrupting the run) and
-    then takes the old entry out; if that second step fails the list shows
-    both. **Stop** is `POST /sessions/{id}/cancel`. The computer answers
-    waiting messages in the background, not as a stream: the app shows "still
-    working" and reads the conversation when the line is empty, so their
-    answers appear whole, and they cannot ask for approvals or questions.
-    "Send them" (`POST …/queue/resume`) is answered by the computer only
-    after the first waiting message is done, so the app does not wait for it.
+    removing are `PATCH` and `DELETE …/queue/{qid}`. **Send now** is one
+    request, `POST …/queue/{qid}/send-now` (#154): the message becomes the
+    next one, a run in progress is interrupted for it, a hold ends; nothing
+    is sent twice or deleted. `404 not_queued` means that the computer sent
+    it meanwhile and is no failure. **Stop** is `POST /sessions/{id}/cancel`.
+    "Send them" (`POST …/queue/resume`) is answered at once; if it does not
+    get through, the line is on hold as before and a notice says so. The
+    computer sends waiting messages by itself; the app follows their answers
+    through `GET /sessions/{id}/live` (see above), so they are written on
+    screen and can ask for approvals and questions.
+  - **One session, read fresh** (`GET /sessions/{id}`, #154), instead of
+    looking it up in the list of the newest hundred: when a conversation is
+    opened (its model and effort; a choice the owner makes meanwhile wins),
+    for a tapped notification or reminder (`SessionLookup`), and for the
+    session's sheet (title, pin, group, switches).
   - While the app is locked nothing of the conversation is in memory; it is
     read again after unlocking.
   - **Approvals and questions** (`data/Interactions.kt`, the bridge's
@@ -880,6 +904,9 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   refused because the computer has not checked the folder's approved
   servers). Every sample session's folder declares three MCP servers, one of
   each state; approvals and revocations are kept until the app is closed.
+  The answer to a waiting message can be followed (`/live`) and is written
+  over a few seconds; `file` offers are listed for 15 minutes (`/files`),
+  and each sample session can be read by itself.
   The session "Milestone summary draft" counts as open on the computer, and
   "Summarise the lecture notes of week 3" waits for an approval from the
   start: `--es lifeos.test.push approval --es lifeos.test.push_ref
@@ -1356,16 +1383,26 @@ minute:
    `GET /sessions/<id>/queue` lists them.
 3. Tap **Edit** on the first, change it, Save: the row shows the new text.
    Tap **Remove** on the second: it is gone.
-4. When the count is finished the conversation shows "The computer is still
-   working on this…", and a little later the waiting message and its answer.
+4. When the count is finished the waiting message moves from "Waiting to be
+   sent" into the conversation and its answer is written as it arrives, with
+   "Working…" and **Stop** (for a moment before that: "The computer is still
+   working on this…").
 5. Start a long answer again, send a second message, tap **Send now** on it:
    a question says that changes made to files are kept. Confirm: the count
    breaks off ("Stopped. Changes … are kept."), and the second message is
-   answered next.
+   answered next, written as it arrives. On the computer the queue never
+   held the message twice (`GET /sessions/<id>/queue`).
 6. Start a long answer, send a second message and tap **Stop** → confirm:
    the answer breaks off, the second message stays under "Waiting to be
    sent" with "On hold since the run was stopped". **Send them** lets it go
-   on; so does sending another message.
+   on; so does sending another message, or **Send now** on the message
+   (without a question: nothing is running).
+7. With the computer: send "Count slowly from 1 to 60, one number per line",
+   lock the phone while it counts (app lock on "Immediately"), unlock and
+   open the conversation: the numbers so far are there once, and the count
+   goes on being written, with **Stop**. Switch flight mode on for a few
+   seconds during another count: after "The computer is still working on
+   this…" the answer continues where it was.
 
 ### Model, effort and "/" commands
 
@@ -1401,10 +1438,12 @@ minute:
    the phone's app for that kind of file shows it.
 3. Ask for a file larger than the limit (50 MB unless changed), or one
    outside the allowed folders: the card says that it is not sent and why.
-4. Wait 15 minutes (or restart the bridge) and tap the download arrow of an
-   older card: "The computer no longer sends this file…". Lock and unlock
-   the app: the earlier answer shows the file's name with "Ask for this file
-   again".
+4. Lock and unlock the app (or open another session and come back) within
+   15 minutes: the card still has its download arrow, and the download
+   works. Wait until the 15 minutes are over (or restart the bridge) and
+   open the conversation again: the card shows the file's name with "Ask for
+   this file again"; a card that was on screen all the time says "The
+   computer no longer sends this file…" when tapped.
 5. Start a larger download and switch flight mode on: the card says that the
    computer could not be reached, and no partial file is in Downloads.
 

@@ -100,11 +100,13 @@ class RemindersTest {
 
     // ---- which conversation a notification leads to
 
-    private fun sessions() = transport.answer(
-        "GET /sessions",
-        200,
-        """{"sessions":[{"id":"s-1","title":"A","folder":"/home/owner/brain"},{"id":"s-2","title":"B","folder":"/home/owner/project-alpha"},{"id":"c-1","title":"Coach","folder":"/home/owner/brain","pinned":true}],"total":3,"groups":[]}""",
-    )
+    /** Each session is read by itself (#154), not looked up in the list of the newest hundred. */
+    private fun sessions() {
+        transport.answer("GET /sessions/s-1", 200, """{"id":"s-1","title":"A","folder":"/home/owner/brain","followable":false,"queue":[],"queue_paused":null}""")
+        transport.answer("GET /sessions/s-2", 200, """{"id":"s-2","title":"B","folder":"/home/owner/project-alpha"}""")
+        transport.answer("GET /sessions/c-1", 200, """{"id":"c-1","title":"Coach","folder":"/home/owner/brain","pinned":true}""")
+        transport.answer("GET /sessions/s-404", 404, """{"error":"session_not_found"}""")
+    }
 
     @Test
     fun `a fired reminder still leads to its session, with the folder it runs in`() = runTest {
@@ -127,8 +129,10 @@ class RemindersTest {
         transport.answer("GET /coach/chat", 200, """{"session_id":"c-1","started":true}""")
         assertEquals(SessionLookup.Found.Coach, SessionLookup.find(api, "c-1"))
         assertEquals(SessionLookup.Found.Missing, SessionLookup.find(api, "s-404"))
-        transport.fail("GET /sessions", ApiException(ApiException.Kind.NOT_SENT))
+        transport.fail("GET /sessions/s-1", ApiException(ApiException.Kind.NOT_SENT))
         assertEquals(SessionLookup.Found.Unreachable, SessionLookup.find(api, "s-1"))
+        // The list is not asked for at all.
+        assertTrue(transport.calls.none { it.path == "/sessions" })
     }
 
     @Test

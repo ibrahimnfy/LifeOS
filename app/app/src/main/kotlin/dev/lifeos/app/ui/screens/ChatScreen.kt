@@ -64,7 +64,6 @@ import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.Chat
-import dev.lifeos.app.data.ChatEndpoints
 import dev.lifeos.app.data.CommandList
 import dev.lifeos.app.data.Commands
 import dev.lifeos.app.data.Endpoints
@@ -260,11 +259,6 @@ internal fun ColumnScope.ConversationPane(
     if (paired && slash) CommandHelp(commands, draft, state, onPick = { draft = Commands.complete(it) })
     if (paired && modes) {
         val modelChoices = (rememberLoad(core, Endpoints.modelChoices) { false }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
-        val sessions = (rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
-        // A conversation restored after a start learns its model from the session list.
-        LaunchedEffect(sessions, state.sessionId, state.choiceKnown) {
-            if (!state.choiceKnown) sessions?.sessions?.firstOrNull { it.id == state.sessionId }?.let(chat::noteChoice)
-        }
         var pickingModel by rememberSaveable { mutableStateOf(false) }
         // What belongs to this session (#75): its title, group, reminders and reply notifications.
         val change = rememberSessionChange(core)

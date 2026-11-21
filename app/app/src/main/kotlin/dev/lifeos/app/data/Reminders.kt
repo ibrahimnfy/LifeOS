@@ -119,7 +119,8 @@ object SessionLookup {
     }
 
     suspend fun find(api: Api, sessionId: String): Found = try {
-        val listed = api.get(ChatEndpoints.sessions).first.sessions.firstOrNull { it.id == sessionId }
+        // The session itself, read fresh (#154): the list has only the newest hundred.
+        val listed = if (Chat.validId(sessionId)) api.session(sessionId) else null
         when {
             listed == null -> Found.Missing
             // The coach conversation is a session too, with its own screen and rules.
@@ -129,8 +130,8 @@ object SessionLookup {
                 Found.Session(listed, folders.any { it.isMemory && it.path == listed.folder })
             }
         }
-    } catch (_: ApiException) {
-        Found.Unreachable
+    } catch (error: ApiException) {
+        if (error.kind == ApiException.Kind.HTTP && error.code == "session_not_found") Found.Missing else Found.Unreachable
     }
 
     private suspend fun <T> orNull(block: suspend () -> T): T? = try {

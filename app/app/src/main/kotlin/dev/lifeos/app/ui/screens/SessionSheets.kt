@@ -140,13 +140,22 @@ internal fun SessionSheetHost(core: LifeOsCore, sessionId: String?, change: Sess
     val sessions = rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }
     val reminders = rememberLoad(core, ChatEndpoints.reminders)
     val list = (sessions.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
-    val session = list?.sessions?.firstOrNull { it.id == sessionId }
-    val known = (reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty()
-    LaunchedEffect(sessionId) {
-        reminders.refresh()
-        // A conversation that has only just begun is not in the list the screen has.
-        if (session == null) sessions.refresh()
+    // The session itself is read fresh (#154): the list has only the newest hundred, and a
+    // conversation that has only just begun is not in the one the screen has. Until the
+    // computer has answered, the sheet shows what the list knows.
+    val version by core.sessionsVersion.collectAsStateWithLifecycle()
+    val fresh by produceState<SessionSummary?>(null, sessionId, version, locked) {
+        if (!locked) {
+            try {
+                value = core.api.session(sessionId)
+            } catch (_: ApiException) {
+                // Not reached: the list's copy stays.
+            }
+        }
     }
+    val session = fresh ?: list?.sessions?.firstOrNull { it.id == sessionId }
+    val known = (reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty()
+    LaunchedEffect(sessionId) { reminders.refresh() }
     // Sheets are windows of their own: none may be open above the lock screen.
     if (session == null || locked) return
     SessionSheet(core, session, list?.groups.orEmpty(), Reminders.scheduled(known, session.id), change, onDismiss)

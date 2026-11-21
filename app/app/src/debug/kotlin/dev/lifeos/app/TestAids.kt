@@ -192,7 +192,7 @@ object TestAids {
         private val chat by lazy { SampleChat(context) }
 
         override fun events(method: String, path: String, body: JsonElement?, idleTimeoutMillis: Long): Flow<AnswerEvent> =
-            if (sampleData) chat.events(path, body) else real.events(method, path, body, idleTimeoutMillis)
+            if (sampleData) chat.events(method, path, body) else real.events(method, path, body, idleTimeoutMillis)
 
         override suspend fun request(method: String, path: String, query: Map<String, String>, body: JsonElement?, timeoutMillis: Long): RelayResponse {
             if (sampleData) return chat.request(method, path, query, body) ?: sample(method, path, body)

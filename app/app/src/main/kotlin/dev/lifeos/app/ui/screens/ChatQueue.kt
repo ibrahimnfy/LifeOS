@@ -95,8 +95,16 @@ internal fun QueueList(state: ChatState, chat: Chat, locked: Boolean) {
         if (hold != null && state.phase == dev.lifeos.app.data.ChatPhase.IDLE) {
             LinkAction(stringResource(R.string.chat_queue_resume), onClick = chat::resumeQueue)
         }
+        // While nothing runs (the line is on hold) "Send now" interrupts nothing: it is sent without asking.
+        val idle = state.phase == dev.lifeos.app.data.ChatPhase.IDLE
         state.queue.forEach { row ->
-            QueuedRow(row, canInterrupt = state.canStop, onEdit = { editing = row.key }, onRemove = { chat.removeQueued(row.key) }, onSendNow = { sendingNow = row.key })
+            QueuedRow(
+                row,
+                canSendNow = state.canStop || (idle && hold != null),
+                onEdit = { editing = row.key },
+                onRemove = { chat.removeQueued(row.key) },
+                onSendNow = { if (idle) chat.sendNow(row.key) else sendingNow = row.key },
+            )
         }
     }
 
@@ -127,7 +135,7 @@ internal fun QueueList(state: ChatState, chat: Chat, locked: Boolean) {
 }
 
 @Composable
-private fun QueuedRow(row: QueuedMessage, canInterrupt: Boolean, onEdit: () -> Unit, onRemove: () -> Unit, onSendNow: () -> Unit) {
+private fun QueuedRow(row: QueuedMessage, canSendNow: Boolean, onEdit: () -> Unit, onRemove: () -> Unit, onSendNow: () -> Unit) {
     val colors = LifeTheme.colors
     Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
         Text(text = row.prompt, style = LifeType.body, color = colors.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -140,7 +148,7 @@ private fun QueuedRow(row: QueuedMessage, canInterrupt: Boolean, onEdit: () -> U
             )
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                if (canInterrupt) LinkAction(stringResource(R.string.chat_send_now), onClick = onSendNow)
+                if (canSendNow) LinkAction(stringResource(R.string.chat_send_now), onClick = onSendNow)
                 LinkAction(stringResource(R.string.note_edit), onClick = onEdit)
                 LinkAction(stringResource(R.string.chat_queue_remove), onClick = onRemove)
             }
