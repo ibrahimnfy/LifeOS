@@ -71,6 +71,8 @@ class CommandsTest {
         assertEquals(0, Commands.recognisedLength(list, "/summar"))
         assertEquals(0, Commands.recognisedLength(list, "please /summarise"))
         assertEquals(0, Commands.recognisedLength(null, "/summarise"))
+        // Where the folder's skills are not enabled for the session nothing is highlighted either.
+        assertEquals(0, Commands.recognisedLength(list.copy(enabled = false), "/summarise notes.md"))
         assertTrue(Commands.unknown(list, "/other thing"))
         assertFalse(Commands.unknown(list, "/summarise x"))
         assertFalse(Commands.unknown(list, "a path like /usr/bin"))

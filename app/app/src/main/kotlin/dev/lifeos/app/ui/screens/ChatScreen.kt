@@ -201,6 +201,8 @@ internal fun ColumnScope.ConversationPane(
         val before = heightBefore ?: return@LaunchedEffect
         heightBefore = null
         val after = withTimeoutOrNull(1_000) { snapshotFlow { scroll.maxValue }.first { it != before } } ?: return@LaunchedEffect
+        // A drag or fling that is still going on would cancel the correction: it comes right after.
+        snapshotFlow { scroll.isScrollInProgress }.first { !it }
         scroll.scrollTo(scroll.value + (after - before))
     }
     LaunchedEffect(state.generation, state.messages.lastOrNull()?.key, state.interactions.size) { follow = true }

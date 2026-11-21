@@ -217,11 +217,12 @@ class Api(private val transport: Transport) {
 
     /**
      * Let a queue that is on hold go on. The computer answers only when the first waiting
-     * message has been answered, which takes as long as a run: the caller does not wait for
-     * that (a missing answer is the normal case) and asks for the state afterwards.
+     * message has been answered, which takes as long as a run: the caller starts this without
+     * waiting for it and asks for the state meanwhile. Hence the long limit (a short one would
+     * count every use as "the computer did not answer") and no place in chat's lane.
      */
     suspend fun resumeQueue(sessionId: String) {
-        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, RESUME_TIMEOUT_MILLIS)
+        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, CHAT_IDLE_MILLIS)
     }
 
     /** Whether the computer is working on the session right now, and what waits behind that. */
@@ -262,7 +263,6 @@ class Api(private val transport: Transport) {
          * limits for one run (5 minutes) and for one question to the owner (10 minutes).
          */
         const val CHAT_IDLE_MILLIS = 11 * 60_000L
-        const val RESUME_TIMEOUT_MILLIS = 6_000L
         const val READ_TIMEOUT_MILLIS = 20_000L
         const val WRITE_TIMEOUT_MILLIS = 20_000L
         const val PLAN_TIMEOUT_MILLIS = 240_000L

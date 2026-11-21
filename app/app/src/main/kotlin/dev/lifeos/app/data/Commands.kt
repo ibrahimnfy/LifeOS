@@ -57,9 +57,12 @@ object Commands {
         return list?.commands?.firstOrNull { it.name == name }
     }
 
-    /** How many characters at the start of the message are the recognised command (for highlighting); 0 if none. */
+    /**
+     * How many characters at the start of the message are a command the session can use (for
+     * highlighting); 0 if none, and 0 where the folder's skills are not enabled for the session.
+     */
     fun recognisedLength(list: CommandList?, draft: String): Int =
-        if (recognised(list, draft) == null) 0 else FIRST_WORD.find(draft)?.value?.length ?: 0
+        if (list?.enabled != true || recognised(list, draft) == null) 0 else FIRST_WORD.find(draft)?.value?.length ?: 0
 
     /** A message that starts like a command ("/word") without being one of the folder's. */
     fun unknown(list: CommandList?, draft: String): Boolean = FIRST_WORD.find(draft) != null && recognised(list, draft) == null

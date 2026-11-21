@@ -211,7 +211,7 @@ private fun ColumnScope.Question(interaction: Interaction, open: Boolean, onAnsw
         Text(text = question.question, style = LifeType.rowTitle, color = colors.text)
         // Afterwards the card keeps what was answered.
         val given = interaction.answers[question.question].orEmpty()
-        if (!open && given.isNotEmpty()) {
+        if (given.isNotEmpty() && (interaction.status == Interaction.Status.SENDING || interaction.status == Interaction.Status.ANSWERED)) {
             Text(text = stringResource(R.string.question_your_answer, given.joinToString(", ")), style = LifeType.body, color = colors.text)
         }
         if (open) {

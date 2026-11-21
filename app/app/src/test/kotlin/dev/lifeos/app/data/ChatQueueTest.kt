@@ -353,11 +353,17 @@ class ChatQueueTest {
         assertEquals(ChatPhase.IDLE, chat.state.value.phase)
 
         // "Send them": the computer answers only when the first one is done, so the app does not wait for it.
-        transport.fail("POST /sessions/s-1/queue/resume", ApiException(ApiException.Kind.UNCERTAIN))
+        val resumed = CompletableDeferred<Unit>()
+        transport.answers["POST /sessions/s-1/queue/resume"] = {
+            resumed.complete(Unit)
+            throw ApiException(ApiException.Kind.UNCERTAIN)
+        }
         queue(true)
         chat.resumeQueue()
         assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
         assertNull(chat.state.value.queueHold)
+        runCurrent()
+        assertTrue(resumed.isCompleted)
         advanceUntilIdle()
         assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
         assertTrue(chat.state.value.queue.isEmpty())

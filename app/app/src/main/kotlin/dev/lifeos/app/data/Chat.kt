@@ -710,9 +710,10 @@ class Chat(
         if (state.queueHold == null || state.queue.isEmpty() || state.phase != ChatPhase.IDLE) return
         val generation = state.generation
         change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), queueHold = null, failure = null, interactions = emptyList()) }
+        // The answer to this comes only when the first waiting message is done: not waited for.
+        launchSide { attempt { api.resumeQueue(id) } }
         launchSide {
-            // No answer within a few seconds is the normal case (see Api.resumeQueue).
-            attempt { api.resumeQueue(id) }
+            delay(RESUME_LOOK_MILLIS)
             read(generation, id, wholeThread = false)
         }
     }
@@ -1128,6 +1129,9 @@ class Chat(
 
         /** How long the answer may take to say that it was stopped before the app asks instead. */
         private const val STOP_WAIT_MILLIS = 12_000L
+
+        /** How long after "Send them" the app first looks whether the line moves. */
+        private const val RESUME_LOOK_MILLIS = 3_000L
         private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[file:[^\\n]*]][ \\t]*\\n?")
         private val FILE_PATH = Regex("(?m)^[ \\t]*\\[\\[file:([^\\n]*?)]][ \\t]*$")
 
