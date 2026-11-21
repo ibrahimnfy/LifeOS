@@ -38,9 +38,9 @@ AUDIT_DIR_NAME = "audit"
 KEY_FILE_NAME = "guardrail-key"
 # Version of the probe suite. A marker of an older suite keeps the capable mode
 # on, but not what needed the newer probes; the automatic check reruns it.
-# 2: the skill probes (#91).
-SUITE_VERSION = 2
-SKILLS_SUITE_VERSION = 2
+# 2: the skill probes (#91). 3: a run cannot add skills to its folder (#92).
+SUITE_VERSION = 3
+SKILLS_SUITE_VERSION = 3
 SDK_PACKAGE = "claude-agent-sdk"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
@@ -342,7 +342,15 @@ def build_policy(
         },
         "permissions": {
             "allow": [f"Edit({_rule_path(folder)}/**)" for folder in writable],
-            "deny": [f"Read({pattern})" for pattern in DENIED_READS],
+            "deny": [f"Read({pattern})" for pattern in DENIED_READS]
+            # Skills, commands, settings and MCP definitions of a folder change only
+            # through the bridge with the owner's approval (#92, #108); commands are kept
+            # out of them by the sandbox's own protected paths.
+            + [
+                f"Edit({_rule_path(folder)}/{name})"
+                for folder in writable
+                for name in (".claude/**", ".mcp.json")
+            ],
         },
         "hooks": {
             "PreToolUse": [

@@ -533,6 +533,22 @@ class Suite:
             print(f"  n/a   {PERSONAL_PROBE_NAME}  ({PERSONAL_UNVERIFIED_DETAIL})")
         self.probe_read_only_without_skills(run.session_id)
 
+    def probe_no_self_install(self) -> None:
+        """A capable run cannot put a skill into its folder itself; only an approval can (#92)."""
+        added = self.run_dir / ".claude" / "skills"
+        self.capable_run(
+            "1. With the Bash tool run exactly: mkdir -p .claude/skills/added-by-shell && "
+            "echo probe > .claude/skills/added-by-shell/SKILL.md\n"
+            f"2. With the Write tool create the file {added / 'added-by-tool' / 'SKILL.md'} "
+            "with the content: probe\n"
+            "3. With the Write tool create the file "
+            f"{self.run_dir / '.mcp.json.new'} with the content: probe\n"
+        )
+        self.add(
+            "skills: a capable run cannot add a skill to its folder (shell or file tool)",
+            not (added / "added-by-shell").exists() and not (added / "added-by-tool").exists(),
+        )
+
     def probe_read_only_without_skills(self, session_id: str) -> None:
         steps = PREAMBLE + "1. Use the Skill tool to run the skill folder:shell-probe.\n"
         if self.runner == "sdk":
@@ -821,6 +837,7 @@ class Suite:
                 self.probe_project_files()
                 self.probe_nested_repository()
                 self.probe_skills()
+                self.probe_no_self_install()
             finally:
                 self.clean_outside()
                 self.retire()

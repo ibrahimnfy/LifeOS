@@ -302,12 +302,13 @@ Subfolders of the memory folder are fine. Details:
 - **Plan usage of one restart:** a runner needs a check after an update of
   Claude Code or the Agent SDK, after a new version of the probe suite (the
   skill probes of #91 are suite version 2), or when it was never checked.
-  - The `claude -p` suite takes about 10 short runs on the small model per
+  - The `claude -p` suite takes about 11 short runs on the small model per
     environment.
-  - The SDK suite takes about 14 per environment, because it adds the
+  - The SDK suite takes about 15 per environment, because it adds the
     approval probes.
-  - Both runners in both environments come to **about 48 short runs**. The
-    skill probes add 8 of these (2 runs per environment and runner).
+  - Both runners in both environments come to **about 52 short runs**. The
+    skill probes of #91 and #92 add 12 of these (3 runs per environment and
+    runner).
     Probes without a model run (invalid settings, nested folders) are not
     counted.
   - A restart where both markers still match costs nothing.
@@ -643,6 +644,40 @@ with a prompt such as "Use the question tool to ask me Red or Blue, then
 say what I chose". An `interaction` event appears. Answer it with the POST
 above, and the reply names the choice. Without `"stream": true` the same
 prompt is answered with a plain-text question.
+
+### Skill installs (#92)
+
+A capable run can propose a skill for its folder with a line of its own,
+`[[skill-install: https://…]]` (a `SKILL.md`, `.zip` or `.tar.gz`). The
+bridge removes the line from the answer and lists the proposal in the
+`done` event: `"skill_installs": [card]`. It downloads the source into a
+quarantine in the private settings folder, and the card then appears among
+the session's pending approvals:
+
+```json
+{"id": "a1b2c3d4e5f6", "kind": "skill_install", "session_id": "…",
+ "folder": "…", "source": "https://…/SKILL.md", "state": "ready",
+ "name": "tidy", "target": "<folder>/.claude/skills/tidy",
+ "description": "Tidy the notes.",
+ "warnings": ["shell_lines", "requests_tools", "has_scripts"],
+ "files": [{"path": "SKILL.md", "size": 812}], "total_size": 812,
+ "created_at": "…", "expires_at": "…"}
+```
+
+- `state` is `downloading` (wait), `ready` (can be approved), or `failed`
+  with an `error` sentence (it can only be refused). A proposal from a
+  non-HTTPS source is answered at once, in the `done` card, with
+  `"state": "refused"`.
+- `GET /sessions/{id}/interactions` lists it next to the questions and
+  approvals of a running turn. `POST /sessions/{id}/interactions/{iid}`
+  answers it with `{"approve": true|false}`. The reply is
+  `{"answered": true, "id": …, "installed": true|false, "name", "target"}`.
+  A missing or expired proposal answers `404 not_pending`, an existing skill
+  of the same name `409 skill_exists`, and an unwritable audit log
+  `503 audit_unavailable`.
+- Paired phones get a sealed `approval` push hint. Proposals wait 24 hours
+  (also across bridge restarts); after that they count as refused.
+- Details and limits: `permission-policy.md`, section 9.4.
 
 ### Model and effort
 

@@ -370,6 +370,42 @@ target folder, and only the owner's explicit approval copies it into the
 session folder's `.claude/skills/`. Every proposal, approval and refusal is
 in the audit log. Installs are per folder, never global.
 
+**Built (#92):**
+
+- **Proposal.** Only a capable run can propose. It writes a line of its own
+  in the form `[[skill-install: https://…]]`, naming a `SKILL.md`, a `.zip`
+  or a `.tar.gz`. Only HTTPS is accepted, and redirects only to HTTPS. The
+  line becomes an approval card. A read-only run's line stays plain text.
+- **Quarantine.** The bridge downloads the source into
+  `skill-quarantine/<id>/` in the private settings folder, which no run can
+  read or write, and loads or executes nothing there. It refuses:
+  - archives with links, absolute or `..` paths;
+  - more than 5 MB in total, more than 1 MB per file, or more than 100
+    files;
+  - a source without `SKILL.md` at the top;
+  - a name that is not a plain name;
+  - an existing skill of the same name (nothing is replaced).
+- **Approval** through the same approval card as #105 (`kind:
+  "skill_install"`). The card shows the source, the files with sizes, the
+  description, warnings (`shell_lines`, `requests_tools`, `has_scripts`)
+  and the target `<folder>/.claude/skills/<name>/`.
+  - Only `{"approve": true}` copies the files. They become plain files,
+    never executable.
+  - The approval is written to the audit log before anything is copied; if
+    the log cannot be written, nothing is installed.
+  - A refusal, or no answer within 24 hours, removes the quarantine.
+  - Proposed, ready or failed, approved, refused and expired are all in the
+    audit log, without a session id at the top level, so they never count
+    as a run's tool calls.
+- **No install around the approval.** Capable runs deny Claude Code's file
+  tools every write to a folder's `.claude/**` and `.mcp.json` (permission
+  rules). The sandbox keeps commands out of `.claude/skills`, `commands`,
+  `agents`, `hooks`, the settings files and `.mcp.json` by its own
+  protected paths.
+  - New probe (suite version 3): a capable run tries to add a skill by
+    shell and by file tool; neither may exist afterwards.
+  - Session skills need a marker of suite version 3.
+
 ### 9.5 Sending files to the phone
 
 Only regular files inside the allowed folders or the memory folder, after
@@ -484,9 +520,10 @@ is off until they pass, and the owner is notified".
     check does.
 - **Notified** at the start and at the end (passed, failed, incomplete),
   with fixed texts that carry no versions, paths or results.
-- **Plan usage:** about 20 short runs on the small model for the `claude -p`
-  runner and about 28 for the SDK runner (both environments), so about 48
-  when one restart checks both (suite version 2, with the skill probes).
+- **Plan usage:** about 22 short runs on the small model for the `claude -p`
+  runner and about 30 for the SDK runner (both environments), so about 52
+  when one restart checks both (suite version 3: the skill probes and the
+  self-install probe).
 
 ### 9.9 Folders inside another git repository (owner, #139)
 
