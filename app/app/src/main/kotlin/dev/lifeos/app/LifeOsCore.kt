@@ -643,13 +643,14 @@ class LifeOsCore(private val app: Application) {
     /**
      * Change a task's title and date ([due] null: no date). Shown changed at once (see
      * [TaskLists.open]). A task made on this phone that has not left it yet (#167) simply
-     * leaves with the new title and date; one on its way gets the edit right after it.
+     * leaves with the new title and date; one on its way, or one that may have arrived already
+     * (an attempt without an answer), gets the edit right after it.
      */
     suspend fun editTask(task: Task, title: String, due: String?): Boolean {
         val id = taskIdNow(task.id)
         if (LocalItems.isWaiting(id)) {
             val own = id.removePrefix(LocalItems.PREFIX)
-            if (outbox.revise(own, title, due)) return sendWaiting(own)
+            if (outbox.revise(own, title, due, unsentOnly = true)) return sendWaiting(own)
         }
         val waiting = TaskLists.pendingEdit(id, outbox.items.value)
         if (waiting != null && outbox.revise(waiting.id, title, due)) return sendWaiting(waiting.id)

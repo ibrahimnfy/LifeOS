@@ -2,6 +2,7 @@ package dev.lifeos.app.data
 
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -110,6 +111,41 @@ class TaskTapTest {
         assertEquals(3, outbox.drain())
         assertEquals(listOf("add Sample, changed 2027-01-21", "COMPLETE t-20270115-09", "TASK_EDIT t-20270115-09"), sent)
         assertTrue(outbox.items.value.isEmpty())
+    }
+
+    @Test
+    fun `a waiting task that may have arrived already keeps its title, and the edit follows it`() = runTest {
+        val sent = mutableListOf<String>()
+        var lost = true
+        lateinit var outbox: Outbox
+        outbox = Outbox(OutboxStore(File(folder.root, "outbox.json")), { 0L }) { item ->
+            when (item.kind) {
+                OutboxItem.Kind.TASK -> {
+                    // The first attempt arrives, but its answer is lost; the repeat is answered with the stored task.
+                    sent += "add ${item.text}"
+                    if (lost) {
+                        lost = false
+                        throw ApiException(ApiException.Kind.UNCERTAIN)
+                    }
+                    outbox.retarget(LocalItems.PREFIX + item.id, "t-20270115-09")
+                }
+                OutboxItem.Kind.TASK_EDIT -> when (val to = LocalItems.sendTo(item.taskId!!, emptyMap(), emptyList(), outbox.items.value)) {
+                    is LocalItems.SendTo.Computer -> sent += "edit ${to.id} ${item.text}"
+                    LocalItems.SendTo.Later -> throw ApiException(ApiException.Kind.NOT_SENT)
+                    LocalItems.SendTo.Nowhere -> Unit
+                }
+                else -> Unit
+            }
+        }
+        outbox.add(newTask())
+        outbox.drain()
+        assertEquals(OutboxItem.State.WAITING, outbox.items.value.single().state)
+        // The computer may hold it under its first title: it is not changed in place (a repeat with
+        // another title would be refused), the edit waits behind it instead.
+        assertFalse(outbox.revise(phoneId, "Sample, changed", null, unsentOnly = true))
+        outbox.add(OutboxItem("edit-0000000000000001", OutboxItem.Kind.TASK_EDIT, 1, text = "Sample, changed", taskId = localId))
+        assertEquals(2, outbox.drain())
+        assertEquals(listOf("add Sample", "add Sample", "edit t-20270115-09 Sample, changed"), sent)
     }
 
     @Test

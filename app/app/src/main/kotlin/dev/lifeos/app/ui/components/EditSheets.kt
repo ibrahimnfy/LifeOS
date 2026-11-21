@@ -66,89 +66,88 @@ fun TaskSheet(
     onSave: (String, String?) -> Unit,
     onDone: () -> Unit,
 ) {
+    val colors = LifeTheme.colors
     var editing by rememberSaveable { mutableStateOf(false) }
-    if (editing) {
-        TaskForm(title, due, onDismiss, onSave, onCancel = { editing = false })
-        return
-    }
-    val colors = LifeTheme.colors
-    EditSheetFrame(title, onDismiss) {
-        if (look != null && lookName != null) CourseLabel(look, lookName)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(LifeIcons.Calendar, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
-            Text(
-                text = due?.let { stringResource(R.string.capture_due, dueLabel(it) ?: it) } ?: stringResource(R.string.capture_due_none),
-                style = LifeType.body,
-                color = colors.text,
-            )
-            if (overdue) {
-                Box(Modifier.size(6.dp).background(colors.badge, CircleShape))
-                Text(stringResource(R.string.task_overdue), style = LifeType.label, color = colors.text)
-            }
-        }
-        if (waiting) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(LifeIcons.Clock, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
-                Text(stringResource(R.string.outbox_waiting), style = LifeType.small, color = colors.muted)
-            }
-        }
-        note?.trim()?.takeIf { it.isNotEmpty() }?.let { text ->
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.surface)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                Text(stringResource(R.string.task_next), style = LifeType.label, color = colors.muted)
-                Text(text, style = LifeType.body, color = colors.text)
-            }
-        }
-        PrimaryButton(text = stringResource(R.string.task_edit_done), onClick = onDone)
-        SecondaryButton(text = stringResource(R.string.task_edit), onClick = { editing = true })
-    }
-}
-
-/** The card's edit state: the title and the due date. [onCancel] goes back to the card. */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TaskForm(title: String, due: String?, onDismiss: () -> Unit, onSave: (String, String?) -> Unit, onCancel: () -> Unit) {
-    val colors = LifeTheme.colors
+    // The form's values; Cancel puts them back.
     var text by rememberSaveable { mutableStateOf(title) }
     var day by rememberSaveable { mutableStateOf(due) }
     var picking by rememberSaveable { mutableStateOf(false) }
     val changed = text.trim() != title || day != due
 
-    EditSheetFrame(stringResource(R.string.task_edit_title), onDismiss) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it.replace("\n", " ").take(MAX_TITLE) },
-            label = { Text(stringResource(R.string.task_edit_field)) },
-            singleLine = true,
-            textStyle = LifeType.body,
-            shape = RoundedCornerShape(16.dp),
-            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-            colors = fieldColors(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SecondaryButton(
-                text = day?.let { stringResource(R.string.capture_due, dueLabel(it) ?: it) } ?: stringResource(R.string.capture_due_none),
-                onClick = { picking = true },
-                modifier = Modifier.weight(1f),
+    // One sheet: Edit changes what it shows, so the card does not close and open again.
+    EditSheetFrame(if (editing) stringResource(R.string.task_edit_title) else title, onDismiss) {
+        if (editing) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it.replace("\n", " ").take(MAX_TITLE) },
+                label = { Text(stringResource(R.string.task_edit_field)) },
+                singleLine = true,
+                textStyle = LifeType.body,
+                shape = RoundedCornerShape(16.dp),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                colors = fieldColors(),
+                modifier = Modifier.fillMaxWidth(),
             )
-            if (day != null) {
-                SecondaryButton(text = stringResource(R.string.capture_due_clear), onClick = { day = null }, modifier = Modifier.weight(0.6f))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SecondaryButton(
+                    text = day?.let { stringResource(R.string.capture_due, dueLabel(it) ?: it) } ?: stringResource(R.string.capture_due_none),
+                    onClick = { picking = true },
+                    modifier = Modifier.weight(1f),
+                )
+                if (day != null) {
+                    SecondaryButton(text = stringResource(R.string.capture_due_clear), onClick = { day = null }, modifier = Modifier.weight(0.6f))
+                }
             }
+            PrimaryButton(
+                text = stringResource(R.string.capture_save),
+                enabled = text.isNotBlank() && changed,
+                onClick = { onSave(text.trim(), day) },
+            )
+            SecondaryButton(
+                text = stringResource(R.string.action_cancel),
+                onClick = {
+                    text = title
+                    day = due
+                    editing = false
+                },
+            )
+            Text(stringResource(R.string.task_edit_hint), style = LifeType.small, color = colors.muted)
+        } else {
+            if (look != null && lookName != null) CourseLabel(look, lookName)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(LifeIcons.Calendar, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
+                Text(
+                    text = due?.let { stringResource(R.string.capture_due, dueLabel(it) ?: it) } ?: stringResource(R.string.capture_due_none),
+                    style = LifeType.body,
+                    color = colors.text,
+                )
+                if (overdue) {
+                    Box(Modifier.size(6.dp).background(colors.badge, CircleShape))
+                    Text(stringResource(R.string.task_overdue), style = LifeType.label, color = colors.text)
+                }
+            }
+            if (waiting) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(LifeIcons.Clock, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
+                    Text(stringResource(R.string.outbox_waiting), style = LifeType.small, color = colors.muted)
+                }
+            }
+            note?.trim()?.takeIf { it.isNotEmpty() }?.let { next ->
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.surface)
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(stringResource(R.string.task_next), style = LifeType.label, color = colors.muted)
+                    Text(next, style = LifeType.body, color = colors.text)
+                }
+            }
+            PrimaryButton(text = stringResource(R.string.task_edit_done), onClick = onDone)
+            SecondaryButton(text = stringResource(R.string.task_edit), onClick = { editing = true })
         }
-        PrimaryButton(
-            text = stringResource(R.string.capture_save),
-            enabled = text.isNotBlank() && changed,
-            onClick = { onSave(text.trim(), day) },
-        )
-        SecondaryButton(text = stringResource(R.string.action_cancel), onClick = onCancel)
-        Text(stringResource(R.string.task_edit_hint), style = LifeType.small, color = colors.muted)
     }
 
     if (picking) {
