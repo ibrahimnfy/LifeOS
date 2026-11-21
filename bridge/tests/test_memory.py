@@ -181,10 +181,18 @@ def test_agenda_uses_the_local_date_not_utc(monkeypatch, brain):
     ]
 
 
-def test_ask_in_the_memory_folder_starts_with_the_memory(client, auth, brain, calls):
+def test_only_the_coach_conversation_starts_with_the_memory(client, auth, brain, calls):
+    """Clean chats (#163): a new conversation gets no memory text, not even one started
+    in the memory folder; the coach conversation keeps its full personal context."""
     (brain / "profile.md").write_text("## Facts\n- [owner 2027-01-01] Prefers short answers.\n")
     memory.add_task(brain, {"title": "Visible task"})
     assert client.post("/ask", headers=auth, json={"prompt": "hello"}).status_code == 200
+    args = calls()[-1]["args"]
+    context = args[args.index("--append-system-prompt") + 1]
+    assert "Prefers short answers." not in context and "Visible task" not in context
+    assert "=====" not in context and "--add-dir" not in args
+    coach = client.post("/coach/chat/messages", headers=auth, json={"prompt": "hello"})
+    assert coach.status_code == 200
     args = calls()[-1]["args"]
     context = args[args.index("--append-system-prompt") + 1]
     assert "Prefers short answers." in context and "Visible task" in context

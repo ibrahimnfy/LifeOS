@@ -44,10 +44,14 @@ KEY_FILE_NAME = "guardrail-key"
 # (recorded as inconclusive, the check counts as not run) from a guardrail that
 # held or broke; the escape probe targets a file outside the sandbox (#106).
 # Each runner reruns only when its own suite changed.
-SUITE_VERSIONS = {"cli": 4, "sdk": 5}
+# cli 5 / sdk 6: a blank chat's folder as the run folder (#163), together with the
+# changed skill and MCP probes of #162.
+SUITE_VERSIONS = {"cli": 5, "sdk": 6}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
+# The first suite of each runner that probes a chat folder as the run folder (#163).
+CHAT_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
 SDK_PACKAGE = "claude-agent-sdk"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
@@ -194,7 +198,16 @@ async def check_available(
         raise unavailable(
             "the Agent SDK was updated since the guardrail check; run scripts/verify-guardrails"
         )
-    if run_dir is not None and marker.get("scope") != "all_allowed_folders":
+    if run_dir is not None and _is_chat_folder(settings, run_dir):
+        # A blank chat's folder (#163): only after a check whose chat-folder probes passed.
+        version = marker.get("suite_version")
+        probed = isinstance(version, int) and version >= CHAT_SUITE_VERSIONS[runner]
+        if not probed or marker.get("chat_folders") is not True:
+            raise unavailable(
+                "the guardrail check has not covered chat folders yet (it reruns by itself "
+                "at the next start of the bridge)"
+            )
+    elif run_dir is not None and marker.get("scope") != "all_allowed_folders":
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
         if folder != memory and not folder.is_relative_to(memory):
             raise unavailable("the guardrail check covers runs in the memory folder only so far")
@@ -266,6 +279,12 @@ def skills_unavailable() -> ClaudeError:
         "passed (it runs by itself at the next start of the bridge); switch skills off for "
         "this session to work without them",
     )
+
+
+def _is_chat_folder(settings: Settings, folder: Path) -> bool:
+    from . import chats  # local: chats needs this module
+
+    return chats.is_chat_folder(settings, folder)
 
 
 def suite_version(runner: str) -> int:
@@ -347,11 +366,22 @@ def build_policy(
     ``mcp``: the folder's approved, unchanged MCP servers (``mcp_servers.for_run``),
     passed explicitly with permission to call their tools; they run outside the
     sandbox by the owner's approval (#108).
+
+    A blank chat's folder (#163) is accepted like an allowed folder, with the same
+    guardrails: the run may write its own chat folder and the memory folder, and
+    read the allowed folders; the chat root and every other chat stay out of reach.
     """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
     roots = settings.allowed_roots
-    if not any(run_dir == root or run_dir.is_relative_to(root) for root in roots):
+    is_chat = _is_chat_folder(settings, run_dir)
+    if is_chat:
+        from . import chats  # local: chats needs this module
+
+        reason = chats.root_refusal(settings)
+        if reason is not None:
+            raise chats.unusable(reason)
+    elif not any(run_dir == root or run_dir.is_relative_to(root) for root in roots):
         raise ClaudeError("folder_not_allowed", 403, "this folder is not an allowed folder")
     for folder in (run_dir, memory):
         reason = refusal_reason(folder)
@@ -417,6 +447,7 @@ def build_policy(
         add_dirs=tuple(folder for folder in writable if folder != run_dir),
         skills_dir=skills_dir,
         mcp_config=mcp_config,
+        clean=is_chat,  # a blank chat: no memory file of any level is loaded
     )
 
 

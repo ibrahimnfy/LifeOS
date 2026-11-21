@@ -2,7 +2,11 @@
 """Stand-in for the ``claude`` command, used by the tests.
 
 Records how it was called in ``.fake-claude-calls.jsonl`` (in the working
-directory) and behaves according to the first word of the prompt:
+directory; for a blank chat's folder, a folder under ``LifeOS-Chats``, in
+``~/.fake-claude-chat-calls.jsonl``, because the real CLI leaves nothing in the
+working directory either) and behaves according to the first word of the prompt:
+
+  FAKE_WRITE <name> creates the file <name> in the working directory, then answers
 
   FAKE_SLEEP        never answers (ignores SIGINT, so the caller must escalate)
   FAKE_ERROR        answers with an error result
@@ -21,6 +25,9 @@ import time
 from pathlib import Path
 
 args = sys.argv[1:]
+CALL_LOG = ".fake-claude-calls.jsonl"
+if Path.cwd().parent.name == "LifeOS-Chats":
+    CALL_LOG = str(Path.home() / ".fake-claude-chat-calls.jsonl")
 
 if args == ["--version"]:
     print("fake-claude 1.0")
@@ -61,7 +68,7 @@ def sdk_mode():
     transcript = project / f"{session_id}.jsonl"
 
     def log(entry):
-        with open(".fake-claude-calls.jsonl", "a") as handle:
+        with open(CALL_LOG, "a") as handle:
             handle.write(json.dumps({"pid": os.getpid(), "cwd": os.getcwd(), **entry}) + "\n")
 
     def emit(obj):
@@ -128,6 +135,8 @@ def sdk_mode():
         if prompt.startswith("FAKE_SLEEP"):
             working = "sleep"
             continue
+        if prompt.startswith("FAKE_WRITE "):
+            Path(prompt.split()[1]).write_text("made by the run\n")
         if prompt.startswith("FAKE_HANG"):
             signal.signal(signal.SIGINT, signal.SIG_IGN)
             working = "hang"
@@ -198,7 +207,7 @@ resume = option("--resume")
 session_id = resume or option("--session-id") or "00000000-0000-4000-8000-000000000000"
 streaming = option("--output-format") == "stream-json"
 
-with open(".fake-claude-calls.jsonl", "a") as log:
+with open(CALL_LOG, "a") as log:
     log.write(
         json.dumps({"args": args, "prompt": prompt, "env": dict(os.environ), "cwd": os.getcwd()})
         + "\n"
@@ -219,6 +228,8 @@ if prompt.startswith("FAKE_SLEEP"):
 if prompt.startswith("FAKE_CRASH"):
     print("something broke", file=sys.stderr)
     sys.exit(1)
+if prompt.startswith("FAKE_WRITE "):
+    Path(prompt.split()[1]).write_text("made by the run\n")
 if prompt.startswith("FAKE_GARBAGE"):
     print("this is not json")
     sys.exit(0)

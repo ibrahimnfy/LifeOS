@@ -1,5 +1,6 @@
 """scripts/ask against a real bridge instance (with the fake claude)."""
 
+import json
 import socket
 import subprocess
 import sys
@@ -53,13 +54,16 @@ def test_health(bridge):
     assert TEST_TOKEN not in result.stdout + result.stderr
 
 
-def test_ask_and_continue(bridge, calls):
+def test_ask_and_continue(bridge, tmp_path):
     first = ask("hello", "there")
     assert first.returncode == 0 and first.stdout == "echo: hello there\n"
     second = ask("-c", "again")
     assert second.returncode == 0 and second.stdout == "echo: again\n"
-    recorded = calls()
-    assert "--resume" in recorded[1]["args"]
+    # A new question from the terminal is a blank chat: it ran in a folder of its own.
+    log = tmp_path / "home" / ".fake-claude-chat-calls.jsonl"
+    recorded = [json.loads(line) for line in log.read_text().splitlines()]
+    assert "--resume" in recorded[1]["args"] and recorded[0]["cwd"] == recorded[1]["cwd"]
+    assert Path(recorded[0]["cwd"]).parent == tmp_path / "home" / "LifeOS-Chats"
 
 
 def test_prompt_from_stdin_and_stream(bridge):

@@ -134,9 +134,9 @@ UNSANDBOXED_NOTE = (
 )
 
 
-def child_env(*, capable: bool = False) -> dict[str, str]:
+def child_env(*, capable: bool = False, clean: bool = False) -> dict[str, str]:
     """The allow-listed environment of every run, plus the SDK's protocol markers."""
-    return {**claude.child_env(capable=capable), **SDK_ENV}
+    return {**claude.child_env(capable=capable, clean=clean), **SDK_ENV}
 
 
 def build_command(
@@ -378,7 +378,7 @@ class LiveSession:
             policy=launch.policy,
             advisor=launch.advisor,
         )
-        env = child_env(capable=launch.policy.capable)
+        env = child_env(capable=launch.policy.capable, clean=launch.policy.clean)
         self.transport = InstalledCLITransport(command, launch.cwd, env)
         # The options are not applied to a custom transport (the command above
         # is); they only state the binary and folder for anyone reading them.

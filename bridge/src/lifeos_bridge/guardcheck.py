@@ -60,7 +60,9 @@ ORDER = ("cli", "sdk")
 # Probes that need no model (invalid settings, nested folders) are not counted.
 # Suite version 2 (#91) added two skill runs (the skill probes, then read-only);
 # version 3 (#92) one more (a run trying to add a skill to its folder).
-PLAN_RUNS = {"cli": 11, "sdk": 15}
+# The chat-folder probes (#163) add three per runner: a shell run, a file-tool run and a
+# read-only run in a blank chat's folder.
+PLAN_RUNS = {"cli": 14, "sdk": 18}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 

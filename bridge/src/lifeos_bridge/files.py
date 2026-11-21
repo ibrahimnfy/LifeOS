@@ -67,7 +67,8 @@ def release_refusal(settings: Settings, path: Path) -> str | None:
 
 def refusal(settings: Settings, path: Path) -> str | None:
     """Why this file may not be sent, or None. ``path`` must already be resolved."""
-    roots = settings.allowed_roots
+    # The allowed folders, and the blank chats' folders (a chat offers what it made).
+    roots = settings.session_roots
     root = next((r for r in roots if path == r or path.is_relative_to(r)), None)
     if root is None:
         return "outside the allowed folders"

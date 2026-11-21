@@ -49,3 +49,4 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["blank_chats: first messages are sent as written (no folder means a blank chat)"]
