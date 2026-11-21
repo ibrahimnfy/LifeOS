@@ -561,6 +561,93 @@
     <string name="sessions_working">Çalışıyor</string>
     <string name="sessions_untitled">Adsız oturum</string>
 
+    <!-- Sessions: groups, rename and pin (#74) -->
+    <string name="session_menu">Bu oturumla ilgili diğer işlemler</string>
+    <string name="session_rename">Yeniden adlandır</string>
+    <string name="session_rename_field">Başlık</string>
+    <string name="session_rename_reset">Bilgisayarın bulduğu başlığı kullan</string>
+    <string name="session_pin">Sabitle</string>
+    <string name="session_unpin">Sabitlemeyi kaldır</string>
+    <string name="session_move">Bir gruba taşı</string>
+    <string name="session_move_none">Grup yok</string>
+    <string name="session_move_none_note">Klasörünün altında listelenir</string>
+    <string name="sessions_groups">Gruplar</string>
+    <string name="sessions_groups_none">Henüz grup yok. Birbirine ait oturumları bir arada tutmak için bir grup oluştur.</string>
+    <string name="sessions_group_empty">Bu grupta henüz oturum yok. Bir oturumda “Bir gruba taşı”yı kullan.</string>
+    <string name="group_new">Yeni grup</string>
+    <string name="group_name_field">Grubun adı</string>
+    <string name="group_menu">%1$s grubuyla ilgili diğer işlemler</string>
+    <string name="group_rename">Grubu yeniden adlandır</string>
+    <string name="group_delete">Grubu sil</string>
+    <string name="group_delete_title">“%1$s” silinsin mi?</string>
+    <string name="group_delete_text">Yalnızca grup silinir. Oturumları kalır ve yeniden klasörlerinin altında listelenir.</string>
+    <string name="session_edit_not_reached">Değiştirilmedi: bilgisayara şu an ulaşılamıyor.</string>
+    <string name="session_edit_uncertain">Bilgisayar yanıt vermedi; bunun değişip değişmediği bilinmiyor. Liste bilgisayardakini gösterir.</string>
+    <string name="session_edit_group_exists">Bu adda bir grup zaten var.</string>
+    <string name="session_edit_gone">Değiştirilmedi: bilgisayarda artık yok. Listeyi yeniden okumak için aşağı çek.</string>
+    <string name="session_edit_refused">Bilgisayar bunu kabul etmedi. En fazla 50 grup ve 200 hatırlatıcı tutar.</string>
+    <string name="session_edit_failed">Bu, bilgisayarda değiştirilemedi.</string>
+
+    <!-- Chat: keep-alives, the phone's own session id, notifications that open the conversation (#148) -->
+    <string name="chat_fail_first_lost">İlk mesajın ulaşmadı: bilgisayar yanıt vermeden uygulama kilitlendi. Lütfen yeniden gönder.</string>
+    <string name="sessions_open_elsewhere">Bilgisayarda açık</string>
+    <string name="push_session_lost">Bu bildirimin sohbeti açılamadı. Artık listelenmiyor olabilir ya da bilgisayara ulaşılamıyor.</string>
+
+    <!-- Session reminders and reply notifications (#75) -->
+    <string name="reminder_action">Bana hatırlat</string>
+    <string name="reminder_title">Bu oturumun hatırlatıcıları</string>
+    <string name="reminder_none">Henüz hatırlatıcı yok. Bilgisayar onu, bu oturumu açan bir bildirim olarak gönderir.</string>
+    <string name="reminder_new">Yeni hatırlatıcı</string>
+    <string name="reminder_edit">Hatırlatıcıyı değiştir</string>
+    <string name="reminder_day">Gün: %1$s</string>
+    <string name="reminder_time">Saat: %1$s</string>
+    <string name="reminder_once">Bir kez</string>
+    <string name="reminder_daily">Her gün</string>
+    <string name="reminder_weekly">Her hafta</string>
+    <string name="reminder_next_daily">Her gün, sıradaki %1$s</string>
+    <string name="reminder_next_weekly">Her hafta, sıradaki %1$s</string>
+    <string name="reminder_note">Not (isteğe bağlı)</string>
+    <string name="reminder_hint">Bildirimde yalnızca “Hatırlatıcı” yazar. Not, bildirimi açıp uygulamanın kilidini açtıktan sonra gösterilir.</string>
+    <string name="reminder_past">Bu saat geçti. Daha ileri bir zaman seç.</string>
+    <string name="reminder_delete">Hatırlatıcıyı sil</string>
+    <string name="reminder_has">Hatırlatıcısı var</string>
+    <string name="reminder_lost">Bu hatırlatıcının oturumu açılamadı. Artık listelenmiyor olabilir ya da bilgisayara ulaşılamıyor.</string>
+    <string name="reminder_note_shown">Hatırlatıcı: %1$s</string>
+    <string name="session_notify">Yanıt hazır olunca bildir</string>
+    <string name="session_notify_note">Bu oturum için. Seni bekleyen bir soru ya da onay her zaman bildirilir.</string>
+
+    <!-- The coach conversation (#114) -->
+    <string name="coach_about">Bu sohbet ve plan kullanımı hakkında</string>
+    <string name="coach_usage_today">Bugünkü plan kullanımı</string>
+    <string name="coach_usage_chat">Bu sohbet</string>
+    <string name="coach_usage_morning">Sabah çalıştırması</string>
+    <string name="coach_usage_note">Ayrı sayılır: sabah çalıştırması planı ve koç kartını hazırlar, bu sohbet yalnızca burada sana yanıt verir. Token sayısına önbellek dahildir; tutar Claude Code\'un kendi tahminidir.</string>
+    <string name="coach_size">Uzunluk</string>
+    <string name="coach_size_percent">Toparlanacağı uzunluğun %%%1$d kadarı</string>
+    <string name="coach_size_note">Sohbet uzadığında bilgisayar onu bir sonraki mesajından önce kendiliğinden toparlar: seninle ilgili önemli şeyler belleğe yazılır, bir özet kalır ve sohbet devam eder. Bu, fazladan bir çalıştırma demektir.</string>
+    <plurals name="coach_tidied_times">
+        <item quantity="one">Şimdiye kadar bir kez toparlandı.</item>
+        <item quantity="other">Şimdiye kadar %1$d kez toparlandı.</item>
+    </plurals>
+    <plurals name="coach_tidied_last">
+        <item quantity="one">Son olarak %1$s: belleğe %2$d bilgi yazıldı.</item>
+        <item quantity="other">Son olarak %1$s: belleğe %2$d bilgi yazıldı.</item>
+    </plurals>
+    <string name="coach_summary">Öncesinin özeti</string>
+    <string name="coach_tidy">Şimdi toparla</string>
+    <string name="coach_tidy_title">Sohbet şimdi toparlansın mı?</string>
+    <string name="coach_tidy_text">Plandan bir çalıştırma: koç önemli şeyleri belleğe yazar ve bir özet tutar. Sohbet sonra yeniden kısa başlar; önceki mesajlar bilgisayarda Oturumlar altında kalır.</string>
+    <string name="coach_tidying_now">Toparlanıyor… bu bir yanıt kadar sürer.</string>
+    <string name="coach_tidying">Sohbet uzamıştı: bilgisayar önce onu toparlıyor, sonra yanıtlayacak. %1$s</string>
+    <string name="coach_renewed">Burada toparlandı: yukarıdakiler özetlendi, önemli olanlar belleğe yazıldı.</string>
+    <string name="coach_tidy_failed">Bilgisayar sohbetin toparlandığını doğrulamadı. Hiçbir şey kaybolmadı; daha sonra yeniden dene.</string>
+    <string name="coach_empty_title">Koçunla konuş</string>
+    <string name="coach_empty_text">Süren tek bir sohbet: görevlerin, neyin zor olduğu, önce neyi yapman gerektiği üzerine. Koç belleğini okur, hiçbir şeyi değiştirmez.</string>
+    <string name="coach_empty_tidied">Sohbet toparlandı ve yeniden kısa başlıyor. Koç öncesinin özetini hâlâ biliyor.</string>
+    <string name="coach_prompt_1">Bugün önce ne yapmalıyım?</string>
+    <string name="coach_prompt_2">Hangi görevi erteliyorum ve neden?</string>
+    <string name="coach_prompt_3">Bu hafta nasıl geçti?</string>
+
     <!-- Approvals and questions in chat (#53) -->
     <string name="chat_mode_read_only">Salt okunur</string>
     <string name="chat_mode_capable">Değişikliğe izin var</string>

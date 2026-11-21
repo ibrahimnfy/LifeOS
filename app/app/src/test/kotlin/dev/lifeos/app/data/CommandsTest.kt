@@ -27,7 +27,7 @@ class CommandsTest {
         }
     }
 
-    private fun TestScope.chat() = Chat(api, store, this, { 1_000L })
+    private fun TestScope.chat() = Chat(api, store, this, { 1_000L }, newId = { "00000000-0000-4000-8000-000000000001" })
     private fun json(text: String) = Json.parseToJsonElement(text)
 
     private val list = CommandList(
@@ -117,7 +117,7 @@ class CommandsTest {
         transport.events = { flow { emit(AnswerEvent.Stream("session", json("""{"session_id":"s-1"}"""))); emit(AnswerEvent.Stream("done", json("""{"answer":"ok"}"""))) } }
         chat.send("Hi")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"model":"sonnet","effort":"low"}"""), transport.calls.last().body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"model":"sonnet","effort":"low","new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
         // From then on the computer remembers it: later messages do not repeat it.
         chat.send("Again")
         advanceUntilIdle()

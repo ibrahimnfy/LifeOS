@@ -238,7 +238,7 @@ with plain HTTPS requests.
   opens Settings.
 - **Today:** three cards from the coach's plan and the agenda. The coach
   card shows one message of the plan, another one each time the app is
-  opened (tapping it opens a "Coach conversation" placeholder);
+  opened (tapping it opens the coach conversation, see Chat);
   "Assistant's picks" is the plan's top three with their reasons; "Today"
   lists overdue and today's tasks, three visible and the rest by scrolling
   inside the card. Pulling down only reads the plan and the agenda again; it
@@ -261,18 +261,32 @@ with plain HTTPS requests.
   (here and on Today) opens the task to change its title and due date (or
   remove the date); the change is shown at once with "Waiting to sync" until
   the computer confirmed it.
-- **Chat** (the tab): the coach's conversation pinned on top (a placeholder
-  for now), the chat in progress, the three most recent sessions with **All
+- **Chat** (the tab): the coach's conversation pinned on top, the chat in
+  progress, the three most recent sessions with **All
   sessions**, and **New chat**. New chat asks where it should run: the
   memory folder (the default) or one of the allowed folders, as the computer
   lists them. A conversation shows the owner's messages on the right and the
   assistant's answers on the left (paragraphs, headings, lists, code blocks,
-  bold and inline code are rendered; the text can be selected), "Working…"
+  bold, italic, inline code and web links are rendered by the app's one
+  Markdown reader, which also shows assignment descriptions; the text can be
+  selected), "Working…"
   with the time since the message was sent, and the answer as it is written.
   **The same conversation is continued until New chat** (or until another
   session is opened), also after the app was closed: the Chat tab then opens
   it directly, once per start, with its last few messages read from the
   computer. The folder is in the header.
+  - **A silent run and a lost answer (#148):** a run that says nothing for a
+    while sends keep-alives, so the app listens only 75 seconds without any
+    sign before it asks the computer instead (the run goes on there). A new
+    conversation goes out under an id the app chose (`new_session_id`): when
+    the first answer is lost, the app asks under that id whether the message
+    arrived, follows the run if it did, and otherwise offers **Retry**, which
+    the computer recognises as the same start and never runs twice. A card
+    closes when the computer says that it no longer waits for it (answered
+    on another device, out of time, run ended).
+  - **Notifications:** a notification about a session (answer ready,
+    question, approval) opens that conversation, read afresh, so a waiting
+    card is on screen at once; the coach's session opens the coach's screen.
   - **Earlier messages:** a conversation opens with its last few exchanges.
     Scrolling to the top (or tapping "Earlier messages") reads the page
     before, and so on; the screen keeps its place.
@@ -328,12 +342,57 @@ with plain HTTPS requests.
     the assistant goes on without one. The cards use only the bridge's
     interactions (the Agent SDK's documented question callback); a client
     that could not show them would get the question as text instead.
+  - **The coach conversation (#114):** one conversation with the coach that
+    goes on, opened from the coach card on Today and from the pinned entry
+    of the Chat tab (the same conversation; there is no fifth tab). It looks
+    and works like any other conversation (earlier messages, waiting
+    messages, stop, questions), but it is read-only and always on the
+    coach's model, so it has neither the model pill nor "Changes allowed";
+    the top bar says "Read-only" and the model. **Its plan usage** stands
+    under the top bar in plain numbers, today's runs, tokens and estimated
+    cost of this conversation and, apart from it, of the morning run; a tap
+    (or the bars icon) opens the same for the week, how full the
+    conversation is, the summary of what came before and **Tidy up now**.
+    The computer tidies a long conversation up by itself before the next
+    message (what matters goes to the memory, a summary stays, a new
+    session continues): the screen then says that it tidies up first, and
+    marks the place with one line. Which session the conversation is, the
+    computer says each time (`GET /coach/chat`); the phone stores nothing
+    about it. In the lists of sessions the coach's session opens this
+    screen, and it is left out of "Recent".
 - **Sessions** (the clock in Chat, or under More): a field that filters by
   title and folder, pinned sessions, then every folder with its sessions,
   newest first; "Working" marks a session the computer is answering right
-  now. Tapping one opens it in Chat; the next message continues it in its own
-  folder. A session that is open in a terminal on the computer is refused
-  there when the message is sent, and the app says so and offers **Retry**.
+  now, "Open on the computer" one that a terminal or the desktop app holds
+  there (`running_here` and `open_elsewhere` of `GET /sessions`). Tapping
+  one opens it in Chat; the next message continues it in its own folder. A
+  session that is open on the computer is refused there when the message is
+  sent, and the app says so and offers **Retry**.
+  - **Groups, titles and pins (#74):** between the pinned sessions and the
+    folders the screen lists the owner's own **groups**, each with its
+    sessions (an empty group is listed too); a session in a group is not
+    repeated under its folder, a pinned one is only under "Pinned". A long
+    press on a session, or the dots at the end of its row (also on the Chat
+    tab's recent sessions), opens what can be done with it: **Rename** (and
+    back to the title the computer found), **Pin / Unpin**, **Move to a
+    group** (one of the groups, a new one, or none). **New group** and the
+    dots next to a group's name make, rename and delete groups; deleting a
+    group never deletes a session. All of it is kept on the computer
+    (`PATCH /sessions/{id}`, `/session-groups`); Claude Code's own session
+    files are not touched. A change is sent directly: without a connection
+    nothing changes and a line says so.
+  - **Reminders and reply notifications (#75):** the same sheet has
+    **Remind me**: the session's reminders to come, and a new one with its
+    day, time, **Once / Every day / Every week** and an optional note. The
+    computer keeps and fires them (`/reminders`); a session with a reminder
+    to come has a small bell in its row. The notification says only
+    "Reminder"; a tap opens that session (the reminder is looked up on the
+    computer, also after it has fired) and shows the note in one line.
+    **Notify me when an answer is ready** is the per-session switch for the
+    notification after a finished run (`notify_replies`, on unless switched
+    off); questions and approvals are announced either way. In a
+    conversation the same sheet opens from the dots next to the pills above
+    the composer.
 - **Capture:** a note or a task with an optional due date. Also reachable
   from the home-screen shortcut (long-press on the app icon) and from other
   apps' "share" (text or a link).
@@ -744,10 +803,23 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   too large), `slow` (the answer takes half a
   minute: time to send more messages, which wait in line, to send one now
   and to stop), `offline` (nothing is sent, the text comes back), `silent` (the answer stops arriving and the message is
-  not found on the computer), `delete` or `push` (the run waits for an
+  not found on the computer), `lost` as a first message (it arrives and is
+  answered, but nothing reaches the phone), `delete` or `push` (the run waits for an
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
   minutes, to see what running out of time looks like.
+  The session "Milestone summary draft" counts as open on the computer, and
+  "Summarise the lecture notes of week 3" waits for an approval from the
+  start: `--es lifeos.test.push approval --es lifeos.test.push_ref
+  sample-session-4` shows the notification whose tap opens that
+  conversation with the card. A `slow` answer sends keep-alives, and a new
+  conversation runs under the id the app chose.
+  **Reminders** are kept while the app runs; one has fired already, so
+  `--es lifeos.test.push reminder --es lifeos.test.push_ref sample-reminder-1`
+  shows a reminder notification whose tap opens its session.
+  **The coach conversation** starts empty there and counts as long after
+  five messages, or at once for a message that contains `tidy`: the next
+  answer then begins only after six seconds, in a renewed session.
 
   ```sh
   adb -s emulator-5554 shell am start -n dev.lifeos.app/.MainActivity --ez lifeos.test.sample_data true
@@ -760,9 +832,9 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- Chat: tables in answers (shown as text). Sessions: groups,
-  renaming, pinning and reminders. The coach conversation is a
-  placeholder.
+- Chat: tables in answers (shown as text). The coach conversation shows only its current session: the
+  messages from before it was tidied up are under Sessions ("Coach
+  (earlier)").
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
 - Courses: "Ask about this course".
 - No instrumented (on-device) tests; only JVM unit tests.
@@ -1078,6 +1150,123 @@ aid shows the same screens with invented answers.
    working on this…", and a little later the whole answer, once.
 8. Settings → Language → **Türkçe** and Appearance → **Dark**: the Chat
    list, a conversation and Sessions are fully in Turkish and readable.
+
+### The coach conversation
+
+Paired (each message is a run on the plan, on the coach's model), or on an
+emulator with the `sample_data` test aid:
+
+1. Today → tap the coach card: "Coach conversation", "Read-only · model ·
+   effort" under the title, "Plan usage today" with one line for this
+   conversation and one for the morning run. Back, Chat tab → the pinned
+   entry on top: the same screen with the same messages.
+2. Send "What should I do first today?": the answer arrives as in any
+   chat. There is no model pill and no "Read-only / Changes allowed" pill.
+   On the computer, `GET /coach/chat` shows the session and the usage of
+   `coach_chat` one run higher; the numbers under the top bar follow.
+3. Tap the usage block: today and this week for the conversation and for
+   the morning run, "x% of the length at which it is tidied up", and
+   **Tidy up now**.
+4. **Tidy up now** → confirm: "Tidying up…", then the conversation is
+   empty ("…was tidied up and starts short again") and the sheet shows
+   "Tidied up once so far" and the summary. On the computer the earlier
+   session is listed as "Coach (earlier)" and `coach/conversation.md` in
+   the memory has the summary.
+5. A long conversation (sample mode: a message with "tidy"; on the
+   computer: a transcript over the limit of `GET /coach/chat`): after
+   sending, "The conversation had grown long: the computer tidies it up
+   first…", then the answer, with the line "Tidied up here…" above the
+   message.
+6. Sessions: the session "Coach" opens the coach screen, not an ordinary
+   conversation. Lock and unlock the app: the conversation is read again.
+
+### Session groups, rename and pin
+
+Paired (no model run is started by any step), or on an emulator with the
+`sample_data` test aid, where the changes are kept until the app is closed:
+
+1. Sessions → long-press a session (or tap the dots at the end of its row)
+   → **Rename**, type a title, **Save**: the row shows it at once, also
+   under "Recent" on the Chat tab. On the computer, `GET /sessions` shows
+   the new `title` and the old one as `detected_title`; the session's own
+   file is unchanged. Rename again → **Use the title the computer found**:
+   the old title is back.
+2. The same sheet → **Pin**: the session moves to "Pinned" with the
+   coloured ring around its letter; **Unpin** puts it back.
+3. **New group** (next to "Groups") → a name → Save: the group is listed,
+   empty. A session's sheet → **Move to a group** → choose it: the session
+   is under that group and no longer under its folder. **Move to a group**
+   → **New group** makes a group and moves the session in one step; **No
+   group** puts it back under its folder.
+4. **New group** with a name that exists: "A group with this name exists
+   already." and nothing changes.
+5. The dots next to a group's name → **Rename the group**, then **Delete
+   the group** → confirm: the group is gone, its sessions are under their
+   folders again.
+6. Type into the search field: only groups with a matching session remain.
+7. Flight mode, then **Pin**: "Not changed: the computer cannot be reached
+   right now." and the list is as before.
+
+### Session reminders and reply notifications
+
+Paired (no model run is needed for the reminder itself), or on an emulator
+with the `sample_data` test aid (see "Test aids" for its notification):
+
+1. Sessions → the dots of a session → **Remind me** → **New reminder**:
+   choose today, a time two minutes ahead, **Once**, a note, **Save**. The
+   row gets a small bell. On the computer, `GET /reminders` lists it with
+   the time in UTC and the phone's time zone.
+2. Lock the phone. When the time has come (the computer checks every 30
+   seconds) a notification "Reminder" arrives, without the note. Tap it and
+   unlock: the session's conversation opens and one line shows "Reminder:
+   <note>". The bell is gone from its row.
+3. **Remind me** → **New reminder** with a time that has passed: Save is
+   grey and "This time has passed." With **Every day** the same time can be
+   saved; the sheet then shows "Every day, next …".
+4. Tap a reminder in the list: change its time or note, Save; open it
+   again → **Delete the reminder**: it is gone, and so is the bell.
+5. **Notify me when an answer is ready** off for a session; send it a
+   message and close the app: no notification when the answer is ready
+   (`GET /sessions` shows `notify_replies: false`). Switched on again, the
+   next answer is announced. Another session is not affected.
+6. In a conversation, the dots at the right of the pills above the composer
+   open the same sheet for that session.
+
+### A silent run, a lost first answer, and notifications that open the conversation
+
+On an emulator with the `sample_data` test aid:
+
+1. New chat → Start → send "lost hello" (in the sample mode the message
+   arrives but no answer reaches the phone): after a moment "The computer is
+   still working on this…", and a few seconds later the answer. The app
+   found the conversation under the id it had chosen; nothing was sent
+   twice.
+2. Send "slow count": the answer arrives over half a minute with
+   keep-alives in between; "Working…" keeps counting and nothing breaks off.
+3. Send "push it" with **Changes allowed** on: the approval card waits.
+   Tap **Allow**: the card says "You allowed this." and stays so when the
+   computer's own "closed" arrives.
+4. Sessions: "Milestone summary draft" is marked **Open on the computer**,
+   "Summarise the lecture notes of week 3" **Working**.
+5. `adb shell am start -n dev.lifeos.app/.MainActivity --es lifeos.test.push
+   approval --es lifeos.test.push_ref sample-session-4`, then tap the
+   notification: the conversation of "Summarise the lecture notes of week
+   3" opens with the approval card (`git push origin main`) waiting. Answer
+   it: the run ends and the answer appears.
+
+With the computer (each step is a short run on the plan):
+
+6. Send a message, close the app, wait for the "answer ready"
+   notification, tap it and unlock: that conversation opens with the
+   answer. With "Changes allowed" on, ask for a deletion, lock the phone,
+   tap the "approval" notification: the conversation opens with the card.
+7. Start a new chat and switch flight mode on right after tapping send
+   (before "Working…" counts up); switch it off after a minute: the app
+   says whether the message arrived (the run is followed) or offers
+   **Retry**; on the computer the conversation exists once at most.
+8. Ask for something that takes a minute without output ("run `sleep 70`
+   and say done" with "Changes allowed"): the answer arrives as usual, with
+   no "The computer is still working on this…" in between.
 
 ### Earlier messages, waiting messages, send now and stop
 

@@ -3,6 +3,7 @@ package dev.lifeos.app.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +39,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -44,8 +47,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.ChatState
 import dev.lifeos.app.data.Folder
+import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.SessionLists
 import dev.lifeos.app.data.SessionSummary
 import dev.lifeos.app.data.UiState
@@ -87,6 +92,18 @@ fun ChatListScreen(
     val state by sessions.state.collectAsStateWithLifecycle()
     val folders = rememberLoad(core, ChatEndpoints.folders) { it.folders.isEmpty() }
     val folderState by folders.state.collectAsStateWithLifecycle()
+    RefreshOnSessionChange(core, sessions)
+    // The coach conversation is the pinned entry on top (#114), not one of the recent sessions.
+    val coachId = core.coach.state.collectAsStateWithLifecycle().value.sessionId
+        ?: (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
+    // What can be done with a session (#74): the same sheet as on the Sessions screen.
+    val change = rememberSessionChange(core)
+    var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
+    SessionSheetHost(core, menuFor, change, onDismiss = { menuFor = null })
+    // Which sessions have a reminder to come (#75).
+    val reminders = rememberLoad(core, ChatEndpoints.reminders)
+    RefreshOnSessionChange(core, reminders)
+    val reminded = Reminders.sessionsWithOne((reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty())
 
     // "The chat continues the same conversation": after a start the tab opens it directly.
     LaunchedEffect(locked, chat.sessionId) {
@@ -117,10 +134,10 @@ fun ChatListScreen(
                 StateHost(state, stringResource(R.string.chat_list_empty), sessions::refresh, onPair) { list ->
                     LifeCard {
                         SectionHeader(title = stringResource(R.string.chat_recent))
-                        val recent = SessionLists.newestFirst(list.sessions).take(RECENT)
+                        val recent = SessionLists.newestFirst(list.sessions.filter { it.id != coachId }).take(RECENT)
                         recent.forEachIndexed { index, session ->
                             if (index > 0) RowDivider()
-                            SessionRow(session) {
+                            SessionRow(session, onMenu = { menuFor = session.id }, reminder = session.id in reminded) {
                                 core.chat.open(session, memory = isMemory(folderState, session))
                                 onOpenChat()
                             }
@@ -235,16 +252,27 @@ internal fun Thumb(featured: Boolean = false, content: @Composable () -> Unit) {
  * "Working" while the computer is answering a message of it.
  */
 @Composable
-internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onClick: () -> Unit) {
+internal fun SessionRow(
+    session: SessionSummary,
+    showFolder: Boolean = true,
+    onMenu: (() -> Unit)? = null,
+    /** The session has a reminder to come (#75). */
+    reminder: Boolean = false,
+    onClick: () -> Unit,
+) {
     val colors = LifeTheme.colors
+    val menuLabel = stringResource(R.string.session_menu)
+    val pinnedLabel = stringResource(R.string.chat_pinned)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 60.dp)
-            .clickable(role = Role.Button, onClick = onClick)
+            // What can be done with the session (#74): a long press, or the dots at the end of the row.
+            .combinedClickable(role = Role.Button, onLongClickLabel = menuLabel.takeIf { onMenu != null }, onLongClick = onMenu, onClick = onClick)
+            .semantics { if (session.pinned && onMenu != null) stateDescription = pinnedLabel }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (onMenu != null) 10.dp else 14.dp),
     ) {
         Thumb(featured = session.pinned) {
             Text(session.folderLabel.take(1).uppercase(), style = LifeType.rowTitle, color = colors.text)
@@ -276,6 +304,9 @@ internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onC
                         maxLines = 1,
                     )
                 }
+                if (reminder) {
+                    Icon(LifeIcons.Bell, contentDescription = stringResource(R.string.reminder_has), tint = colors.muted, modifier = Modifier.size(14.dp))
+                }
             }
         }
         if (session.inUse) {
@@ -289,9 +320,33 @@ internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onC
                 Box(Modifier.size(6.dp).background(colors.ok, CircleShape))
                 Text(stringResource(R.string.sessions_working), style = LifeType.label, color = colors.text)
             }
+        } else if (session.openElsewhere == true) {
+            // Open in a terminal or the desktop app on the computer (#148): it cannot be continued from here now.
+            Text(
+                text = stringResource(R.string.sessions_open_elsewhere),
+                style = LifeType.label,
+                color = colors.muted,
+                modifier = Modifier
+                    .border(1.dp, colors.divider, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp),
+            )
         }
-        if (session.pinned) {
-            Icon(LifeIcons.Pin, contentDescription = stringResource(R.string.chat_pinned), tint = colors.muted, modifier = Modifier.size(18.dp))
+        // With the dots at the end, the ring around the letter is the pin mark (the title needs the room).
+        if (session.pinned && onMenu == null) {
+            Icon(LifeIcons.Pin, contentDescription = pinnedLabel, tint = colors.muted, modifier = Modifier.size(18.dp))
+        }
+        if (onMenu != null) {
+            Box(
+                modifier = Modifier
+                    .offset(x = 10.dp)
+                    .size(LifeDimens.minTouch)
+                    .clip(CircleShape)
+                    .clickable(onClickLabel = menuLabel, role = Role.Button, onClick = onMenu)
+                    .semantics { contentDescription = menuLabel },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LifeIcons.More, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

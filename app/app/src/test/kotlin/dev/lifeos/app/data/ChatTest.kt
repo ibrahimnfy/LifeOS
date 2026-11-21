@@ -33,7 +33,12 @@ class ChatTest {
     private val memory = Folder("/home/owner/brain", "brain", "memory", default = true)
     private val project = Folder("/home/owner/project-alpha", "project-alpha")
 
-    private fun TestScope.chat() = Chat(api, store, this, { 1_000L + testScheduler.currentTime }, { reachable })
+    private companion object {
+        /** The id the phone chooses for a new conversation in these tests. */
+        const val NEW_ID = "00000000-0000-4000-8000-000000000001"
+    }
+
+    private fun TestScope.chat() = Chat(api, store, this, { 1_000L + testScheduler.currentTime }, { reachable }, newId = { NEW_ID })
 
     private fun json(text: String): JsonElement = Json.parseToJsonElement(text)
     private fun event(name: String, data: String) = AnswerEvent.Stream(name, json(data))
@@ -78,7 +83,7 @@ class ChatTest {
 
         val call = transport.calls.single()
         assertEquals("POST /ask", call.method + " " + call.path)
-        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"folder":"/home/owner/project-alpha"}"""), call.body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"folder":"/home/owner/project-alpha","new_session_id":"00000000-0000-4000-8000-000000000001"}"""), call.body)
         val state = chat.state.value
         assertEquals(listOf("me:Hi", "it:Hello there"), texts(chat))
         assertEquals(ChatPhase.IDLE, state.phase)
@@ -95,7 +100,7 @@ class ChatTest {
         answerWith("s-1", "Hello there")
         chat.send("Hi")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true}"""), transport.calls.single().body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.single().body)
     }
 
     @Test
@@ -259,14 +264,17 @@ class ChatTest {
         val chat = chat()
         chat.newChat(memory)
         transport.events = { flow { throw ApiException(ApiException.Kind.UNCERTAIN) } }
+        // The computer has neither a run nor a conversation under the id the phone chose.
+        transport.answer("GET /sessions/$NEW_ID/queue", 200, """{"running":false,"paused":null,"queue":[]}""")
+        transport.answer("GET /sessions/$NEW_ID/history", 404, """{"error":"session_not_found"}""")
         chat.send("Hello?")
         advanceUntilIdle()
         val state = chat.state.value
-        assertEquals(ChatProblem.NO_ANSWER, state.failure?.problem)
-        // It may have arrived: no "Retry", the owner looks under Sessions.
-        assertNull(state.failure?.prompt)
+        // It did not arrive: the owner may send it again, and nothing was sent a second time by itself.
+        assertEquals(ChatProblem.NOT_DELIVERED, state.failure?.problem)
+        assertEquals("Hello?", state.failure?.prompt)
         assertEquals(listOf("me:Hello?"), texts(chat))
-        assertEquals(1, transport.calls.size)
+        assertEquals(1, transport.calls.count { it.method == "POST" })
     }
 
     @Test
@@ -473,8 +481,18 @@ class ChatTest {
         chat.send("Question")
         runCurrent()
         chat.onLocked()
-        assertEquals(ChatProblem.NO_ANSWER, chat.state.value.failure?.problem)
+        // After the unlock the id the phone chose tells whether the message arrived.
+        assertNull(chat.state.value.failure)
         assertNull(chat.state.value.sessionId)
+        assertEquals(NEW_ID, chat.state.value.startingId)
+        assertFalse(chat.state.value.loaded)
+        transport.answer("GET /sessions/$NEW_ID/queue", 200, """{"running":false,"paused":null,"queue":[]}""")
+        transport.answer("GET /sessions/$NEW_ID/history", 404, """{"error":"session_not_found"}""")
+        chat.load()
+        advanceUntilIdle()
+        assertEquals(ChatProblem.FIRST_LOST, chat.state.value.failure?.problem)
+        assertNull(chat.state.value.startingId)
+        assertTrue(chat.state.value.canSend)
     }
 
     @Test
@@ -547,7 +565,7 @@ class ChatTest {
         chat.send("Again")
         advanceUntilIdle()
         assertEquals("/ask", transport.calls.last().path)
-        assertEquals(json("""{"prompt":"Again","stream":true,"interactive":true,"folder":"/home/owner/project-alpha"}"""), transport.calls.last().body)
+        assertEquals(json("""{"prompt":"Again","stream":true,"interactive":true,"folder":"/home/owner/project-alpha","new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
     }
 
     @Test

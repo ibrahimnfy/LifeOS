@@ -28,6 +28,9 @@ object Routes {
     const val CHAT_SESSIONS = "chat/sessions"
     const val SESSIONS = "more/sessions"
 
+    /** The coach conversation below the Chat tab (#114); [COACH] is the same screen below Today. */
+    const val CHAT_COACH = "chat/coach"
+
     fun course(id: Long): String = "more/course/$id"
 
     // ---- memory consolidation (#151) and projects (#152)

@@ -37,12 +37,15 @@ import dev.lifeos.app.ui.components.BottomBar
 import dev.lifeos.app.ui.components.CaptureKind
 import dev.lifeos.app.ui.components.CaptureSheet
 import dev.lifeos.app.data.AssignmentMatch
+import dev.lifeos.app.data.ApiException
+import dev.lifeos.app.data.SessionLookup
 import dev.lifeos.app.push.Destination
 import dev.lifeos.app.push.PushOpen
 import dev.lifeos.app.ui.components.LocalLooks
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
+import dev.lifeos.app.ui.screens.CoachScreen
 import dev.lifeos.app.ui.screens.ChatListScreen
 import dev.lifeos.app.ui.screens.NewChatSheet
 import dev.lifeos.app.ui.screens.ConsolidationScreen
@@ -71,6 +74,8 @@ import dev.lifeos.app.ui.screens.TasksScreen
 import dev.lifeos.app.ui.screens.TodayScreen
 import dev.lifeos.app.ui.screens.titleRes
 import dev.lifeos.app.ui.theme.LifeTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** The whole app: navigation host, bottom bar, capture sheet and snackbar. */
@@ -143,6 +148,15 @@ fun LifeOsApp(
         }
     }
 
+    // The coach conversation (#114), below the Chat tab like every other conversation.
+    val openCoach: () -> Unit = {
+        if (Tab.forRoute(navController.currentDestination?.route) != Tab.CHAT) navController.openTab(Tab.CHAT)
+        navController.navigate(Routes.CHAT_COACH) {
+            popUpTo(Routes.CHAT)
+            launchSingleTop = true
+        }
+    }
+
     val undoLabel = stringResource(R.string.action_undo)
     val showUndo: (String, () -> Unit) -> Unit = { message, onUndo ->
         scope.launch {
@@ -161,12 +175,37 @@ fun LifeOsApp(
     LaunchedEffect(pairing != null, locked, connected) { if (pairing != null && !locked) core.loadLooks() }
     // ---- a tapped push notification (#38): its screen, once the app is unlocked
     val context = androidx.compose.ui.platform.LocalContext.current
+    val reminderLost = stringResource(R.string.reminder_lost)
+    val sessionLost = stringResource(R.string.push_session_lost)
+    val reminderNote = stringResource(R.string.reminder_note_shown)
     LaunchedEffect(openPush, locked) {
         val push = openPush ?: return@LaunchedEffect
         if (locked) return@LaunchedEffect
+        // A session's notification asks the computer where it leads. Right after a start the
+        // pairing may not be read yet, and the first request may fail: wait a little, try twice.
+        suspend fun sessionOf(id: String): SessionLookup.Found {
+            withTimeoutOrNull(8_000) { core.pairing.first { it != null } }
+            val found = SessionLookup.find(core.api, id)
+            if (found != SessionLookup.Found.Unreachable) return found
+            delay(2_500)
+            return SessionLookup.find(core.api, id)
+        }
         when (val destination = push.destination) {
-            // Chat and the sessions screens come with #33; until then the Chat tab opens.
-            is Destination.Chat, Destination.Sessions -> navController.openTab(Tab.CHAT)
+            // An answer, a question or an approval of a session (#148): that conversation, read
+            // afresh, so that what waits for the owner is on screen at once.
+            is Destination.Chat -> when (val found = sessionOf(destination.sessionId)) {
+                is SessionLookup.Found.Session -> {
+                    core.chat.open(found.session, found.memory, fresh = true)
+                    openChat()
+                }
+                SessionLookup.Found.Coach -> openCoach()
+                else -> {
+                    navController.openTab(Tab.CHAT)
+                    navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true }
+                    showMessage(sessionLost)
+                }
+            }
+            Destination.Sessions -> navController.openTab(Tab.CHAT)
             is Destination.Course -> {
                 navController.openTab(Tab.MORE)
                 navController.navigate(Routes.COURSES) { launchSingleTop = true }
@@ -199,7 +238,31 @@ fun LifeOsApp(
                 core.checkUpdate()
                 navController.openTab(Tab.TODAY)
             }
-            is Destination.Reminder, Destination.Today, Destination.Notice -> navController.openTab(Tab.TODAY)
+            // A session reminder (#75): its session, and its note in one line.
+            is Destination.Reminder -> {
+                withTimeoutOrNull(8_000) { core.pairing.first { it != null } }
+                val reminder = try {
+                    SessionLookup.reminder(core.api, destination.reminderId)
+                } catch (_: ApiException) {
+                    null
+                }
+                val found = reminder?.let { sessionOf(it.sessionId) }
+                when (found) {
+                    is SessionLookup.Found.Session -> {
+                        core.chat.open(found.session, found.memory)
+                        openChat()
+                    }
+                    SessionLookup.Found.Coach -> openCoach()
+                    else -> {
+                        // The reminder or its session could not be read: the list of sessions is the nearest place.
+                        navController.openTab(Tab.CHAT)
+                        navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true }
+                        showMessage(reminderLost)
+                    }
+                }
+                reminder?.note?.takeIf { it.isNotBlank() && found is SessionLookup.Found.Session }?.let { showMessage(reminderNote.format(it.trim().take(200))) }
+            }
+            Destination.Today, Destination.Notice -> navController.openTab(Tab.TODAY)
         }
         // A notice's own title is shown only here, in the unlocked app.
         push.noticeTitle?.let { showMessage(it) }
@@ -238,12 +301,17 @@ fun LifeOsApp(
                     onOpenConsolidation = { navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true } },
                 )
             }
-            composable(Routes.COACH) {
-                PlaceholderScreen(
-                    title = stringResource(R.string.coach_conversation),
-                    onBack = { navController.popBackStack() },
-                    onConnectionClick = openSettings,
-                )
+            // The coach conversation (#114): the same screen from the coach card on Today and from the Chat tab.
+            listOf(Routes.COACH, Routes.CHAT_COACH).forEach { route ->
+                composable(route) {
+                    CoachScreen(
+                        core = core,
+                        onBack = { navController.popBackStack() },
+                        onConnectionClick = openSettings,
+                        onPair = openPair,
+                        onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
+                    )
+                }
             }
             composable(Routes.CHAT) {
                 ChatListScreen(
@@ -252,7 +320,7 @@ fun LifeOsApp(
                     onPair = openPair,
                     onOpenChat = openChat,
                     onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
-                    onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
+                    onOpenCoach = openCoach,
                     onNewChat = { newChatOpen = true },
                 )
             }
@@ -276,6 +344,7 @@ fun LifeOsApp(
                         onPair = openPair,
                         onOpenChat = openChat,
                         onNewChat = { newChatOpen = true },
+                        onOpenCoach = openCoach,
                     )
                 }
             }

@@ -20,7 +20,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -33,13 +38,17 @@ import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
 
 /**
- * An answer of the assistant: paragraphs, headings, lists and code blocks, with bold and
- * inline code (see [Markdown] for what is and is not understood).
+ * An answer of the assistant, or ([site]) a description the computer made from a page of the
+ * course site: paragraphs, headings, lists and code blocks, with bold, italic, inline code
+ * and web links, which the system opens in the browser (see [Markdown] for what is and is not
+ * understood). A site's text flows as one paragraph where the assistant's keeps its lines,
+ * and its headings are the size of a row title.
  */
 @Composable
-fun MarkdownText(text: String, modifier: Modifier = Modifier) {
+fun MarkdownText(text: String, modifier: Modifier = Modifier, site: Boolean = false) {
     val colors = LifeTheme.colors
-    val blocks = remember(text) { Markdown.blocks(text) }
+    val blocks = remember(text, site) { Markdown.blocks(text, joinLines = site) }
+    val links = TextLinkStyles(SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline))
     Column(modifier) {
         blocks.forEachIndexed { index, block ->
             if (index > 0) {
@@ -47,16 +56,16 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
                 Spacer(Modifier.height(if (block is MdBlock.Item && blocks[index - 1] is MdBlock.Item) 3.dp else 8.dp))
             }
             when (block) {
-                is MdBlock.Paragraph -> Text(inline(block.text, colors.surface2), style = LifeType.body, color = colors.text)
+                is MdBlock.Paragraph -> Text(inline(block.text, colors.surface2, links), style = LifeType.body, color = colors.text)
                 is MdBlock.Heading -> Text(
-                    text = inline(block.text, colors.surface2),
-                    style = if (block.level <= 2) LifeType.sectionTitle else LifeType.rowTitle,
+                    text = inline(block.text, colors.surface2, links),
+                    style = if (block.level <= 2 && !site) LifeType.sectionTitle else LifeType.rowTitle,
                     color = colors.text,
                     modifier = Modifier.semantics { heading() },
                 )
                 is MdBlock.Item -> Row(Modifier.padding(start = (block.level * 14).dp)) {
                     Text(text = block.marker, style = LifeType.body, color = colors.muted, modifier = Modifier.widthIn(min = 18.dp))
-                    Text(inline(block.text, colors.surface2), style = LifeType.body, color = colors.text, modifier = Modifier.padding(start = 4.dp))
+                    Text(inline(block.text, colors.surface2, links), style = LifeType.body, color = colors.text, modifier = Modifier.padding(start = 4.dp))
                 }
                 is MdBlock.Code -> Box(
                     Modifier
@@ -72,14 +81,21 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-private fun inline(text: String, codeBackground: Color): AnnotatedString = buildAnnotatedString {
+private fun inline(text: String, codeBackground: Color, links: TextLinkStyles): AnnotatedString = buildAnnotatedString {
     for (span in Markdown.spans(text)) {
         val style = SpanStyle(
             fontWeight = if (span.bold) FontWeight.Bold else null,
+            fontStyle = if (span.italic) FontStyle.Italic else null,
             fontFamily = if (span.code) FontFamily.Monospace else null,
             fontSize = if (span.code) 13.5.sp else androidx.compose.ui.unit.TextUnit.Unspecified,
             background = if (span.code) codeBackground else Color.Unspecified,
         )
-        withStyle(style) { append(span.text) }
+        val link = span.link
+        if (link != null) {
+            // Opened in the browser by the system, never inside the app.
+            withLink(LinkAnnotation.Url(link, links)) { withStyle(style) { append(span.text) } }
+        } else {
+            withStyle(style) { append(span.text) }
+        }
     }
 }

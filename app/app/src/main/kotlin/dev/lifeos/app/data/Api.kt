@@ -184,14 +184,21 @@ class Api(private val transport: Transport) {
      * session, which runs in its own folder. Not one of the one-at-a-time requests: an answer
      * takes minutes and nothing else may wait for it.
      */
-    fun chat(prompt: String, sessionId: String?, folder: String?, options: Map<String, JsonElement> = emptyMap()): Flow<AnswerEvent> {
+    fun chat(
+        prompt: String,
+        sessionId: String?,
+        folder: String?,
+        options: Map<String, JsonElement> = emptyMap(),
+        /** The coach conversation (#114): the computer knows its session and renews it by itself. */
+        coach: Boolean = false,
+    ): Flow<AnswerEvent> {
         val body = buildJsonObject {
             put("prompt", JsonPrimitive(prompt))
             put("stream", JsonPrimitive(true))
-            if (sessionId == null && folder != null) put("folder", JsonPrimitive(folder))
+            if (!coach && sessionId == null && folder != null) put("folder", JsonPrimitive(folder))
             options.forEach { (name, value) -> put(name, value) }
         }
-        val path = if (sessionId == null) "/ask" else "/sessions/$sessionId/messages"
+        val path = if (coach) COACH_MESSAGES else if (sessionId == null) "/ask" else "/sessions/$sessionId/messages"
         return transport.events("POST", path, body, CHAT_IDLE_MILLIS)
     }
 
@@ -222,7 +229,7 @@ class Api(private val transport: Transport) {
      * count every use as "the computer did not answer") and no place in chat's lane.
      */
     suspend fun resumeQueue(sessionId: String) {
-        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, CHAT_IDLE_MILLIS)
+        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, RESUME_TIMEOUT_MILLIS)
     }
 
     /** Whether the computer is working on the session right now, and what waits behind that. */
@@ -252,6 +259,47 @@ class Api(private val transport: Transport) {
     suspend fun patchSession(sessionId: String, changes: JsonElement): SessionSummary =
         read(SessionSummary.serializer(), chatCall("PATCH", "/sessions/$sessionId", changes))
 
+    // ---- the coach conversation (#114)
+
+    /** The coach conversation's session, size, summary and plan usage. Never starts a run. */
+    suspend fun coachChat(): CoachChatView = read(CoachChatView.serializer(), chatCall("GET", "/coach/chat"))
+
+    /**
+     * Tidy the coach conversation up now: one run on the computer writes what matters to the
+     * memory and keeps a summary; a new session continues. `409 nothing_to_compact` while it
+     * is empty, `409 session_in_use` while the coach is answering.
+     */
+    suspend fun compactCoach(): CoachCompacted = planLane.withLock {
+        read(CoachCompacted.serializer(), exchange("POST", "/coach/chat/compact", emptyMap(), null, PLAN_TIMEOUT_MILLIS))
+    }
+
+    // ---- session reminders (#75): kept and fired by the computer
+
+    /** A new reminder for a session; the body is [Reminders.body] with the session's id. */
+    suspend fun createReminder(body: JsonElement): Reminder = read(Reminder.serializer(), chatCall("POST", "/reminders", body))
+
+    /** Change a reminder's time, note or repeat; a new time schedules it again. */
+    suspend fun updateReminder(reminderId: String, body: JsonElement): Reminder =
+        read(Reminder.serializer(), chatCall("PATCH", "/reminders/$reminderId", body))
+
+    suspend fun deleteReminder(reminderId: String) {
+        chatCall("DELETE", "/reminders/$reminderId")
+    }
+
+    // ---- session groups (#74): the owner's own organisation, kept on the computer
+
+    /** A new group; `409 group_exists` when one has this name. */
+    suspend fun createGroup(name: String): SessionGroup =
+        read(SessionGroup.serializer(), chatCall("POST", "/session-groups", SessionEdits.name(name)))
+
+    suspend fun renameGroup(groupId: String, name: String): SessionGroup =
+        read(SessionGroup.serializer(), chatCall("PATCH", "/session-groups/$groupId", SessionEdits.name(name)))
+
+    /** The group goes; its sessions stay and are shown under their folders again. */
+    suspend fun deleteGroup(groupId: String) {
+        chatCall("DELETE", "/session-groups/$groupId")
+    }
+
     /** Chat's own lane: its small requests wait neither for the screens' loaders nor the other way round. */
     private suspend fun chatCall(method: String, path: String, body: JsonElement? = null, query: Map<String, String> = emptyMap()): JsonElement =
         chatLane.withLock { exchange(method, path, query, body, READ_TIMEOUT_MILLIS) }
@@ -259,10 +307,17 @@ class Api(private val transport: Transport) {
     companion object {
         /**
          * How long a chat answer may stay quiet before the app stops listening and asks the
-         * computer instead (the run itself goes on there). Longer than the computer's default
-         * limits for one run (5 minutes) and for one question to the owner (10 minutes).
+         * computer instead (the run itself goes on there). A run that has nothing to say sends
+         * a keep-alive after 20 seconds, and every 30 seconds while it waits for the owner
+         * (#148): three of them missed, and the stream counts as lost.
          */
-        const val CHAT_IDLE_MILLIS = 11 * 60_000L
+        const val CHAT_IDLE_MILLIS = 75_000L
+
+        /** The answer to "let the queue go on" comes when the first waiting message is done: as long as a run. */
+        const val RESUME_TIMEOUT_MILLIS = 11 * 60_000L
+
+        /** Where a message to the coach goes (#114); its first answer may take as long as a run. */
+        const val COACH_MESSAGES = "/coach/chat/messages"
         const val READ_TIMEOUT_MILLIS = 20_000L
         const val WRITE_TIMEOUT_MILLIS = 20_000L
         const val PLAN_TIMEOUT_MILLIS = 240_000L
