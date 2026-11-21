@@ -118,6 +118,10 @@ documented here as they are built.
 | GET / POST | `/events` | yes | Lists or creates calendar events |
 | PATCH | `/events/{id}` | yes | Changes an event |
 | GET | `/agenda` | yes | Today's events and tasks, overdue tasks, the coming days |
+| GET | `/memory/consolidation` | yes | The waiting consolidation proposal and its operations |
+| GET | `/projects` · `/projects/{id}` | yes | Projects: status, state, last activity, open tasks, sessions (no run) |
+| POST | `/memory/consolidation/approve` · `/reject` | yes | Approves (applies, one commit) or rejects operations, one by one or all |
+| POST | `/memory/consolidation/run` | yes | Prepares a proposal now (one run, in the background) |
 | POST | `/activity/usage`, `/activity/sleep` | yes | The phone's daily screen-time and sleep summaries |
 | GET | `/activity` | yes | Recorded days of phone activity |
 | GET | `/context-map` | yes | Allowed folders and their summary files in the memory |
@@ -859,6 +863,66 @@ per-session switch for reply notifications.
   phone, which fetches the fired reminder and opens the session.
 - Stored in `~/.config/lifeos/reminders.json` (mode 600).
 
+### Projects: `/projects`
+
+For the app's Projects screen (#152), read from files only, without a model
+run. A project is a memory file `projects/<name>.md` and/or an allowed folder
+with its context-map file; they belong together when the project file links
+`[[map/<slug>]]` or has the map's name. The course folder of the Moodle sync
+is not a project.
+
+- `GET /projects` → `{"projects": [P]}`, newest activity first, with `P` =
+  `{"id": "p-<name>" (from a memory file) | "f-<slug>" (a folder only),
+  "name", "title", "status": "active" | "paused" | "done" | null (front
+  matter), "summary": str | null (the file's first paragraph, else the map's
+  "What it is"), "state": str | null (the map's "State"), "folder": path |
+  null (start a chat there with `POST /ask` `"folder"`), "folder_exists",
+  "memory_file", "map_file", "last_activity": ISO | null (the newest of the
+  last session in the folder, the folder's last git commit and the memory
+  file's `updated` day), "open_task_count", "open_tasks": [task as in
+  /tasks, at most 20, those with `(project: <name>)`], "sessions": [{"id",
+  "title", "last_activity"}, at most 5, newest first]}`.
+- `GET /projects/{id}` → one `P`; `404 project_not_found`.
+
+Manual check: `curl -s -H "$H" $B/projects | python3 -m json.tool | head -40`
+lists the allowed folders and the memory's project files, with tasks that
+carry `(project: …)`; `/models/routing` shows no new run.
+
+### Memory consolidation: `/memory/consolidation`
+
+The nightly proposal of [`memory-design.md`](memory-design.md) §6 (trigger B:
+propose, then approve). Nothing is written to the memory until the owner
+approves; approve and reject start no run.
+
+- `GET /memory/consolidation` → `{"proposal": null | {"id", "created_at",
+  "operations": [OP]}, "waiting": int, "running": bool, "last_run",
+  "last_result"}` with `OP` = `{"id": "op1", "op": "file_capture" |
+  "merge_facts" | "add_fact", "file": "<topic file>", "why": str | null,
+  "status": "pending" | "applied" | "rejected" | "failed", "reason"?}` plus,
+  per kind, `"capture", "capture_text", "capture_at"` (file_capture),
+  `"keep", "drop"` (merge_facts) or `"text"` (add_fact, tagged inferred).
+- `POST /memory/consolidation/approve` with `{"operations": ["op1", …]}` or
+  `{"all": true}` applies them in **one** commit by `lifeos-consolidation`
+  and answers the view plus `{"applied": [ids], "failed": [ids],
+  "committed": bool}`; an operation that no longer applies (its capture was
+  edited, its line is gone) fails alone with `"reason": "no longer
+  applies"`. `409 check_failed` (nothing written) if a fact line would
+  disappear. `404 no_proposal`, `404 operation_not_found`, `400` for a bad
+  body.
+- `POST /memory/consolidation/reject` (same body) → the view plus
+  `{"rejected": [ids]}`; rejected operations are not proposed again
+  unchanged. When no operation is pending any more, `proposal` is `null`.
+- `POST /memory/consolidation/run` → `202 {"started": true}`, or `409`
+  (`"reason": "waiting"` or `"running"`) / `429 "too_soon"` (ten minutes).
+- Push: `coach` event, opens `consolidation`, `r` = proposal id; fixed text.
+
+Manual check: add two captures from the phone, `curl -s -X POST -H "$H"
+$B/memory/consolidation/run`, wait a minute, `curl -s -H "$H"
+$B/memory/consolidation` (operations with "why"); approve one with `-d
+'{"operations":["op1"]}' .../approve`; `git -C ~/brain log -1
+--format='%an %s'` shows `lifeos-consolidation`; reject the rest with `-d
+'{"all":true}' .../reject`.
+
 ### Memory: `/notes`, `/tasks`, `/events`, `/agenda`
 
 These endpoints read and write the memory folder (the ask folder) in the
@@ -1451,6 +1515,7 @@ are used, so it works while the app is closed.
   | `courses` | `courses` | `course` / `courses` | course id when one course changed, else none | a course sync found something (one push per sync) |
   | `signin` | `courses` | `moodle_signin` | – | the course sign-in needs renewal |
   | `coach` | `coach` | `coach` | message id of `GET /coach/plan` | the coach's daily note, and further nudges (frequency `"3"`) |
+  | `coach` | `coach` | `consolidation` | proposal id | a consolidation proposal waits for approval |
   | `reminder` | `reminders` | `reminder` | reminder id | a session reminder is due |
   | `notice` | `reminders` | `notice` | – (`t`, `l`) | `scripts/notify.sh` (for example a new owner issue) |
   | `update` | `reminders` | `app_update` | version code | a new app release was registered (`lifeos-bridge release`) |

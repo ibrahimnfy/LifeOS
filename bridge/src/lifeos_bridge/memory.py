@@ -66,14 +66,23 @@ def check_repo(memory: Path) -> None:
         raise unavailable("the memory folder has a git remote; it must be local only")
 
 
-def commit(memory: Path, message: str, paths: list[str]) -> bool:
-    """Commit ``paths``. Returns False when nothing changed."""
+def commit(memory: Path, message: str, paths: list[str], author: str | None = None) -> bool:
+    """Commit ``paths``. Returns False when nothing changed.
+
+    ``author`` names another writer of the bridge (the consolidation run), so
+    its commits are easy to recognise and to undo with one ``git revert``.
+    """
     added = _git(memory, "add", "--", *paths)
     if added.returncode != 0:
         raise unavailable("the change could not be staged in the memory folder")
     if _git(memory, "diff", "--cached", "--quiet", "--", *paths).returncode == 0:
         return False
-    done = _git(memory, *GIT_IDENTITY, "commit", "-q", "-m", message, "--", *paths)
+    identity = (
+        ("-c", f"user.name={author}", "-c", f"user.email={author}@localhost")
+        if author
+        else GIT_IDENTITY
+    )
+    done = _git(memory, *identity, "commit", "-q", "-m", message, "--", *paths)
     if done.returncode != 0:
         raise unavailable("the change could not be committed in the memory folder")
     return True
