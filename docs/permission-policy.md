@@ -474,8 +474,11 @@ as the real one is):
 without a record (a scratch copy, on purpose), the probe failed in the
 terminal and as a service: for a command that ran, and for one that ran and
 ended with a non-zero exit status. With the real gate it passed in every run
-of the new judgement, in both environments and through the SDK, also in the
-runs where the model had added the field.
+of the new judgement: three in a row in the terminal (in two of them the
+model had added the field by itself), three in a row as a service, and one
+through the SDK. Two more runs in which the skill's text asked for the field
+passed as well (as a service, and through the SDK), and so does the stream
+of the failed run when it is judged again.
 
 *Limits.* The judgement trusts Claude Code's own answer for a call it
 rejected. It was seen with 2.1.328; the check reruns after every update, and
