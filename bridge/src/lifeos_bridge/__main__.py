@@ -2,7 +2,8 @@
 
 Without arguments it starts the server. ``lifeos-bridge pair [name]`` pairs a
 phone, ``lifeos-bridge devices`` lists the paired phones and
-``lifeos-bridge devices revoke <id>`` unpairs one.
+``lifeos-bridge devices revoke <id>`` unpairs one, and ``lifeos-bridge
+release`` registers a new release build of the app for the phones.
 """
 
 from __future__ import annotations
@@ -77,8 +78,15 @@ def main(argv: list[str] | None = None) -> int:
         return devices_command(argv[1:])
     if argv[:1] == ["pair"]:
         return pair_command(argv[1:])
+    if argv[:1] == ["release"]:
+        from . import release
+
+        return release.command(argv[1:])
     if argv:
-        print("usage: lifeos-bridge [pair [name] | devices [revoke <id>]]", file=sys.stderr)
+        print(
+            "usage: lifeos-bridge [pair [name] | devices [revoke <id>] | release [--build]]",
+            file=sys.stderr,
+        )
         return 2
     try:
         settings = load_settings()

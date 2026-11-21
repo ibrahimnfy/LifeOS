@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import hmac
 import json
 import uuid
@@ -33,6 +34,7 @@ from . import (
     moodle_watch,
     push,
     relay,
+    release,
     reminders,
     resources,
     routing,
@@ -126,6 +128,47 @@ def sse(event: str, data: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n".encode()
 
 
+KEEPALIVE_SECONDS = 20.0  # a run that is quiet this long (a long tool call) sends a sign of life
+HELD_SECONDS = 10.0  # how long the list of sessions open elsewhere is reused
+
+
+async def with_keepalives(events: AsyncIterator, every: float | None = None) -> AsyncIterator:
+    """The events of a run, plus ``("keepalive", {})`` whenever none came for a while.
+
+    One task reads the run from start to end (the run's own time limit is bound
+    to that task); a keep-alive only fills the silence. Closing this generator
+    (the client went away) cancels that task, which stops the run as before.
+    """
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def pump() -> None:
+        try:
+            async for item in events:
+                await queue.put(("item", item))
+            await queue.put(("end", None))
+        except Exception as error:  # handed to the reader, raised there
+            await queue.put(("error", error))
+
+    reader = asyncio.create_task(pump())
+    try:
+        while True:
+            try:
+                kind, value = await asyncio.wait_for(queue.get(), every or KEEPALIVE_SECONDS)
+            except TimeoutError:
+                yield "keepalive", {}
+                continue
+            if kind == "end":
+                return
+            if kind == "error":
+                raise value
+            yield value
+    finally:
+        if not reader.done():
+            reader.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await reader
+
+
 def create_app(settings: Settings) -> FastAPI:
     # No interactive docs or schema endpoints: less surface, nothing to leak.
     @contextlib.asynccontextmanager
@@ -157,6 +200,7 @@ def create_app(settings: Settings) -> FastAPI:
                 coach_runs.add(run)
                 run.add_done_callback(coach_runs.discard)
             await asyncio.to_thread(coach.send_daily_notification, settings)
+            await asyncio.to_thread(coach.send_nudges, settings)  # within the daily cap
 
         course_syncs: set[asyncio.Task] = set()
 
@@ -477,13 +521,26 @@ def create_app(settings: Settings) -> FastAPI:
 
         async def run_events() -> AsyncIterator[tuple[str, dict]]:
             """The run as events; frees the session when it ends or is abandoned."""
+            open_interactions: set[str] = set()
             try:
                 runner = (
                     sdk_runner.stream(sdk_pool, settings, prompt, **run_args)
                     if use_sdk and sdk_pool is not None
                     else claude.stream(settings, prompt, **run_args)
                 )
-                async for event, payload in runner:
+                async for event, payload in with_keepalives(runner):
+                    if event == "interaction":
+                        open_interactions.add(str(payload.get("id")))
+                    elif event == "interaction_closed":
+                        open_interactions.discard(str(payload.get("id")))
+                    if event in ("done", "error"):
+                        # The run is over: whatever still waited for the owner is closed.
+                        for interaction_id in sorted(open_interactions):
+                            yield (
+                                "interaction_closed",
+                                {"id": interaction_id, "reason": "run_ended"},
+                            )
+                        open_interactions.clear()
                     if event in ("done", "error") and control.take_stopped(session_id):
                         stopped = runcontrol.stopped_error()
                         yield "error", {"error": stopped.code, "message": stopped.message}
@@ -512,9 +569,8 @@ def create_app(settings: Settings) -> FastAPI:
         async def events() -> AsyncIterator[bytes]:
             yield sse("session", {"session_id": session_id})
             async for event, payload in run_events():
-                if event == "keepalive":
-                    yield b": keep-alive\n\n"  # a comment: keeps the relay's read open
-                    continue
+                # Keep-alives are a real (tiny) event, so the relay forwards them sealed and
+                # the phone can tell a working run from a dead connection.
                 yield sse(event, payload)
 
         return StreamingResponse(
@@ -542,8 +598,17 @@ def create_app(settings: Settings) -> FastAPI:
         """Wake the paired phones with a notice (used by scripts/notify.sh).
 
         Body: ``{"title": str?, "link": str?}``; both travel only inside the sealed hint.
+        ``{"event": "update", "ref": "<version code>"}`` is the new-release hint of
+        ``lifeos-bridge release``: other processes push through here, because only the
+        running bridge may advance a phone's message counters.
         """
         data = await read_json_object(request)
+        if data.get("event") == "update":
+            ref = str(data.get("ref") or "")[:20]
+            reached = await asyncio.to_thread(push.send_hint, "update", ref)
+            return {"phones_reached": reached}
+        if data.get("event") not in (None, "notice"):
+            raise ClaudeError("bad_request", 400, "`event` must be `notice` or `update`")
         title = str(data.get("title") or "")[:200]
         link = str(data.get("link") or "")[:300]
         reached = await asyncio.to_thread(push.send_hint, "notice", "", t=title, l=link)
@@ -565,6 +630,23 @@ def create_app(settings: Settings) -> FastAPI:
         """Each model job: its model, effort and advisor, and the plan usage of its runs
         today and this week. Never starts a run."""
         return await asyncio.to_thread(routing.overview, settings)
+
+    @app.get("/app/release")
+    async def app_release():
+        """The registered release of the app (``lifeos-bridge release``); 404 when none."""
+        return await asyncio.to_thread(release.view)
+
+    @app.post("/app/release/offer")
+    async def offer_app_release():
+        """Offer the release APK, fetched with ``GET /files/{offer}?session_id=app-release``
+        (through the relay: sealed chunks). The phone checks hash and certificate."""
+        current = await asyncio.to_thread(release.view)
+        stored = await asyncio.to_thread(release.current)
+        path = await asyncio.to_thread(release.apk_path, stored)
+        offer = await asyncio.to_thread(
+            offers.for_release, path, release.SESSION, current["version_code"]
+        )
+        return {**offer.card(), "session_id": release.SESSION, **current}
 
     @app.put("/models/routing")
     async def change_model_routing(request: Request):
@@ -666,11 +748,37 @@ def create_app(settings: Settings) -> FastAPI:
         Body: ``{"prompt": str, "session_id": str?, "folder": str?, "stream": bool?}``.
         A new conversation runs in the memory folder, or in the allowed folder
         named by ``folder``. ``session_id`` continues an earlier conversation in
-        the folder it was started in.
+        the folder it was started in. ``new_session_id`` (a UUID the phone chose)
+        names a new conversation, so its first message can be sent again safely:
+        a repeat answers ``{"repeat": true, "session_id", "running"}`` and runs
+        nothing; the same id with another message or folder answers 409.
         """
         data = await read_json_object(request)
-        read_prompt(data)
+        prompt = read_prompt(data)
         read_mode(data)
+        chosen_id = data.get("new_session_id")
+        if chosen_id is not None:
+            if data.get("session_id") is not None:
+                raise ClaudeError("bad_request", 400, "give `session_id` or `new_session_id`")
+            if not isinstance(chosen_id, str) or not claude.is_session_id(chosen_id):
+                raise ClaudeError("bad_request", 400, "`new_session_id` must be a lowercase UUID")
+            cwd = chosen_folder(data)
+            fingerprint = hashlib.sha256(f"{cwd}\n{prompt}".encode()).hexdigest()[:16]
+            claimed = await asyncio.to_thread(
+                session_meta.claim_new_session, chosen_id, fingerprint
+            )
+            exists = claimed == "new" and (
+                claude.session_exists(cwd, chosen_id)
+                or sessions.find_session(chosen_id, settings.allowed_roots) is not None
+            )
+            if claimed == "conflict" or exists:
+                raise ClaudeError(
+                    "session_id_conflict", 409, "this session id is already used for another start"
+                )
+            if claimed == "repeat":
+                return {"repeat": True, "session_id": chosen_id,
+                        "running": chosen_id in slots.active}  # fmt: skip
+            return await run_prompt(data, session_id=chosen_id, resume=False, cwd=cwd)
         resume = data.get("session_id") is not None
         if resume:
             session_id = data["session_id"]
@@ -749,13 +857,41 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions")
     async def list_sessions(limit: int = 50):
-        """Claude Code sessions in the allowed folders: pinned first, then newest first."""
+        """Claude Code sessions in the allowed folders: pinned first, then newest first.
+
+        ``running_here``: the bridge is answering a message of it (same as ``in_use``).
+        ``open_elsewhere``: another Claude Code process on the computer holds it
+        (a terminal, the desktop app); ``null`` when that could not be checked.
+        """
         limit = max(1, min(limit, 200))
         found = sessions.list_sessions(settings.allowed_roots)
         meta = session_meta.load()
-        items = [session_meta.describe(s, in_use=s.id in slots.active, data=meta) for s in found]
+        held = await held_elsewhere()
+        items = []
+        for info in found:
+            item = session_meta.describe(info, in_use=info.id in slots.active, data=meta)
+            item["running_here"] = item["in_use"]
+            item["open_elsewhere"] = (
+                None if held is None else info.id in held and info.id not in slots.active
+            )
+            items.append(item)
         items.sort(key=lambda item: not item["pinned"])  # stable: keeps newest first
         return {"sessions": items[:limit], "total": len(found), "groups": meta["groups"]}
+
+    held_cache: dict = {"at": -1e9, "held": None}
+
+    async def held_elsewhere() -> set[str] | None:
+        """Sessions a Claude Code process other than the bridge's holds (10 s copy)."""
+        loop = asyncio.get_running_loop()
+        if loop.time() - held_cache["at"] < HELD_SECONDS:
+            return held_cache["held"]
+        own = sdk_pool.pids() if sdk_pool is not None else frozenset()
+        try:
+            held = await claude.sessions_in_use(settings, timeout=5.0, ignore_pids=own)
+        except ClaudeError:
+            held = None  # unknown, not "free"
+        held_cache.update(at=loop.time(), held=held)
+        return held
 
     @app.patch("/sessions/{session_id}")
     async def update_session(session_id: str, request: Request):

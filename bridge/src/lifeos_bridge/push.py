@@ -33,6 +33,7 @@ CHANNELS = {
     "coach": "coach",
     "reminder": "reminders",
     "notice": "reminders",
+    "update": "reminders",  # a new app release is ready
 }
 EVENTS = frozenset(CHANNELS)
 # Event kind → the screen a tap opens; with ``r`` it names the item.
@@ -45,6 +46,7 @@ OPENS = {
     "coach": "coach",
     "reminder": "reminder",
     "notice": "notice",
+    "update": "app_update",
 }
 MAX_TOKEN = 4096
 MAX_REF = 300

@@ -160,6 +160,18 @@ def test_an_event_is_one_push_the_script_does_not_push_again(tmp_path, monkeypat
     assert len(hints) == 1 and log.read_text().splitlines() == ["off", "on"]
 
 
+def test_the_running_bridge_sends_the_update_hint(client, auth, phone, fcm):
+    device_id, secret = phone
+    sent, _ = fcm
+    push.register(device_id, TOKEN)
+    body = {"event": "update", "ref": "141"}
+    assert client.post("/push/notify", headers=auth, json=body).json() == {"phones_reached": 1}
+    hint = e2e.open_sealed(secret, base64.b64decode(sent[0][1]["message"]["data"]["h"]))
+    assert hint.payload == {"e": "update", "c": "reminders", "o": "app_update", "r": "141"}
+    bad = client.post("/push/notify", headers=auth, json={"event": "answer"})
+    assert bad.status_code == 400 and len(sent) == 1
+
+
 def test_notice_endpoint_seals_title_and_link(client, auth, phone, fcm):
     device_id, secret = phone
     sent, _ = fcm

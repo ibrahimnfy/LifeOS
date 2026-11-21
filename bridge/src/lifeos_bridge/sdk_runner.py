@@ -70,6 +70,8 @@ GRACE = 5.0  # seconds for an interrupt to end the turn, and for a process to ex
 STDERR_KEEP = 64 * 1024  # tail of stderr kept to explain a failed start (never logged)
 REAP_INTERVAL = 30.0
 KEEPALIVE_SECONDS = 30.0
+# Why an interaction closed, as the stream's ``interaction_closed`` event says it.
+CLOSED_REASONS = {ANSWERED: "answered", TIMEOUT: "timed_out"}
 INPUT_FLAGS = ("--input-format", "stream-json")
 
 # Set by the SDK's own launcher too: they mark the session as an SDK one and
@@ -542,12 +544,16 @@ class LiveSession:
         turn.waiting += 1
         turn.queue.put_nowait(("interaction", interaction.public()))
         _wake_phones(kind, self.session_id)
+        outcome = "run_ended"  # stopped while waiting
         try:
-            return await self.asking.wait(interaction)
+            result = await self.asking.wait(interaction)
+            outcome = result[0]
+            return result
         finally:
             turn.waiting -= 1
             turn.waited += time.monotonic() - started
-            turn.queue.put_nowait(("interaction_closed", {"id": interaction.id}))
+            reason = CLOSED_REASONS.get(outcome, outcome)
+            turn.queue.put_nowait(("interaction_closed", {"id": interaction.id, "reason": reason}))
 
     async def _question(self, tool_input: dict):
         data = interactions.question_data(tool_input)
@@ -772,8 +778,7 @@ async def _events(
             if isinstance(item, ClaudeError):
                 raise item
             if isinstance(item, tuple):  # ("interaction" | "interaction_closed", data)
-                if item[0] == "interaction":
-                    yield item
+                yield item
             elif isinstance(item, ResultMessage):
                 final = item
             elif isinstance(item, UserMessage) and observer is not None:
@@ -837,7 +842,7 @@ async def stream(
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
         async with contextlib.aclosing(events):
             async for event, payload in events:
-                if event in ("delta", "interaction", "keepalive"):
+                if event in ("delta", "interaction", "interaction_closed", "keepalive"):
                     yield event, payload
                     continue
                 result: RunResult = payload

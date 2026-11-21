@@ -39,8 +39,11 @@ def test_a_waiting_stream_sends_keep_alives(sdk_settings, auth, monkeypatch):
         response = client.post(
             "/ask", headers=auth, json={"prompt": prompt, "stream": True, "interactive": True}
         )
-    assert response.text.count(": keep-alive") >= 3
-    assert "event: keepalive" not in response.text
+    # A real, tiny event (#147): the relay forwards it sealed to the phone.
+    assert response.text.count("event: keepalive\ndata: {}") >= 3
+    # The question timed out: the stream says the interaction is closed, and why.
+    assert 'event: interaction_closed\ndata: {"id": ' in response.text
+    assert '"reason": "timed_out"' in response.text
 
 
 def test_an_approval_never_lets_a_command_out_of_the_sandbox(sdk_settings, isolated_config):

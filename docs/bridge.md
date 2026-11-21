@@ -103,6 +103,8 @@ documented here as they are built.
 | GET | `/models` | yes | Models and effort levels the app may offer, and the defaults |
 | GET | `/models/routing` | yes | Model, effort and advisor of each job, and its plan usage today and this week |
 | PUT | `/models/routing` | yes | Changes one job's model, effort or advisor (audited, no restart) |
+| GET | `/app/release` | yes | The registered release of the app: version, size, SHA-256, certificate |
+| POST | `/app/release/offer` | yes | Offers the release APK for `GET /files/{offer}?session_id=app-release` |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/session-groups` | yes | Lists or creates the owner's session groups |
 | PATCH / DELETE | `/session-groups/{id}` | yes | Renames or deletes a group |
@@ -160,6 +162,7 @@ Request body (JSON):
 |---|---|---|
 | `prompt` | string, required | The prompt, at most 100 000 characters |
 | `session_id` | string, optional | Continue an earlier `/ask` conversation |
+| `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. Follow-ups go to `POST /sessions/{id}/messages` as usual |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
 | `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
 
@@ -382,7 +385,12 @@ then newest first:
   beginning of its first prompt. Titles are conversation content: they are
   sent to the authenticated client only and never logged.
 - `in_use` is true while the bridge itself is running a prompt in that
-  session.
+  session; `running_here` is the same, named for what it means.
+  `open_elsewhere` is true when another Claude Code process on the computer
+  holds the session (a terminal, the desktop app), from `claude agents
+  --json` (the bridge's own processes left out, reused for 10 seconds), and
+  `null` when that could not be checked. A message to a session open
+  elsewhere answers `409 session_in_use`.
 - Claude Code deletes old sessions by itself (after 30 days by default), so
   a listed session can disappear later.
 - Session files are an internal format of Claude Code; files the bridge
@@ -613,9 +621,15 @@ How it reaches the owner:
   "header", "multi_select", "options": [{"label", "description"}]}]`; an
   approval carries `tool`, `command`, `folder`, `category` and `reason`.
   Paired phones also get a sealed push hint (`question` or `approval`).
-  While the owner is being asked, the stream sends an SSE comment
-  (`: keep-alive`) every 30 seconds, so the relay's read does not time
-  out.
+  When the interaction is over, the stream sends `interaction_closed
+  {"id", "reason": "answered" | "timed_out" | "run_ended"}` (answered from
+  any client, the time ran out, or the run ended or was stopped first).
+- **Keep-alives:** a streamed run that sends nothing for 20 seconds (a long
+  tool call; also on `claude -p`) and a run that waits for the owner (every
+  30 seconds) send the event `keepalive {}`. The relay forwards it as a
+  small sealed chunk `{"event": "keepalive", "data": {}}`, so the phone can
+  tell a working run from a dead connection. (Before #147 this was an SSE
+  comment the relay dropped.)
 - `GET /sessions/{id}/interactions` → `{"pending": [...]}` (same objects).
 - `POST /sessions/{id}/interactions/{iid}` answers:
   - question: `{"answers": {"<question>": "<label or own text>"}}` (a list
@@ -974,7 +988,11 @@ git -C ~/brain log -1 --format=%s     # "Compact the coach conversation" when fa
 - `GET /coach/settings` → `{"frequency": "off" | "1" | "3", "quiet_start":
   "22:00", "quiet_end": "08:00", "questions": true}` (these are the
   defaults). `PUT /coach/settings` takes any of these fields; fields left
-  out keep their value. With `frequency` `off` no notification is sent; with
+  out keep their value. `frequency`: `off` sends no notification, `"1"`
+  (`"low"`, the default) the daily note only, `"3"` (`"normal"`) the daily
+  note and up to two further nudges from the same batch, two hours apart,
+  never in quiet hours, never about a task done meanwhile (coach-design.md
+  section 5; no run per nudge). With
   `questions` `false` the plan is served without its question. Stored in
   `~/.config/lifeos/coach/settings.json`; skips are remembered in
   `coach/state.json` next to it.
@@ -1363,9 +1381,10 @@ are used, so it works while the app is closed.
   | `question`, `approval` | `chat` | `session` | session id | a run waits for the owner (SDK runner) |
   | `courses` | `courses` | `course` / `courses` | course id when one course changed, else none | a course sync found something (one push per sync) |
   | `signin` | `courses` | `moodle_signin` | – | the course sign-in needs renewal |
-  | `coach` | `coach` | `coach` | – | the coach's daily note |
+  | `coach` | `coach` | `coach` | message id of `GET /coach/plan` | the coach's daily note, and further nudges (frequency `"3"`) |
   | `reminder` | `reminders` | `reminder` | reminder id | a session reminder is due |
   | `notice` | `reminders` | `notice` | – (`t`, `l`) | `scripts/notify.sh` (for example a new owner issue) |
+  | `update` | `reminders` | `app_update` | version code | a new app release was registered (`lifeos-bridge release`) |
 
 - **Courses: one push per sync.** Every change one sync finds (new or
   changed files, new or changed pages and books, new assignments, new
@@ -1389,6 +1408,63 @@ are used, so it works while the app is closed.
   $B/push/notify` answers `{"phones_reached": 1}`; after a course refresh
   that found something, the bridge log shows no course names, and the
   phone (once the app side exists) shows one "courses" notification.
+
+## App releases for the phone
+
+`lifeos-bridge release` registers a new release build of the app; the
+paired phones are told and can install it with one tap (#138, app side
+separate). No third-party update service.
+
+```
+uv run lifeos-bridge release --build     # Gradle builds and signs (it reads the key itself), then registers
+uv run lifeos-bridge release             # registers the existing build output instead
+uv run lifeos-bridge release --apk FILE --version-code N --version-name X   # another APK
+```
+
+- **What it checks and records:** the APK from Gradle's release output
+  (`app/app/build/outputs/apk/release/`, with version code and name from
+  `output-metadata.json`), its size (at most 200 MB), the SHA-256 of the
+  file, and the SHA-256 of its signing certificate, read from the APK
+  Signature Scheme v3/v2 block; an unsigned APK is refused. The first
+  registered certificate is pinned: an APK signed with another key is
+  refused unless `--new-certificate` is given. The version code must be
+  newer than the current release. The command never asks for or reads the
+  keystore password: Gradle reads `~/.config/lifeos/release/` itself.
+- **Where:** a private copy in `~/.config/lifeos/app-release/lifeos-<code>.apk`
+  (mode 600; only the current one is kept) and the record in
+  `~/.config/lifeos/app-release.json`. The `AppRelease` audit record (version,
+  size, hashes) is written first; without it nothing is registered.
+- **Push:** one sealed hint `update` (channel `reminders`, opens
+  `app_update`, `r` = version code) to every paired phone, sent by the
+  running bridge (the command asks it with `POST /push/notify` `{"event":
+  "update", "ref": "<code>"}`): only the bridge may advance a phone's
+  message counters. When the bridge is not running, no push is sent and the
+  command says so; the app finds the release when it opens.
+- **Verified** on a real release output (read-only): Gradle's
+  `output-metadata.json` gives `versionCode`, `versionName`, `outputFile`;
+  the certificate taken from the v3 signing block is a valid X.509
+  certificate whose SHA-256 equals `keytool`'s fingerprint. The bridge does
+  not verify the signature itself (Android's installer does).
+- `GET /app/release` → `{"version_code": int, "version_name": str, "size":
+  int, "sha256": hex, "cert_sha256": hex, "registered_at": iso}`; `404
+  no_release` when none is registered.
+- `POST /app/release/offer` → `{"offer", "name", "type":
+  "application/vnd.android.package-archive", "size", "session_id":
+  "app-release", "version_code", "version_name", "sha256", "cert_sha256",
+  "registered_at"}`. The phone fetches it with `GET
+  /files/{offer}?session_id=app-release` (through the relay: sealed chunks
+  of 700 KB, three waiting at a time, the SHA-256 of the whole file with
+  the last message), within 15 minutes. The release has its own size limit
+  (200 MB), independent of `LIFEOS_MAX_FILE_MB` (50 MB for ordinary file
+  offers), and it is offered only from its own folder; the offer and the
+  download are audited like every file. The phone checks the hash and the
+  certificate before it opens the installer.
+
+Manual check: `uv run lifeos-bridge release --build` prints "Registered
+release …; the paired phones were told"; `curl -s -H "$H"
+$B/app/release` shows the same version and hashes; `curl -s -X POST -H
+"$H" $B/app/release/offer` gives a card; `grep AppRelease
+~/.config/lifeos/audit/*.jsonl | tail -n 1`.
 
 ## Moodle sign-in
 
@@ -1615,6 +1691,9 @@ curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"1","quiet_start":"23:00"}' $B/c
 ls -l ~/.config/lifeos/coach/                    # plan.json, settings.json, state.json; mode 600
 # outside quiet hours, within about 30 seconds of the first plan of the day,
 # a desktop notification "LifeOS: coach" appears, once
+curl -s -H "$H" -H "$J" -X PUT -d '{"frequency":"3"}' $B/coach/settings   # "normal" works too
+# then, two and four hours after the daily note (outside quiet hours), "A note from your coach."
+# appears; never a fourth that day, never in quiet hours; no new run (`/models/routing` unchanged)
 ```
 
 Queue, cancel and models (in a second terminal while a longer question

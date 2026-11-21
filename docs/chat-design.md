@@ -312,6 +312,29 @@ terminal works while the bridge's process sits idle, and the bridge notices
 the changed transcript and resumes instead of writing over it. See
 `docs/bridge.md`, "Runner".
 
+### 7.1 Chat through the relay (#147)
+
+Three gaps the chat screen found, closed in the bridge:
+
+- **Signs of life.** A streamed run that says nothing for 20 seconds (a long
+  tool call) or waits for the owner sends a `keepalive` event; the relay
+  forwards it sealed. The phone treats a stream without any event for well
+  over 30 seconds as a lost connection, and a stream with keep-alives as a
+  working run.
+- **A new conversation the phone names itself.** The phone sends its first
+  message with `new_session_id` (a UUID it chose). If the answer is lost,
+  it sends the same message again with the same id: the bridge recognises
+  the repeat (same text and folder) and runs nothing, answering
+  `{"repeat": true, "session_id", "running"}`; the phone then follows the
+  session (queue, history) instead of starting a second conversation.
+- **Closed interactions.** A question or approval card closes on the
+  stream's `interaction_closed {"id", "reason"}` (`answered` from any
+  client, `timed_out`, or `run_ended`), so a card answered elsewhere or
+  left over from a stopped run does not stay open.
+- **Session list:** `running_here` (the bridge answers in it) and
+  `open_elsewhere` (a terminal or the desktop app holds it; `null` when
+  unknown) tell the two kinds of "busy" apart.
+
 ## 8. Build issues
 
 | Part | Bridge | App |
