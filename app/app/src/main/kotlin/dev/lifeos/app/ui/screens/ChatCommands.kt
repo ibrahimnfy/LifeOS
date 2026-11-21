@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ChatState
 import dev.lifeos.app.data.CommandList
+import dev.lifeos.app.data.CommandNote
 import dev.lifeos.app.data.Commands
 import dev.lifeos.app.data.ModelChoice
 import dev.lifeos.app.data.ModelChoices
@@ -55,28 +56,26 @@ import dev.lifeos.app.ui.theme.LifeType
 
 /**
  * What a message that starts with "/" gets above the composer: while the name is typed, the
- * folder's skills and commands that match (a tap completes the name); otherwise one line that
- * says where things stand (switched off, not one of the folder's, needs "Changes allowed").
+ * usable skills and commands that match, the folder's own and the owner's personal ones (a tap
+ * completes the name); otherwise one line that says where things stand (nothing usable, not
+ * one that can be used, needs "Changes allowed").
  */
 @Composable
 internal fun CommandHelp(list: CommandList?, draft: String, state: ChatState, onPick: (SlashCommand) -> Unit) {
     val colors = LifeTheme.colors
     val shape = RoundedCornerShape(16.dp)
-    val note: String? = when {
-        state.sessionId == null -> stringResource(R.string.chat_commands_new)
-        list == null -> null
-        !list.switchedOn -> stringResource(R.string.chat_commands_off)
-        !list.enabled -> stringResource(R.string.chat_commands_unavailable)
-        Commands.typing(draft) != null -> when {
-            list.commands.isEmpty() -> stringResource(R.string.chat_commands_none)
-            Commands.matching(list, draft).isEmpty() -> stringResource(R.string.chat_commands_no_match)
-            else -> null
-        }
-        Commands.unknown(list, draft) -> stringResource(R.string.chat_commands_unknown)
-        !state.capable -> stringResource(R.string.chat_commands_capable)
-        else -> null
+    val note: String? = when (Commands.note(list, draft, hasSession = state.sessionId != null, capable = state.capable)) {
+        CommandNote.NEW -> stringResource(R.string.chat_commands_new)
+        CommandNote.UNAVAILABLE -> stringResource(R.string.chat_commands_unavailable)
+        CommandNote.FOLDER_UNAVAILABLE -> stringResource(R.string.chat_commands_folder_unavailable)
+        CommandNote.FOLDER_OFF -> stringResource(R.string.chat_commands_off)
+        CommandNote.NONE -> stringResource(R.string.chat_commands_none)
+        CommandNote.NO_MATCH -> stringResource(R.string.chat_commands_no_match)
+        CommandNote.UNKNOWN -> stringResource(R.string.chat_commands_unknown)
+        CommandNote.CAPABLE -> stringResource(R.string.chat_commands_capable)
+        null -> null
     }
-    val offered = if (list != null && list.enabled && state.sessionId != null) Commands.matching(list, draft) else emptyList()
+    val offered = if (list != null && state.sessionId != null) Commands.matching(list, draft) else emptyList()
     if (note == null && offered.isEmpty()) return
     Column(
         modifier = Modifier
@@ -99,13 +98,14 @@ internal fun CommandHelp(list: CommandList?, draft: String, state: ChatState, on
                 color = colors.muted,
                 modifier = Modifier.semantics { heading() },
             )
-            offered.forEach { command -> CommandRow(command) { onPick(command) } }
+            offered.forEach { command -> CommandRow(Commands.invocation(checkNotNull(list), command), command) { onPick(command) } }
         }
     }
 }
 
+/** One entry: how it is named in a message, whether it is a skill or a command, the folder's or personal. */
 @Composable
-private fun CommandRow(command: SlashCommand, onClick: () -> Unit) {
+private fun CommandRow(invocation: String, command: SlashCommand, onClick: () -> Unit) {
     val colors = LifeTheme.colors
     Column(
         modifier = Modifier
@@ -117,7 +117,7 @@ private fun CommandRow(command: SlashCommand, onClick: () -> Unit) {
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
-                text = "/" + command.name + command.argumentHint?.let { " $it" }.orEmpty(),
+                text = invocation + command.argumentHint?.let { " $it" }.orEmpty(),
                 style = LifeType.rowTitle.copy(fontFamily = FontFamily.Monospace),
                 color = colors.text,
                 maxLines = 1,
@@ -125,9 +125,16 @@ private fun CommandRow(command: SlashCommand, onClick: () -> Unit) {
                 modifier = Modifier.weight(1f, fill = false),
             )
             Text(
-                text = stringResource(if (command.kind == "skill") R.string.chat_command_skill else R.string.chat_command_command),
+                text = stringResource(
+                    when {
+                        command.personal && command.kind == "skill" -> R.string.chat_command_personal_skill
+                        command.personal -> R.string.chat_command_personal_command
+                        command.kind == "skill" -> R.string.chat_command_skill
+                        else -> R.string.chat_command_command
+                    },
+                ),
                 style = LifeType.small,
-                color = colors.muted,
+                color = if (command.personal) colors.link else colors.muted,
             )
         }
         if (command.description.isNotBlank()) {

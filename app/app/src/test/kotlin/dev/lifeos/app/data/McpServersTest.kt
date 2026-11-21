@@ -80,6 +80,8 @@ class McpServersTest {
         transport.answer("POST /sessions/s-1/mcp-servers/tools/approval", 200, card().dropLast(1) + ""","already_waiting":false}""")
         val made = McpApprovals.card(api, "s-1", server)
         assertEquals("a1b2c3d4e5f6", made.id)
+        // The request always names the scope (#162).
+        assertEquals(mapOf("scope" to "folder"), transport.calls.last().query)
         assertEquals("npx -y some-server", made.server?.commandLine)
         // The computer keeps one card per definition: asked again, the same one comes back.
         transport.answer("POST /sessions/s-1/mcp-servers/tools/approval", 200, card().dropLast(1) + ""","already_waiting":true}""")
@@ -118,9 +120,55 @@ class McpServersTest {
     @Test
     fun `revoking is one request and says whether there was an approval`() = runTest {
         transport.answer("DELETE /sessions/s-1/mcp-servers/remote", 200, """{"revoked":true}""")
-        assertTrue(api.revokeMcp("s-1", "remote"))
+        assertTrue(McpApprovals.revoke(api, "s-1", McpServer(name = "remote")))
+        assertEquals(mapOf("scope" to "folder"), transport.calls.last().query)
         transport.answer("DELETE /sessions/s-1/mcp-servers/tools", 200, """{"revoked":false}""")
-        assertFalse(api.revokeMcp("s-1", "tools"))
+        assertFalse(McpApprovals.revoke(api, "s-1", McpServer(name = "tools", scope = "personal")))
+        assertEquals(mapOf("scope" to "personal"), transport.calls.last().query)
+    }
+
+    // ------------------------------------------------------------------ personal servers (#162)
+
+    @Test
+    fun `personal servers are listed with their scope, and an unsupported one can never be approved`() = runTest {
+        val personal = remote.replace("{\"name\":\"remote\"", "{\"name\":\"remote\",\"scope\":\"personal\"")
+        val unsupported = tools.replace("{\"name\":\"tools\"", "{\"name\":\"helper\",\"scope\":\"personal\"").replace("not_approved", "unsupported")
+        val folder = tools.replace("{\"name\":\"tools\"", "{\"name\":\"tools\",\"scope\":\"folder\"")
+        transport.answer("GET /sessions/s-1/mcp-servers", 200, """{"capable_only":true,"note":"…","servers":[$folder,$personal,$unsupported]}""")
+        val (own, mine, odd) = api.mcpServers("s-1")
+        assertFalse(own.personal)
+        assertTrue(own.approvable)
+        assertFalse(own.revocable)
+        assertTrue(mine.personal)
+        assertEquals(McpServer.State.APPROVED, mine.approval)
+        assertFalse(mine.approvable)
+        assertTrue(mine.revocable)
+        assertEquals(McpServer.State.UNSUPPORTED, odd.approval)
+        assertFalse(odd.approvable)
+        assertFalse(odd.revocable)
+        // A list from before #162 has no scope: the folder's.
+        assertEquals("folder", BridgeJson.decodeFromString(McpServer.serializer(), tools).scopeParam)
+        // An unknown scope is never sent as such.
+        assertEquals("folder", McpServer(name = "x", scope = "other").scopeParam)
+    }
+
+    @Test
+    fun `asking for a personal server's approval names the scope, and the card says it is personal`() = runTest {
+        val server = McpServer(name = "tools", scope = "personal")
+        transport.answer("POST /sessions/s-1/mcp-servers/tools/approval", 200, card().dropLast(1) + ""","scope":"personal","already_waiting":false}""")
+        McpApprovals.card(api, "s-1", server)
+        assertEquals(mapOf("scope" to "personal"), transport.calls.last().query)
+        // The card names its scope at the top; the server inside it may not.
+        val chat = opened(card().dropLast(1) + ""","scope":"personal"}""")
+        assertTrue(checkNotNull(chat.state.value.interactions.single().server).personal)
+        // Refused because it can never be approved: an error of the request, not a card.
+        transport.answer("POST /sessions/s-1/mcp-servers/tools/approval", 409, """{"error":"mcp_server_unsupported"}""")
+        try {
+            McpApprovals.card(api, "s-1", server)
+            fail("an unsupported server has no card")
+        } catch (error: ApiException) {
+            assertEquals("mcp_server_unsupported", error.code)
+        }
     }
 
     @Test

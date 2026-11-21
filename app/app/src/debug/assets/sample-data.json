@@ -78,6 +78,15 @@
     "stale": false
   },
   "GET /courses/sync": {"configured": true, "running": false, "last_sync": "2026-01-01T07:00:00Z", "last_error": null, "stale": false},
+  "GET /courses/ID/resources": {
+    "course_id": 0, "syllabus": {"name": "Syllabus.pdf"}, "running": false, "pending": false, "folders_named": false,
+    "last_run": "2026-01-01T06:30:00Z", "last_result": "ok",
+    "items": [
+      {"title": "Open textbook of the course", "url": "https://books.example.org/open-textbook.pdf", "kind": "open_access_book", "licence": "CC BY", "why_legal": "Published under an open licence", "reference": "Chapters 1-4", "status": "listed", "file": null, "reason": "folders_not_named"},
+      {"title": "Lecture notes of a sample university", "url": "https://notes.example.org/lectures.pdf", "kind": "public_material", "licence": null, "why_legal": "Public course page", "reference": null, "status": "listed", "file": null, "reason": "already_present"},
+      {"title": "Sample paid handbook", "url": "https://shop.example.org/handbook", "kind": "paid", "licence": null, "why_legal": "Listed only", "reference": null, "status": "listed", "file": null, "reason": "paid"}
+    ]
+  },
   "GET /courses/ID/materials": {
     "name": "",
     "sections": [
