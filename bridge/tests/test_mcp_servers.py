@@ -126,6 +126,10 @@ def test_the_same_definition_asked_again_returns_the_waiting_card(ask_dir, isola
     assert steps == ["mcp_server_approval_requested"]  # asked once
     other = mcp_servers.request("s2", ask_dir, "tools")  # another session: its own card
     assert other["already_waiting"] is False and other["id"] != first["id"]
+    define(ask_dir, {"tools": SERVER, "twin": SERVER})  # same definition, another name
+    twin = mcp_servers.request("s1", ask_dir, "twin")
+    assert twin["already_waiting"] is False and twin["server"]["name"] == "twin"
+    assert mcp_servers.request("s1", ask_dir, "twin")["id"] == twin["id"]
     define(ask_dir, {"tools": dict(SERVER, command="sh")})
     changed = mcp_servers.request("s1", ask_dir, "tools")  # another definition: a new card
     assert changed["already_waiting"] is False and changed["id"] != first["id"]

@@ -367,8 +367,11 @@ Three gaps the chat screen found, closed in the bridge:
   end, and the app picks it up again with `GET /sessions/{id}/live` when it
   returns. If the app could not send the detach (killed, offline), the
   relay lets go by itself once the stream's messages wait unread for about
-  a minute. Repeated lock and unlock during one long run therefore never
-  exhausts the workers.
+  a minute, and leaves one `stream_abandoned` error for that request. A
+  running app takes every message out of its mailbox, also of a stream it
+  no longer shows, so the relay cannot tell by itself: the app must send
+  the detach whenever it stops reading. Then repeated lock and unlock
+  during one long run never exhausts the workers.
 - **Live follow, caught up.** `GET /sessions/{id}/live` sends
   `replay_end {"events": n}` after what the run said so far. Until then
   the app shows the replay as one block ("catching up"); after it, the text

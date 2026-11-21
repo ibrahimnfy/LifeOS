@@ -1575,9 +1575,16 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
 
   Without a detach message (app killed, connection lost), the relay notices
   by itself: when four or more of a stream's messages wait unread and the
-  oldest is more than 45 seconds old, the stream is let go in the same way.
-  A quiet run sends a keep-alive every 20 seconds, so this happens about
-  80 seconds after the phone stopped reading.
+  oldest is more than 45 seconds old, the stream is let go in the same way,
+  and one last message, an error `{"status": 504, "error":
+  "stream_abandoned"}`, is left for that request: a phone that comes back
+  follows the run again with `GET /sessions/{id}/live`. A quiet run sends a
+  keep-alive every 20 seconds, so this happens about 80 seconds after the
+  phone stopped reading. **The phone should always send the detach:** a
+  phone that keeps taking every message out of its mailbox (as a running
+  app does, also for a stream it no longer shows) never looks abandoned.
+  The phone sends its requests one at a time with rising key times, as
+  for every request, so a detach is never taken after a later request.
   Manual check: start a long chat message from the app, lock the phone,
   unlock, and repeat five times during the same run; the app's other
   screens (`/whoami`, notes) still answer at once, and the run's answer is

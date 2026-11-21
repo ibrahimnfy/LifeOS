@@ -185,6 +185,7 @@ class Stream:
         self.events: object | None = None  # the local server-sent event reader
         self.answer: Generator | None = None  # the relay's messages made from it
         self.detached = threading.Event()
+        self.stalled = False  # let go because nobody read it (not by a detach)
         self.written: list[str] = []
         self.checked = time.monotonic()
 
@@ -299,7 +300,7 @@ class Relay:
         try:
             for kind, payload in answer:
                 stream.sent(self.send(device_id, kind, rid, payload))
-                if self._abandoned(stream):
+                if kind == e2e.CHUNK and self._abandoned(stream):
                     break
         except devices.PairingError:
             return  # revoked meanwhile
@@ -312,6 +313,13 @@ class Relay:
                 self._streams.pop((device_id, rid), None)
             if stream.detached.is_set():
                 self._let_go(stream)
+            if stream.stalled:
+                # Not asked for by the phone: one last word, so a phone that comes back
+                # knows to follow the run again (GET /sessions/{id}/live).
+                with contextlib.suppress(Exception):
+                    self.send(
+                        device_id, e2e.ERROR, rid, {"status": 504, "error": "stream_abandoned"}
+                    )
 
     # -- streams the phone stopped reading ------------------------------------------
     def detach(self, device_id: bytes, rid: str) -> bool:
@@ -351,6 +359,7 @@ class Relay:
             and oldest is not None
             and time.time() - oldest > STREAM_STALL_SECONDS
         ):
+            stream.stalled = True
             stream.detached.set()
             return True
         return False

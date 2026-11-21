@@ -7,9 +7,10 @@ import contextlib
 import hashlib
 import hmac
 import json
+import time
 import uuid
 from collections.abc import AsyncIterator
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -349,18 +350,27 @@ def create_app(settings: Settings) -> FastAPI:
                 background.add(wake)
                 wake.add_done_callback(background.discard)
 
-    def remember_servers(session_id: str, names: list[str]) -> None:
+    def remember_servers(session_id: str, names: list[str], started: float) -> None:
         """Tie the servers a finished run had to its exchange in the history (#157).
 
         Runs of one session never overlap, so the transcript's last exchange is
-        this run's. Best effort: the answer is not held up by a failure here.
+        this run's, if it began after the run started (a prompt the history does
+        not count as the owner's, such as a command, has none: nothing is tied).
+        Best effort: the answer is not held up by a failure here.
         """
         try:
             info = sessions.find_session(session_id, settings.allowed_roots)
             path = history.transcript_path(info, settings.allowed_roots) if info else None
             page = history.read_page(path, 1) if path is not None else {"exchanges": []}
-            if page["exchanges"]:
-                mcp_servers.remember_used(session_id, page["exchanges"][-1]["id"], names)
+            if not page["exchanges"]:
+                return
+            last = page["exchanges"][-1]
+            at = last.get("at")
+            if at is not None:  # Claude Code stamps its lines; a line without one is taken
+                when = datetime.fromisoformat(at.replace("Z", "+00:00")).timestamp()
+                if when < started - 2:  # an earlier exchange: not this run's
+                    return
+            mcp_servers.remember_used(session_id, last["id"], names)
         except Exception:  # noqa: S110 - a missing note in the history only
             pass
 
@@ -648,6 +658,7 @@ def create_app(settings: Settings) -> FastAPI:
 
         async def raw_events() -> AsyncIterator[tuple[str, dict]]:
             open_interactions: set[str] = set()
+            started = time.time()
             try:
                 runner = (
                     sdk_runner.stream(sdk_pool, settings, prompt, **run_args)
@@ -684,7 +695,7 @@ def create_app(settings: Settings) -> FastAPI:
                             payload["mcp_note"] = mcp_servers.OUTSIDE_SANDBOX
                             await asyncio.to_thread(
                                 remember_servers, payload.get("session_id") or session_id,
-                                used_servers,
+                                used_servers, started,
                             )  # fmt: skip
                     yield event, payload
             except ClaudeError as error:

@@ -132,6 +132,7 @@ def request(session_id: str, folder: Path, name: str) -> dict:
                 waiting.get("kind") == KIND
                 and waiting.get("session_id") == session_id
                 and waiting.get("folder") == _key(folder)
+                and (waiting.get("server") or {}).get("name") == name
                 and waiting.get("definition_hash") == shown["hash"]
                 and waiting.get("expires", 0) > now
             ):

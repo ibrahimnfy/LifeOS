@@ -560,10 +560,17 @@ def test_a_stream_nobody_reads_frees_its_worker_by_itself(long_runs, monkeypatch
     (who,) = answer_of(phone, "who", timeout=10)
     assert who.payload["status"] == 200  # the stalled streams let go of their workers
     side = f"lifeos/{phone.id.hex()}/p"
-    deadline = time.time() + 5
-    while phone.box.keys(side) and time.time() < deadline:
-        time.sleep(0.05)
-    assert phone.box.keys(side) == []  # nothing of an abandoned stream stays unread
+
+    def left():
+        # Read while other streams are still being cleaned up: an entry may go meanwhile.
+        values = [phone.box.get(f"{side}/{key}") for key in phone.box.keys(side)]
+        return [e2e.open_sealed(phone.secret, mailbox.decode(v)) for v in values if v is not None]
+
+    count = relay.MAX_WORKERS + 2
+    until(lambda: len(left()) == count and all(m.header.kind == e2e.ERROR for m in left()))
+    # Of each abandoned stream only one last word stays: follow the run again.
+    assert sorted(m.request_id for m in left()) == [f"s{i}" for i in range(count)]
+    assert all(m.payload == {"status": 504, "error": "stream_abandoned"} for m in left())
     assert not any(e.closed.is_set() for _path, e in streams)  # the runs were not cut
     for _path, events in streams:
         events.run_over.set()
