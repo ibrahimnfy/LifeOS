@@ -8,7 +8,7 @@
     <string name="nav_tasks">Tasks</string>
     <string name="nav_more">More</string>
     <string name="nav_main">Main navigation</string>
-    <string name="action_capture">Add a note or task</string>
+    <string name="action_capture">Add a note, a task or a new chat</string>
     <string name="action_back">Back</string>
     <string name="connection_not_paired">Connection: not paired</string>
     <string name="action_open_settings">Open settings</string>
@@ -527,12 +527,6 @@
     <string name="chat_all_sessions">All sessions</string>
     <string name="chat_list_empty">No conversations yet. Start one with “New chat”.</string>
     <string name="chat_pinned">Pinned</string>
-    <string name="chat_folder_title">Where should this chat run?</string>
-    <string name="chat_folder_memory">Memory (default)</string>
-    <string name="chat_folder_memory_sub">Notes, tasks and daily logs</string>
-    <string name="chat_folder_allowed">Allowed folder</string>
-    <string name="chat_folder_start">Start</string>
-    <string name="chat_folder_none">The computer named no folder to work in.</string>
     <string name="chat_memory_label">Memory</string>
     <string name="chat_you">You</string>
     <string name="chat_working">Working… %1$s</string>

@@ -15,18 +15,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -37,7 +31,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontFamily
@@ -49,7 +42,6 @@ import dev.lifeos.app.R
 import dev.lifeos.app.data.ChatEndpoints
 import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.ChatState
-import dev.lifeos.app.data.Folder
 import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.SessionLists
 import dev.lifeos.app.data.SessionSummary
@@ -74,7 +66,8 @@ private const val RECENT = 3
 
 /**
  * The Chat tab: the coach's conversation on top, the chat in progress, the most recent
- * sessions and "New chat". Once per app start it opens the conversation that was open last.
+ * sessions and "New chat". The tab always opens on this list (#166); the conversation that was
+ * open last is its "current chat".
  */
 @Composable
 fun ChatListScreen(
@@ -87,7 +80,6 @@ fun ChatListScreen(
     onNewChat: () -> Unit,
 ) {
     val chat by core.chat.state.collectAsStateWithLifecycle()
-    val locked by core.locked.collectAsStateWithLifecycle()
     val sessions = rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }
     val state by sessions.state.collectAsStateWithLifecycle()
     val folders = rememberLoad(core, ChatEndpoints.folders) { it.folders.isEmpty() }
@@ -104,11 +96,6 @@ fun ChatListScreen(
     val reminders = rememberLoad(core, ChatEndpoints.reminders)
     RefreshOnSessionChange(core, reminders)
     val reminded = Reminders.sessionsWithOne((reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty())
-
-    // "The chat continues the same conversation": after a start the tab opens it directly.
-    LaunchedEffect(locked, chat.sessionId) {
-        if (!locked && core.chat.takeResume()) onOpenChat()
-    }
 
     Column(Modifier.fillMaxSize()) {
         TopBar(
@@ -206,7 +193,7 @@ private fun CurrentChat(chat: ChatState, onClick: () -> Unit) {
     val colors = LifeTheme.colors
     LifeCard {
         SectionHeader(title = stringResource(R.string.chat_current))
-        val folder = chat.folder?.let { folderName(it) }.orEmpty()
+        val folder = chat.folder?.let { folderName(it) }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -216,7 +203,14 @@ private fun CurrentChat(chat: ChatState, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Thumb { Text(folder.take(1).uppercase(), style = LifeType.rowTitle, color = colors.text) }
+            Thumb {
+                if (folder != null) {
+                    Text(folder.take(1).uppercase(), style = LifeType.rowTitle, color = colors.text)
+                } else {
+                    // A blank chat (#166): no folder to take a letter from.
+                    Icon(LifeIcons.Chat, contentDescription = null, tint = colors.text, modifier = Modifier.size(22.dp))
+                }
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     text = chat.messages.firstOrNull { it.fromOwner }?.text ?: stringResource(R.string.chat_current_new),
@@ -225,7 +219,9 @@ private fun CurrentChat(chat: ChatState, onClick: () -> Unit) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text(text = folder, style = LifeType.small.copy(fontFamily = FontFamily.Monospace), color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (folder != null) {
+                    Text(text = folder, style = LifeType.small.copy(fontFamily = FontFamily.Monospace), color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             Icon(LifeIcons.Chevron, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
         }
@@ -347,90 +343,6 @@ internal fun SessionRow(
             ) {
                 Icon(LifeIcons.More, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
             }
-        }
-    }
-}
-
-/**
- * "New chat": where should it run? The memory folder (the default) or one of the allowed
- * folders, as the computer lists them.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun NewChatSheet(core: LifeOsCore, onDismiss: () -> Unit, onPair: () -> Unit, onStart: (Folder) -> Unit) {
-    val colors = LifeTheme.colors
-    val folders = rememberLoad(core, ChatEndpoints.folders) { it.folders.isEmpty() }
-    val state by folders.state.collectAsStateWithLifecycle()
-    var chosen by rememberSaveable { mutableStateOf<String?>(null) }
-    val title = stringResource(R.string.chat_folder_title)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = colors.bg,
-        contentColor = colors.text,
-        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(start = LifeDimens.pad, end = LifeDimens.pad, bottom = LifeDimens.pad),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(text = title, style = LifeType.featured, color = colors.text, modifier = Modifier.semantics { heading() })
-            StateHost(state, stringResource(R.string.chat_folder_none), folders::refresh, onPair = onPair, savedLine = false) { list ->
-                val selected = list.folders.firstOrNull { it.path == chosen }
-                    ?: list.folders.firstOrNull { it.default }
-                    ?: list.folders.first()
-                Column(Modifier.selectableGroup().semantics { contentDescription = title }) {
-                    list.folders.forEach { folder ->
-                        FolderChoice(folder, selected = folder.path == selected.path) { chosen = folder.path }
-                    }
-                }
-                PrimaryButton(text = stringResource(R.string.chat_folder_start), onClick = { onStart(selected) })
-            }
-        }
-    }
-}
-
-@Composable
-private fun FolderChoice(folder: Folder, selected: Boolean, onSelect: () -> Unit) {
-    val colors = LifeTheme.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 60.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Thumb { Icon(LifeIcons.Folder, contentDescription = null, tint = colors.text, modifier = Modifier.size(22.dp)) }
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = if (folder.isMemory) stringResource(R.string.chat_folder_memory) else folder.label,
-                style = if (folder.isMemory) LifeType.rowTitle else LifeType.rowTitle.copy(fontFamily = FontFamily.Monospace),
-                color = colors.text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = stringResource(if (folder.isMemory) R.string.chat_folder_memory_sub else R.string.chat_folder_allowed),
-                style = LifeType.small,
-                color = colors.muted,
-            )
-        }
-        // The radio mark: a ring, filled when chosen.
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 4.dp)
-                .size(22.dp)
-                .border(if (selected) 2.dp else 1.5.dp, if (selected) colors.primary else colors.muted, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (selected) Box(Modifier.size(10.dp).background(colors.primary, CircleShape))
         }
     }
 }

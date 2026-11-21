@@ -86,6 +86,26 @@ enum class Tab(val route: String) {
     }
 }
 
+/**
+ * What a tap on a bottom-bar tab does (#166): it always opens the tab's root screen, never a
+ * sub-page kept from an earlier visit, also when the tab is already selected. Everything above
+ * the start screen goes and is not saved; the tab's root is put on top unless it is the start
+ * screen itself (no second copy of it).
+ */
+object TabTaps {
+    /** How the navigation is told: pop to the start screen, save nothing, restore nothing. */
+    data class Options(val route: String, val popUpToStart: Boolean, val saveState: Boolean, val restoreState: Boolean, val singleTop: Boolean)
+
+    fun options(tab: Tab): Options = Options(tab.route, popUpToStart = true, saveState = false, restoreState = false, singleTop = true)
+
+    /** The back stack after a tap on [tab], from any [stack] that begins with [start]. */
+    fun stackAfter(stack: List<String>, tab: Tab, start: String = Routes.TODAY): List<String> {
+        val options = options(tab)
+        val kept = if (options.popUpToStart) stack.take(stack.indexOf(start).coerceAtLeast(0) + 1) else stack
+        return if (options.singleTop && kept.lastOrNull() == options.route) kept else kept + options.route
+    }
+}
+
 /** The screens listed under More. Settings has its own entry. */
 enum class MoreSection(val id: String) {
     SESSIONS("sessions"),

@@ -6,7 +6,7 @@
     <string name="nav_tasks">Görevler</string>
     <string name="nav_more">Daha fazla</string>
     <string name="nav_main">Ana gezinme</string>
-    <string name="action_capture">Not ya da görev ekle</string>
+    <string name="action_capture">Not, görev ya da yeni sohbet ekle</string>
     <string name="action_back">Geri</string>
     <string name="connection_not_paired">Bağlantı: eşleştirilmedi</string>
     <string name="action_open_settings">Ayarları aç</string>
@@ -525,12 +525,6 @@
     <string name="chat_all_sessions">Tüm oturumlar</string>
     <string name="chat_list_empty">Henüz konuşma yok. “Yeni sohbet” ile başlat.</string>
     <string name="chat_pinned">Sabitlendi</string>
-    <string name="chat_folder_title">Bu sohbet nerede çalışsın?</string>
-    <string name="chat_folder_memory">Hafıza (varsayılan)</string>
-    <string name="chat_folder_memory_sub">Notlar, görevler ve günlükler</string>
-    <string name="chat_folder_allowed">İzin verilen klasör</string>
-    <string name="chat_folder_start">Başlat</string>
-    <string name="chat_folder_none">Bilgisayar çalışılacak bir klasör bildirmedi.</string>
     <string name="chat_memory_label">Hafıza</string>
     <string name="chat_you">Sen</string>
     <string name="chat_working">Çalışıyor… %1$s</string>

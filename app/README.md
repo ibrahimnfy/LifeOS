@@ -232,7 +232,10 @@ with plain HTTPS requests.
 ## What is in the app
 
 - Bottom bar: Today, Chat, Tasks, More as icon-only items with a gradient
-  bar under the active one, and the capture (+) button in the centre.
+  bar under the active one, and the capture (+) button in the centre. A
+  tab always opens its root screen (#166): tapping it again on a sub-page
+  goes back to the root, and coming from another tab never brings back the
+  sub-page that was open there before.
 - Top bar: bold title and the connection dot: grey (not paired), hollow
   (connecting), green (the computer answered), amber (not reachable). It
   opens Settings.
@@ -263,18 +266,21 @@ with plain HTTPS requests.
   the computer confirmed it.
 - **Chat** (the tab): the coach's conversation pinned on top, the chat in
   progress, the three most recent sessions with **All
-  sessions**, and **New chat**. New chat asks where it should run: the
-  memory folder (the default) or one of the allowed folders, as the computer
-  lists them. A conversation shows the owner's messages on the right and the
+  sessions**, and **New chat**. New chat (here, in a conversation's and the
+  Sessions top bar, and under "+") opens a blank chat at once, with no
+  folder to pick (#166): its first message is sent without a folder, so the
+  computer gives the chat a folder of its own (a bridge without that answers
+  in its default folder). "Ask about this project" still starts the chat in
+  the project's folder. A conversation shows the owner's messages on the right and the
   assistant's answers on the left (paragraphs, headings, lists, code blocks,
   bold, italic, inline code and web links are rendered by the app's one
   Markdown reader, which also shows assignment descriptions; the text can be
   selected), "Working…"
   with the time since the message was sent, and the answer as it is written.
   **The same conversation is continued until New chat** (or until another
-  session is opened), also after the app was closed: the Chat tab then opens
-  it directly, once per start, with its last few messages read from the
-  computer. The folder is in the header.
+  session is opened), also after the app was closed: it is the "Current
+  chat" on the Chat tab, and opening it reads its last few messages from
+  the computer. The folder is in the header (a blank chat shows none).
   - **A silent run and a lost answer (#148):** a run that says nothing for a
     while sends keep-alives, so the app listens only 75 seconds without any
     sign before it asks the computer instead (the run goes on there). A new
@@ -439,9 +445,11 @@ with plain HTTPS requests.
     conversation the same sheet opens from the dots next to the pills above
     the composer. The coach conversation's session has neither the skills
     switch nor the MCP servers in its sheet (it is always read-only).
-- **Capture:** a note or a task with an optional due date. Also reachable
-  from the home-screen shortcut (long-press on the app icon) and from other
-  apps' "share" (text or a link).
+- **Capture** ("+"): one text field and, in this order, **Note**, **Task**
+  (with an optional due date) and **New chat** (#166). New chat closes the
+  sheet and opens a blank chat at once; what was typed goes into its
+  composer. Also reachable from the home-screen shortcut (long-press on the
+  app icon) and from other apps' "share" (text or a link).
 - **Calendar** (under More): the agenda by day from a week ago to two months
   ahead, a month strip to jump, adding and changing events (all day, timed,
   several days). Course deadlines are ordinary events here.
@@ -999,11 +1007,19 @@ Without pairing:
    **Later**. Today shows "Not connected yet" with the pair button.
 2. Tap the four bottom-bar icons in turn: Today, Chat, Tasks, More. The
    gradient bar moves to the active icon.
-3. More → Settings → Language → **Türkçe**: every text switches to Turkish
-   at once and the Settings screen stays open. Switch back as you like.
-4. Settings → Appearance → **Dark**: the app turns dark, including
+3. **Tabs open their root (#166):** More → Settings, then tap **More**
+   again: the More list. More → Settings, tap **Chat**, then **More**: the
+   More list, not Settings. The same for Tasks → Show all (tap Tasks), Chat
+   → Sessions (tap Chat) and Today → the coach conversation (tap Today).
+4. **"+" (#166):** tap **+**: the sheet offers **Note**, **Task** and
+   **New chat**, in this order. **New chat** closes the sheet and opens an
+   empty conversation at once.
+5. More → Settings → Language → **Türkçe**: every text switches to Turkish
+   at once and the Settings screen stays open. Switch back as you like
+   (with Turkish, the three options of "+" still fit on one line each).
+6. Settings → Appearance → **Dark**: the app turns dark, including
    the status-bar icons. Close and reopen the app: the choice is kept.
-5. With a larger system font size the text grows and nothing is cut off.
+7. With a larger system font size the text grows and nothing is cut off.
 
 ### Pairing and connection
 
@@ -1272,18 +1288,23 @@ Paired, with the bridge running (each message is a model run on the plan;
 keep them small). On an emulator without a computer, the `sample_data` test
 aid shows the same screens with invented answers.
 
-1. **New chat:** open the Chat tab and tap **New chat**. "Where should this
-   chat run?" lists **Memory (default)** and the allowed folders. Choose one,
-   **Start**: an empty conversation with three example prompts; the header
-   shows the folder.
+1. **New chat (#166):** open the Chat tab and tap **New chat**: an empty
+   conversation with three example prompts opens at once, with no folder to
+   choose and no folder in the header. The same from the pen icon in a
+   conversation's top bar and on Sessions, and from **+** → **New chat**
+   (type a few words first: they are in the composer, nothing is sent).
+   Send a message: the first message goes out without a folder, so on
+   Sessions the new session is listed under the chat's own new folder (a
+   bridge with #163) or under the default folder (an older bridge).
 2. **Send:** type "Say hello in one sentence" and send. The message appears
    on the right, then "Working… 0:03" counts up, then the answer is written
    on the left. Send a second message that refers to the first ("Say it in
    Turkish"): the answer shows that it is the same conversation. On the
    computer, `claude --resume` in that folder lists the session.
 3. **Continues after a restart:** close the app completely, open it, unlock
-   and tap the Chat tab: the same conversation opens with its last messages.
-   Back leads to the Chat list, where it is under "Current chat".
+   and tap the Chat tab: the Chat list opens (not the conversation), with
+   the conversation under "Current chat"; tapping it shows its last
+   messages, and a new message continues it.
 4. **Sessions:** tap the clock (or More → Sessions): sessions grouped by
    folder, newest first, also the ones started in a terminal. Type a word
    into the search field: only matching sessions remain. Tap a session: its

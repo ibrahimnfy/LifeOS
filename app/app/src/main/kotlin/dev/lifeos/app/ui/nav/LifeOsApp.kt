@@ -47,7 +47,6 @@ import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
 import dev.lifeos.app.ui.screens.CoachScreen
 import dev.lifeos.app.ui.screens.ChatListScreen
-import dev.lifeos.app.ui.screens.NewChatSheet
 import dev.lifeos.app.ui.screens.ConsolidationScreen
 import dev.lifeos.app.ui.screens.ProjectScreen
 import dev.lifeos.app.ui.screens.ProjectsScreen
@@ -139,13 +138,18 @@ fun LifeOsApp(
     }
 
     // Chat: the conversation is one for the whole app; it opens on the Chat tab, above the list.
-    var newChatOpen by rememberSaveable { mutableStateOf(false) }
     val openChat: () -> Unit = {
         if (Tab.forRoute(navController.currentDestination?.route) != Tab.CHAT) navController.openTab(Tab.CHAT)
         navController.navigate(Routes.CHAT_THREAD) {
             popUpTo(Routes.CHAT)
             launchSingleTop = true
         }
+    }
+
+    // "+" → New chat and every "New chat" (#166): a blank chat at once, no folder to pick.
+    val newChat: (String?) -> Unit = { draft ->
+        core.chat.newChat(draft = draft)
+        openChat()
     }
 
     // The coach conversation (#114), below the Chat tab like every other conversation.
@@ -321,7 +325,7 @@ fun LifeOsApp(
                     onOpenChat = openChat,
                     onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
                     onOpenCoach = openCoach,
-                    onNewChat = { newChatOpen = true },
+                    onNewChat = { newChat(null) },
                 )
             }
             composable(Routes.CHAT_THREAD) {
@@ -331,7 +335,7 @@ fun LifeOsApp(
                     onConnectionClick = openSettings,
                     onPair = openPair,
                     onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
-                    onNewChat = { newChatOpen = true },
+                    onNewChat = { newChat(null) },
                 )
             }
             // The same list from the Chat tab and from More.
@@ -343,7 +347,7 @@ fun LifeOsApp(
                         onConnectionClick = openSettings,
                         onPair = openPair,
                         onOpenChat = openChat,
-                        onNewChat = { newChatOpen = true },
+                        onNewChat = { newChat(null) },
                         onOpenCoach = openCoach,
                     )
                 }
@@ -532,22 +536,6 @@ fun LifeOsApp(
 
     }
 
-    if (newChatOpen && !locked) {
-        NewChatSheet(
-            core = core,
-            onDismiss = { newChatOpen = false },
-            onPair = {
-                newChatOpen = false
-                openPair()
-            },
-            onStart = { folder ->
-                newChatOpen = false
-                core.chat.newChat(folder)
-                openChat()
-            },
-        )
-    }
-
     // Sheets are windows of their own: while the app is locked none may be open above the lock screen.
     if (captureOpen && !locked) {
         CaptureSheet(
@@ -560,15 +548,22 @@ fun LifeOsApp(
                     snackbarHostState.showSnackbar(if (sent) savedMessage else waitingMessage)
                 }
             },
+            onNewChat = { draft ->
+                captureOpen = false
+                newChat(draft)
+            },
         )
     }
 }
 
-/** Switches the bottom-bar tab, keeping each tab's own back stack and state. */
+/** Opens a bottom-bar tab at its root screen (#166, see [TabTaps]): no sub-page is kept or brought back. */
 private fun NavHostController.openTab(tab: Tab) {
-    navigate(tab.route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
-        launchSingleTop = true
-        restoreState = true
+    val options = TabTaps.options(tab)
+    // Already on the tab's root: nothing to do (the screen keeps its place, nothing is read again).
+    if (currentDestination?.route == options.route) return
+    navigate(options.route) {
+        if (options.popUpToStart) popUpTo(graph.findStartDestination().id) { saveState = options.saveState }
+        launchSingleTop = options.singleTop
+        restoreState = options.restoreState
     }
 }
