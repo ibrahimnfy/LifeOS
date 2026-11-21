@@ -127,7 +127,7 @@ object LocalItems {
     fun tasks(outbox: List<OutboxItem>, confirmed: List<Confirmed>, listAtMillis: Long): List<Task> =
         confirmed.filter { it.atMillis >= listAtMillis }.mapNotNull { it.task } +
             outbox.filter { it.kind == OutboxItem.Kind.TASK && it.state != OutboxItem.State.FAILED }
-                .map { Task(PREFIX + it.id, it.text, due = it.due) }
+                .map { Task(PREFIX + it.id, it.text, due = it.due, note = TaskNote.of(it.note)) }
 
     /** The computer's tasks with the phone's new ones; each task once (the computer's copy wins). */
     fun withTasks(server: List<Task>, local: List<Task>): List<Task> = (server + local).distinctBy { it.id }

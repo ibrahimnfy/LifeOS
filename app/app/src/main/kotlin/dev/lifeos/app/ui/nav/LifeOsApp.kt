@@ -566,10 +566,10 @@ fun LifeOsApp(
         CaptureSheet(
             prefill = capturePrefill,
             onDismiss = { captureOpen = false },
-            onSaved = { kind, text, due ->
+            onSaved = { kind, text, due, taskNote ->
                 captureOpen = false
                 scope.launch {
-                    val sent = core.capture(note = kind == CaptureKind.NOTE, text = text, due = due)
+                    val sent = core.capture(note = kind == CaptureKind.NOTE, text = text, due = due, taskNote = taskNote)
                     snackbarHostState.showSnackbar(if (sent) savedMessage else waitingMessage)
                 }
             },

@@ -49,6 +49,7 @@ import dev.lifeos.app.data.EventDraft
 import dev.lifeos.app.data.NoteLists
 import dev.lifeos.app.data.Task
 import dev.lifeos.app.data.TaskLists
+import dev.lifeos.app.data.TaskNote
 import dev.lifeos.app.data.Outbox
 import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.OutboxStore
@@ -431,7 +432,7 @@ class LifeOsCore(private val app: Application) {
                     confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), note = note))
                 }
             }
-            OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId).let { saved ->
+            OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId, item.note).let { saved ->
                 val task = saved.task()
                 if (task != null && item.clientId != null) confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), task = task))
                 if (task != null) taskConfirmed(LocalItems.PREFIX + item.id, task.id)
@@ -439,7 +440,7 @@ class LifeOsCore(private val app: Application) {
             OutboxItem.Kind.COMPLETE -> toTask(checkNotNull(item.taskId)) { api.completeTask(it) }
             OutboxItem.Kind.EVENT_CREATE -> api.createEvent(checkNotNull(item.event))
             OutboxItem.Kind.EVENT_UPDATE -> api.updateEvent(checkNotNull(item.eventId), checkNotNull(item.event))
-            OutboxItem.Kind.TASK_EDIT -> toTask(checkNotNull(item.taskId)) { api.editTask(it, item.text, item.due) }
+            OutboxItem.Kind.TASK_EDIT -> toTask(checkNotNull(item.taskId)) { api.editTask(it, item.text, item.due, item.note) }
             OutboxItem.Kind.NOTE_EDIT -> api.editNote(checkNotNull(item.noteId), item.text)
         }
     }
@@ -625,13 +626,15 @@ class LifeOsCore(private val app: Application) {
         return true
     }
 
-    suspend fun capture(note: Boolean, text: String, due: String?): Boolean = submit(
+    /** A new note, or a new task with its date and the owner's note on it ([taskNote], #170). */
+    suspend fun capture(note: Boolean, text: String, due: String?, taskNote: String? = null): Boolean = submit(
         OutboxItem(
             newItemId(),
             if (note) OutboxItem.Kind.NOTE else OutboxItem.Kind.TASK,
             System.currentTimeMillis(),
             text = text,
             due = if (note) null else due,
+            note = if (note) null else TaskNote.of(taskNote),
         ),
     )
 
@@ -646,20 +649,22 @@ class LifeOsCore(private val app: Application) {
     )
 
     /**
-     * Change a task's title and date ([due] null: no date). Shown changed at once (see
-     * [TaskLists.open]). A task made on this phone that has not left it yet (#167) simply
-     * leaves with the new title and date; one on its way, or one that may have arrived already
-     * (an attempt without an answer), gets the edit right after it.
+     * Change a task's title, date ([due] null: no date) and note ([note] blank: none, #170).
+     * Shown changed at once (see [TaskLists.open]). A task made on this phone that has not left
+     * it yet (#167) simply leaves with the new title, date and note; one on its way, or one that
+     * may have arrived already (an attempt without an answer), gets the edit right after it.
+     * The note is sent only when it differs from the one [task] shows (see [TaskNote.change]).
      */
-    suspend fun editTask(task: Task, title: String, due: String?): Boolean {
+    suspend fun editTask(task: Task, title: String, due: String?, note: String? = null): Boolean {
         val id = taskIdNow(task.id)
+        val noteChange = TaskNote.change(task.note, note)
         if (LocalItems.isWaiting(id)) {
             val own = id.removePrefix(LocalItems.PREFIX)
-            if (outbox.revise(own, title, due, unsentOnly = true)) return sendWaiting(own)
+            if (outbox.revise(own, title, due, unsentOnly = true, note = noteChange)) return sendWaiting(own)
         }
         val waiting = TaskLists.pendingEdit(id, outbox.items.value)
-        if (waiting != null && outbox.revise(waiting.id, title, due)) return sendWaiting(waiting.id)
-        return submit(OutboxItem(newItemId(), OutboxItem.Kind.TASK_EDIT, System.currentTimeMillis(), text = title, due = due, taskId = id))
+        if (waiting != null && outbox.revise(waiting.id, title, due, note = noteChange)) return sendWaiting(waiting.id)
+        return submit(OutboxItem(newItemId(), OutboxItem.Kind.TASK_EDIT, System.currentTimeMillis(), text = title, due = due, taskId = id, note = noteChange))
     }
 
     /**

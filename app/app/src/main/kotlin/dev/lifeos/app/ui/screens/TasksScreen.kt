@@ -119,14 +119,15 @@ fun TaskCardSheet(core: LifeOsCore, task: Task, scope: kotlinx.coroutines.Corout
         title = task.title,
         due = task.due,
         overdue = Dates.sectionOf(task.due, today()) == TaskSection.OVERDUE,
-        note = task.next,
+        note = task.note,
+        next = task.next,
         look = looks.forTask(task),
         lookName = looks.nameFor(task),
         waiting = LocalItems.isWaiting(task) || TaskLists.pendingEdit(task.id, outbox) != null,
         onDismiss = onClose,
-        onSave = { title, due ->
+        onSave = { title, due, note ->
             onClose()
-            scope.launch { snackbar(if (core.editTask(task, title, due)) savedText else waitingText) }
+            scope.launch { snackbar(if (core.editTask(task, title, due, note)) savedText else waitingText) }
         },
         onDone = {
             onClose()

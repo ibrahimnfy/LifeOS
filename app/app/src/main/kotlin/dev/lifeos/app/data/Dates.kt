@@ -82,14 +82,21 @@ object CoachRotation {
 object TaskLists {
     /**
      * Open tasks without those the owner already ticked here (the tick is waiting or unclear),
-     * each shown with the title and date of its latest edit that is still on its way.
+     * each shown with the title and date of its latest edit that is still on its way, and the
+     * note of its latest such edit that changes the note (#170: an edit that leaves the note
+     * alone carries none).
      */
     fun open(tasks: List<Task>, outbox: List<OutboxItem>, justTicked: Set<String> = emptySet()): List<Task> {
         val ticked = outbox.filter { it.kind == OutboxItem.Kind.COMPLETE && it.state != OutboxItem.State.FAILED }.mapNotNull { it.taskId }.toSet()
         return tasks.filter { !it.done && it.id !in ticked && it.id !in justTicked }.map { task ->
-            pendingEdit(task.id, outbox)?.let { task.copy(title = it.text, due = it.due) } ?: task
+            val edited = pendingEdit(task.id, outbox)?.let { task.copy(title = it.text, due = it.due) } ?: task
+            pendingNote(task.id, outbox)?.let { edited.copy(note = TaskNote.of(it.note)) } ?: edited
         }
     }
+
+    /** The latest waiting edit of a task that changes its note (a refused one does not count). */
+    private fun pendingNote(taskId: String, outbox: List<OutboxItem>): OutboxItem? =
+        outbox.lastOrNull { it.kind == OutboxItem.Kind.TASK_EDIT && it.taskId == taskId && it.state != OutboxItem.State.FAILED && it.note != null }
 
     /** The latest edit of a task that has not been confirmed yet (a refused one does not count). */
     fun pendingEdit(taskId: String, outbox: List<OutboxItem>): OutboxItem? =

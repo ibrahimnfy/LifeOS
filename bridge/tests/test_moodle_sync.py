@@ -598,6 +598,23 @@ def test_a_submitted_assignment_completes_its_task(site, configured, folder, bra
     assert again["tasks_written"] == 0 and len(commits(brain)) == before
 
 
+def test_the_owners_note_survives_a_moved_deadline_and_the_hand_in(site, configured, folder, brain):
+    sync(folder, brain=brain)
+    task = homework_task(brain)
+    memory.update_task(brain, task.id, {"note": "Ask about part (2) first"})
+    site.assignments[A][0]["duedate"] = TS + 5 * DAY  # the site moves the deadline
+    sync(folder, when=later(7), brain=brain)
+    moved = homework_task(brain)
+    new_due = datetime.fromtimestamp(TS + 5 * DAY).astimezone().date().isoformat()
+    assert moved.fields["due"] == new_due and moved.fields["note"] == "Ask about part [2] first"
+    assert moved.fields["assignment"] == "moodle-41" and moved.fields["course"] == FOLDER_A
+    site.submitted.add(41)
+    sync(folder, when=later(14), brain=brain)
+    done = homework_task(brain)
+    assert done.done and done.fields["note"] == "Ask about part [2] first"
+    assert done.as_json()["note"] == "Ask about part [2] first"
+
+
 def test_a_task_the_owner_closed_or_removed_stays_that_way(site, configured, folder, brain):
     sync(folder, brain=brain)
     memory.complete_task(brain, homework_task(brain).id)

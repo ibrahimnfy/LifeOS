@@ -247,6 +247,8 @@
     <string name="task_edit_done">Tamamlandı olarak işaretle</string>
     <string name="task_edit">Düzenle</string>
     <string name="task_next">Sonraki adım</string>
+    <string name="task_note">Not</string>
+    <string name="task_note_field">Not (isteğe bağlı)</string>
     <string name="task_edit_hint">Değişiklikler önce telefona kaydedilir ve bilgisayar yanıt verir vermez ona gönderilir.</string>
 
     <!-- Calendar -->

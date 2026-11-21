@@ -34,11 +34,40 @@ data class Task(
     val project: String? = null,
     val course: String? = null,
     val added: String? = null,
-    /** The coach's first step for it (`next`), the one note a task carries; null when it has none. */
+    /** The coach's first step for it (`next`); null when it has none. Not the owner's [note]. */
     val next: String? = null,
     /** The course assignment it was made from (`moodle-<assignment id>`, #167); null for other tasks. */
     val assignment: String? = null,
+    /** The owner's own note on it (#170): one paragraph, at most [TaskNote.MAX] characters; null when none. */
+    val note: String? = null,
 )
+
+/** The owner's note on a task (#170), kept the way the computer keeps it. */
+object TaskNote {
+    /** The longest note the computer accepts (the bridge's MAX_TASK_NOTE). */
+    const val MAX = 500
+
+    /**
+     * What the form keeps while the owner types: one paragraph (a line break becomes a space,
+     * as on the computer), no other control characters (the computer refuses them), at most [MAX].
+     */
+    fun typed(value: String): String =
+        value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').filterNot { it.isISOControl() }.take(MAX)
+
+    /** The note to send: trimmed; blank means none. */
+    fun of(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * What an edit does to the note: null when [typed] is null or says what [shown] says (the
+     * edit leaves the note alone, so a title or date change never touches it), "" to remove it,
+     * otherwise the new note.
+     */
+    fun change(shown: String?, typed: String?): String? {
+        if (typed == null) return null
+        val next = of(typed)
+        return if (next == of(shown)) null else next ?: ""
+    }
+}
 
 @Serializable
 data class TaskList(val tasks: List<Task> = emptyList())
@@ -107,10 +136,11 @@ data class TaskSaved(
     val project: String? = null,
     val course: String? = null,
     val added: String? = null,
+    val note: String? = null,
     val gone: Boolean = false,
     val repeat: Boolean = false,
 ) {
-    fun task(): Task? = if (gone || id == null) null else Task(id, title, done, due, project, course, added)
+    fun task(): Task? = if (gone || id == null) null else Task(id, title, done, due, project, course, added, note = note)
 }
 
 @Serializable

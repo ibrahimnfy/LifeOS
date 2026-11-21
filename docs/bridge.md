@@ -113,7 +113,7 @@ documented here as they are built.
 | GET / POST | `/notes` | yes | Lists notes, or captures one into the memory's inbox |
 | GET / PATCH | `/notes/{id}` | yes | Reads a note in full, or changes a captured note |
 | GET / POST | `/tasks` | yes | Lists open tasks or adds one |
-| PATCH | `/tasks/{id}` | yes | Changes a task's title or due date |
+| PATCH | `/tasks/{id}` | yes | Changes a task's title, due date or note |
 | POST | `/tasks/{id}/complete` | yes | Ticks a task |
 | GET / POST | `/events` | yes | Lists or creates calendar events |
 | PATCH | `/events/{id}` | yes | Changes an event |
@@ -1061,8 +1061,9 @@ git, or **has a git remote**: the memory must stay on the computer.
   and the same content answers `200` with the stored item and `"repeat":
   true` and writes nothing, also after a restart, after the note was edited
   (the answer carries its current id) or the task was completed (the answer
-  shows it done). The same `client_id` with different content answers `409
-  client_id_conflict`. The mapping lives in the memory's `phone-ids.md` (ids
+  shows it done). The same `client_id` with different content (for a task:
+  another title, date, project, course or note; a note that differs only in
+  spacing is the same) answers `409 client_id_conflict`. The mapping lives in the memory's `phone-ids.md` (ids
   and a fingerprint of the first request, no text), committed with the item.
   Requests without `client_id` behave as before. None of this starts a run.
 - `GET /notes?query=&limit=` lists the captures of the inbox, newest first
@@ -1073,14 +1074,21 @@ git, or **has a git remote**: the memory must stay on the computer.
   is derived from its text, so the answer carries the new id); topic notes
   are read-only here.
 - `PATCH /tasks/{id}` with any of `{"title": "…", "due": "YYYY-MM-DD" |
-  null}` changes an open task.
+  null, "note": "…" | null}` changes an open task; `null` (or blank text)
+  removes the date or the note, and the other marks of the line are kept.
 - `GET /tasks` returns the open tasks in file order: `{"tasks": [{"id":
   "t-20270115-01", "title": "…", "done": false, "due": "2027-01-20" | null,
-  "project": …, "course": …, "added": "…"}]}`.
+  "project": …, "course": …, "added": "…"}]}`; a task with a note also has
+  `"note": "…"` (as one with a coach step has `"next"`).
 - `POST /tasks` with `{"title": "…", "due": "YYYY-MM-DD", "project":
-  "file-name", "course": "file-name", "client_id": "…"}` (only `title` is
-  required) adds a line to `tasks.md` and returns the task with its new id,
-  `client_id` and `"repeat": false` (`201`).
+  "file-name", "course": "file-name", "note": "…", "client_id": "…"}` (only
+  `title` is required) adds a line to `tasks.md` and returns the task with
+  its new id, `client_id` and `"repeat": false` (`201`).
+- **Task notes (#170).** `note` is the owner's free text on a task, stored
+  as `(note: …)` on the task's line (`memory-design.md` 3.3): one paragraph
+  (line breaks become spaces, `()` become `[]`), at most 500 characters;
+  control characters or an id marker answer `400`. A blank note is no note.
+  Saving or changing a note never starts a model run.
 - `POST /tasks/{id}/complete` moves the line to `tasks-done.md` with the
   date; `404 task_not_found` for an unknown or already finished task.
 - `GET /events?start=YYYY-MM-DD&end=YYYY-MM-DD` lists the events touching
@@ -2025,6 +2033,10 @@ curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"phone note\",\"clie
 curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"other text\",\"client_id\":\"$P\"}" $B/notes   # 409
 grep -c 'phone note' ~/brain/inbox.md            # 1
 curl -s -H "$H" $B/tasks
+# a task note: set, read back on the line, removed
+curl -s -X PATCH -H "$H" -H "$J" -d '{"note":"Bring the (old) notes"}' $B/tasks/<id>   # "note":"Bring the [old] notes"
+grep -c '(note: Bring the \[old\] notes)' ~/brain/tasks.md   # 1
+curl -s -X PATCH -H "$H" -H "$J" -d '{"note":null}' $B/tasks/<id>                      # no "note" any more
 curl -s -H "$H" -X POST $B/tasks/<id>/complete
 curl -s -H "$H" -H "$J" -d '{"title":"Test event","date":"2027-01-20","start":"14:00"}' $B/events
 curl -s -H "$H" "$B/agenda?day=2027-01-20"

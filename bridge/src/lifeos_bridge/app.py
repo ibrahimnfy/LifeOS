@@ -1329,7 +1329,10 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.patch("/tasks/{task_id}")
     async def update_task(task_id: str, request: Request):
-        """Change a task. Body: any of ``{"title": str, "due": "YYYY-MM-DD" | null}``."""
+        """Change a task. Body: any of ``{"title", "due": "YYYY-MM-DD" | null, "note"}``.
+
+        A ``null`` (or blank) ``note`` removes the note, as ``null`` removes the date.
+        """
         data = await read_json_object(request)
         return (await asyncio.to_thread(memory.update_task, brain, task_id, data)).as_json()
 
@@ -1340,7 +1343,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/tasks", status_code=201)
     async def add_task(request: Request):
-        """Body: ``{"title", "due"?: "YYYY-MM-DD", "project"?, "course"?, "client_id"?}``.
+        """Body: ``{"title", "due"?: "YYYY-MM-DD", "project"?, "course"?, "note"?, "client_id"?}``.
 
         A repeat with a known ``client_id`` answers 200 with the stored task and
         writes nothing; the same ``client_id`` with other fields answers 409.
