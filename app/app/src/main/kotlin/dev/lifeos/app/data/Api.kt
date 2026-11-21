@@ -189,9 +189,34 @@ class Api(private val transport: Transport) {
         return transport.events("POST", path, body, CHAT_IDLE_MILLIS)
     }
 
-    /** The latest exchanges of a session (the computer keeps the whole conversation). */
-    suspend fun history(sessionId: String): HistoryPage =
-        read(HistoryPage.serializer(), chatCall("GET", "/sessions/$sessionId/history"))
+    /**
+     * A few exchanges of a session (the computer keeps the whole conversation): the latest
+     * ones, or with [before] (the `older` cursor of a page) the ones before that page.
+     */
+    suspend fun history(sessionId: String, before: String? = null): HistoryPage =
+        read(HistoryPage.serializer(), chatCall("GET", "/sessions/$sessionId/history", query = before?.let { mapOf("before" to it) }.orEmpty()))
+
+    /** Stop the session's current run (interrupt first). What it already changed stays; its queue is put on hold. */
+    suspend fun cancelRun(sessionId: String): CancelResult =
+        read(CancelResult.serializer(), chatCall("POST", "/sessions/$sessionId/cancel"))
+
+    /** Change the text of a message that waits in the session's queue. `404 not_queued` once it was sent. */
+    suspend fun editQueued(sessionId: String, queueId: String, prompt: String) {
+        chatCall("PATCH", "/sessions/$sessionId/queue/$queueId", buildJsonObject { put("prompt", JsonPrimitive(prompt)) })
+    }
+
+    suspend fun removeQueued(sessionId: String, queueId: String) {
+        chatCall("DELETE", "/sessions/$sessionId/queue/$queueId")
+    }
+
+    /**
+     * Let a queue that is on hold go on. The computer answers only when the first waiting
+     * message has been answered, which takes as long as a run: the caller does not wait for
+     * that (a missing answer is the normal case) and asks for the state afterwards.
+     */
+    suspend fun resumeQueue(sessionId: String) {
+        exchange("POST", "/sessions/$sessionId/queue/resume", emptyMap(), null, RESUME_TIMEOUT_MILLIS)
+    }
 
     /** Whether the computer is working on the session right now, and what waits behind that. */
     suspend fun runState(sessionId: String): RunState =
@@ -210,8 +235,8 @@ class Api(private val transport: Transport) {
     }
 
     /** Chat's own lane: its small requests wait neither for the screens' loaders nor the other way round. */
-    private suspend fun chatCall(method: String, path: String, body: JsonElement? = null): JsonElement =
-        chatLane.withLock { exchange(method, path, emptyMap(), body, READ_TIMEOUT_MILLIS) }
+    private suspend fun chatCall(method: String, path: String, body: JsonElement? = null, query: Map<String, String> = emptyMap()): JsonElement =
+        chatLane.withLock { exchange(method, path, query, body, READ_TIMEOUT_MILLIS) }
 
     companion object {
         /**
@@ -220,6 +245,7 @@ class Api(private val transport: Transport) {
          * limits for one run (5 minutes) and for one question to the owner (10 minutes).
          */
         const val CHAT_IDLE_MILLIS = 11 * 60_000L
+        const val RESUME_TIMEOUT_MILLIS = 6_000L
         const val READ_TIMEOUT_MILLIS = 20_000L
         const val WRITE_TIMEOUT_MILLIS = 20_000L
         const val PLAN_TIMEOUT_MILLIS = 240_000L

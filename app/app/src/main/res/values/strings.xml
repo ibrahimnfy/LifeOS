@@ -507,10 +507,8 @@
     <string name="chat_you">You</string>
     <string name="chat_working">Working… %1$s</string>
     <string name="chat_elsewhere">The computer is still working on this. The answer appears here when it is ready. %1$s</string>
-    <string name="chat_elsewhere_queued">Your message waits on the computer until the run before it has ended. %1$s</string>
     <string name="chat_elsewhere_unreachable">The computer does not answer right now. The app keeps asking; a run that was started goes on there.</string>
     <string name="chat_incomplete">This answer was cut off.</string>
-    <string name="chat_older">Earlier messages are on the computer.</string>
     <string name="chat_open_sessions">Open sessions</string>
     <string name="chat_dismiss">Dismiss</string>
     <string name="chat_fail_not_reached">Not sent: the computer cannot be reached right now. Your message is back in the box below; send it when the connection is back.</string>
@@ -568,4 +566,28 @@
     <string name="question_skip">Skip</string>
     <string name="question_answered">Answered.</string>
     <string name="question_skipped">Skipped.</string>
+
+    <!-- Chat: earlier messages, the queue, send now and stop (#94) -->
+    <string name="chat_older_load">Earlier messages</string>
+    <string name="chat_older_loading">Loading earlier messages…</string>
+    <string name="chat_stop">Stop</string>
+    <string name="chat_stop_title">Stop the assistant?</string>
+    <string name="chat_stop_text">Stops the assistant. Changes it has already made to files are kept.</string>
+    <string name="chat_stopping">Stopping…</string>
+    <string name="chat_send_now">Send now</string>
+    <string name="chat_send_now_title">Send this message now?</string>
+    <string name="chat_send_now_text">The assistant is interrupted and this message is sent at once. Changes the assistant has already made to files are kept.</string>
+    <string name="chat_queue_add">Add to the waiting messages</string>
+    <string name="chat_queue_title">Waiting to be sent · %1$d</string>
+    <string name="chat_queue_note">Sent one after the other when the current answer is finished.</string>
+    <string name="chat_queue_hold_cancel">On hold since the run was stopped. Your next message lets them go on, or “Send them”.</string>
+    <string name="chat_queue_hold_error">On hold: a waiting message could not be answered.</string>
+    <string name="chat_queue_hold_restart">On hold: the bridge on the computer was restarted.</string>
+    <string name="chat_queue_resume">Send them</string>
+    <string name="chat_queue_remove">Remove</string>
+    <string name="chat_queue_busy">On its way…</string>
+    <string name="chat_queue_edit_title">Edit message</string>
+    <string name="chat_fail_stopped_here">Stopped. Changes the assistant has already made to files are kept.</string>
+    <string name="chat_fail_stop_failed">The request to stop did not reach the computer. The run goes on.</string>
+    <string name="chat_fail_queue_failed">That did not get through. The list shows what the computer has.</string>
 </resources>

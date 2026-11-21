@@ -250,6 +250,17 @@ with plain HTTPS requests.
   session is opened), also after the app was closed: the Chat tab then opens
   it directly, once per start, with its last few messages read from the
   computer. The folder is in the header.
+  - **Earlier messages:** a conversation opens with its last few exchanges.
+    Scrolling to the top (or tapping "Earlier messages") reads the page
+    before, and so on; the screen keeps its place.
+  - **While the assistant works** the composer stays usable: a message sent
+    then waits on the computer and is sent when the run has ended. The
+    waiting messages are listed above the composer ("Waiting to be sent");
+    each can be **edited**, **removed** or **sent now**, which interrupts the
+    run and sends that message at once. **Stop** next to "Working…" ends the
+    run. Both ask first and say: changes the assistant has already made to
+    files are kept. After a stop the waiting messages are on hold until the
+    owner's next message or "Send them".
   - **Read-only or "Changes allowed"** (the pill above the composer): every
     conversation starts read-only. Switched on, its next messages ask the
     computer for the capable mode, in which the assistant may change files
@@ -460,6 +471,21 @@ Nothing on these screens is sample content any more. Not paired, they show
   - A refusal (session open on the computer, too many runs, folder gone,
     message too long) keeps the message with **Retry**; a run that breaks off
     keeps what was written and says why.
+  - **Earlier messages** are asked for one page at a time (`GET
+    /sessions/{id}/history?before=<cursor>`) and held only while the
+    conversation is on screen; nothing of a session is written to the phone.
+  - **The queue is the computer's** (`GET /sessions/{id}/queue`, at most ten
+    messages): a message sent during a run is the same request as any
+    message and is answered with its place in the line (`202`). Editing and
+    removing are `PATCH` and `DELETE …/queue/{qid}`. **Send now** sends the
+    text again with `"when": "now"` (to the front, interrupting the run) and
+    then takes the old entry out; if that second step fails the list shows
+    both. **Stop** is `POST /sessions/{id}/cancel`. The computer answers
+    waiting messages in the background, not as a stream: the app shows "still
+    working" and reads the conversation when the line is empty, so their
+    answers appear whole, and they cannot ask for approvals or questions.
+    "Send them" (`POST …/queue/resume`) is answered by the computer only
+    after the first waiting message is done, so the app does not wait for it.
   - While the app is locked nothing of the conversation is in memory; it is
     read again after unlocking.
   - **Approvals and questions** (`data/Interactions.kt`, the bridge's
@@ -596,8 +622,9 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   folders, five sessions, one conversation, and an invented answer that
   arrives piece by piece for any message. A message that contains one of
   these words shows another state: `in use` (the session is open on the
-  computer), `fail` (the run breaks off), `offline` (nothing is sent, the
-  text comes back), `silent` (the answer stops arriving and the message is
+  computer), `fail` (the run breaks off), `slow` (the answer takes half a
+  minute: time to send more messages, which wait in line, to send one now
+  and to stop), `offline` (nothing is sent, the text comes back), `silent` (the answer stops arriving and the message is
   not found on the computer), `delete` or `push` (the run waits for an
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
@@ -614,8 +641,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- Chat: older messages than the last few (scrolling up), messages while a
-  run is in progress (queue, send now) and cancelling a run, "/" commands,
+- Chat: "/" commands,
   the model picker, file cards (a file the assistant offers is only named in
   its answer) and tables in answers (shown as text). Sessions: groups,
   renaming, pinning and reminders. The coach conversation and Projects are
@@ -822,6 +848,33 @@ aid shows the same screens with invented answers.
    working on this…", and a little later the whole answer, once.
 8. Settings → Language → **Türkçe** and Appearance → **Dark**: the Chat
    list, a conversation and Sessions are fully in Turkish and readable.
+
+### Earlier messages, waiting messages, send now and stop
+
+Paired (each message is a run on the plan), or on an emulator with the
+`sample_data` test aid, where "slow" in a message makes its answer take half a
+minute:
+
+1. Open a session with more than four exchanges (Sessions → a longer one).
+   Its last messages are shown. Scroll to the very top: "Loading earlier
+   messages…", then older messages appear above and the message you were
+   looking at stays in place. Repeat until nothing is added.
+2. Send "Count slowly from 1 to 40, one number per line". While the answer
+   is written, send "Then say done" and "And say it in Turkish": both appear
+   under "Waiting to be sent · 2", not in the conversation. On the computer,
+   `GET /sessions/<id>/queue` lists them.
+3. Tap **Edit** on the first, change it, Save: the row shows the new text.
+   Tap **Remove** on the second: it is gone.
+4. When the count is finished the conversation shows "The computer is still
+   working on this…", and a little later the waiting message and its answer.
+5. Start a long answer again, send a second message, tap **Send now** on it:
+   a question says that changes made to files are kept. Confirm: the count
+   breaks off ("Stopped. Changes … are kept."), and the second message is
+   answered next.
+6. Start a long answer, send a second message and tap **Stop** → confirm:
+   the answer breaks off, the second message stays under "Waiting to be
+   sent" with "On hold since the run was stopped". **Send them** lets it go
+   on; so does sending another message.
 
 ### Approvals and questions
 

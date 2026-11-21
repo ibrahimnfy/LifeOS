@@ -249,3 +249,10 @@ a new entry is added that says what changed and why.
 - **The phone never answers by itself.** When the time is over the card closes and nothing is sent; the bridge counts the silence as "no". The countdown runs on the phone's monotonic clock from the bridge's waiting time, so differing wall clocks neither shorten nor lengthen it.
 - **Question cards were built with the same mechanism** (choices, several choices, own words, skip), because a client that opts in must be able to answer them; #98 keeps whatever goes beyond that.
 - **Settled cards stay above the answer that followed them until the next message**, as a record of what was allowed or refused; they are kept in memory only.
+
+### Implementation choices for history, queue, send now and stop in the app (agent, #94; cheap to change)
+- **Earlier messages** load when the conversation is scrolled to its top (and by a tap on "Earlier messages"), one page of the bridge's default size at a time; they are held in memory only while that conversation is shown, and a fresh read of the conversation (after a run the app did not receive) starts again from the last page.
+- **A message sent during a run uses the ordinary message request** and is shown under "Waiting to be sent" once the bridge answered with its place in the line. If the bridge answers it at once instead (the run had just ended), it simply becomes the current message.
+- **"Send now" acts on a waiting message** as the design says, although the bridge only knows `when: now` for a new message: the app sends the text again with it and then removes the old entry. The message is never lost that way; at worst it is listed twice and one can be removed.
+- **Stop and send now ask first** with the sentence the owner asked for ("changes it has already made to files are kept"); a run the owner stopped ends with that note instead of a failure with "Retry".
+- **After the current answer the waiting messages are followed by asking** (every five seconds while the conversation is on screen): the bridge answers them in the background, so their answers appear whole and without approval or question cards.

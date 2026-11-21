@@ -505,10 +505,8 @@
     <string name="chat_you">Sen</string>
     <string name="chat_working">Çalışıyor… %1$s</string>
     <string name="chat_elsewhere">Bilgisayar bunun üzerinde hâlâ çalışıyor. Cevap hazır olunca burada görünecek. %1$s</string>
-    <string name="chat_elsewhere_queued">Mesajın, önündeki çalışma bitene kadar bilgisayarda bekliyor. %1$s</string>
     <string name="chat_elsewhere_unreachable">Bilgisayar şu an cevap vermiyor. Uygulama sormaya devam ediyor; başlamış bir çalışma orada sürer.</string>
     <string name="chat_incomplete">Bu cevap yarıda kesildi.</string>
-    <string name="chat_older">Daha eski mesajlar bilgisayarda.</string>
     <string name="chat_open_sessions">Oturumları aç</string>
     <string name="chat_dismiss">Kapat</string>
     <string name="chat_fail_not_reached">Gönderilmedi: bilgisayara şu an ulaşılamıyor. Mesajın aşağıdaki kutuya geri kondu; bağlantı gelince gönder.</string>
@@ -566,4 +564,28 @@
     <string name="question_skip">Geç</string>
     <string name="question_answered">Cevaplandı.</string>
     <string name="question_skipped">Geçildi.</string>
+
+    <!-- Chat: earlier messages, the queue, send now and stop (#94) -->
+    <string name="chat_older_load">Daha eski mesajlar</string>
+    <string name="chat_older_loading">Daha eski mesajlar yükleniyor…</string>
+    <string name="chat_stop">Durdur</string>
+    <string name="chat_stop_title">Asistan durdurulsun mu?</string>
+    <string name="chat_stop_text">Asistanı durdurur. Dosyalarda yaptığı değişiklikler kalır.</string>
+    <string name="chat_stopping">Durduruluyor…</string>
+    <string name="chat_send_now">Şimdi gönder</string>
+    <string name="chat_send_now_title">Bu mesaj şimdi gönderilsin mi?</string>
+    <string name="chat_send_now_text">Asistan yarıda kesilir ve bu mesaj hemen gönderilir. Asistanın dosyalarda yaptığı değişiklikler kalır.</string>
+    <string name="chat_queue_add">Bekleyen mesajlara ekle</string>
+    <string name="chat_queue_title">Gönderilmeyi bekliyor · %1$d</string>
+    <string name="chat_queue_note">Şimdiki cevap bitince sırayla gönderilir.</string>
+    <string name="chat_queue_hold_cancel">Çalışma durdurulduğu için bekletiliyor. Bir sonraki mesajın ya da “Gönder” devam ettirir.</string>
+    <string name="chat_queue_hold_error">Bekletiliyor: bekleyen bir mesaj cevaplanamadı.</string>
+    <string name="chat_queue_hold_restart">Bekletiliyor: bilgisayardaki köprü yeniden başlatıldı.</string>
+    <string name="chat_queue_resume">Gönder</string>
+    <string name="chat_queue_remove">Kaldır</string>
+    <string name="chat_queue_busy">Yolda…</string>
+    <string name="chat_queue_edit_title">Mesajı düzenle</string>
+    <string name="chat_fail_stopped_here">Durduruldu. Asistanın dosyalarda yaptığı değişiklikler kalır.</string>
+    <string name="chat_fail_stop_failed">Durdurma isteği bilgisayara ulaşmadı. Çalışma sürüyor.</string>
+    <string name="chat_fail_queue_failed">Bu ulaşmadı. Liste bilgisayardaki durumu gösteriyor.</string>
 </resources>
