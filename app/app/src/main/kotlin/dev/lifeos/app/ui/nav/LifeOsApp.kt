@@ -45,6 +45,7 @@ import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
 import dev.lifeos.app.ui.screens.ChatListScreen
 import dev.lifeos.app.ui.screens.NewChatSheet
+import dev.lifeos.app.ui.screens.ConsolidationScreen
 import dev.lifeos.app.ui.screens.SessionsScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
 import dev.lifeos.app.ui.screens.AllGradesScreen
@@ -185,6 +186,11 @@ fun LifeOsApp(
             }
             Destination.Sleep -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
             // A new release (#138): its prompt sits at the top of Today; ask again in case the app was closed.
+            // A consolidation proposal waits (#151): its screen, below Today.
+            is Destination.Consolidation -> {
+                navController.openTab(Tab.TODAY)
+                navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true }
+            }
             Destination.AppUpdate -> {
                 core.checkUpdate()
                 navController.openTab(Tab.TODAY)
@@ -225,6 +231,7 @@ fun LifeOsApp(
                     onPair = openPair,
                     onConnectionClick = openSettings,
                     onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
+                    onOpenConsolidation = { navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true } },
                 )
             }
             composable(Routes.COACH) {
@@ -299,6 +306,10 @@ fun LifeOsApp(
                     onConnectionClick = openSettings,
                     onPair = openPair,
                 )
+            }
+            // ---- memory consolidation (#151)
+            composable(Routes.CONSOLIDATION) {
+                ConsolidationScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
             }
             composable(Routes.ACTIVITY) {
                 ActivityScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings)

@@ -30,6 +30,9 @@ object Routes {
 
     fun course(id: Long): String = "more/course/$id"
 
+    // ---- memory consolidation (#151)
+    const val CONSOLIDATION = "today/consolidation"
+
     // ---- assignment detail (#129): by its id, or (id 0) by a deadline's name and due time
     const val ASSIGNMENT = "more/course/{course}/assignment/{assignment}?name={name}&due={due}"
     const val ASSIGNMENT_ARG = "assignment"

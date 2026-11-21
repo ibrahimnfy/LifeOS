@@ -648,7 +648,13 @@ class LifeOsCore(private val app: Application) {
 
     private var coachPick: String? = null
 
-    /** One message per app start, by the rotation rule; the same one while the app stays open. */
+    // ---- memory consolidation (#151)
+
+    /** Approved changes rewrote the memory: every screen asks again (tasks and notes may have changed). */
+    fun memoryChanged() {
+        reloadState.value++
+    }
+
     // ---- coach questions and nudges (#76)
 
     private val coachShownState = MutableStateFlow<String?>(null)
@@ -671,6 +677,7 @@ class LifeOsCore(private val app: Application) {
         coachQuestionsDone.value += id
     }
 
+    /** One message per app start, by the rotation rule; the same one while the app stays open. */
     suspend fun coachMessage(plan: CoachPlan): CoachMessage? {
         plan.messages.firstOrNull { it.id == coachPick }?.let { return it }
         val ids = plan.messages.map { it.id }

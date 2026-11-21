@@ -120,6 +120,10 @@ class PushHintsTest {
         // A nudge names its message; the daily note may name none.
         assertEquals(Destination.Coach("m-2"), PushHints.destinationOf(Hint("coach", "m-2", channel = "coach", opens = "coach")))
         assertEquals(Destination.Coach(), PushHints.destinationOf(Hint("coach")))
+        // The consolidation proposal comes as a coach hint that opens its screen (#151).
+        val proposal = Hint("coach", "c-20260101", channel = "coach", opens = "consolidation")
+        assertEquals(Destination.Consolidation("c-20260101"), PushHints.destinationOf(proposal))
+        assertEquals(PushChannel.COACH, PushHints.channelOf(proposal))
         assertEquals(Destination.Chat("abc"), PushHints.destinationOf(Hint("answer", "abc", channel = "chat", opens = "session")))
         // An unknown channel falls back to the event's; an unknown screen to Today.
         assertEquals(PushChannel.COACH, PushHints.channelOf(Hint("coach", channel = "elsewhere")))
@@ -156,7 +160,7 @@ class PushHintsTest {
     @Test
     fun `destinations survive the way through a notification`() {
         val all = listOf(
-            Destination.Chat("session-1"), Destination.Course(12), Destination.Reminder("r-1"), Destination.Coach(), Destination.Coach("m-2"), Destination.Courses,
+            Destination.Chat("session-1"), Destination.Course(12), Destination.Reminder("r-1"), Destination.Coach(), Destination.Coach("m-2"), Destination.Consolidation(), Destination.Consolidation("c-1"), Destination.Courses,
             Destination.CourseSignIn, Destination.Sessions, Destination.Today, Destination.Notice, Destination.Sleep,
         )
         for (destination in all) {

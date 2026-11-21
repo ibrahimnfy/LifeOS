@@ -130,10 +130,46 @@ object TestAids {
                 if (method == "PUT") coachSettings = JsonObject(current + ((body as? JsonObject) ?: JsonObject(emptyMap())))
                 return RelayResponse(200, coachSettings ?: current)
             }
+            if (path.startsWith("/memory/consolidation")) return sampleConsolidation(method, path, body)
             if (method != "GET") return RelayResponse(200, buildJsonObject { put("saved", JsonPrimitive(true)) })
             val key = "GET " + path.replace(Regex("^/courses/\\d+/"), "/courses/ID/").replace(Regex("/assignments/\\d+$"), "/assignments/ID").replace(Regex("^/notes/[^/]+$"), "/notes/ID")
             val body = data[key] ?: return RelayResponse(404, Json.parseToJsonElement("""{"error":"not_found"}"""))
             return RelayResponse(200, relative(body))
+        }
+
+        /** The sample consolidation proposal: approve and reject change its operations in memory until the app is closed. */
+        @Volatile
+        private var consolidation: JsonObject? = null
+
+        private fun sampleConsolidation(method: String, path: String, body: JsonElement?): RelayResponse {
+            val current = consolidation ?: data.getValue("GET /memory/consolidation").jsonObject
+            val verdict = when (path) {
+                "/memory/consolidation/approve" -> "applied"
+                "/memory/consolidation/reject" -> "rejected"
+                "/memory/consolidation/run" -> return RelayResponse(409, Json.parseToJsonElement("""{"started":false,"reason":"waiting"}"""))
+                else -> return RelayResponse(200, current)
+            }
+            if (method != "POST") return RelayResponse(405, Json.parseToJsonElement("""{"error":"method_not_allowed"}"""))
+            val request = body as? JsonObject ?: JsonObject(emptyMap())
+            val all = (request["all"] as? JsonPrimitive)?.content == "true"
+            val named = (request["operations"] as? kotlinx.serialization.json.JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().toSet()
+            val proposal = current["proposal"] as? JsonObject ?: return RelayResponse(404, Json.parseToJsonElement("""{"error":"no_proposal"}"""))
+            val changed = mutableListOf<String>()
+            val operations = (proposal.getValue("operations") as kotlinx.serialization.json.JsonArray).map { item ->
+                val op = item.jsonObject
+                val id = op.getValue("id").jsonPrimitive.content
+                if (op["status"]?.jsonPrimitive?.content == "pending" && (all || id in named)) {
+                    changed += id
+                    JsonObject(op + ("status" to JsonPrimitive(verdict)))
+                } else {
+                    op
+                }
+            }
+            val waiting = operations.count { it.jsonObject["status"]?.jsonPrimitive?.content == "pending" }
+            val updated = JsonObject(current + mapOf("proposal" to JsonObject(proposal + ("operations" to kotlinx.serialization.json.JsonArray(operations))), "waiting" to JsonPrimitive(waiting)))
+            consolidation = updated
+            val list = kotlinx.serialization.json.JsonArray(changed.map { JsonPrimitive(it) })
+            return RelayResponse(200, JsonObject(updated + if (verdict == "applied") mapOf("applied" to list, "failed" to kotlinx.serialization.json.JsonArray(emptyList()), "committed" to JsonPrimitive(true)) else mapOf("rejected" to list)))
         }
 
         private fun relative(element: JsonElement): JsonElement = when (element) {

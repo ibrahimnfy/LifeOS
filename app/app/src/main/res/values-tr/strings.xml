@@ -695,4 +695,41 @@
     <string name="chat_fail_command_unknown">İletilmedi: “/” ile başlayan bir mesaj bu klasörün becerilerinden ya da komutlarından birini adlandırmalı.</string>
     <string name="chat_fail_skills_off">Bu klasörün becerileri şu an kullanılamıyor: bilgisayarın onlar için yaptığı denetim geçmedi. Bu oturum için kapat ya da daha sonra yeniden dene.</string>
     <string name="chat_fail_setting_failed">Bu, bilgisayarda değiştirilemedi.</string>
+    <!-- Memory consolidation review (#151) -->
+    <string name="memory_review_title">Gözden geçirilecek hafıza değişiklikleri</string>
+    <plurals name="memory_review_waiting">
+        <item quantity="one">Gece incelemesi hafızana %d değişiklik öneriyor. Sen onaylamadan hiçbir şey yazılmaz.</item>
+        <item quantity="other">Gece incelemesi hafızana %d değişiklik öneriyor. Sen onaylamadan hiçbir şey yazılmaz.</item>
+    </plurals>
+    <string name="memory_review_open">Gözden geçir</string>
+    <string name="memory_review_screen">Hafıza incelemesi</string>
+    <string name="memory_review_explain">Bilgisayarındaki gece incelemesinin önerileri. Onaylanan değişiklikler hafızaya tek bir commit ile yazılır; reddedilenler aynı haliyle bir daha önerilmez.</string>
+    <string name="memory_review_prepared">Hazırlandı: %1$s</string>
+    <string name="memory_review_none">Onayını bekleyen bir şey yok.</string>
+    <string name="memory_approve_all">Hepsini onayla (%1$d)</string>
+    <string name="memory_reject_all">Hepsini reddet</string>
+    <string name="memory_approve">Onayla</string>
+    <string name="memory_reject">Reddet</string>
+    <string name="memory_op_file_capture">Bir notu dosyala</string>
+    <string name="memory_op_merge_facts">İki bilgiyi birleştir</string>
+    <string name="memory_op_add_fact">Bir bilgi ekle</string>
+    <string name="memory_op_other">Değişiklik</string>
+    <string name="memory_captured_at">Kaydedildi: %1$s</string>
+    <string name="memory_keep">Kalsın</string>
+    <string name="memory_drop">Silinsin</string>
+    <string name="memory_status_applied">Uygulandı</string>
+    <string name="memory_status_rejected">Reddedildi</string>
+    <string name="memory_status_failed">Uygulanamadı</string>
+    <string name="memory_status_failed_because">Uygulanamadı: %1$s</string>
+    <string name="memory_review_partly_failed">Bazı değişiklikler uygulanamadı; diğerleri yazıldı.</string>
+    <string name="memory_review_changed">Bu arada bilgisayardaki hafıza değişti, bu yüzden hiçbir şey yazılmadı. Güncel öneriye yeniden bak.</string>
+    <string name="memory_review_gone">Bu öneri artık açık değil.</string>
+    <string name="memory_review_failed">Gönderilemedi. Bilgisayar bağlıyken tekrar dene.</string>
+    <string name="memory_run_now">Şimdi değişiklik ara</string>
+    <string name="memory_run_running">Bilgisayar bir öneri hazırlıyor.</string>
+    <string name="memory_last_run">Son inceleme: %1$s</string>
+    <string name="memory_run_started">Bilgisayar bir öneri hazırlıyor; hazır olunca haber verilecek.</string>
+    <string name="memory_run_waiting">Zaten bekleyen ya da hazırlanan bir öneri var.</string>
+    <string name="memory_run_too_soon">Kısa süre önce bir inceleme yapıldı. Daha sonra tekrar dene.</string>
+
 </resources>
