@@ -19,6 +19,7 @@ from . import (
     activity,
     allowed,
     approvals,
+    audit,
     capable,
     claude,
     coach,
@@ -28,6 +29,7 @@ from . import (
     files,
     guardcheck,
     history,
+    mcp_servers,
     memory,
     moodle_api,
     moodle_sync,
@@ -434,6 +436,7 @@ def create_app(settings: Settings) -> FastAPI:
         streaming = bool(data.get("stream"))
         use_sdk = sdk_pool is not None
         watch = None
+        used_servers: list[str] = []
         slots.acquire(session_id)
         control.take_stopped(session_id)  # a stop request for an earlier run is not ours
         if not data.get("_queued"):
@@ -465,8 +468,22 @@ def create_app(settings: Settings) -> FastAPI:
                     await capable.skills_available(settings, cwd, runner=runner)
                     prompt = skills.check_prompt(prompt, cwd)
                     skills_dir = await asyncio.to_thread(skills.snapshot, cwd, session_id)
+                # MCP servers the owner approved for this folder (#108): exactly those,
+                # unchanged, and only after the check with the MCP probes.
+                servers = await asyncio.to_thread(mcp_servers.for_run, cwd)
+                if servers:
+                    await capable.mcp_available(settings, cwd, runner="sdk" if use_sdk else "cli")
+                    try:
+                        detail = {"session": session_id, "folder": str(cwd),
+                                  "names": sorted(servers)}  # fmt: skip
+                        audit.record("mcp_servers_used", detail)
+                    except audit.AuditUnavailable as exc:
+                        raise ClaudeError(
+                            "audit_unavailable", 503, "the audit log could not be written"
+                        ) from exc
+                    used_servers = sorted(servers)
                 policy = capable.build_policy(
-                    settings, cwd, ask_host=use_sdk, skills_dir=skills_dir
+                    settings, cwd, ask_host=use_sdk, skills_dir=skills_dir, mcp=servers
                 )
                 run_args |= {"policy": policy, "observer": watch}
             if use_sdk:
@@ -520,6 +537,11 @@ def create_app(settings: Settings) -> FastAPI:
                             payload["refused_actions"] = watch.refused_actions()
                         if is_capable:
                             with_installs(payload, session_id, cwd)
+                        if used_servers:
+                            payload["mcp_servers"] = [
+                                {"name": name, "outside_sandbox": True} for name in used_servers
+                            ]
+                            payload["mcp_note"] = mcp_servers.OUTSIDE_SANDBOX
                     yield event, payload
             except ClaudeError as error:
                 yield "error", {"error": error.code, "message": error.message}
@@ -633,6 +655,8 @@ def create_app(settings: Settings) -> FastAPI:
             entry = await asyncio.to_thread(approvals.take, session_id, interaction_id)
             if entry["kind"] == skill_installs.KIND:
                 done = await asyncio.to_thread(skill_installs.answer, entry, approve)
+            elif entry["kind"] == mcp_servers.KIND:
+                done = await asyncio.to_thread(mcp_servers.answer, entry, approve)
             else:
                 raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
             return {"answered": True, "id": interaction_id, **done}
@@ -640,6 +664,29 @@ def create_app(settings: Settings) -> FastAPI:
             raise ClaudeError("not_pending", 404, "this question is no longer waiting")
         data = await read_json_object(request)
         return sdk_pool.asking.answer(session_id, interaction_id, data)
+
+    @app.get("/sessions/{session_id}/mcp-servers")
+    async def list_mcp_servers(session_id: str):
+        """The MCP servers defined in the session's folder (nothing is started)."""
+        info = listed_session(session_id)
+        found = await asyncio.to_thread(mcp_servers.listing, info.folder)
+        return {"servers": found, "capable_only": True, "note": mcp_servers.OUTSIDE_SANDBOX}
+
+    @app.post("/sessions/{session_id}/mcp-servers/{name}/approval")
+    async def request_mcp_approval(session_id: str, name: str):
+        """Ask the owner to approve exactly this server: an approval card (#108)."""
+        info = listed_session(session_id)
+        card = await asyncio.to_thread(mcp_servers.request, info.id, info.folder, name)
+        wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", info.id))
+        background.add(wake)
+        wake.add_done_callback(background.discard)
+        return card
+
+    @app.delete("/sessions/{session_id}/mcp-servers/{name}")
+    async def revoke_mcp_server(session_id: str, name: str):
+        info = listed_session(session_id)
+        revoked = await asyncio.to_thread(mcp_servers.revoke, info.folder, name, info.id)
+        return {"revoked": revoked}
 
     @app.get("/sessions/{session_id}/queue")
     async def show_queue(session_id: str):

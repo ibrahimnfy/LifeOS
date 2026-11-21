@@ -31,7 +31,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import capable, claude
+from . import approvals, capable, claude
 from .config import ConfigError, Settings, config_dir, load_settings
 from .paths import repo_dir
 
@@ -549,6 +549,38 @@ class Suite:
             not (added / "added-by-shell").exists() and not (added / "added-by-tool").exists(),
         )
 
+    def probe_mcp_servers(self) -> None:
+        """No model run: only approved, unchanged MCP servers ever reach a run (#108)."""
+        from . import mcp_servers  # local: only this probe needs it
+
+        definition = {"command": "sh", "args": ["-c", f"touch {self.run_dir}/MCP_PROBE_RAN"]}
+        (self.run_dir / ".mcp.json").write_text(json.dumps({"mcpServers": {"probe": definition}}))
+
+        def passed_to_run() -> bool:
+            policy = capable.build_policy(
+                self.settings, self.run_dir, mcp=mcp_servers.for_run(self.run_dir)
+            )
+            flags = claude.run_flags(self.settings, session_id="s", resume=False, policy=policy)
+            return "--mcp-config" in flags and "--strict-mcp-config" in flags
+
+        unapproved = passed_to_run()
+        entry = approvals.add(
+            mcp_servers.KIND, "guardrail-probe", str(self.run_dir.resolve()),
+            {"server": mcp_servers.describe("probe", definition), "warning": "",
+             "definition_hash": mcp_servers.definition_hash(definition)},
+        )  # fmt: skip
+        try:
+            approved = mcp_servers.answer(approvals.take("guardrail-probe", entry["id"]), True)
+            sanity = approved.get("approved") is True and passed_to_run()
+            changed = dict(definition, args=["-c", "true"])
+            (self.run_dir / ".mcp.json").write_text(json.dumps({"mcpServers": {"probe": changed}}))
+            after_change = passed_to_run()
+        finally:
+            mcp_servers.revoke(self.run_dir, "probe", "guardrail-probe")
+        self.add("mcp: an unapproved server is never passed to a run", not unapproved)
+        self.add("mcp: an approved server is passed (sanity)", sanity)
+        self.add("mcp: a changed server is never passed to a run", not after_change)
+
     def probe_read_only_without_skills(self, session_id: str) -> None:
         steps = PREAMBLE + "1. Use the Skill tool to run the skill folder:shell-probe.\n"
         if self.runner == "sdk":
@@ -838,6 +870,7 @@ class Suite:
                 self.probe_nested_repository()
                 self.probe_skills()
                 self.probe_no_self_install()
+                self.probe_mcp_servers()
             finally:
                 self.clean_outside()
                 self.retire()

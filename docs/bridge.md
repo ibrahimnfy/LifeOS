@@ -308,7 +308,7 @@ Subfolders of the memory folder are fine. Details:
     approval probes.
   - Both runners in both environments come to **about 52 short runs**. The
     skill probes of #91 and #92 add 12 of these (3 runs per environment and
-    runner).
+    runner); the MCP probes of #108 need no model run.
     Probes without a model run (invalid settings, nested folders) are not
     counted.
   - A restart where both markers still match costs nothing.
@@ -678,6 +678,38 @@ the session's pending approvals:
 - Paired phones get a sealed `approval` push hint. Proposals wait 24 hours
   (also across bridge restarts); after that they count as refused.
 - Details and limits: `permission-policy.md`, section 9.4.
+
+### MCP servers (#108)
+
+- `GET /sessions/{id}/mcp-servers` lists the servers of the session
+  folder's `.mcp.json` and starts nothing:
+
+  ```json
+  {"capable_only": true, "note": "An approved MCP server runs outside the sandbox: …",
+   "servers": [{"name": "tools", "type": "stdio", "command": "npx",
+                "args": ["-y", "some-server"], "url": null,
+                "env_names": ["API_TOKEN"], "header_names": [], "hash": "…",
+                "outside_sandbox": true,
+                "state": "not_approved", "approved_at": null}]}
+  ```
+
+  `state` is `not_approved`, `approved` or `changed` (approved, but the
+  definition changed since: not used).
+- `POST /sessions/{id}/mcp-servers/{name}/approval` creates an approval
+  card (and a sealed `approval` push hint):
+  `{"id", "kind": "mcp_server", "session_id", "folder", "server": {…as
+  above}, "warning": "…outside the sandbox…", "created_at", "expires_at"}`.
+  It is answered like every approval: `POST
+  /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`, which
+  returns `{"answered": true, "id": …, "approved": true|false, "name"?,
+  "reason"?}`.
+- `DELETE /sessions/{id}/mcp-servers/{name}` revokes an approval
+  (`{"revoked": true|false}`).
+- A capable answer that used servers carries `"mcp_servers": [{"name",
+  "outside_sandbox": true}]` and `"mcp_note"`.
+- `503 mcp_unavailable`: the folder has approved servers, but the check
+  with the MCP probes has not passed yet.
+- Details: `permission-policy.md`, section 9.3.
 
 ### Model and effort
 

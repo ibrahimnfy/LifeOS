@@ -341,8 +341,8 @@ environments and on both runners:
 
 **Switched on only by these probes.** The capable mode itself accepts a
 marker of an older suite. The session skills need a marker with
-`suite_version` 2 or later: a marker without the skill probes never
-enables them. The automatic start-up check sees the older suite and reruns
+`suite_version` 3 or later (2 added the skill probes, 3 the self-install
+probe of 9.4): a marker without them never enables them. The automatic start-up check sees the older suite and reruns
 the whole check by itself at the next start, once per version pair. While
 it runs, the capable mode is off, as during every check. A failed skill
 probe fails the whole check, so the capable mode stays off too (the
@@ -360,6 +360,40 @@ not be enforced for them. Project settings can also change permissions.
 The owner's rule is that a guardrail that cannot be enforced is never
 weakened silently, so this is **a human decision** and stays off until it
 is answered.
+
+**Decided (#85): MCP servers approved one by one; project hooks and
+project settings stay off. Built (#108):**
+
+- **Listing** (`GET /sessions/{id}/mcp-servers`) reads only the session
+  folder's own `.mcp.json` (no parent folders, no links, at most 64 KB) and
+  starts nothing. It shows the command, arguments and address, and only the
+  names of environment variables and headers, never their values.
+- **Approval** per server, through the approval card (`kind:
+  "mcp_server"`). The owner requests it from the app; the card shows the
+  definition and the warning that the server runs outside the sandbox.
+  - The approval is stored in the private settings folder with a hash of
+    the complete definition.
+  - Any change needs a new approval. That includes a change between the
+    card and the answer.
+  - Requests, approvals, refusals, revocations and every run that gets
+    servers are in the audit log. If the log cannot be written, nothing is
+    approved or run.
+- **Use:** only capable runs of that folder get them, and only the approved
+  servers whose definition is unchanged.
+  - They are passed with `--mcp-config`. `--strict-mcp-config` stays, so
+    nothing else loads. Each gets an allow rule `mcp__<name>__*`.
+  - Every call still passes the gate (audit log).
+  - The answer lists them with `"outside_sandbox": true` and a note.
+  - Read-only runs never get any. Runs cannot change `.mcp.json` (9.4).
+- **Stricter choice:** approved servers are used only after the guardrail
+  check with the MCP probes passed (suite version 4). Until then a capable
+  request in that folder is refused (`503 mcp_unavailable`; revoke the
+  approval to work without), never run silently without them.
+- **Probes** (suite version 4, no model run): an unapproved server is never
+  passed to a run; a changed server is never passed; plus an approved one
+  is passed (sanity). That a server which is not passed never starts is
+  shown with the real CLI by the probe "run folder: its own MCP server did
+  not run".
 
 ### 9.4 Installing a skill
 

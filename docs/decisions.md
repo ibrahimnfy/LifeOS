@@ -259,3 +259,8 @@ a new entry is added that says what changed and why.
 - **Proposal by a line** `[[skill-install: https://…]]` in a capable run's answer (like file offers); HTTPS only; `SKILL.md`, `.zip` or `.tar.gz`; quarantine in the private settings folder; limits 5 MB total, 1 MB per file, 100 files; no replacing an existing skill; installed files are never executable; proposals wait 24 hours, also across restarts.
 - **One approval card** for running-turn approvals and these waiting ones (`kind: "skill_install"`, answered with `{"approve": …}`).
 - **Stricter (security):** capable runs are denied every write to a folder's `.claude/**` and `.mcp.json` by file tool (the sandbox already denies commands), probed as suite version 3; session skills require that suite.
+
+### Implementation choices for MCP servers (agent, #108; cheap to change unless noted)
+- **Per folder, per server, by hash:** only `<folder>/.mcp.json` is read; the owner requests an approval card from the app; the approval stores a hash of the complete definition, so any change (also between card and answer) needs a new approval; secret values of environment variables and headers are never shown or stored.
+- **Use:** capable runs of that folder only, exactly the approved unchanged servers via `--mcp-config` with `--strict-mcp-config`, allow rule `mcp__<name>__*`, every run with servers audited.
+- **Stricter (security, owner may relax):** approved servers wait for the check with the MCP probes (suite version 4); until then capable requests in that folder are refused (`503 mcp_unavailable`) instead of running without them. Project hooks and project settings stay off.
