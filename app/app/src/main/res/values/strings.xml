@@ -601,7 +601,7 @@
     <string name="sessions_tile_line">%1$s · %2$s</string>
     <string name="sessions_tile_none">No conversations yet</string>
     <string name="sessions_folder_empty">No conversations in this folder yet.</string>
-    <string name="sessions_folder_partial">The newest %1$d of %2$d are listed.</string>
+    <string name="sessions_folder_partial">Listed here: the newest %1$d of %2$d.</string>
     <string name="chat_fail_chat_root">Blank chats are switched off on the computer: its chat folder cannot be used. Once that is fixed there, try again.</string>
     <string name="chat_fail_reason">The computer says: %1$s</string>
 

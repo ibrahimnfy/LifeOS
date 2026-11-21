@@ -847,7 +847,7 @@ class LifeOsCore(private val app: Application) {
 
     private val sessionsVersionState = MutableStateFlow(0)
 
-    /** Counts the changes to sessions and groups made from this phone; screens that list sessions read them again. */
+    /** Counts the changes to sessions made from this phone; screens that list sessions read them again. */
     val sessionsVersion: StateFlow<Int> = sessionsVersionState
 
     fun sessionsChanged() {

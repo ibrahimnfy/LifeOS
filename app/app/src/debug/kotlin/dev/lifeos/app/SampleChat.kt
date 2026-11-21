@@ -55,6 +55,16 @@ import java.util.concurrent.ConcurrentHashMap
  * The coach conversation (#114) is one more session, empty at first. It counts as long after
  * five messages, or at once when a message contains "tidy": the next answer then starts only
  * after six seconds, in a new session, as when the computer tidies the conversation up.
+ *
+ * Folders and blank chats (#163, #168): the list says each session's folder, kind and colour,
+ * and has one entry per folder for the tiles; two listed blank chats share the "Chats" tile,
+ * and a conversation started here joins it (or the folder it was started in). Moving between
+ * conversations by asking (#164): "jump" opens another conversation, "pick" offers three on a
+ * card, "begin" starts a new one in the project folder; each streams its marker line first.
+ * "move" proposes to move a blank chat's files into the project (a card that waits, and one
+ * refused at once); with "taken" the first yes finds a name taken, with "broken" the move
+ * breaks off after one file. "root off" as a new blank chat's first message: blank chats are
+ * switched off on the computer.
  */
 internal class SampleChat(private val context: Context) {
     private val data: JsonObject by lazy {
@@ -80,6 +90,10 @@ internal class SampleChat(private val context: Context) {
 
         /** The file offers of this session: offer id, name, when it runs out. */
         val offers = mutableListOf<Triple<String, String, Instant>>()
+
+        /** A conversation started here: the folder it belongs to, as the bridge describes it (#163). */
+        @Volatile
+        var place: JsonObject? = null
 
         init {
             if (seeded) {
@@ -208,6 +222,40 @@ internal class SampleChat(private val context: Context) {
     }
 
     private fun proposalCards(session: String) = proposals.filter { it.value.session == session }.toSortedMap().map { (id, proposal) -> proposalCard(id, proposal) }
+
+    /**
+     * A proposal to move a blank chat's files into a project (#163): it waits for a day, like a
+     * skill install. [taken]: the first yes finds a name taken in the target (the card stays);
+     * [broken]: the move breaks off after the first file.
+     */
+    private class MoveProposal(val session: String, val folder: String, var taken: Boolean, val broken: Boolean, val madeAt: Instant = Instant.now())
+
+    private val moves = ConcurrentHashMap<String, MoveProposal>()
+
+    private fun moveCard(id: String, move: MoveProposal) = buildJsonObject {
+        put("id", JsonPrimitive(id))
+        put("kind", JsonPrimitive("move_files"))
+        put("session_id", JsonPrimitive(move.session))
+        put("folder", JsonPrimitive(move.folder))
+        put("state", JsonPrimitive("ready"))
+        put("target", JsonPrimitive("/home/owner/project-alpha/notes"))
+        put("target_label", JsonPrimitive("project-alpha/notes"))
+        put("files", Json.parseToJsonElement("""[{"path":"packing-list.md","size":2140},{"path":"data/budget.csv","size":380}]"""))
+        put("total_size", JsonPrimitive(2520))
+        put("created_at", JsonPrimitive(move.madeAt.toString()))
+        put("expires_at", JsonPrimitive(move.madeAt.plusSeconds(24 * 3600).toString()))
+    }
+
+    private fun moveCards(session: String) = moves.filter { it.value.session == session }.toSortedMap().map { (id, move) -> moveCard(id, move) }
+
+    /** A conversation a switch names, as the bridge describes it (#164): never its messages. */
+    private fun switchSession(id: String): JsonObject {
+        val item = listedSessions().firstOrNull { it["id"]?.jsonPrimitive?.content == id } ?: JsonObject(emptyMap())
+        return buildJsonObject {
+            put("id", JsonPrimitive(id))
+            listOf("title", "folder_label", "kind", "colour", "last_activity").forEach { name -> put(name, item[name] ?: JsonNull) }
+        }
+    }
 
     // ---- the MCP servers of a session (#153, #162): what the folder's .mcp.json and the owner's
     // personal settings declare, and the owner's approvals; keyed "scope/name"
@@ -367,13 +415,35 @@ internal class SampleChat(private val context: Context) {
                             }
                         }
                     }
+                    // Moving a chat's files (#163): a refused yes leaves the card waiting; the bridge never overwrites.
+                    method == "POST" && rest.startsWith("interactions/") && moves[rest.removePrefix("interactions/")]?.session == parts[1] -> {
+                        val id = rest.removePrefix("interactions/")
+                        val move = moves[id] ?: return@synchronized error(404, "not_pending")
+                        val yes = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true"
+                        if (yes && move.taken) {
+                            move.taken = false
+                            return@synchronized error(409, "file_exists")
+                        }
+                        moves.remove(id)
+                        ok {
+                            put("answered", JsonPrimitive(true))
+                            put("id", JsonPrimitive(id))
+                            put("moved", JsonPrimitive(yes && !move.broken))
+                            if (yes) {
+                                put("files", Json.parseToJsonElement(if (move.broken) """["packing-list.md"]""" else """["packing-list.md","data/budget.csv"]"""))
+                                put("failed", Json.parseToJsonElement(if (move.broken) """["data/budget.csv"]""" else "[]"))
+                                put("target", JsonPrimitive("/home/owner/project-alpha/notes"))
+                                put("target_label", JsonPrimitive("project-alpha/notes"))
+                            }
+                        }
+                    }
                     method == "POST" && rest.startsWith("interactions/") -> {
                         val run = waiting.remove(rest.removePrefix("interactions/")) ?: return@synchronized error(404, "not_pending")
                         run.complete(body as? JsonObject ?: JsonObject(emptyMap()))
                         ok { put("answered", JsonPrimitive(true)) }
                     }
                     method == "GET" && rest == "interactions" ->
-                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]) + mcpCards(parts[1]))) }
+                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]) + mcpCards(parts[1]) + moveCards(parts[1]))) }
                     // The coach conversation has no thread to read before its first message.
                     method == "GET" && rest == "history" && parts[1].startsWith(COACH) && session.exchanges.isEmpty() -> error(404, "session_not_found")
                     method == "GET" && rest == "history" -> history(session, query["before"])
@@ -470,13 +540,7 @@ internal class SampleChat(private val context: Context) {
             val started = sessions[patched]
             if (listed == null && started == null) return error(404, "session_not_found")
             val session = session(patched)
-            val item = listed ?: buildJsonObject {
-                put("id", JsonPrimitive(patched))
-                put("title", JsonPrimitive(session.exchanges.firstOrNull()?.first.orEmpty()))
-                put("folder", JsonPrimitive("/home/owner/brain"))
-                put("auto_group", JsonPrimitive("brain"))
-                put("in_use", JsonPrimitive(session.running))
-            }
+            val item = listed ?: started(patched, session)
             return synchronized(session) {
                 RelayResponse(
                     200,
@@ -493,49 +557,102 @@ internal class SampleChat(private val context: Context) {
         if (method == "PATCH" && patched != null) {
             val changes = body as? JsonObject ?: JsonObject(emptyMap())
             (changes["skills"] as? JsonPrimitive)?.let { session(patched).skills = it.content == "true" }
-            synchronized(meta) {
-                val group = (changes["group"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                if (group != null && groups.none { it.first == group }) return error(404, "group_not_found")
-                meta[patched] = JsonObject(meta[patched].orEmpty() + changes)
-            }
+            // Custom groups are gone (#164): the bridge refuses the field.
+            if (changes.containsKey("group")) return error(400, "bad_request")
+            synchronized(meta) { meta[patched] = JsonObject(meta[patched].orEmpty() + changes) }
             val listed = listedSessions().firstOrNull { it["id"]?.jsonPrimitive?.content == patched }
             return RelayResponse(200, described(listed ?: buildJsonObject { put("id", JsonPrimitive(patched)) }))
         }
-        // The session list with what the owner changed, and the owner's groups (#74).
+        // The session list with what the owner changed, and one entry per folder for the tiles (#163).
         if (method == "GET" && path == "/sessions") {
+            val listed = listedSessions()
             return ok {
-                put("sessions", buildJsonArray { listedSessions().forEach { add(described(it)) } })
-                put("total", JsonPrimitive(listedSessions().size))
-                put("groups", groupList())
+                put("sessions", buildJsonArray { listed.forEach { add(described(it)) } })
+                put("total", JsonPrimitive(listed.size))
+                put("folders", folderTiles(listed))
             }
         }
-        groupRequest(method, path, body)?.let { return it }
         reminderRequest(method, path, body)?.let { return it }
         return data["$method $path"]?.let { RelayResponse(200, relative(it)) }
     }
 
-    /** What the owner changed about sessions (title, pin, group, switches), by session, and the groups. */
+    /** What the owner changed about sessions (title, pin, switches), by session. */
     private val meta = HashMap<String, JsonObject>()
-    private val groups = mutableListOf<Pair<String, String>>()
+
+    /** A conversation started from the phone, as the list shows it: its first message is its title. */
+    private fun started(id: String, session: Session) = buildJsonObject {
+        put("id", JsonPrimitive(id))
+        put("title", JsonPrimitive(session.exchanges.firstOrNull()?.first.orEmpty()))
+        put("last_activity", JsonPrimitive(Instant.now().toString()))
+        put("in_use", JsonPrimitive(session.running))
+        (session.place ?: placeOf(null)).forEach { (name, value) -> put(name, value) }
+    }
+
+    /**
+     * Where a new conversation belongs, as the bridge says it: no folder is a blank chat in a
+     * folder of its own under the chat root; any other is one of the folders of `GET /folders`.
+     */
+    private fun placeOf(folder: String?): JsonObject {
+        val known = data.getValue("GET /folders").jsonObject.getValue("folders").jsonArray.map { it.jsonObject }
+        val entry = known.firstOrNull { folder != null && it["path"]?.jsonPrimitive?.content == folder } ?: known.first()
+        val kind = entry.getValue("kind").jsonPrimitive.content
+        val path = entry.getValue("path").jsonPrimitive.content
+        return buildJsonObject {
+            put("folder", JsonPrimitive(if (kind == "chat") "$path/${java.time.LocalDate.now()}-%06x".format(++asked) else path))
+            put("folder_key", JsonPrimitive(if (kind == "chat") "chats" else path))
+            put("folder_label", entry.getValue("label"))
+            put("kind", JsonPrimitive(kind))
+            put("colour", entry.getValue("colour"))
+        }
+    }
 
     private fun listedSessions(): List<JsonObject> {
         val listed = relative(data.getValue("GET /sessions")).jsonObject.getValue("sessions").jsonArray.map { it.jsonObject }
+        // Conversations started from the phone, newest first.
+        val mine = sessions.entries.filter { (id, session) -> session.place != null && session.exchanges.isNotEmpty() && listed.none { it["id"]?.jsonPrimitive?.content == id } }
+            .map { (id, session) -> started(id, session) }
+            .reversed()
         // The coach conversation is a session like the others once it has a message; the app gives it its own screen.
-        if (session(coachId).exchanges.isEmpty()) return listed
+        if (session(coachId).exchanges.isEmpty()) return mine + listed
         val coach = buildJsonObject {
             put("id", JsonPrimitive(coachId))
             put("title", JsonPrimitive("Coach"))
             put("folder", JsonPrimitive("/home/owner/brain"))
             put("last_activity", JsonPrimitive(Instant.now().toString()))
             put("in_use", JsonPrimitive(session(coachId).running))
-            put("auto_group", JsonPrimitive("brain"))
+            put("folder_key", JsonPrimitive("coach"))
+            put("folder_label", JsonPrimitive("Coach"))
+            put("kind", JsonPrimitive("coach"))
+            put("colour", JsonPrimitive(1))
             put("pinned", JsonPrimitive(true))
         }
-        return listOf(coach) + listed
+        return listOf(coach) + mine + listed
     }
 
-    private fun groupList() = synchronized(meta) {
-        buildJsonArray { groups.forEach { (id, name) -> add(buildJsonObject { put("id", JsonPrimitive(id)); put("name", JsonPrimitive(name)) }) } }
+    /** The folders of the tiles, in the bridge's order (chats, coach, memory, the allowed folders), with their counts. */
+    private fun folderTiles(listed: List<JsonObject>) = buildJsonArray {
+        val known = data.getValue("GET /folders").jsonObject.getValue("folders").jsonArray.map { it.jsonObject }
+        val entries = buildList {
+            add(known.first() to "chats")
+            if (listed.any { it["kind"]?.jsonPrimitive?.content == "coach" }) {
+                add(buildJsonObject { put("path", JsonPrimitive("/home/owner/brain")); put("label", JsonPrimitive("Coach")); put("kind", JsonPrimitive("coach")); put("colour", JsonPrimitive(1)) } to "coach")
+            }
+            known.drop(1).forEach { add(it to it.getValue("path").jsonPrimitive.content) }
+        }
+        for ((entry, key) in entries) {
+            val inside = listed.filter { it["folder_key"]?.jsonPrimitive?.content == key }
+            add(
+                buildJsonObject {
+                    put("key", JsonPrimitive(key))
+                    put("name", entry.getValue("label"))
+                    put("kind", entry.getValue("kind"))
+                    put("path", entry.getValue("path"))
+                    put("colour", entry.getValue("colour"))
+                    put("count", JsonPrimitive(inside.size))
+                    put("last_activity", inside.mapNotNull { it["last_activity"]?.jsonPrimitive?.content }.maxOrNull()?.let(::JsonPrimitive) ?: JsonNull)
+                },
+            )
+        }
     }
 
     /** A session as the bridge describes it: the listed facts with the owner's changes on top. */
@@ -547,12 +664,8 @@ internal class SampleChat(private val context: Context) {
             // The sample sessions start with their folder's skills switched on.
             item["id"]?.jsonPrimitive?.content?.let { put("skills", JsonPrimitive(session(it).skills)) }
             changes.forEach { (name, value) ->
-                when {
-                    // A cleared title is the detected one again; a group that is gone is no group.
-                    name == "title" && value is JsonNull -> Unit
-                    name == "group" && groups.none { it.first == (value as? JsonPrimitive)?.content } -> put(name, JsonNull)
-                    else -> put(name, value)
-                }
+                // A cleared title is the detected one again.
+                if (!(name == "title" && value is JsonNull)) put(name, value)
             }
         }
     }
@@ -602,32 +715,6 @@ internal class SampleChat(private val context: Context) {
                     RelayResponse(200, changed)
                 }
                 else -> null
-            }
-        }
-    }
-
-    /** `/session-groups`: create, rename, delete; a name can be used once. */
-    private fun groupRequest(method: String, path: String, body: JsonElement?): RelayResponse? {
-        if (!path.startsWith("/session-groups")) return null
-        val name = ((body as? JsonObject)?.get("name") as? JsonPrimitive)?.content?.trim().orEmpty()
-        val id = path.removePrefix("/session-groups").trim('/')
-        return synchronized(meta) {
-            val index = groups.indexOfFirst { it.first == id }
-            when {
-                method == "GET" && id.isEmpty() -> ok { put("groups", groupList()) }
-                method == "DELETE" && index >= 0 -> {
-                    groups.removeAt(index)
-                    ok { put("deleted", JsonPrimitive(true)) }
-                }
-                method != "POST" && method != "PATCH" -> null
-                method == "PATCH" && index < 0 -> error(404, "group_not_found")
-                name.isEmpty() -> error(400, "bad_request")
-                groups.any { it.second.equals(name, ignoreCase = true) && it.first != id } -> error(409, "group_exists")
-                else -> {
-                    val group = (if (method == "POST") "samplegroup%02d".format(++asked) else id) to name
-                    if (method == "POST") groups += group else groups[index] = group
-                    RelayResponse(if (method == "POST") 201 else 200, buildJsonObject { put("id", JsonPrimitive(group.first)); put("name", JsonPrimitive(name)) })
-                }
             }
         }
     }
@@ -764,7 +851,14 @@ internal class SampleChat(private val context: Context) {
             }
             coachRuns++
         }
+        // "root off": blank chats are switched off on the computer (#163); only a new blank chat is refused.
+        if ("root off" in prompt && chosen != null && request?.get("folder") == null) {
+            emit(AnswerEvent.Done(RelayResponse(503, buildJsonObject { put("error", JsonPrimitive("chat_root_unusable")); put("message", JsonPrimitive("blank chats are switched off: the chat folder holds CLAUDE.md; it must hold no instruction or settings file")) })))
+            return@flow
+        }
         val session = session(id)
+        // A new conversation belongs to a folder (#163): its own one under the chat root, unless one was named.
+        if (chosen != null && session.place == null) session.place = placeOf((request?.get("folder") as? JsonPrimitive)?.content)
         if ("in use" in prompt) {
             emit(AnswerEvent.Done(error(409, "session_in_use")))
             return@flow
@@ -854,7 +948,21 @@ internal class SampleChat(private val context: Context) {
                     }
                 }
                 "install" in prompt -> "A skill for tidying notes would help here. I have proposed it below; nothing is installed unless you say so."
+                // Moving between conversations by asking (#164): "jump" opens one, "pick" offers
+                // three, "begin" starts one in the project folder. "move": a blank chat's files (#163).
+                "jump" in prompt -> "Opening the conversation about what is open this week."
+                "pick" in prompt -> "Three conversations could be meant. Which one?"
+                "begin" in prompt -> "Starting a new conversation in project-alpha."
+                "move" in prompt -> "The packing list and the budget can go into the project's notes. I have proposed it below."
                 else -> data.getValue("answer").jsonPrimitive.content
+            }
+            // The line the computer takes out of the answer at its end: while it is written it shows in the stream.
+            val line = when {
+                "jump" in prompt -> "[[switch: ${if (id == "sample-session-2") "sample-session-3" else "sample-session-2"}]]"
+                "pick" in prompt -> "[[switch: sample-session-2, sample-session-7, sample-session-3]]"
+                "begin" in prompt -> "[[switch-new: project-alpha]]"
+                "move" in prompt -> "[[move-files: project-alpha/notes | packing-list.md | data/budget.csv]]"
+                else -> null
             }
             val step = if ("slow" in prompt) 2000L else 90L
             for ((index, piece) in answer.chunked(18).withIndex()) {
@@ -868,6 +976,15 @@ internal class SampleChat(private val context: Context) {
                     emit(AnswerEvent.Done(RelayResponse(200, null)))
                     return@flow
                 }
+            }
+            if (line != null) {
+                // In two pieces, as a stream may cut it: the app shows neither.
+                for (piece in listOf("\n" + line.take(6), line.drop(6))) {
+                    if (pause(session, 600)) return@flow stopped()
+                    emit(AnswerEvent.Stream("delta", buildJsonObject { put("text", JsonPrimitive(piece)) }))
+                }
+                // The history keeps a move's line (the app hides it there too), never a switch's.
+                if ("move" in prompt) marker = "\n$line"
             }
             emit(
                 AnswerEvent.Stream(
@@ -902,6 +1019,29 @@ internal class SampleChat(private val context: Context) {
                                 proposalCard(cardId, proposal)
                             }
                             put("skill_installs", JsonArray(listOf(card)))
+                        }
+                        // The switch of a fresh answer (#164): never part of the history.
+                        when {
+                            "jump" in prompt -> put("switch", buildJsonObject { put("action", JsonPrimitive("open")); put("sessions", buildJsonArray { add(switchSession(if (id == "sample-session-2") "sample-session-3" else "sample-session-2")) }); put("folder", JsonNull) })
+                            "pick" in prompt -> put("switch", buildJsonObject { put("action", JsonPrimitive("choose")); put("sessions", buildJsonArray { listOf("sample-session-2", "sample-session-7", "sample-session-3").filter { it != id }.forEach { add(switchSession(it)) } }); put("folder", JsonNull) })
+                            "begin" in prompt -> put(
+                                "switch",
+                                buildJsonObject {
+                                    put("action", JsonPrimitive("new"))
+                                    put("sessions", JsonArray(emptyList()))
+                                    put("folder", Json.parseToJsonElement("""{"path":"/home/owner/project-alpha","label":"project-alpha","kind":"project","colour":3}"""))
+                                },
+                            )
+                        }
+                        // "move": a card that waits for the owner, and one the computer refused at once.
+                        // With "taken" the first yes finds a name taken; with "broken" the move breaks off.
+                        if ("move" in prompt) {
+                            val cardId = "samplemove%03d".format(++asked)
+                            val folder = session.place?.get("folder")?.jsonPrimitive?.content ?: "/home/owner/LifeOS-Chats/2027-01-15-a1b2c3"
+                            val move = MoveProposal(id, folder, taken = "taken" in prompt, broken = "broken" in prompt)
+                            moves[cardId] = move
+                            val refused = Json.parseToJsonElement("""{"kind":"move_files","state":"refused","target":"brain","error":"the memory folder is not a target","error_code":"target_not_allowed"}""")
+                            put("file_moves", JsonArray(listOf(moveCard(cardId, move), refused)))
                         }
                     },
                 ),

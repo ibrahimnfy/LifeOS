@@ -365,7 +365,7 @@ Three gaps the chat screen found, closed in the bridge:
   session's offers that have not expired, so a card rebuilt from the history
   keeps its download for the rest of its 15 minutes.
 - **Fresh session read:** `GET /sessions/{id}` gives one session's model,
-  effort, switches (skills, reply notifications, pinned, group), whether it
+  effort, switches (skills, reply notifications, pinned), its folder (#163), whether it
   runs here or is open elsewhere, and its waiting messages.
 
 ### 7.3 Streams, cards and live follow (#157)
@@ -414,7 +414,7 @@ How the app uses sections 3, 6 and 7.1 to 7.3 (details and manual checks:
 `app/README.md`).
 
 - **Session sheet** (the dots next to the pills above the composer, or a
-  long press on a session): rename, pin, group, reminders, the reply
+  long press on a session): rename, pin, reminders, the reply
   notification switch, then **Use this folder's skills and commands** (off
   unless switched on; with what it means, how many the folder has, how many
   personal ones the owner has (offered without the switch, #162), and a
@@ -442,6 +442,44 @@ How the app uses sections 3, 6 and 7.1 to 7.3 (details and manual checks:
 - **Answers read again** keep their file cards for the time that is left of
   an offer (`GET /sessions/{id}/files`) and the line that names the MCP
   servers they used (history).
+
+### 7.5 Folders, switches and moved files in the app (#168)
+
+- **Sessions by folder.** The Sessions screen shows the bridge's `folders`
+  of `GET /sessions` as coloured tiles (all blank chats one "Chats" tile,
+  the coach its own, then memory and the allowed folders); a tile lists its
+  folder's conversations by `folder_key`, pinned first. `colour` is an index
+  into the app's palette (tone and ornament), so a folder keeps its look.
+  The list is read with `limit=200`, the bridge's maximum. Custom groups are
+  gone from the app; the session sheet has rename, pin, reminders, the reply
+  switch, skills and MCP servers.
+- **Blank chats.** A new chat's first message names no folder; any other
+  new conversation names its folder's path, the memory folder included (no
+  folder means a blank chat since #163). A blank chat says "Chat" where
+  other conversations name their folder. `503 chat_root_unusable` is worded,
+  with the bridge's reason.
+- **Switches (#164).** `switch` in the `done` event of an answer this phone
+  sent and received: `open` opens the conversation at once (the coach's on
+  its own screen), `new` opens an empty conversation bound to the folder
+  (its first message sends `"folder": <path>`), `choose` puts a card into
+  the conversation with one to five conversations to tap. An answer that
+  was followed live (`/live`, after the replay) shows any switch as that
+  card instead; a replayed answer, a re-read conversation and a lock never
+  switch. A conversation opened by a switch learns its folder's path from
+  `GET /sessions/{id}`.
+- **Marker lines.** `[[file:…]]`, `[[skill-install:…]]`, `[[switch…]]`,
+  `[[switch-new:…]]` and `[[move-files:…]]` lines are never shown: while an
+  answer is written, a last line that is becoming one is held back until it
+  is whole; read from the history (which keeps move lines), they are removed.
+- **Moving a chat's files (#163).** `file_moves` of the answer and
+  `move_files` entries of `GET /sessions/{id}/interactions` are approval
+  cards that wait across runs, like skill installs: the files with their
+  sizes, the target's label and path, **Allow** / **Don't allow**.
+  Afterwards the card says how many files went where and names any that
+  stayed (`moved: false` with `failed`). `409 file_exists`,
+  `409 files_changed`, `503 audit_unavailable` and the bridge's other `409`
+  checks keep the card waiting with a worded reason. A proposal refused at
+  once is a card with its `error_code` worded and nothing to answer.
 
 ## 8. Build issues
 

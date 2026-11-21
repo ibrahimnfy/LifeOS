@@ -126,7 +126,7 @@ fun ChatListScreen(
                 StateHost(state, stringResource(R.string.chat_list_empty), sessions::refresh, onPair) { list ->
                     LifeCard {
                         SectionHeader(title = stringResource(R.string.chat_recent))
-                        val recent = SessionLists.newestFirst(list.sessions.filter { it.id != coachId }).take(RECENT)
+                        val recent = SessionLists.newestFirst(list.sessions.filter { it.id != coachId && it.kind != FolderKinds.COACH }).take(RECENT)
                         recent.forEachIndexed { index, session ->
                             if (index > 0) RowDivider()
                             SessionRow(session, onMenu = { menuFor = session.id }, reminder = session.id in reminded) {

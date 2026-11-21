@@ -293,7 +293,25 @@ with plain HTTPS requests.
   **The same conversation is continued until New chat** (or until another
   session is opened), also after the app was closed: it is the "Current
   chat" on the Chat tab, and opening it reads its last few messages from
-  the computer. The folder is in the header (a blank chat shows none).
+  the computer. The folder is in the header (a blank chat says "Chat";
+  another conversation names its folder with a dot in the folder's colour).
+  - **Moving by asking (#164, #168):** asked to open another conversation,
+    the answer carries a switch: one clear match opens that conversation at
+    once, in its own folder (the coach's on the coach screen); several give a
+    short card "Which conversation?" (title, folder, last activity) to tap
+    one; "start a chat in <folder>" opens an empty conversation there, with
+    the folder in the header. Only an answer sent and received on this phone
+    switches by itself; an answer followed after a lock shows its switch as
+    the card, and reading a conversation again never switches. The marker
+    lines never show, not even while the answer is written.
+  - **Moving a blank chat's files (#163):** when the assistant proposes to
+    move the chat's files into a project, a card **Move files** lists every
+    file with its size and the target, with **Allow** / **Don't allow**; it
+    waits up to a day, like a skill install. Afterwards it says how many
+    files went where, and which stayed. A refusal of the computer (a name
+    taken in the target, files changed since the card, no audit log) keeps
+    the card open with the reason. When blank chats are switched off on the
+    computer, a new chat's first message says so, with the computer's reason.
   - **A silent run and a lost answer (#148):** a run that says nothing for a
     while sends keep-alives, so the app listens only 75 seconds without any
     sign before it asks the computer instead (the run goes on there). A new
@@ -435,26 +453,32 @@ with plain HTTPS requests.
     computer says each time (`GET /coach/chat`); the phone stores nothing
     about it. In the lists of sessions the coach's session opens this
     screen, and it is left out of "Recent".
-- **Sessions** (the clock in Chat, or under More): a field that filters by
-  title and folder, pinned sessions, then every folder with its sessions,
-  newest first; "Working" marks a session the computer is answering right
-  now, "Open on the computer" one that a terminal or the desktop app holds
-  there (`running_here` and `open_elsewhere` of `GET /sessions`). Tapping
-  one opens it in Chat; the next message continues it in its own folder. A
-  session that is open on the computer is refused there when the message is
-  sent, and the app says so and offers **Retry**.
-  - **Groups, titles and pins (#74):** between the pinned sessions and the
-    folders the screen lists the owner's own **groups**, each with its
-    sessions (an empty group is listed too); a session in a group is not
-    repeated under its folder, a pinned one is only under "Pinned". A long
-    press on a session, or the dots at the end of its row (also on the Chat
-    tab's recent sessions), opens what can be done with it: **Rename** (and
-    back to the title the computer found), **Pin / Unpin**, **Move to a
-    group** (one of the groups, a new one, or none). **New group** and the
-    dots next to a group's name make, rename and delete groups; deleting a
-    group never deletes a session. All of it is kept on the computer
-    (`PATCH /sessions/{id}`, `/session-groups`); Claude Code's own session
-    files are not touched. A change is sent directly: without a connection
+- **Sessions** (the clock in Chat, or under More, #168): a field that
+  filters by title and folder (a search lists every match across the
+  folders), the pinned sessions, then **By folder**: one coloured tile per
+  folder, in the style of the Courses tiles (the first wide, the others two
+  by two, each in its folder's colour with its icon and ornament). All blank
+  chats are one tile, **Chats**; the coach conversation has its own tile
+  (it opens the coach conversation); then the memory folder and every
+  allowed folder. A tile shows how many conversations the folder has and
+  when the last one was. The colour is the bridge's `colour` number of that
+  folder, so a folder keeps its colour. Tapping a tile lists that folder's
+  conversations, pinned ones first; back returns to the tiles. "Working"
+  marks a session the computer is answering right now, "Open on the
+  computer" one that a terminal or the desktop app holds there
+  (`running_here` and `open_elsewhere` of `GET /sessions`). A row's mark is
+  the chat icon for a blank chat (which says "Chat" instead of a folder) and
+  the folder's first letter in its colour for any other. Tapping one opens
+  it in Chat; the next message continues it in its own folder. A session
+  that is open on the computer is refused there when the message is sent,
+  and the app says so and offers **Retry**. **New chat** stays in the top
+  bar.
+  - **Titles and pins (#74):** a long press on a session, or the dots at the
+    end of its row (also on the Chat tab's recent sessions), opens what can
+    be done with it: **Rename** (and back to the title the computer found),
+    **Pin / Unpin**. Custom groups were removed (#168). All of it is kept on
+    the computer (`PATCH /sessions/{id}`); Claude Code's own session files
+    are not touched. A change is sent directly: without a connection
     nothing changes and a line says so.
   - **Reminders and reply notifications (#75):** the same sheet has
     **Remind me**: the session's reminders to come, and a new one with its
@@ -768,10 +792,10 @@ Nothing on these screens is sample content any more. Not paired, they show
     through `GET /sessions/{id}/live` (see above), so they are written on
     screen and can ask for approvals and questions.
   - **One session, read fresh** (`GET /sessions/{id}`, #154), instead of
-    looking it up in the list of the newest hundred: when a conversation is
+    looking it up in the list of the newest 200: when a conversation is
     opened (its model and effort; a choice the owner makes meanwhile wins),
     for a tapped notification or reminder (`SessionLookup`), and for the
-    session's sheet (title, pin, group, switches).
+    session's sheet (title, pin, switches).
   - While the app is locked nothing of the conversation is in memory; it is
     read again after unlocking.
   - **Approvals and questions** (`data/Interactions.kt`, the bridge's
@@ -816,6 +840,31 @@ Nothing on these screens is sample content any more. Not paired, they show
     answer is written and in earlier answers. The switch is `PATCH
     /sessions/{id}` with `{"skills": true|false}`; what the folder has and
     whether it is usable comes from `GET /sessions/{id}/commands`.
+  - **Moves of a chat's files** (`kind: "move_files"` in that list and in
+    `file_moves` of an answer's `done`, #163, #168): cards that wait across
+    runs like skill installs. A yes's answer (`moved`, `files`, `failed`)
+    decides what the card says; `409 file_exists`, `409 files_changed`, the
+    bridge's other `409` checks and `503 audit_unavailable` leave it
+    waiting with a worded reason. A proposal refused at once (no `id`,
+    `state: "refused"`) is a card with its `error_code` worded and nothing
+    to answer. `[[move-files: …]]` lines are left out while an answer is
+    written and in the history, which keeps them.
+  - **Switches** (`data/Switch.kt`, #164, #168): `switch` of a `done`
+    event is parsed only for an answer that happens now; for the app's own
+    message `open` and `new` become a one-time `switchTo` that the
+    conversation screen hands to the navigation, `choose` (and any switch of
+    a followed answer) a card in the state until the next message. A lock,
+    another conversation and a re-read drop both; the history never carries
+    one. `[[switch…]]` lines are hidden while written, and a last line that
+    is becoming any marker line is held back until it is whole.
+  - **Folders** (`data/ChatModels.kt`): `GET /sessions` (`limit=200`) gives
+    each session's `folder_key`, `folder_label`, `kind`, `colour` and the
+    `folders` for the tiles; `Looks.folder(colour)` maps the colour number
+    to the palette's tone and ornament. A conversation remembers its
+    folder's kind and colour in its pointer; one opened by a switch (which
+    names no path) learns its folder from `GET /sessions/{id}`. A new
+    conversation sends its folder's path, the memory folder included; a
+    blank chat none.
   - **MCP servers** (`data/McpServers.kt`): the list is `GET
     /sessions/{id}/mcp-servers`, read each time the sheet's page is opened
     and after every change, never kept. "Review and approve" is `POST
@@ -1445,11 +1494,13 @@ aid shows the same screens with invented answers.
    and tap the Chat tab: the Chat list opens (not the conversation), with
    the conversation under "Current chat"; tapping it shows its last
    messages, and a new message continues it.
-4. **Sessions:** tap the clock (or More → Sessions): sessions grouped by
-   folder, newest first, also the ones started in a terminal. Type a word
-   into the search field: only matching sessions remain. Tap a session: its
-   last messages appear; send a message: it continues that session in its
-   folder.
+4. **Sessions:** tap the clock (or More → Sessions): the pinned sessions,
+   then one coloured tile per folder (all blank chats one "Chats" tile),
+   also for sessions started in a terminal. Tap a tile: that folder's
+   sessions, newest first. Type a word into the search field on the tiles
+   screen: only matching sessions remain, from every folder. Tap a session:
+   its last messages appear; send a message: it continues that session in
+   its folder.
 5. **Open on the computer:** run `claude --resume` on the computer, choose a
    session and leave it open. Open the same session in the app and send a
    message: "This session is open on the computer right now…" with
@@ -1498,32 +1549,88 @@ emulator with the `sample_data` test aid:
 6. Sessions: the session "Coach" opens the coach screen, not an ordinary
    conversation. Lock and unlock the app: the conversation is read again.
 
-### Session groups, rename and pin
+### Sessions by folder, rename and pin (#74, #168)
 
 Paired (no model run is started by any step), or on an emulator with the
 `sample_data` test aid, where the changes are kept until the app is closed:
 
-1. Sessions → long-press a session (or tap the dots at the end of its row)
-   → **Rename**, type a title, **Save**: the row shows it at once, also
-   under "Recent" on the Chat tab. On the computer, `GET /sessions` shows
-   the new `title` and the old one as `detected_title`; the session's own
-   file is unchanged. Rename again → **Use the title the computer found**:
-   the old title is back.
-2. The same sheet → **Pin**: the session moves to "Pinned" with the
-   coloured ring around its letter; **Unpin** puts it back.
-3. **New group** (next to "Groups") → a name → Save: the group is listed,
-   empty. A session's sheet → **Move to a group** → choose it: the session
-   is under that group and no longer under its folder. **Move to a group**
-   → **New group** makes a group and moves the session in one step; **No
-   group** puts it back under its folder.
-4. **New group** with a name that exists: "A group with this name exists
-   already." and nothing changes.
-5. The dots next to a group's name → **Rename the group**, then **Delete
-   the group** → confirm: the group is gone, its sessions are under their
-   folders again.
-6. Type into the search field: only groups with a matching session remain.
+1. Sessions: under "Pinned" the pinned sessions, then **By folder**: a wide
+   **Chats** tile first (all blank chats; with the sample data two, one of
+   them pinned), then the coach's tile (once the coach conversation has a
+   message), the memory folder, and one tile per allowed folder, each in its
+   own colour with its icon and ornament, with "N conversations · <when>".
+   Pull to refresh and switch to Dark: every folder keeps its colour. A
+   folder without conversations says "No conversations yet". On the
+   computer, `GET /sessions` shows the same `colour` per folder.
+2. Tap **Chats**: the top bar says "Chats", the blank chats are listed with
+   the pinned one first; each row has the chat icon and no folder name.
+   Back (the arrow or the system back) returns to the tiles, not to the
+   screen before. Tap the project folder's tile: its sessions, each mark the
+   folder's letter in the folder's colour. Tap the coach's tile: the coach
+   conversation opens.
+3. A session → long-press (or the dots at the end of its row) →
+   **Rename**, type a title, **Save**: the row shows it at once, also under
+   "Recent" on the Chat tab. On the computer, `GET /sessions` shows the new
+   `title` and the old one as `detected_title`; the session's own file is
+   unchanged. Rename again → **Use the title the computer found**: the old
+   title is back. There is no "Move to a group" any more.
+4. The same sheet → **Pin**: the session is listed under "Pinned" with the
+   ring around its mark, and first in its folder's list; **Unpin** puts it
+   back.
+5. Type into the search field: the tiles give way to the matching sessions
+   from every folder; clear it and the tiles are back.
+6. Open a blank chat from the Chats tile: the Chat header says "Chat" (no
+   folder name). Open a project session: the header names the folder with a
+   dot in its colour.
 7. Flight mode, then **Pin**: "Not changed: the computer cannot be reached
    right now." and the list is as before.
+
+### Moving between conversations by asking, and a chat's files (#163, #164, #168)
+
+Paired with a bridge that has #163 and #164, in a new blank chat (each step
+is one short model run), or on an emulator with the `sample_data` test aid
+(the words in brackets):
+
+1. **One match** ("jump"): ask "Open my chat about the packing list" (name
+   one that exists). The answer's marker line (`[[switch: …]]`) never shows,
+   not even while the answer is written, and the app opens that
+   conversation at once, in its own folder: its last messages appear and the
+   header names its folder (a blank chat: "Chat"). The next message
+   continues it there.
+2. **Several** ("pick"): ask "Open one of my earlier chats about numbers or
+   files, I am not sure which". A card "Which conversation?" lists them
+   with title, folder and last activity; nothing switches by itself. Tap
+   one: it opens. Go back to the first chat and send another message: the
+   card is gone.
+3. **A new one in a folder** ("begin"): ask "Start a new chat in my
+   <project> folder". An empty conversation opens with the folder in the
+   header (and its colour dot); its first message runs in that folder (on
+   the computer, the new session is listed under that folder's tile).
+4. **Never by itself:** after step 1, lock and unlock the app, and open the
+   first chat again from Sessions: it shows its messages and stays there.
+   Reading it again never switches.
+5. **Moving files** ("move"; with "taken" the first Allow finds a name
+   taken, with "broken" one file stays): in a blank chat ask the assistant
+   to write a short file, then "Move that file into my <project>/notes
+   folder". The marker line never shows (also not after reopening the chat);
+   a card **Move files** lists every file with its size, the target's label
+   and path, and **Allow** / **Don't allow**, with the hours it waits. The
+   sample data adds a second card that the computer refused at once ("the
+   target is not one of your allowed folders"), with no buttons.
+6. **Allow**: "Moved 1 file into <project>/notes." On the computer the
+   file is in the target and gone from the chat's folder. With "taken": the
+   card stays open with "Not moved: something of the same name is in the
+   target folder by now…"; Allow again moves it. With "broken": "Moved 1
+   file…" and "1 file could not be moved and stays in the chat: …".
+   **Don't allow** on another card: "Not moved." and nothing moved.
+7. **Blank chats off** ("root off" as the first message of a new chat): on
+   the computer, put a `CLAUDE.md` into the chat root (see `docs/bridge.md`,
+   "Blank chats") and send a first message in a new chat: "Blank chats are
+   switched off on the computer…" with "The computer says: …" and
+   **Retry**. Remove the file and tap Retry: the answer arrives.
+8. Settings → Language → **Türkçe**: the tiles ("Sohbetler", "Koç"), the
+   card ("Hangi konuşma?") and the move card ("Dosyaları taşı") are in
+   Turkish.
 
 ### Session reminders and reply notifications
 

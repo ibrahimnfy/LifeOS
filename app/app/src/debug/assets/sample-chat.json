@@ -1,22 +1,23 @@
 {
-  "_comment": "Invented chat data for the debug test aid lifeos.test.sample_data (Chat and Sessions). ago_minutes becomes last_activity, a moment that many minutes before now. 'history' is what every listed session starts with (the app reads it four exchanges at a time); 'answer' is what a sent message is answered with, piece by piece.",
+  "_comment": "Invented chat data for the debug test aid lifeos.test.sample_data (Chat and Sessions). ago_minutes becomes last_activity, a moment that many minutes before now. 'history' is what every listed session starts with (the app reads it four exchanges at a time); 'answer' is what a sent message is answered with, piece by piece. Each session names its folder (folder_key, folder_label, kind, colour); the folders of the tiles are counted from the list.",
   "GET /folders": {
     "folders": [
-      {"path": "/home/owner/brain", "label": "brain", "kind": "memory", "default": true},
-      {"path": "/home/owner/project-alpha", "label": "project-alpha", "kind": "allowed", "default": false},
-      {"path": "/home/owner/course-notes", "label": "course-notes", "kind": "allowed", "default": false}
+      {"path": "/home/owner/LifeOS-Chats", "label": "Chats", "kind": "chat", "default": true, "colour": 0, "usable": true, "reason": null},
+      {"path": "/home/owner/brain", "label": "brain", "kind": "memory", "default": false, "colour": 2},
+      {"path": "/home/owner/project-alpha", "label": "project-alpha", "kind": "project", "default": false, "colour": 3},
+      {"path": "/home/owner/course-notes", "label": "course-notes", "kind": "course", "default": false, "colour": 4}
     ]
   },
   "GET /sessions": {
     "sessions": [
-      {"id": "sample-session-1", "title": "Weekly planning", "folder": "/home/owner/brain", "ago_minutes": 12, "in_use": true, "auto_group": "brain", "pinned": true},
-      {"id": "sample-session-2", "title": "What is still open for Project Alpha this week?", "folder": "/home/owner/project-alpha", "ago_minutes": 120, "in_use": false, "auto_group": "project-alpha", "pinned": false},
-      {"id": "sample-session-3", "title": "Milestone summary draft", "folder": "/home/owner/project-alpha", "ago_minutes": 1500, "in_use": false, "running_here": false, "open_elsewhere": true, "auto_group": "project-alpha", "pinned": false},
-      {"id": "sample-session-4", "title": "Summarise the lecture notes of week 3", "folder": "/home/owner/course-notes", "ago_minutes": 4400, "in_use": true, "running_here": true, "open_elsewhere": false, "auto_group": "course-notes", "pinned": false},
-      {"id": "sample-session-5", "title": "Which tasks are overdue?", "folder": "/home/owner/brain", "ago_minutes": 9000, "in_use": false, "auto_group": "brain", "pinned": false}
-    ],
-    "total": 5,
-    "groups": []
+      {"id": "sample-session-1", "title": "Weekly planning", "folder": "/home/owner/brain", "ago_minutes": 12, "in_use": true, "folder_key": "/home/owner/brain", "folder_label": "brain", "kind": "memory", "colour": 2, "pinned": true},
+      {"id": "sample-session-6", "title": "Ideas for the weekend", "folder": "/home/owner/LifeOS-Chats/2027-01-15-a1b2c3", "ago_minutes": 45, "in_use": false, "folder_key": "chats", "folder_label": "Chats", "kind": "chat", "colour": 0, "pinned": false},
+      {"id": "sample-session-2", "title": "What is still open for Project Alpha this week?", "folder": "/home/owner/project-alpha", "ago_minutes": 120, "in_use": false, "folder_key": "/home/owner/project-alpha", "folder_label": "project-alpha", "kind": "project", "colour": 3, "pinned": false},
+      {"id": "sample-session-7", "title": "A packing list for the trip", "folder": "/home/owner/LifeOS-Chats/2027-01-14-d4e5f6", "ago_minutes": 1300, "in_use": false, "folder_key": "chats", "folder_label": "Chats", "kind": "chat", "colour": 0, "pinned": true},
+      {"id": "sample-session-3", "title": "Milestone summary draft", "folder": "/home/owner/project-alpha", "ago_minutes": 1500, "in_use": false, "running_here": false, "open_elsewhere": true, "folder_key": "/home/owner/project-alpha", "folder_label": "project-alpha", "kind": "project", "colour": 3, "pinned": false},
+      {"id": "sample-session-4", "title": "Summarise the lecture notes of week 3", "folder": "/home/owner/course-notes", "ago_minutes": 4400, "in_use": true, "running_here": true, "open_elsewhere": false, "folder_key": "/home/owner/course-notes", "folder_label": "course-notes", "kind": "course", "colour": 4, "pinned": false},
+      {"id": "sample-session-5", "title": "Which tasks are overdue?", "folder": "/home/owner/brain", "ago_minutes": 9000, "in_use": false, "folder_key": "/home/owner/brain", "folder_label": "brain", "kind": "memory", "colour": 2, "pinned": false}
+    ]
   },
   "history": [
     {"user": "Which folders belong to Project Alpha?", "assistant": "Two: `notes/alpha` for the notes and `drafts/alpha` for the drafts."},

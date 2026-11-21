@@ -396,7 +396,7 @@ class ChatStartTest {
         transport.answer(
             "GET /sessions",
             200,
-            """{"sessions":[{"id":"s-1","in_use":true,"running_here":true,"open_elsewhere":false},{"id":"s-2","in_use":false,"running_here":false,"open_elsewhere":true},{"id":"s-3","in_use":false,"running_here":false,"open_elsewhere":null}],"total":3,"groups":[]}""",
+            """{"sessions":[{"id":"s-1","in_use":true,"running_here":true,"open_elsewhere":false},{"id":"s-2","in_use":false,"running_here":false,"open_elsewhere":true},{"id":"s-3","in_use":false,"running_here":false,"open_elsewhere":null}],"total":3,"folders":[]}""",
         )
         val sessions = api.get(ChatEndpoints.sessions).first.sessions
         assertEquals(listOf(true, false, false), sessions.map { it.inUse })
