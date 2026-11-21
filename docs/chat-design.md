@@ -110,7 +110,9 @@ What the documentation says, and what follows:
 - **Scope: the session's folder only.** A session may use the skills and
   commands found in its own folder's `.claude/` directory. Personal
   (home-folder) skills, plugins and settings are never loaded into runs
-  from the phone.
+  from the phone. *(Since #162 the owner's personal skills and commands are
+  offered in every capable run, as a copy; plugins and settings still are
+  not. See above.)*
 - **Only in capable mode, only in allowed folders, switched on per
   session** by the owner ("Use this folder's skills and commands"). The
   read-only default stays exactly as locked down as it is now.

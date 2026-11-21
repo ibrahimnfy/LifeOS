@@ -55,7 +55,10 @@ data class InteractionData(
     val server: McpServer? = null,
     /** Whose server it is: "folder" or "personal" (#162); a personal approval covers every folder. */
     val scope: String = "",
-)
+) {
+    /** [server] with the card's own [scope], which decides whose approval this is. */
+    val scopedServer: McpServer? get() = server?.let { if (scope.isBlank()) it else it.copy(scope = scope) }
+}
 
 /** One file of a skill that waits in the computer's quarantine. */
 @Serializable
@@ -273,13 +276,7 @@ data class Interaction(
                 SKILL_INSTALL ->
                     if (data.source.isBlank()) null else Interaction(data.id, Kind.SKILL_INSTALL, folder = data.folder, deadline = deadline, install = SkillInstall.of(data))
                 MCP_SERVER ->
-                    if (data.server?.usable != true) {
-                        null
-                    } else {
-                        // The card names the scope itself (#162); it decides whose approval this is.
-                        val server = if (data.scope.isBlank()) data.server else data.server.copy(scope = data.scope)
-                        Interaction(data.id, Kind.MCP_SERVER, folder = data.folder, deadline = deadline, server = server)
-                    }
+                    if (data.server?.usable != true) null else Interaction(data.id, Kind.MCP_SERVER, folder = data.folder, deadline = deadline, server = data.scopedServer)
                 "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline)
                 "question" -> {
                     val questions = data.questions.filter { it.question.isNotBlank() }

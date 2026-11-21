@@ -256,6 +256,13 @@ internal class SampleChat(private val context: Context) {
         return "$scope/$name"
     }
 
+    /** A server an answer used, as `done` and the history name it: its name and scope. */
+    private fun usedServer(key: String) = buildJsonObject {
+        put("name", JsonPrimitive(key.substringAfter("/")))
+        put("scope", JsonPrimitive(key.substringBefore("/")))
+        put("outside_sandbox", JsonPrimitive(true))
+    }
+
     /** An approval card for one server ([name] is its "scope/name" key): it waits for a day, like a skill install. */
     private class McpCard(val session: String, val name: String, val madeAt: Instant = Instant.now())
 
@@ -645,7 +652,7 @@ internal class SampleChat(private val context: Context) {
                                 put(
                                     "mcp_servers",
                                     buildJsonArray {
-                                        session.servers[start + index].orEmpty().forEach { add(buildJsonObject { put("name", JsonPrimitive(it)); put("outside_sandbox", JsonPrimitive(true)) }) }
+                                        session.servers[start + index].orEmpty().forEach { add(usedServer(it)) }
                                     },
                                 )
                                 put("complete", JsonPrimitive(assistant.isNotEmpty() || !session.running))
@@ -876,11 +883,11 @@ internal class SampleChat(private val context: Context) {
                             put("files", Json.parseToJsonElement("""[{"offer":"$offer","name":"outline.md","type":"text/markdown","size":20}]"""))
                             put("files_refused", Json.parseToJsonElement("""[{"name":"recordings.zip","reason":"larger than the limit of 50 MB"}]"""))
                         }
-                        // "mcp": the answer used the approved MCP servers of the folder (#153).
+                        // "mcp": the answer used the approved MCP servers (#153), each with its scope (#162).
                         val used = mcpState.filterValues { it == "approved" }.keys.sorted()
                         if ("mcp" in prompt && used.isNotEmpty()) {
                             synchronized(session) { session.servers[session.exchanges.lastIndex] = used }
-                            put("mcp_servers", buildJsonArray { used.forEach { add(buildJsonObject { put("name", JsonPrimitive(it)); put("outside_sandbox", JsonPrimitive(true)) }) } })
+                            put("mcp_servers", buildJsonArray { used.forEach { add(usedServer(it)) } })
                             put("mcp_note", JsonPrimitive("An approved MCP server runs outside the sandbox."))
                         }
                         // "install": the answer proposes a skill (#97). With "plain" its source is not

@@ -193,7 +193,7 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
     }
 
     val reviewed = card
-    val server = reviewed?.server
+    val server = reviewed?.scopedServer
     if (reviewed != null && server != null) {
         SheetFrame(stringResource(R.string.mcp_title), onDismiss) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
