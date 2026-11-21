@@ -113,7 +113,12 @@ class RunControl:
     def queue(self, session_id: str) -> list[dict]:
         return self.queues.get(session_id, [])
 
-    def add(self, session_id: str, prompt: str, mode: str, cwd: Path, *, front: bool) -> dict:
+    def add(
+        self, session_id: str, prompt: str, mode: str, cwd: Path, *, front: bool,
+        interactive: bool = False,
+    ) -> dict:  # fmt: skip
+        """``interactive``: the client that sent it shows question and approval cards,
+        so the queued run may ask (a follower of ``/sessions/{id}/live`` answers)."""
         entries = self.queues.setdefault(session_id, [])
         if len(entries) >= MAX_QUEUED:
             raise ClaudeError("queue_full", 429, f"at most {MAX_QUEUED} messages can wait")
@@ -123,6 +128,7 @@ class RunControl:
             "mode": mode,
             "cwd": str(cwd),
             "queued_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
+            "interactive": interactive,
         }
         entries.insert(0, entry) if front else entries.append(entry)
         self._save()
@@ -137,6 +143,15 @@ class RunControl:
     def edit(self, session_id: str, queue_id: str, prompt: str) -> dict:
         entry = self._find(session_id, queue_id)
         entry["prompt"] = prompt
+        self._save()
+        return entry
+
+    def promote(self, session_id: str, queue_id: str) -> dict:
+        """Move a waiting message to the front: it is the next one sent."""
+        entry = self._find(session_id, queue_id)
+        entries = self.queues[session_id]
+        entries.remove(entry)
+        entries.insert(0, entry)
         self._save()
         return entry
 
