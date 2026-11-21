@@ -46,7 +46,9 @@ KEY_FILE_NAME = "guardrail-key"
 # cli 5 and sdk 6: the owner's personal skills and personal MCP servers (#162).
 # Each runner reruns only when its own suite changed.
 # The same versions also probe a blank chat's folder as the run folder (#163).
-SUITE_VERSIONS = {"cli": 5, "sdk": 6}
+# cli 6 and sdk 7: the chat-folder probes judge another chat's file way by way, by the
+# result of the call that asked for it, and a step that was not made is "not run" (#163).
+SUITE_VERSIONS = {"cli": 6, "sdk": 7}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
