@@ -177,11 +177,18 @@ fun LifeOsApp(
                 navController.navigate(Routes.COURSES) { launchSingleTop = true }
                 renewMoodleSignIn(core, context)
             }
-            Destination.Coach -> {
+            // The daily note or a nudge (#76): Today, its coach card showing the message the push
+            // named (a question shows its answer card there). The coach conversation is a placeholder.
+            is Destination.Coach -> {
+                core.showCoachMessage(destination.messageId)
                 navController.openTab(Tab.TODAY)
-                navController.navigate(Routes.COACH) { launchSingleTop = true }
             }
             Destination.Sleep -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
+            // A new release (#138): its prompt sits at the top of Today; ask again in case the app was closed.
+            Destination.AppUpdate -> {
+                core.checkUpdate()
+                navController.openTab(Tab.TODAY)
+            }
             is Destination.Reminder, Destination.Today, Destination.Notice -> navController.openTab(Tab.TODAY)
         }
         // A notice's own title is shown only here, in the unlocked app.

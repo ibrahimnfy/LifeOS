@@ -5,7 +5,8 @@
     "age_seconds": 7200,
     "stale": false,
     "messages": [
-      {"id": "m-1", "kind": "focus", "text": "Finish the Project Alpha outline before anything else. The rest of the week builds on it.", "why": "Due today, and two other tasks wait for it."}
+      {"id": "m-1", "kind": "focus", "text": "Finish the Project Alpha outline before anything else. The rest of the week builds on it.", "why": "Due today, and two other tasks wait for it."},
+      {"id": "m-2", "kind": "question", "question": "waiting", "task": "t-3", "text": "The essay topic reply has waited six days. Is it waiting on someone else, or on you?"}
     ],
     "top_three": [
       {"task": {"id": "t-1", "title": "Draft the Project Alpha outline", "project": "Project Alpha", "due_date_in_days": 0}, "reason": "Due today; two tasks depend on it"},
@@ -112,6 +113,8 @@
     {"id": 13, "name": "Linear Algebra", "overall": "90", "items": [{"name": "Quiz 0", "grade": "9", "range": "0–10"}]}
   ]},
   "GET /activity": {"days": []},
+  "GET /coach/settings": {"frequency": "1", "quiet_start": "22:00", "quiet_end": "08:00", "questions": true},
+  "GET /app/release": {"version_code": 999999, "version_name": "0.1.999999", "size": 31457280, "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "cert_sha256": "0000000000000000000000000000000000000000000000000000000000000000", "registered_at": "2026-01-01T08:00:00+00:00"},
   "GET /models": {"models": ["opus", "sonnet", "haiku", "fable"], "efforts": ["low", "medium", "high", "xhigh", "max"], "default_model": "opus", "default_effort": "high"},
   "GET /models/routing": {
     "jobs": [

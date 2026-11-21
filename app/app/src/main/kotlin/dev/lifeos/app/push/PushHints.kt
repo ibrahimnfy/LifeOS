@@ -42,7 +42,9 @@ sealed interface Destination {
     data class Chat(val sessionId: String) : Destination
     data class Course(val courseId: Long) : Destination
     data class Reminder(val reminderId: String) : Destination
-    data object Coach : Destination
+
+    /** The coach's daily note or a nudge (#76): [messageId] is the message the push named. */
+    data class Coach(val messageId: String? = null) : Destination
     data object Courses : Destination
     data object CourseSignIn : Destination
     data object Sessions : Destination
@@ -50,17 +52,21 @@ sealed interface Destination {
     data object Notice : Destination
     data object Sleep : Destination
 
+    /** The "update ready" prompt (#138). */
+    data object AppUpdate : Destination
+
     fun encode(): String = when (this) {
         is Chat -> "chat:$sessionId"
         is Course -> "course:$courseId"
         is Reminder -> "reminder:$reminderId"
-        Coach -> "coach"
+        is Coach -> if (messageId.isNullOrEmpty()) "coach" else "coach:$messageId"
         Courses -> "courses"
         CourseSignIn -> "moodle_signin"
         Sessions -> "sessions"
         Today -> "today"
         Notice -> "notice"
         Sleep -> "sleep"
+        AppUpdate -> "app_update"
     }
 
     companion object {
@@ -69,13 +75,15 @@ sealed interface Destination {
             text.startsWith("chat:") -> Chat(text.removePrefix("chat:").take(MAX_REF))
             text.startsWith("course:") -> text.removePrefix("course:").toLongOrNull()?.let { Course(it) }
             text.startsWith("reminder:") -> Reminder(text.removePrefix("reminder:").take(MAX_REF))
-            text == "coach" -> Coach
+            text == "coach" -> Coach()
+            text.startsWith("coach:") -> Coach(text.removePrefix("coach:").take(MAX_REF).ifEmpty { null })
             text == "courses" -> Courses
             text == "moodle_signin" -> CourseSignIn
             text == "sessions" -> Sessions
             text == "today" -> Today
             text == "notice" -> Notice
             text == "sleep" -> Sleep
+            text == "app_update" -> AppUpdate
             else -> null
         }
 
@@ -89,7 +97,7 @@ data class PushOpen(val destination: Destination, val noticeTitle: String? = nul
 object PushHints {
     private const val MAX_FIELD = 300
     private const val MAX_COUNT = 9999
-    val EVENTS = setOf("answer", "reminder", "coach", "courses", "signin", "notice", "approval", "question")
+    val EVENTS = setOf("answer", "reminder", "coach", "courses", "signin", "notice", "approval", "question", "update")
 
     /**
      * Open the `h` field of a push with the push key (sub-key 3 of the pairing), or null.
@@ -153,6 +161,7 @@ object PushHints {
             "signin" -> "moodle_signin"
             "coach" -> "coach"
             "reminder" -> "reminder"
+            "update" -> "app_update"
             else -> "notice"
         }
         return when (opens) {
@@ -160,9 +169,10 @@ object PushHints {
             "course" -> hint.ref.toLongOrNull()?.let { Destination.Course(it) } ?: Destination.Courses
             "courses" -> Destination.Courses
             "moodle_signin" -> Destination.CourseSignIn
-            "coach" -> Destination.Coach
+            "coach" -> Destination.Coach(hint.ref.ifEmpty { null })
             "reminder" -> if (hint.ref.isNotEmpty()) Destination.Reminder(hint.ref) else Destination.Today
             "notice" -> Destination.Notice
+            "app_update" -> Destination.AppUpdate
             else -> Destination.Today
         }
     }
@@ -175,7 +185,8 @@ object PushHints {
         PushChannel.CHAT -> "chat:${hint.ref}"
         PushChannel.COURSES -> "courses"
         PushChannel.COACH -> "coach"
-        PushChannel.REMINDERS -> "${hint.event}:${hint.ref}"
+        // A newer release replaces the notice of an older one.
+        PushChannel.REMINDERS -> if (hint.event == "update") "update" else "${hint.event}:${hint.ref}"
     }
 
     /**

@@ -160,6 +160,11 @@ fun SettingsScreen(
                 NotificationsSection()
             }
 
+            // ---- coach notifications and questions (#76)
+            SettingsGroup(stringResource(R.string.settings_coach)) {
+                CoachSettingsSection(core)
+            }
+
             // ---- courses sign-in (#100)
             SettingsGroup(stringResource(R.string.settings_courses_signin)) {
                 MoodleSignInCard(core, expired = false)
@@ -182,6 +187,7 @@ fun SettingsScreen(
                     Text(text = BuildConfig.VERSION_NAME, style = LifeType.body, color = colors.muted)
                 }
             }
+            UpdateCard(core) // #138: the same prompt as on Today, while there is one
         }
     }
 }

@@ -594,6 +594,46 @@
     <string name="question_skip">Geç</string>
     <string name="question_answered">Cevaplandı.</string>
     <string name="question_skipped">Geçildi.</string>
+    <!-- Self-update (#138) -->
+    <string name="push_update">Uygulama güncellemesi hazır</string>
+    <string name="update_title">Güncelleme hazır</string>
+    <string name="update_version">Sürüm %1$s · %2$s</string>
+    <string name="update_explain">Bilgisayarında LifeOS\'un yeni bir sürümü derlendi. Şifreli bağlantıyla gelir, kontrol edilir ve kurulumu Android sana onaylatır.</string>
+    <string name="update_install">İndir ve kur</string>
+    <string name="update_later">Sonra</string>
+    <string name="update_try_again">Tekrar dene</string>
+    <string name="update_downloading">İndiriliyor… %1$s / %2$s</string>
+    <string name="update_installing">Kontrol edildi. Kurulumu Android\'in ekranında onayla.</string>
+    <string name="update_open_installer">Yükleyiciyi aç</string>
+    <string name="update_permission_explain">Android, bir uygulamanın güncelleme kurmasına ancak sen bir kez izin verince olanak tanır: LifeOS için \"Bu kaynaktan izin ver\" seçeneğini aç, sonra geri dönüp kur\'a dokun. LifeOS yalnızca bilgisayarından gelen kendi güncellemelerini kurar.</string>
+    <string name="update_permission_open">Ayarı aç</string>
+    <string name="update_not_this_build">Bu derleme kendini güncelleyemez: başka bir anahtarla imzalanmış (hata ayıklama derlemesi). Yayın derlemesini bir kez kabloyla kur; sonraki güncellemeler buradan gelir.</string>
+    <string name="update_failed_unreachable">Bilgisayar güncellemeyi göndermedi. Bağlıyken tekrar dene.</string>
+    <string name="update_failed_damaged">Gelen dosya duyurulan dosya değildi. Hiçbir şey kurulmadı, dosya silindi.</string>
+    <string name="update_failed_signer">Dosya bu uygulamanın anahtarıyla imzalanmamış. Hiçbir şey kurulmadı, dosya silindi.</string>
+    <string name="update_failed_install">Android güncellemeyi kurmadı (iptal edildi ya da reddedildi).</string>
+    <!-- Coach questions, nudges and settings (#76) -->
+    <string name="settings_coach">Koç</string>
+    <string name="coach_frequency_off">Koç bildirimi yok</string>
+    <string name="coach_frequency_once">Günde bir (günlük not)</string>
+    <string name="coach_frequency_three">Günde en çok üç</string>
+    <string name="coach_quiet_start">Sessiz saatler başlangıcı</string>
+    <string name="coach_quiet_end">Sessiz saatler bitişi</string>
+    <string name="coach_quiet_none">Başlangıç ve bitiş aynı: sessiz saat yok.</string>
+    <string name="coach_questions_switch">Koç soruları</string>
+    <string name="coach_questions_note">Görevlerin hakkında kısa sorular, her seferinde bir tane, her zaman geçilebilir.</string>
+    <string name="coach_settings_note">Sessiz saatlerde hiçbir şey gönderilmez; koç bildirimleri arasında en az iki saat olur. Bu sınırları bilgisayarın uygular.</string>
+    <string name="coach_settings_waiting">Bilgisayarın bağlıyken gösterilir.</string>
+    <string name="coach_settings_unreachable">Bilgisayara ulaşılamadı. Ayarları daha sonra yeniden aç.</string>
+    <string name="coach_settings_not_saved">Değişiklik kaydedilemedi; önceki ayar geçerli.</string>
+    <string name="coach_question_hint">Cevabın, kendi sözlerinle</string>
+    <string name="coach_question_send">Cevabı gönder</string>
+    <string name="coach_question_sending">Gönderiliyor… koç cevabını dosyalıyor, bu bir iki dakika sürebilir.</string>
+    <string name="coach_question_failed">Gönderilemedi. Bilgisayar bağlıyken tekrar dene.</string>
+    <string name="coach_question_no_answer">Gönderildi ama henüz yanıt yok. Bilgisayar cevabını önce kaydeder; sonra aşağı çekerek yenile.</string>
+    <string name="coach_question_answered">Cevap kaydedildi.</string>
+    <string name="coach_question_paused">Geçildi. Koç bir süre soru sormayacak.</string>
+    <string name="coach_question_gone">Bu soru artık açık değil.</string>
 
     <!-- Chat: earlier messages, the queue, send now and stop (#94) -->
     <string name="chat_older_load">Daha eski mesajlar</string>

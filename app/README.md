@@ -105,6 +105,22 @@ install the release build and pair again (on the computer
 `lifeos-bridge devices revoke <id>`, the id shown by `lifeos-bridge devices`). After that, updates install over each other and
 keep the pairing.
 
+**Later updates come to the phone (#138):** on the computer
+`uv run lifeos-bridge release --build` (in `bridge/`) builds, signs and
+registers the next release and wakes the phone. The app asks for the newest
+release whenever it connects and when that push arrives; Today (and
+Settings) then show **Update ready** with version and size. One tap fetches
+the file through the encrypted file transfer into the app's cache folder,
+checks its size and SHA-256 and that it is signed with the certificate the
+computer announced and with this app's own, and only then hands it to
+Android's installer (a PackageInstaller session; Android shows its own
+confirmation). The file is deleted as soon as the installer has it, and any
+leftover at the next start. Android asks once to allow LifeOS to install
+apps ("Install unknown apps"); the card explains why and opens that setting.
+A debug build, signed with another key, says "This build cannot update
+itself" instead of downloading anything; so do phones older than Android 9,
+which cannot read the signer of the file.
+
 Check that a build has no test aids: the strings of the debug twin
 (`lifeos.test.*`) must not occur in the APK's code, and the manifest must not
 be debuggable:
@@ -230,6 +246,13 @@ with plain HTTPS requests.
   computer for a new plan (a model run of a few minutes there); the card
   shows the progress and, when a plan was made in the last ten minutes, the
   computer's refusal. Without a plan the card offers **Prepare a plan**.
+  The coach's open question (#76) has its own card under it, marked
+  "Coach · Question": the owner answers in their own words (**Send
+  answer**; the computer logs it, then files it in a run of a minute or
+  two) or **Skip**s it (three skips in a row pause questions for a while).
+  The question is left out of the rotating card. Tapping a coach
+  notification (the daily note or a nudge) opens Today with the message it
+  named on the coach card.
 - **Tasks:** with a plan, "Most important" (the first five of the coach's
   order) and "Show all (n)", which opens the whole ordered list with filters
   (overdue, today, upcoming, no date). Without a plan, the open tasks by
@@ -368,8 +391,10 @@ with plain HTTPS requests.
 - **More:** Projects is a placeholder screen.
 - **Settings:** language, appearance, **connection** (pair, state, name,
   last contact, "Test connection", "Unpair this phone"), **app lock**
-  (immediately / 1 minute / 5 minutes), **Models** (see below), app
-  version.
+  (immediately / 1 minute / 5 minutes), **Models** (see below),
+  **Coach** (#76, kept on the computer: no coach notifications / once a day
+  / up to three a day, quiet hours start and end, coach questions on or
+  off), app version and, while there is one, the "Update ready" prompt.
 - **Settings → Models** (`GET /models/routing`): each model job of the
   computer (chat sessions, coach run and conversation, consolidation, course
   resources, summaries, context map) with its model, effort and advisor and
@@ -868,6 +893,59 @@ Needs a paired phone, the computer running, and the course site set up.
 4. Start again and come back without signing in, or wait more than ten
    minutes: "This sign-in attempt has run out". Nothing changed on the
    computer.
+
+### Coach questions, nudges and settings (#76)
+
+Needs a paired phone and the computer running, with a coach plan.
+
+1. Settings → **Coach** shows the computer's settings (by default "Once a
+   day", 22:00–08:00, questions on). Choose **Up to three a day**, set quiet
+   hours, switch questions off and on: each change is saved at once; on the
+   computer `GET /coach/settings` (or the next nudge) follows it. With the
+   computer off, the group says it is shown when the computer is connected.
+2. When the morning plan has a question, Today shows the card "Coach ·
+   Question" under the coach card. Write an answer and tap **Send answer**:
+   "Sending…", then "Answer saved." and the card disappears; the answer is
+   in the coach log in the memory folder.
+3. On another day, tap **Skip** instead: "Skipped." (after three skips in a
+   row: "The coach will not ask questions for a while").
+4. With frequency "Up to three a day", wait for a nudge (at least two hours
+   after the daily note, never in quiet hours): a notification "The coach
+   has something for you"; tap it: Today opens with that message on the
+   coach card.
+
+On an emulator, the `sample_data` test aid shows a sample question and
+keeps settings changes in memory until the app closes;
+`--es lifeos.test.push coach --es lifeos.test.push_ref m-1` shows a nudge.
+
+### Updating the app from the computer (#138)
+
+Needs the release build on the phone (see "Release build"), paired, and the
+computer running.
+
+1. Make a change (or just a new commit) and run
+   `uv run lifeos-bridge release --build` in `bridge/`. It reports the
+   version and that the phone was told.
+2. Within seconds the notification "An app update is ready" appears
+   (Reminders channel). Tap it: Today opens with **Update ready**, "Version
+   0.1.N · size". Without the push, opening the app shows the same card.
+3. Tap **Download and install**. The first time, the card explains the
+   permission and **Open the setting** goes to "Install unknown apps" for
+   LifeOS; allow it, come back, tap **Download and install** again.
+4. "Downloading… x of y", then Android's own screen asks to update LifeOS;
+   confirm. The app restarts as the new version (Settings → About → App
+   version) and stays paired.
+5. No copy remains: Android's Settings → Apps → LifeOS → Storage shows a
+   cache far smaller than the update (the file is deleted as soon as the
+   installer has it, and any leftover at the next start).
+6. Cancel Android's screen once: the card says Android did not install it
+   and offers **Try again**.
+7. With a debug build installed, steps 1–2 show the card with "This build
+   cannot update itself" and no download button.
+
+On an emulator without a computer, the `sample_data` test aid shows that
+debug-build card on Today (its sample release has a newer version and
+another key); `--es lifeos.test.push update` shows the notification.
 
 ### Push notifications (app closed, phone idle)
 
