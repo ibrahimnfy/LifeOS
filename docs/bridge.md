@@ -311,6 +311,11 @@ Subfolders of the memory folder are fine. Details:
   run that an interrupted check may have left (a transient user service
   with the fixed name `lifeos-guardrail-check`). It also moves an old
   scratch folder to the memory folder's trash.
+  - A check removes its own conversations from Claude Code's store when it
+    ends (its run folder and its chat folders), and the bridge never lists a
+    session of those folders: probe runs are not the owner's conversations.
+    The coach's plan and note-filing runs are one-off runs without a stored
+    session, like the other jobs.
 - **Plan usage of one restart:** a runner needs a check after an update of
   Claude Code or the Agent SDK, after a new version of the probe suite (the
   skill probes of #91 are suite version 2), or when it was never checked.

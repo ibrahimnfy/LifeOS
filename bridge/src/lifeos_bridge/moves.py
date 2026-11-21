@@ -45,6 +45,9 @@ MAX_DEPTH = 8
 CHUNK = 1024 * 1024
 
 
+INSTRUCTION_NAMES = frozenset({"claude.md", "claude.local.md", "agents.md"})
+
+
 def refused(code: str, message: str) -> ClaudeError:
     return ClaudeError(code, 409, message)
 
@@ -92,6 +95,9 @@ def _relative(folder: Path, raw: str) -> PurePosixPath:
         raise refused("file_not_in_chat", "only files of this chat can be moved")
     if any(part.startswith(".") for part in parts):
         raise refused("file_hidden", "hidden files and folders are never moved")
+    if parts[-1].lower() in INSTRUCTION_NAMES:
+        # A file that Claude Code would read as instructions in the target folder.
+        raise refused("file_instructions", "instruction files are never moved into a folder")
     return path
 
 

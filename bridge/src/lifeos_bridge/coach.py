@@ -493,6 +493,7 @@ async def prepare_plan(settings: Settings, clock: Clock | None = None) -> dict:
             PLAN_PROMPT,
             session_id=str(uuid.uuid4()),
             resume=False,
+            persist=False,  # a one-off: never a session in the owner's list
             **routing.run_options(settings, "coach_plan"),
             cwd=memory_dir,
             context=context,
@@ -795,6 +796,7 @@ async def _file_answer(settings: Settings, question: dict, text: str, now: datet
             prompt,
             session_id=str(uuid.uuid4()),
             resume=False,
+            persist=False,  # a one-off: never a session in the owner's list
             **routing.run_options(settings, "coach_chat"),
             cwd=memory_dir,
             context=context,

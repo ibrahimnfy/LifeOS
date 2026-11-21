@@ -197,6 +197,8 @@ def test_refresh_prepares_a_plan_and_serves_it(client, auth, brain, clock, propo
     args = call["args"]
     assert (args[args.index("--model") + 1], args[args.index("--effort") + 1]) == ("opus", "high")
     assert "--advisor" not in args
+    # A one-off job: it never becomes a session in the owner's list.
+    assert "--no-session-persistence" in args and "--session-id" not in args
 
 
 def test_the_coach_conversation_runs_on_its_own_job(client, auth, planned, proposes, calls):

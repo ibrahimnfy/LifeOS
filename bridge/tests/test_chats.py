@@ -527,6 +527,8 @@ def test_only_regular_files_of_the_chat_itself_are_moved(chat, project, home, as
         str(secret): "file_not_in_chat",
         ".claude/skills/SKILL.md": "file_hidden",
         ".mcp.json": "file_hidden",
+        "CLAUDE.md": "file_instructions",
+        "notes/agents.md": "file_instructions",
         "sub": "file_not_regular",
         "missing.txt": "file_missing",
     }
@@ -748,3 +750,42 @@ def test_where_a_chat_root_may_lie(settings, home, ask_dir, isolated_config):
     assert chats.session_ok(settings, root / "2027-01-15-abcdef" / "sub")
     for folder in (root, root / "notes", root / ".bridge", root / "2027-01-15-abcdef-copy"):
         assert not chats.session_ok(settings, folder), folder
+
+
+def test_the_guardrail_checks_own_folders_are_never_conversations(settings):
+    from lifeos_bridge import verify
+
+    root = chats.root(settings)
+    assert verify.CHAT_PROBE_DATE == chats.PROBE_PREFIX
+    assert not chats.session_ok(settings, root / "0000-00-00-abcdef")
+    assert not chats.session_ok(settings, settings.ask_dir / chats.PROBE_FOLDER)
+    assert not chats.session_ok(settings, settings.ask_dir / chats.PROBE_FOLDER / "sub")
+    assert chats.session_ok(settings, settings.ask_dir)
+
+
+def test_a_check_removes_its_own_conversations_and_no_others(settings, write_session):
+    from conftest import user_line
+    from lifeos_bridge import sessions, verify
+
+    root = chats.root(settings)
+    probe, real = settings.ask_dir / "guardrail-probe", settings.ask_dir
+    chat_probe, chat = root / "0000-00-00-abcdef", root / "2027-01-15-abcdef"
+    ids = {
+        name: write_session(folder, [user_line(folder, "hello")])
+        for name, folder in {
+            "probe": probe,
+            "real": real,
+            "chat_probe": chat_probe,
+            "chat": chat,
+        }.items()
+    }
+    # A real conversation stored in the probe folder's project folder by a name clash stays.
+    clash = write_session(real, [user_line(real, "hello")], project=sessions.encode_folder(probe))
+    store = sessions.projects_dir()
+    (store / sessions.encode_folder(probe) / ids["probe"]).mkdir()  # its side files
+    verify.forget_probe_sessions(probe)
+    verify.forget_probe_sessions(root, chats.PROBE_PREFIX)
+    left = {path.stem for path in store.rglob("*.jsonl")}
+    assert left == {ids["real"], ids["chat"], clash}
+    assert not (store / sessions.encode_folder(probe) / ids["probe"]).exists()
+    assert not (store / sessions.encode_folder(chat_probe)).exists()  # empty: removed

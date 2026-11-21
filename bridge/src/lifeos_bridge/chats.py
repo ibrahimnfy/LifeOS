@@ -42,6 +42,10 @@ from .paths import config_dir_path, refusal_reason, repo_dir
 
 # <date>-<six hex digits>, for example 2027-01-15-3fa9c1.
 NAME = re.compile(r"\d{4}-\d{2}-\d{2}-[0-9a-f]{6}")
+# The guardrail check's own folders (``verify``): its run folder in the memory folder and
+# its chat folders. Sessions in them are never listed, continued or offered.
+PROBE_FOLDER = "guardrail-probe"
+PROBE_PREFIX = "0000-00-00-"
 # Files that would give every chat instructions or settings of their own.
 INSTRUCTION_FILES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md", ".claude", ".mcp.json")
 LABEL = "Chats"
@@ -109,10 +113,13 @@ def session_ok(settings: Settings, folder: Path) -> bool:
         base, resolved = root(settings).resolve(), folder.resolve()
     except OSError:
         return False
+    probe = settings.ask_dir.resolve() / PROBE_FOLDER
+    if resolved == probe or resolved.is_relative_to(probe):
+        return False  # the guardrail check's own runs are never the owner's conversations
     if resolved != base and not resolved.is_relative_to(base):
         return True  # not under the chat root: the allowed folders decide
     parts = resolved.relative_to(base).parts
-    return bool(parts) and bool(NAME.fullmatch(parts[0]))
+    return bool(parts) and bool(NAME.fullmatch(parts[0])) and not parts[0].startswith(PROBE_PREFIX)
 
 
 def prepare_root(settings: Settings) -> Path:
@@ -168,6 +175,9 @@ def in_chat_root(settings: Settings, folder: Path) -> bool:
         base, resolved = root(settings).resolve(), folder.resolve()
     except OSError:
         return False
+    probe = settings.ask_dir.resolve() / PROBE_FOLDER
+    if resolved == probe or resolved.is_relative_to(probe):
+        return False  # the guardrail check's own runs are never the owner's conversations
     return resolved != base and resolved.is_relative_to(base)
 
 

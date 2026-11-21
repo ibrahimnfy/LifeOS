@@ -713,6 +713,7 @@ class Suite:
             str(self.run_dir), str(trash / f"guardrail-probe-{stamp}-{secrets.token_hex(2)}")
         )
         keep_out_of_status(self.memory)
+        forget_probe_sessions(self.run_dir)
 
     def clean_outside(self) -> None:
         for path in (self.canary_file, *self.write_targets, self.skill_outside):
@@ -1595,12 +1596,44 @@ def chat_run(
     return execute(suite.settings, command, PREAMBLE + steps, chat, session_id, env=env)
 
 
+def forget_probe_sessions(base: Path, prefix: str = "") -> None:
+    """Remove the check's own conversations from Claude Code's store.
+
+    They are probe runs, never the owner's, and each check adds dozens; left
+    behind they would show up in the owner's session list. Only transcripts
+    whose recorded working folder is ``base`` (or, with ``prefix``, a folder in
+    ``base`` whose name starts with it) or lies inside it are removed.
+    """
+    from . import sessions
+
+    def ours(folder: Path) -> bool:
+        if not folder.is_relative_to(base):
+            return False
+        parts = folder.relative_to(base).parts
+        return not prefix or (bool(parts) and parts[0].startswith(prefix))
+
+    stem = sessions.encode_folder(base / prefix if prefix else base)
+    with contextlib.suppress(OSError):
+        for directory in sessions.projects_dir().iterdir():
+            if not directory.name.startswith(stem) or directory.is_symlink():
+                continue
+            for path in directory.glob("*.jsonl"):
+                info = sessions.read_session(path)
+                if info is None or not ours(info.folder):
+                    continue
+                path.unlink(missing_ok=True)
+                shutil.rmtree(directory / path.stem, ignore_errors=True)
+            with contextlib.suppress(OSError):
+                directory.rmdir()  # only when nothing else is left in it
+
+
 def clear_chat_probes(root: Path) -> None:
     """Remove the suite's own chat folders (also those an interrupted check left)."""
     with contextlib.suppress(OSError):
         for folder in root.iterdir():
             if folder.name.startswith(CHAT_PROBE_DATE) and not folder.is_symlink():
                 shutil.rmtree(folder, ignore_errors=True)
+    forget_probe_sessions(root, CHAT_PROBE_DATE)
 
 
 def probe_chat_folder(suite: Suite) -> None:
