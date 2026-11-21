@@ -329,6 +329,8 @@ data class ChatState(
      * folder: the screen does it once ([Chat.takeSwitch]). Gone with a lock or another conversation.
      */
     val switchTo: ChatSwitch? = null,
+    /** When [switchTo] came (the phone's running clock): one that waited too long becomes a card ([Chat.takeSwitch]). */
+    val switchAt: Long = 0,
     /** Conversations (or a folder) the last answer offers on a card; the owner picks. Gone with the next message. */
     val choices: ChatSwitch? = null,
 ) {
@@ -467,13 +469,20 @@ class Chat(
 
     /**
      * The switch the last answer asked for, taken once by the screen that acts on it (it
-     * opens the conversation, or starts the new one). Null when there is none.
+     * opens the conversation, or starts the new one). Null when there is none. One that
+     * waited longer than [SWITCH_FRESH_MILLIS] (the owner had left the conversation before
+     * the answer ended) is not done by itself any more: it becomes the card to pick from.
      */
     fun takeSwitch(): ChatSwitch? {
+        val now = uptimeMillis()
         var taken: ChatSwitch? = null
         mutable.update {
-            taken = it.switchTo
-            if (it.switchTo == null) it else it.copy(switchTo = null)
+            val switch = it.switchTo
+            when {
+                switch == null -> it.also { taken = null }
+                now - it.switchAt <= SWITCH_FRESH_MILLIS -> it.copy(switchTo = null).also { taken = switch }
+                else -> it.copy(switchTo = null, choices = switch).also { taken = null }
+            }
         }
         return taken
     }
@@ -1664,6 +1673,7 @@ class Chat(
                         tidying = false,
                         interactions = closed(state.interactions).let { cards -> cards + proposed.filter { new -> cards.none { it.id == new.id } } },
                         switchTo = direct,
+                        switchAt = if (direct != null) uptimeMillis() else state.switchAt,
                         choices = switch.takeIf { direct == null },
                     )
                 }
@@ -1787,6 +1797,9 @@ class Chat(
 
         /** How long the app waits before it asks again after a followed answer stopped arriving. */
         private const val FOLLOW_AGAIN_MILLIS = 2_000L
+
+        /** How long a switch of an answer is done by itself; later the owner picks it on a card (#168). */
+        const val SWITCH_FRESH_MILLIS = 60_000L
         /**
          * The marker lines the computer takes out of a finished answer: file offers, skill
          * installs (#97), switches to another conversation (#164) and moves of a blank chat's

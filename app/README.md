@@ -853,7 +853,8 @@ Nothing on these screens is sample content any more. Not paired, they show
     event is parsed only for an answer that happens now; for the app's own
     message `open` and `new` become a one-time `switchTo` that the
     conversation screen hands to the navigation, `choose` (and any switch of
-    a followed answer) a card in the state until the next message. A lock,
+    a followed answer, or a `switchTo` not taken within a minute) a card in
+    the state until the next message. A lock,
     another conversation and a re-read drop both; the history never carries
     one. `[[switch…]]` lines are hidden while written, and a last line that
     is becoming any marker line is held back until it is whole.

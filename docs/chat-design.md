@@ -465,7 +465,9 @@ How the app uses sections 3, 6 and 7.1 to 7.3 (details and manual checks:
   the conversation with one to five conversations to tap. An answer that
   was followed live (`/live`, after the replay) shows any switch as that
   card instead; a replayed answer, a re-read conversation and a lock never
-  switch. A conversation opened by a switch learns its folder's path from
+  switch. A switch the screen takes more than a minute after the answer
+  (the owner had left the conversation) becomes the card too. A
+  conversation opened by a switch learns its folder's path from
   `GET /sessions/{id}`.
 - **Marker lines.** `[[file:…]]`, `[[skill-install:…]]`, `[[switch…]]`,
   `[[switch-new:…]]` and `[[move-files:…]]` lines are never shown: while an

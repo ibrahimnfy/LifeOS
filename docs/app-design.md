@@ -144,7 +144,9 @@ every section in its own clearly visible card.*
   with the folder in the header, and its first message names that folder.
   Only the answer to a message sent and received on this phone switches by
   itself: an answer that was followed after a lock or a lost connection
-  shows its switch as a card, a replayed one and the history never switch.
+  shows its switch as a card, a replayed one and the history never switch;
+  a switch not acted on within a minute (the owner had left) becomes the
+  card too.
   The marker lines behind it never show, not even while the answer is
   written.
 - **Moving a blank chat's files (#163):** the assistant can propose to move

@@ -639,6 +639,7 @@
     <string name="move_refusal_other">Not moved: a file or the target folder is no longer what this card shows. Say no, and ask again.</string>
     <string name="move_problem_target">Cannot be moved: the target is not one of your allowed folders (the memory folder is not one).</string>
     <string name="move_problem_file">Cannot be moved: a named file is not a plain, visible file of this chat.</string>
+    <string name="move_problem_instructions">Cannot be moved: instruction files (such as CLAUDE.md) are never moved into a folder.</string>
     <string name="move_problem_exists">Cannot be moved: a file of the same name is in the target already, and nothing is overwritten.</string>
     <string name="move_problem_too_many">Cannot be moved: more files than the computer moves at once (50), or more than three moves in one answer.</string>
     <string name="move_problem_not_chat">Cannot be moved: only a blank chat’s files are moved this way.</string>

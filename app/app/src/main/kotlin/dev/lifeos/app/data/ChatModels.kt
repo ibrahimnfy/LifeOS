@@ -33,7 +33,8 @@ data class Folder(
     val label: String = "",
     val kind: String = FolderKinds.PROJECT,
     val default: Boolean = false,
-    val colour: Int = 0,
+    /** The bridge's colour number; a folder made on the phone ("Ask about this project") has none yet. */
+    val colour: Int = ChatFolder.NO_COLOUR,
     val usable: Boolean = true,
     val reason: String? = null,
 ) {

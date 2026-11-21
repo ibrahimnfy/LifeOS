@@ -90,7 +90,7 @@ class ChatTest {
         assertEquals("s-1", state.sessionId)
         assertNull(state.failure)
         // The conversation is found again after the app was closed: its id and folder, no text.
-        assertEquals(ChatPointer("s-1", "/home/owner/project-alpha", "project-alpha", memory = false, kind = FolderKinds.PROJECT, colour = 0), store.pointer)
+        assertEquals(ChatPointer("s-1", "/home/owner/project-alpha", "project-alpha", memory = false, kind = FolderKinds.PROJECT), store.pointer)
     }
 
     @Test

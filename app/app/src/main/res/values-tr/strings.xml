@@ -637,6 +637,7 @@
     <string name="move_refusal_other">Taşınmadı: bir dosya ya da hedef klasör artık bu kartta gösterildiği gibi değil. Hayır de ve yeniden iste.</string>
     <string name="move_problem_target">Taşınamaz: hedef, izin verilen klasörlerinden biri değil (hafıza klasörü bunlardan biri değildir).</string>
     <string name="move_problem_file">Taşınamaz: adı geçen bir dosya bu sohbetin sade, gizli olmayan bir dosyası değil.</string>
+    <string name="move_problem_instructions">Taşınamaz: talimat dosyaları (CLAUDE.md gibi) hiçbir klasöre taşınmaz.</string>
     <string name="move_problem_exists">Taşınamaz: hedefte aynı adda bir dosya zaten var ve hiçbir şeyin üzerine yazılmaz.</string>
     <string name="move_problem_too_many">Taşınamaz: bilgisayarın bir seferde taşıdığından (50) fazla dosya ya da bir cevapta üçten fazla taşıma var.</string>
     <string name="move_problem_not_chat">Taşınamaz: yalnızca boş bir sohbetin dosyaları bu yolla taşınır.</string>

@@ -188,6 +188,9 @@ data class FileMove(
         /** A file is not one of this chat's files, is hidden, or is not a plain file. */
         FILE,
 
+        /** An instruction file (such as CLAUDE.md) is never moved into a folder. */
+        INSTRUCTIONS,
+
         /** Something of that name is in the target already: nothing is overwritten. */
         EXISTS,
 
@@ -217,6 +220,7 @@ data class FileMove(
         fun problemOf(code: String): Problem = when (code) {
             "target_not_allowed" -> Problem.TARGET
             "file_missing", "file_not_regular", "file_not_in_chat", "file_hidden", "no_files" -> Problem.FILE
+            "file_instructions" -> Problem.INSTRUCTIONS
             "file_exists" -> Problem.EXISTS
             "too_many_files", "too_many" -> Problem.TOO_MANY
             "not_a_chat" -> Problem.NOT_A_CHAT

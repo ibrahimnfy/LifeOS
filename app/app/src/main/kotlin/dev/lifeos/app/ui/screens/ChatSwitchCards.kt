@@ -171,6 +171,7 @@ internal fun ColumnScope.MoveFilesCard(interaction: Interaction, open: Boolean, 
 private fun FileMove.Problem.textRes(): Int = when (this) {
     FileMove.Problem.TARGET -> R.string.move_problem_target
     FileMove.Problem.FILE -> R.string.move_problem_file
+    FileMove.Problem.INSTRUCTIONS -> R.string.move_problem_instructions
     FileMove.Problem.EXISTS -> R.string.move_problem_exists
     FileMove.Problem.TOO_MANY -> R.string.move_problem_too_many
     FileMove.Problem.NOT_A_CHAT -> R.string.move_problem_not_chat

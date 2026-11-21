@@ -84,6 +84,23 @@ class ChatSwitchTest {
     }
 
     @Test
+    fun `a switch that waited too long for the screen becomes the card instead`() = runTest {
+        val chat = chat()
+        chat.newChat()
+        answerWithSwitch(open)
+        chat.send("Open the chat about numbers")
+        advanceUntilIdle()
+        // The owner had left the conversation; the screen comes back after more than a minute.
+        uptime += Chat.SWITCH_FRESH_MILLIS + 1
+        assertNull(chat.takeSwitch())
+        assertNull(chat.state.value.switchTo)
+        assertEquals(listOf("s-9"), chat.state.value.choices?.sessions?.map { it.id })
+        // A refused proposal and other codes the bridge may add are worded too.
+        assertEquals(FileMove.Problem.INSTRUCTIONS, FileMove.problemOf("file_instructions"))
+        assertEquals(FileMove.Problem.OTHER, FileMove.problemOf("something_new"))
+    }
+
+    @Test
     fun `several conversations are a card to pick from, gone with the next message`() = runTest {
         val chat = chat()
         chat.newChat()
