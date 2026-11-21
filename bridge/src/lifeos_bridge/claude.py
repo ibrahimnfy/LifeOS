@@ -67,6 +67,9 @@ class Policy:
     # Capable runs with the session's skills on (#91): a copy of the folder's skills
     # and commands, loaded as a plugin; slash commands and the skill tool are enabled.
     skills_dir: Path | None = None
+    # Capable runs in a folder with MCP servers the owner approved (#108): exactly those,
+    # as an --mcp-config JSON; --strict-mcp-config stays, so nothing else loads.
+    mcp_config: str | None = None
     # Allow rules for tools that would otherwise ask, and so be denied in dontAsk
     # (the web tools of the course-resources profile).
     allowed: str = ""
@@ -211,6 +214,8 @@ def run_flags(
         "--strict-mcp-config",
         "--max-turns", str(settings.max_turns),
     ]  # fmt: skip
+    if policy.capable and policy.mcp_config:
+        command += ["--mcp-config", policy.mcp_config]
     if policy.capable and policy.skills_dir is not None:
         # Only the copy of the folder's own skills and commands: no personal, project
         # or plugin ones (restricted mode ignores every settings file and source).
