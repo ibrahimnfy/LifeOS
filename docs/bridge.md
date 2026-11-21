@@ -326,7 +326,8 @@ Subfolders of the memory folder are fine. Details:
     runner whose suite changed is checked again. The probes for personal
     skills and personal MCP servers (#162) changed both, so the next start
     checks both once. The approval probes may add up to 8 more per
-    environment when the model does not make the needed call at once.
+    environment when the model does not make the needed call at once, and
+    the personal-skill run up to 2 more.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner

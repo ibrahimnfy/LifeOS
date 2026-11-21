@@ -430,6 +430,8 @@ def test_approvals_belong_to_the_personal_file_they_were_given_for(settings, ask
     "spec",
     [
         dict(REMOTE, headersHelper="/usr/local/bin/make-headers"),  # a command the card hides
+        {"type": ["stdio"], "command": "npx"},  # a type that is no text
+        {"type": {"a": 1}, "url": "https://example.org/mcp"},
         dict(REMOTE, oauth={"clientId": "x"}),
         {"type": "sse", "url": "https://example.org/sse"},
         {"type": "ws", "url": "wss://example.org/ws"},

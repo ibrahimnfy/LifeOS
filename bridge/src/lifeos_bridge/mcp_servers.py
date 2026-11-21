@@ -125,7 +125,7 @@ def _texts(value: object) -> bool:
 def plain(spec: dict) -> bool:
     """A stdio or http definition made only of what the approval card shows."""
     kind = spec.get("type", "stdio")
-    if kind not in PLAIN_KEYS or not set(spec) <= PLAIN_KEYS[kind]:
+    if not isinstance(kind, str) or kind not in PLAIN_KEYS or not set(spec) <= PLAIN_KEYS[kind]:
         return False
     timeout = spec.get("timeout")
     if timeout is not None and (isinstance(timeout, bool) or not isinstance(timeout, int | float)):

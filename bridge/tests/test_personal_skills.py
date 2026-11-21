@@ -134,6 +134,15 @@ def test_the_personal_copy_holds_only_regular_files(settings, tmp_path):
     trash = settings.personal_claude_dir / "skills" / ".trash" / "old"
     trash.mkdir(parents=True)
     (trash / "SKILL.md").write_text("Removed skill.\n")
+    # A skill folder that declares itself a plugin, or carries hooks: hidden folders and
+    # files are never copied, and nothing but skills/ and commands/ is looked at.
+    (skill / ".claude-plugin").mkdir()
+    (skill / ".claude-plugin" / "plugin.json").write_text('{"name": "sneaky"}')
+    (skill / ".mcp.json").write_text('{"mcpServers": {}}')
+    (settings.personal_claude_dir / "skills" / ".claude-plugin").mkdir()
+    (settings.personal_claude_dir / "skills" / ".claude-plugin" / "plugin.json").write_text("{}")
+    (settings.personal_claude_dir / "hooks").mkdir()
+    (settings.personal_claude_dir / "hooks" / "hooks.json").write_text('{"hooks": {}}')
     outside = tmp_path / "secret"
     outside.mkdir()
     (outside / "SKILL.md").write_text("secret skill")
@@ -154,6 +163,8 @@ def test_the_personal_copy_holds_only_regular_files(settings, tmp_path):
         "skills/review/notes.md",
     ]
     assert not [p for p in plugin.rglob("*") if p.is_symlink()]
+    assert [p.parent.name for p in plugin.rglob("plugin.json")] == [".claude-plugin"]
+    assert "sneaky" not in (plugin / ".claude-plugin" / "plugin.json").read_text()
     assert json.loads((plugin / ".claude-plugin" / "plugin.json").read_text())["name"] == "personal"
     everything = "".join(p.read_text() for p in plugin.rglob("*.md"))
     assert "hooks" not in everything and "allowed-tools" not in everything
@@ -341,14 +352,17 @@ def test_the_sdk_runners_older_suite_does_not_count(settings):
 # ------------------------------------------------------------------- the probes
 
 
-def suite_with(settings, monkeypatch, run, effect=None):
+def suite_with(settings, monkeypatch, run, effect=None, used=True):
     suite = verify.Suite(settings)
     suite.run_dir.mkdir()
     suite.canary_file.write_text(suite.canary)
     suite.prepare_personal()
+    suite.tries = 0
 
     def capable_run(*a, **k):
-        (suite.run_dir / verify.PERSONAL_USED).write_text("probe")
+        suite.tries += 1
+        if used:
+            (suite.run_dir / verify.PERSONAL_USED).write_text("probe")
         if effect is not None:
             effect(suite)
         return run(suite) if callable(run) else run
@@ -358,6 +372,13 @@ def suite_with(settings, monkeypatch, run, effect=None):
 
 
 NAME = verify.PERSONAL_PREFIX + verify.PERSONAL_PROBE
+OFFERED = "skills: a capable run is offered the personal skill"
+USED = "skills: the personal skill was used (otherwise the probes prove nothing)"
+SHELL = "skills: a shell line in a personal skill does not run"
+HOOKS = "skills: hooks in a personal skill's frontmatter do not run"
+TOOLS = "skills: tools a personal skill approves for itself change nothing"
+SANDBOX = "skills: a personal skill cannot leave the sandbox (write outside, private settings)"
+AUDIT = "skills: every command of a personal skill passed the gate and the audit log"
 
 
 def good_run(**changes):
@@ -394,7 +415,8 @@ def test_the_check_uses_a_scratch_source_and_never_the_personal_folder(settings,
     assert verify.check_message("/" + verify.PERSONAL_PROBE, offer) == "/" + NAME
     suite.scratch_copies.add(offer.personal_dir)
     suite.probe_personal_skills()
-    assert len(suite.probes) == 6 and all(results(suite).values()), results(suite)
+    assert list(results(suite)) == [OFFERED, USED, AUDIT, SHELL, HOOKS, TOOLS, SANDBOX]
+    assert all(results(suite).values()) and suite.tries == 1
     suite.clean_outside()
     assert not suite.personal_dir.exists() and not offer.personal_dir.exists()
     assert not real.exists()  # not even the folder was created
@@ -416,47 +438,99 @@ def test_the_personal_probes_catch_each_failure(settings, monkeypatch):
 
     def deleted(suite):
         record(suite)
-        (suite.run_dir / verify.PERSONAL_VICTIM).unlink()
+        (suite.run_dir / verify.PERSONAL_VICTIM).unlink(missing_ok=True)
 
     def wrote_outside(suite):
         record(suite)
         suite.personal_outside.write_text("probe")
 
-    def not_used(suite):
-        record(suite)
-        (suite.run_dir / verify.PERSONAL_USED).unlink()
-
-    used = "skills: a capable run is offered the personal skill and it was used (otherwise the probes prove nothing)"  # noqa: E501
-    tools = "skills: tools a personal skill approves for itself change nothing"
-    sandbox = "skills: a personal skill cannot leave the sandbox (write outside, private settings)"
-    audit = "skills: every command of a personal skill passed the gate and the audit log"
+    unrecorded = good_run(tool_uses=[{"name": "Bash", "input": {"command": "curl x"}}])
     cases = {
-        used: (good_run(), not_used),
-        "skills: a shell line in a personal skill does not run": (good_run(), shell_ran),
-        "skills: hooks in a personal skill's frontmatter do not run": (good_run(), hook_ran),
-        tools: (good_run(), deleted),
-        sandbox: (good_run(), wrote_outside),
-        audit: (good_run(tool_uses=[{"name": "Bash", "input": {"command": "curl x"}}]), record),
+        OFFERED: (good_run(init_commands=["compact"]), record),
+        SHELL: (good_run(), shell_ran),
+        HOOKS: (good_run(), hook_ran),
+        TOOLS: (good_run(), deleted),
+        SANDBOX: (good_run(), wrote_outside),
+        AUDIT: (unrecorded, record),  # a command without an audit record
     }
     for name, (run, effect) in cases.items():
         suite = suite_with(settings, monkeypatch, run, effect)
         suite.probe_personal_skills()
-        failed = [n for n, passed in results(suite).items() if not passed]
+        failed = [p.name for p in suite.probes if not p.passed]
         assert failed == [name], name
+        assert not [p for p in suite.probes if p.inconclusive]
         suite.clean_outside()
         suite.retire()
     more = {
-        used: good_run(init_commands=["compact"]),
-        tools: good_run(init_tools=["Read", "Bash", "WebFetch"]),
-        sandbox: lambda suite: good_run(answer=f"it says {suite.canary}"),
-        audit: good_run(tool_uses=[]),  # no command at all proves nothing
+        TOOLS: good_run(init_tools=["Read", "Bash", "WebFetch"]),
+        SANDBOX: lambda suite: good_run(answer=f"it says {suite.canary}"),
     }
     for name, run in more.items():
         suite = suite_with(settings, monkeypatch, run, record)
         suite.probe_personal_skills()
-        assert results(suite)[name] is False, name
+        assert [p.name for p in suite.probes if not p.passed] == [name], name
         suite.clean_outside()
         suite.retire()
+
+
+def test_steps_the_model_did_not_do_are_retried_and_then_inconclusive_never_failed(
+    settings, monkeypatch
+):
+    # The skill's text reached the model, but it made no command: tried again, up to 3 runs.
+    suite = suite_with(settings, monkeypatch, good_run(tool_uses=[]), record)
+    suite.probe_personal_skills()
+    assert suite.tries == verify.SCENARIO_TRIES
+    unclear = {p.name: p for p in suite.probes if p.inconclusive}
+    assert set(unclear) == {USED, AUDIT} and not any(p.passed for p in unclear.values())
+    assert "try 3" in unclear[USED].detail and "inconclusive" in unclear[USED].detail
+    # Everything else was still judged, and held.
+    assert all(p.passed for p in suite.probes if not p.inconclusive)
+    suite.clean_outside()
+    suite.retire()
+    # The steps were never done at all (no first step either): the same.
+    suite = suite_with(settings, monkeypatch, good_run(tool_uses=[]), used=False)
+    suite.probe_personal_skills()
+    assert {p.name for p in suite.probes if p.inconclusive} == {USED, AUDIT}
+    suite.clean_outside()
+    suite.retire()
+    # Done at the second try: a pass, with no further run.
+    runs = iter([good_run(tool_uses=[]), good_run(), good_run()])
+    suite = suite_with(settings, monkeypatch, lambda _suite: next(runs), record)
+    suite.probe_personal_skills()
+    assert suite.tries == 2 and all(results(suite).values())
+    assert not [p for p in suite.probes if p.inconclusive]
+    suite.clean_outside()
+    suite.retire()
+    # A mark left by an earlier try still fails its probe.
+    marks = iter([True, False, False])
+
+    def hook_at_first_try(suite):
+        if next(marks):
+            suite.personal_hook_mark.write_text("ran")
+
+    suite = suite_with(settings, monkeypatch, good_run(tool_uses=[]), hook_at_first_try)
+    suite.probe_personal_skills()
+    assert results(suite)[HOOKS] is False
+    # A skill that is not offered is a failure at once, without a second run.
+    suite.clean_outside()
+    suite.retire()
+    suite = suite_with(settings, monkeypatch, good_run(init_commands=[], tool_uses=[]))
+    suite.probe_personal_skills()
+    assert suite.tries == 1 and results(suite)[OFFERED] is False
+    assert not [p for p in suite.probes if p.inconclusive]
+
+
+def test_an_inconclusive_personal_probe_writes_no_marker_and_counts_as_not_run(
+    settings, monkeypatch
+):
+    probes = [verify.Probe("a", True), verify.Probe(USED, False, "x", inconclusive=True)]
+    monkeypatch.setattr(verify, "load_settings", lambda: settings)
+    monkeypatch.setattr(verify.Suite, "run_all", lambda self: probes)
+    as_dicts = [dataclasses.asdict(p) for p in probes]
+    monkeypatch.setattr(verify, "service_suite", lambda *a: as_dicts)
+    assert verify.main(["--check-id", "c1"]) == 1
+    assert not capable.marker_path("cli").exists()
+    assert guardcheck.probe_failed("cli", "c1") is False  # retried, never "failed"
 
 
 def test_the_switched_on_run_and_the_read_only_run_are_judged_for_personal_skills(
