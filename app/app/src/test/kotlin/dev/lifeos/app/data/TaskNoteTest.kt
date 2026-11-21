@@ -91,6 +91,14 @@ class TaskNoteTest {
         val kept = TaskLists.open(listOf(task), listOf(edit(null))).single()
         assertEquals("Old note", kept.note)
         assertEquals("Outline it", kept.next)
+        // A note edit on its way, then a title-only edit: the card shows both changes.
+        val second = OutboxItem("e2", OutboxItem.Kind.TASK_EDIT, 1, text = "Essay, renamed", taskId = "t-1")
+        val both = TaskLists.open(listOf(task), listOf(edit("New note"), second)).single()
+        assertEquals("Essay, renamed", both.title)
+        assertEquals("New note", both.note)
+        // A refused note edit does not count.
+        val refused = edit("Refused").copy(state = OutboxItem.State.FAILED)
+        assertEquals("Old note", TaskLists.open(listOf(task), listOf(refused, second)).single().note)
     }
 
     @Test
