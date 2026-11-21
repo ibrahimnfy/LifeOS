@@ -7,9 +7,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,10 +21,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
+import dev.lifeos.app.data.BridgeJson
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.Dates
 import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.LocalItems
+import dev.lifeos.app.data.Looks
 import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.listAtMillis
 import dev.lifeos.app.data.Task
@@ -53,79 +55,85 @@ fun TaskSection.title(): String = stringResource(
 )
 
 /**
- * A task of the computer's list (with its waiting edit applied, see [TaskLists.open]): the
- * check ticks it (it leaves the list at once and can be undone for a moment); the rest of the
- * row opens it to change its title and date.
+ * A task of the lists (with its waiting edit applied, see [TaskLists.open]), also one made on
+ * this phone that has not been sent yet (#167, marked "Waiting to sync"): the check ticks it (it
+ * leaves the list at once and can be undone for a moment); the rest of the row opens it
+ * ([LocalOpenTask]): a course assignment's task its assignment's page, any other task its card.
  */
 @Composable
 fun OpenTaskRow(core: LifeOsCore, task: Task) {
-    if (LocalItems.isWaiting(task)) {
-        WaitingTaskRow(task)
-        return
-    }
     val undo = LocalUndo.current
-    val snackbar = LocalSnackbar.current
-    val scope = rememberCoroutineScope()
+    val open = LocalOpenTask.current
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
     val message = stringResource(R.string.tasks_done_message)
-    val savedText = stringResource(R.string.capture_saved)
-    val waitingText = stringResource(R.string.capture_waiting)
-    var editing by rememberSaveable(task.id) { mutableStateOf(false) }
     val overdue = Dates.sectionOf(task.due, today()) == TaskSection.OVERDUE
-    val pending = TaskLists.pendingEdit(task.id, outbox) != null
+    val pending = LocalItems.isWaiting(task) || TaskLists.pendingEdit(task.id, outbox) != null
     // The course or project: a small label in its colour (the same colour as on Courses).
     val looks = LocalLooks.current
-    val look = looks.forTask(task)
-    val lookName = task.course?.let { name -> looks.match(name)?.name?.ifBlank { null } ?: name } ?: task.project
     val parts = listOfNotNull(
         dueLabel(task.due).takeIf { !overdue || task.due != null },
         stringResource(R.string.outbox_waiting).takeIf { pending },
     )
-    val tick = {
-        // The computer cannot reopen a task, so the tick is sent only after the undo time.
-        core.tick(task)
-        undo(message) { core.undoTick(task) }
-    }
     TaskRow(
         title = task.title,
         subtitle = parts.joinToString(" · ").ifEmpty { null },
         done = false,
         overdue = overdue,
-        onToggle = { tick() },
-        onOpen = { editing = true },
-        look = look,
-        lookName = lookName,
+        onToggle = {
+            // The computer cannot reopen a task, so the tick is sent only after the undo time.
+            core.tick(task)
+            undo(message) { core.undoTick(task) }
+        },
+        onOpen = { open(task) },
+        look = looks.forTask(task),
+        lookName = looks.nameFor(task),
     )
-    if (editing) {
-        TaskEditSheet(
-            title = task.title,
-            due = task.due,
-            onDismiss = { editing = false },
-            onSave = { title, due ->
-                editing = false
-                scope.launch { snackbar(if (core.editTask(task, title, due)) savedText else waitingText) }
-            },
-            onOpenDone = {
-                editing = false
-                tick()
-            },
-        )
-    }
 }
 
+/** The name on a task's label: its course as the course list calls it, or its project. */
+fun Looks.nameFor(task: Task): String? =
+    task.course?.takeIf { it.isNotBlank() }?.let { name -> match(name)?.name?.ifBlank { null } ?: name } ?: task.project?.takeIf { it.isNotBlank() }
+
+/** Keeps a task's open card across turning the phone: the task as JSON. */
+val TaskSaver: Saver<Task?, String> = Saver(
+    save = { task -> task?.let { BridgeJson.encodeToString(Task.serializer(), it) } },
+    restore = { text -> runCatching { BridgeJson.decodeFromString(Task.serializer(), text) }.getOrNull() },
+)
+
 /**
- * A task saved on this phone that has not reached the computer yet: shown where it belongs,
- * marked "Waiting to sync"; it can be ticked or changed once the computer has it (it has no
- * id there yet).
+ * The card of a tapped task (#167), shown by the app's root above every screen: the task as it
+ * was tapped. Edit and Mark as done are the lists' own (the outbox, the undo of a tick), so they
+ * work offline and for a task that is still waiting to be sent. [scope] outlives the sheet, so
+ * closing it does not cut a save short.
  */
 @Composable
-fun WaitingTaskRow(task: Task) {
-    MarkRow(
+fun TaskCardSheet(core: LifeOsCore, task: Task, scope: kotlinx.coroutines.CoroutineScope, onClose: () -> Unit) {
+    val undo = LocalUndo.current
+    val snackbar = LocalSnackbar.current
+    val looks = LocalLooks.current
+    val outbox by core.outbox.items.collectAsStateWithLifecycle()
+    val message = stringResource(R.string.tasks_done_message)
+    val savedText = stringResource(R.string.capture_saved)
+    val waitingText = stringResource(R.string.capture_waiting)
+    TaskSheet(
         title = task.title,
-        subtitle = listOfNotNull(dueLabel(task.due), stringResource(R.string.outbox_waiting)).joinToString(" · "),
-    ) {
-        Icon(LifeIcons.Clock, contentDescription = null, tint = LifeTheme.colors.muted)
-    }
+        due = task.due,
+        overdue = Dates.sectionOf(task.due, today()) == TaskSection.OVERDUE,
+        note = task.next,
+        look = looks.forTask(task),
+        lookName = looks.nameFor(task),
+        waiting = LocalItems.isWaiting(task) || TaskLists.pendingEdit(task.id, outbox) != null,
+        onDismiss = onClose,
+        onSave = { title, due ->
+            onClose()
+            scope.launch { snackbar(if (core.editTask(task, title, due)) savedText else waitingText) }
+        },
+        onDone = {
+            onClose()
+            core.tick(task)
+            undo(message) { core.undoTick(task) }
+        },
+    )
 }
 
 @Composable

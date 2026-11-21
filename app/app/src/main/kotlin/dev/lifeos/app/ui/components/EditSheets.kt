@@ -1,15 +1,20 @@
 package dev.lifeos.app.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -20,13 +25,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import dev.lifeos.app.R
+import dev.lifeos.app.data.Look
+import dev.lifeos.app.ui.icons.LifeIcons
 import dev.lifeos.app.ui.theme.LifeDimens
 import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
@@ -38,12 +47,73 @@ private const val MAX_NOTE = 4000
 private const val MAX_TITLE = 200
 
 /**
- * Edit a task: its title and due date. [onOpenDone] ticks it from here as well, so a task that
- * was tapped to be opened can still be finished in one more tap.
+ * A task's card (#167): a bottom sheet with its title, due date, its note (the coach's first
+ * step, when it has one), its course or project, and **Mark as done** and **Edit**. Edit turns
+ * the same sheet into the form for the title and the date; saving goes through the outbox, so
+ * it works the same for a task that is still waiting to be sent ([waiting]).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaskEditSheet(title: String, due: String?, onDismiss: () -> Unit, onSave: (String, String?) -> Unit, onOpenDone: () -> Unit) {
+fun TaskSheet(
+    title: String,
+    due: String?,
+    overdue: Boolean,
+    note: String?,
+    look: Look?,
+    lookName: String?,
+    waiting: Boolean,
+    onDismiss: () -> Unit,
+    onSave: (String, String?) -> Unit,
+    onDone: () -> Unit,
+) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+    if (editing) {
+        TaskForm(title, due, onDismiss, onSave, onCancel = { editing = false })
+        return
+    }
+    val colors = LifeTheme.colors
+    EditSheetFrame(title, onDismiss) {
+        if (look != null && lookName != null) CourseLabel(look, lookName)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(LifeIcons.Calendar, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
+            Text(
+                text = due?.let { stringResource(R.string.capture_due, dueLabel(it) ?: it) } ?: stringResource(R.string.capture_due_none),
+                style = LifeType.body,
+                color = colors.text,
+            )
+            if (overdue) {
+                Box(Modifier.size(6.dp).background(colors.badge, CircleShape))
+                Text(stringResource(R.string.task_overdue), style = LifeType.label, color = colors.text)
+            }
+        }
+        if (waiting) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(LifeIcons.Clock, contentDescription = null, tint = colors.muted, modifier = Modifier.size(18.dp))
+                Text(stringResource(R.string.outbox_waiting), style = LifeType.small, color = colors.muted)
+            }
+        }
+        note?.trim()?.takeIf { it.isNotEmpty() }?.let { text ->
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.surface)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(stringResource(R.string.task_next), style = LifeType.label, color = colors.muted)
+                Text(text, style = LifeType.body, color = colors.text)
+            }
+        }
+        PrimaryButton(text = stringResource(R.string.task_edit_done), onClick = onDone)
+        SecondaryButton(text = stringResource(R.string.task_edit), onClick = { editing = true })
+    }
+}
+
+/** The card's edit state: the title and the due date. [onCancel] goes back to the card. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TaskForm(title: String, due: String?, onDismiss: () -> Unit, onSave: (String, String?) -> Unit, onCancel: () -> Unit) {
     val colors = LifeTheme.colors
     var text by rememberSaveable { mutableStateOf(title) }
     var day by rememberSaveable { mutableStateOf(due) }
@@ -77,7 +147,7 @@ fun TaskEditSheet(title: String, due: String?, onDismiss: () -> Unit, onSave: (S
             enabled = text.isNotBlank() && changed,
             onClick = { onSave(text.trim(), day) },
         )
-        SecondaryButton(text = stringResource(R.string.task_edit_done), onClick = onOpenDone)
+        SecondaryButton(text = stringResource(R.string.action_cancel), onClick = onCancel)
         Text(stringResource(R.string.task_edit_hint), style = LifeType.small, color = colors.muted)
     }
 

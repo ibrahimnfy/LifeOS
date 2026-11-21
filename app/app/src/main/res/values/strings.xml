@@ -247,6 +247,8 @@
     <string name="task_edit_title">Edit task</string>
     <string name="task_edit_field">Title</string>
     <string name="task_edit_done">Mark as done</string>
+    <string name="task_edit">Edit</string>
+    <string name="task_next">Next step</string>
     <string name="task_edit_hint">Changes are saved on the phone first and sent to the computer as soon as it answers.</string>
 
     <!-- Calendar -->

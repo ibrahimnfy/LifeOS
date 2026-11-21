@@ -172,6 +172,14 @@ class Outbox(
         }
     }
 
+    /**
+     * A task made on this phone reached the computer (#167): ticks and edits that wait for it
+     * under its phone id ([from], see [LocalItems.PREFIX]) now name the computer's id [to].
+     */
+    fun retarget(from: String, to: String): Boolean = update { items ->
+        items.map { if (it.taskId == from && !it.sending) it.copy(taskId = to) else it }
+    }
+
     fun settled(item: OutboxItem): Boolean = nowMillis() - (item.attemptAtMillis ?: 0) > SETTLE_MILLIS
 
     /** Send what is waiting, in order. Returns how many items were completed. */

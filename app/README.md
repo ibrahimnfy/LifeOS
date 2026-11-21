@@ -261,9 +261,18 @@ with plain HTTPS requests.
   (overdue, today, upcoming, no date). Without a plan, the open tasks by
   date. The round check ticks a task: it is hidden at once and the tick can
   be undone for a few seconds; then it is sent. Tapping the rest of the row
-  (here and on Today) opens the task to change its title and due date (or
-  remove the date); the change is shown at once with "Waiting to sync" until
-  the computer confirmed it.
+  (here, on Show all and on Today, also a pick) opens the task (#167): a
+  task the course sync made from an assignment (`assignment: moodle-<id>`,
+  its course folder ending in the course id) opens that assignment's page
+  below the same tab; any other task opens its card, a bottom sheet with
+  its title, due date, its note (the coach's next step, when it has one),
+  its course or project, **Mark as done** and **Edit**. Edit turns the card
+  into the form for the title and the due date (or no date); the change is
+  shown at once with "Waiting to sync" until the computer confirmed it. A
+  task captured on this phone that has not been sent yet opens the same
+  card and can be edited (it then leaves with the new title and date) and
+  ticked (the tick waits behind it and names the computer's id once the
+  task arrived).
 - **Chat** (the tab): the coach's conversation pinned on top, the chat in
   progress, the three most recent sessions with **All
   sessions**, and **New chat**. New chat (here, in a conversation's and the
@@ -1071,8 +1080,9 @@ running on the computer with the relay set up.
    "Just added" when the coach has a plan) and on Today at once, marked
    "Waiting to sync", without pulling down. Switch flight mode off: within
    seconds the note is in `inbox.md` and the task in `tasks.md`, each once;
-   on the screens they lose the mark and can be ticked and edited, with no
-   flicker and no duplicate. (If the connection drops in the middle of a
+   on the screens they lose the mark, with no flicker and no duplicate (the
+   task could be ticked and edited while it waited too, see "Tapping a
+   task"). (If the connection drops in the middle of a
    send, the item is simply sent again later; the computer recognises it.)
 6. **Notes and task edits:** capture a note; More → Notes shows it at the
    top of the list (newest first) together with the older captures and the
@@ -1080,10 +1090,11 @@ running on the computer with the relay set up.
    remain. Tap the note → **Edit**, change the text, Save: "Saved", the
    screen closes and the list shows the new text; on the computer the line in
    `inbox.md` has the new text and its original time. A topic note opens
-   read-only. On Tasks, tap a task's title (not the check): change the title,
-   pick another date (or **Remove** it), Save; the row changes at once and
-   `tasks.md` has the new title and date. In flight mode the same edits show
-   "Waiting to sync" and reach the computer once it is off.
+   read-only. On Tasks, tap a task's title (not the check): its card opens
+   (#167); tap **Edit**, change the title, pick another date (or **Remove**
+   it), Save; the row changes at once and `tasks.md` has the new title and
+   date. In flight mode the same edits show "Waiting to sync" and reach the
+   computer once it is off.
 7. **Shortcut and share:** long-press the app icon → "Capture"; in another
    app, share a piece of text → "Capture in LifeOS": the sheet opens with it.
 8. **Courses** (More → Courses; needs the course sync on the computer and a
@@ -1129,6 +1140,40 @@ running on the computer with the relay set up.
    is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### Tapping a task (#167)
+
+Paired, with the bridge running; for step 1 the course sync must have made a
+task from an assignment (its line in `tasks.md` has `(assignment: moodle-…)`).
+
+1. **An assignment's task:** on Tasks (also Show all, the Today card and the
+   picks) tap such a task's title (not the check): the assignment's page
+   opens with its due ticket and description, and the Tasks tab stays
+   selected. Back returns to the list. The same from Today keeps Today
+   selected.
+2. **Any other task:** tap a task you captured yourself: a card slides up
+   from the bottom (not a new page) with its title, its due date ("No due
+   date" without one, "Overdue" when late), its course or project label in
+   its colour, and **Mark as done** and **Edit**. A task the coach gave a
+   next step shows it under "Next step". Swipe the card down: nothing
+   changed.
+3. **Edit in the card:** **Edit** → the same sheet shows the title and the
+   date; change both, **Save**: "Saved" and the row shows the change;
+   `tasks.md` has it. **Cancel** goes back to the card.
+4. **Mark as done in the card:** the card closes, the task leaves the list
+   and "Marked as done · Undo" appears; **Undo** brings it back. Without
+   Undo, `tasks-done.md` has it a few seconds later.
+5. **A task still waiting (flight mode):** switch flight mode on, capture a
+   task with **+** → **Task**; on Tasks it shows "Waiting to sync". Tap it:
+   the card opens with "Waiting to sync". **Edit** it (new title and date),
+   Save: "Waiting to sync" and the row shows the change. Capture a second
+   task and tap **Mark as done** in its card (or its check), let the undo
+   time pass. Switch flight mode off: within seconds `tasks.md` has the first
+   task with the new title and date (once), and the second task is in
+   `tasks-done.md` (added and finished), not left open.
+6. Turn the phone while a card is open: it stays open. Lock the app with a
+   card open: after unlocking the card is closed.
+7. In Turkish and in dark mode the card is fully translated and readable.
 
 ### Renewing the Moodle sign-in on the phone
 

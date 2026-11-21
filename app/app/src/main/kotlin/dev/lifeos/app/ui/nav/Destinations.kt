@@ -47,7 +47,15 @@ object Routes {
     const val ASSIGNMENT_NAME_ARG = "name"
     const val ASSIGNMENT_DUE_ARG = "due"
 
-    fun assignment(courseId: Long, assignmentId: Long): String = "more/course/$courseId/assignment/$assignmentId"
+    /**
+     * The same page below Today and Tasks (#167): a task of a course assignment opens it there,
+     * so that tab stays selected and Back returns to the task list.
+     */
+    val ASSIGNMENT_ROUTES = listOf(MORE, TODAY, TASKS).map { root -> ASSIGNMENT.replaceFirst(MORE, root) }
+
+    /** The assignment page below [root] (a tab's route: More, Today or Tasks; others fall back to More). */
+    fun assignment(courseId: Long, assignmentId: Long, root: String = MORE): String =
+        "${root.takeIf { it == TODAY || it == TASKS } ?: MORE}/course/$courseId/assignment/$assignmentId"
 
     fun deadline(courseId: Long, name: String, due: Long?): String =
         "more/course/$courseId/assignment/0?name=${android.net.Uri.encode(name)}&due=${due ?: -1}"

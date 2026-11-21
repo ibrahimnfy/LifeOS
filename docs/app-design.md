@@ -101,7 +101,8 @@ every section in its own clearly visible card.*
 
   Nothing else. Events, deadline lists, sleep and screen-time tiles live on
   their own screens.
-- **Actions:** tick a task; tap a task to open it; pull to refresh (reads the
+- **Actions:** tick a task; tap a task (also a pick) to open it, as on Tasks
+  (section 3.5); pull to refresh (reads the
   plan and the agenda again, never starts a model run); **Rerun** on the
   coach card asks the computer for a fresh batch (a model run; refused within
   ten minutes of the last one).
@@ -249,9 +250,16 @@ every section in its own clearly visible card.*
   (n)"**, which opens the complete list in the same order, with filters
   (overdue, today, upcoming, no date, done). Each row: checkbox, title, due
   date, source (e.g. a course name when it came from a deadline).
-- **Actions:** tick (the round check), add (through Capture), edit title and
-  date (tap the rest of the row; `PATCH /tasks/{id}` through the outbox),
-  move a task up or down (the coach learns from it; not built yet).
+- **Actions:** tick (the round check), add (through Capture), open (tap the
+  rest of the row, *set by the owner, #167*): a task made from a course
+  assignment opens that **assignment's page** (below the same tab); any
+  other task opens its **card**, a bottom sheet, not a page: title, due
+  date, note (the coach's next step; the memory has no other task note),
+  course or project label, **Mark as done** and **Edit**. Edit turns the
+  card into the form for title and date (`PATCH /tasks/{id}` through the
+  outbox). A task captured on this phone that has not been sent yet opens
+  the same card and can be edited and ticked offline. Move a task up or
+  down (the coach learns from it; not built yet).
 - **States:** loading · saved copy · empty ("All clear") · no plan yet (date
   order) · error with retry; ticks made offline are queued like captures.
 - **Endpoints:** list tasks, complete task, add task *(planned, Phase 3)*;
@@ -586,5 +594,6 @@ layout, subtle motion (short fades and slides, nothing bouncy).
 | Coach: questions in chat, nudges with limits | set by the owner; design in `coach-design.md` |
 | Today in cards, "Assistant's picks", scrolling Today card; Courses with summary, all grades and four tabs; coach conversation pinned in Chat | set by the owner (2026-11-20) |
 | Tabs open their root; "+" offers note, task, new chat; new chat without a folder picker | set by the owner (2026-11-21, #166) |
+| An assignment's task opens the assignment; other tasks open a bottom-sheet card | set by the owner (2026-11-21, #167) |
 | Chat: lazy history, queue / send now / cancel, "/" commands, model per session, file cards, questions | set by the owner; design in `chat-design.md` |
 | Visual direction | **D3 approved**; light theme by default, switch in settings |

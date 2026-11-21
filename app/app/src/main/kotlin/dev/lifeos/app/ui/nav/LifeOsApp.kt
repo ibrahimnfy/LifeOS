@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -39,9 +40,12 @@ import dev.lifeos.app.ui.components.CaptureSheet
 import dev.lifeos.app.data.AssignmentMatch
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.SessionLookup
+import dev.lifeos.app.data.Task
+import dev.lifeos.app.data.TaskTarget
 import dev.lifeos.app.push.Destination
 import dev.lifeos.app.push.PushOpen
 import dev.lifeos.app.ui.components.LocalLooks
+import dev.lifeos.app.ui.components.LocalOpenTask
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
@@ -69,6 +73,8 @@ import dev.lifeos.app.ui.screens.MoreScreen
 import dev.lifeos.app.ui.screens.PairScreen
 import dev.lifeos.app.ui.screens.PlaceholderScreen
 import dev.lifeos.app.ui.screens.SettingsScreen
+import dev.lifeos.app.ui.screens.TaskCardSheet
+import dev.lifeos.app.ui.screens.TaskSaver
 import dev.lifeos.app.ui.screens.TasksScreen
 import dev.lifeos.app.ui.screens.TodayScreen
 import dev.lifeos.app.ui.screens.titleRes
@@ -272,7 +278,21 @@ fun LifeOsApp(
         push.noticeTitle?.let { showMessage(it) }
         onPushOpened()
     }
-    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks) {
+    // ---- a tapped task (#167): a course assignment's task opens the assignment's page (below the
+    // tab it was tapped on), any other task its card. The card shows the task as it was tapped.
+    var taskCard by rememberSaveable(stateSaver = TaskSaver) { mutableStateOf<Task?>(null) }
+    val openTask: (Task) -> Unit = { task ->
+        when (val target = TaskTarget.of(task, looks::match)) {
+            is TaskTarget.AssignmentPage -> {
+                val root = Tab.forRoute(navController.currentDestination?.route).route
+                navController.navigate(Routes.assignment(target.courseId, target.assignmentId, root)) { launchSingleTop = true }
+            }
+            TaskTarget.Card -> taskCard = task
+        }
+    }
+    // Nothing of a task stays on screen behind the lock.
+    LaunchedEffect(locked) { if (locked) taskCard = null }
+    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks, LocalOpenTask provides openTask) {
     Scaffold(
         containerColor = LifeTheme.colors.bg,
         contentColor = LifeTheme.colors.text,
@@ -462,9 +482,10 @@ fun LifeOsApp(
                     onOpenAssignment = { navController.navigate(Routes.assignment(courseId, it)) { launchSingleTop = true } },
                 )
             }
-            // ---- assignment detail (#129)
+            // ---- assignment detail (#129); below Today and Tasks too, for a task of an assignment (#167)
+            Routes.ASSIGNMENT_ROUTES.forEach { route ->
             composable(
-                route = Routes.ASSIGNMENT,
+                route = route,
                 arguments = listOf(
                     navArgument(Routes.COURSE_ARG) { type = NavType.LongType },
                     navArgument(Routes.ASSIGNMENT_ARG) { type = NavType.LongType },
@@ -491,6 +512,7 @@ fun LifeOsApp(
                     onPair = openPair,
                     onOpenCourse = { navController.navigate(Routes.course(it)) { launchSingleTop = true } },
                 )
+            }
             }
             composable(Routes.MORE) {
                 MoreScreen(
@@ -534,9 +556,12 @@ fun LifeOsApp(
         }
     }
 
+    // Sheets are windows of their own: while the app is locked none may be open above the lock screen.
+    taskCard?.takeIf { !locked }?.let { task ->
+        key(task.id) { TaskCardSheet(core, task, scope, onClose = { taskCard = null }) }
+    }
     }
 
-    // Sheets are windows of their own: while the app is locked none may be open above the lock screen.
     if (captureOpen && !locked) {
         CaptureSheet(
             prefill = capturePrefill,
