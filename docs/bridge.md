@@ -1528,6 +1528,31 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
   and the remaining chunks are removed; `"from": <chunk>` in the query
   continues an interrupted transfer. Measured through the real mailbox: a
   3 MB file in about 7 seconds.
+- **Streams the phone stops reading** (#157). The relay answers with four
+  workers; a stream (a chat message, `GET /sessions/{id}/live`) holds one
+  for as long as it runs. When the phone stops reading one (screen locked,
+  another session opened, connection lost) it sends
+  `{"m": "POST", "path": "/relay/detach", "body": {"r": "<request id of the
+  stream>"}}`. This request is answered at once, even when every worker is
+  busy, with `{"status": 200, "body": {"detached": true}}`
+  (`false`: no such stream, for example it had ended already). Then:
+  - a `/live` follower is closed at once (following is read-only);
+  - a chat stream is **never cut**, because closing it would stop the
+    run. Its messages stop at the next event (at the latest the next
+    keep-alive, 20 seconds), and the run goes on to its end unseen. The
+    phone sees the answer through `GET /sessions/{id}/live` or the history.
+  - whatever the stream left in the mailbox is removed, and no error
+    message follows.
+
+  Without a detach message (app killed, connection lost), the relay notices
+  by itself: when four or more of a stream's messages wait unread and the
+  oldest is more than 45 seconds old, the stream is let go in the same way.
+  A quiet run sends a keep-alive every 20 seconds, so this happens about
+  80 seconds after the phone stopped reading.
+  Manual check: start a long chat message from the app, lock the phone,
+  unlock, and repeat five times during the same run; the app's other
+  screens (`/whoami`, notes) still answer at once, and the run's answer is
+  there afterwards.
 - **In the mailbox:** only sealed messages; each is deleted as soon as it is
   taken, and anything older than 15 minutes is swept. Dropped messages are
   counted by reason in `~/.config/lifeos/relay-drops.json`, nothing else is
