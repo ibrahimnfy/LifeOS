@@ -85,7 +85,7 @@ class AssignmentTest {
 
     @Test
     fun `the description's Markdown becomes headings, lists, paragraphs and links`() {
-        val blocks = Markdown.blocks(
+        val blocks = SiteMarkdown.blocks(
             """
             # Task
             Solve problems **1-4** on the
@@ -96,7 +96,7 @@ class AssignmentTest {
             Keep file_name_v2 as it is, and [this](javascript:alert) is no link.
             """.trimIndent(),
         )
-        assertEquals(listOf(Markdown.Kind.HEADING, Markdown.Kind.PARAGRAPH, Markdown.Kind.BULLET, Markdown.Kind.NUMBERED, Markdown.Kind.PARAGRAPH), blocks.map { it.kind })
+        assertEquals(listOf(SiteMarkdown.Kind.HEADING, SiteMarkdown.Kind.PARAGRAPH, SiteMarkdown.Kind.BULLET, SiteMarkdown.Kind.NUMBERED, SiteMarkdown.Kind.PARAGRAPH), blocks.map { it.kind })
         assertEquals("Task", blocks[0].spans.single().text)
         assertEquals(listOf("Solve problems ", "1-4", " on the attached sheet."), blocks[1].spans.map { it.text })
         assertTrue(blocks[1].spans[1].bold)

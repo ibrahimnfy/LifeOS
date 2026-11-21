@@ -1,71 +1,140 @@
 package dev.lifeos.app.data
 
+/** One block of an answer, top to bottom. */
+sealed interface MdBlock {
+    data class Paragraph(val text: String) : MdBlock
+    data class Heading(val level: Int, val text: String) : MdBlock
+
+    /** A list item: [marker] is "•" or the item's own number ("2."); [level] 0 is the outermost list. */
+    data class Item(val marker: String, val level: Int, val text: String) : MdBlock
+
+    /** A fenced block, shown in a fixed-width font exactly as written. */
+    data class Code(val text: String) : MdBlock
+}
+
+/** A run of text inside a block. */
+data class MdSpan(val text: String, val bold: Boolean = false, val code: Boolean = false)
+
 /**
- * The little Markdown the bridge writes for an assignment's description: headings, bullet
- * and numbered lists, paragraphs, **bold**, *italic* and [links](https://…). Anything else
- * stays plain text. Only web addresses become links.
+ * The small part of Markdown the assistant's answers use most: paragraphs, headings, lists,
+ * fenced code, and bold and inline code inside a line. Everything else (tables, links,
+ * quotes) is shown as the text it is. It never fails: an answer that is still being written,
+ * with an open fence or an open `**`, is shown as far as it goes.
  */
 object Markdown {
-    enum class Kind { HEADING, BULLET, NUMBERED, PARAGRAPH }
+    private val FENCE = Regex("^\\s*(```|~~~).*$")
+    private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
+    private val BULLET = Regex("^(\\s*)[-*+•]\\s+(.*)$")
+    private val NUMBERED = Regex("^(\\s*)(\\d{1,4})[.)]\\s+(.*)$")
+    private const val MAX_LEVEL = 3
 
-    data class Span(val text: String, val bold: Boolean = false, val italic: Boolean = false, val link: String? = null)
-
-    /** [marker] is the number of a numbered item ("2."). */
-    data class Block(val kind: Kind, val spans: List<Span>, val marker: String? = null)
-
-    private val HEADING = Regex("^#{1,6}\\s+(.*)$")
-    private val BULLET = Regex("^\\s*[-*+]\\s+(.*)$")
-    private val NUMBERED = Regex("^\\s*(\\d{1,3}[.)])\\s+(.*)$")
-    // Underscores are left alone: they are common in file and variable names.
-    private val INLINE = Regex("\\*\\*(.+?)\\*\\*|\\[([^\\]]+)]\\(([^)\\s]+)\\)|\\*(?!\\s)(.+?)\\*")
-
-    fun blocks(text: String): List<Block> {
-        val result = mutableListOf<Block>()
+    fun blocks(text: String): List<MdBlock> {
+        val blocks = mutableListOf<MdBlock>()
         val paragraph = StringBuilder()
+        var code: StringBuilder? = null
+        var inItem = false
+
         fun flush() {
-            if (paragraph.isNotBlank()) result += Block(Kind.PARAGRAPH, inline(paragraph.toString().trim()))
-            paragraph.clear()
+            if (paragraph.isNotBlank()) blocks += MdBlock.Paragraph(paragraph.toString().trim())
+            paragraph.setLength(0)
         }
-        for (raw in text.replace("\r\n", "\n").lines()) {
-            val line = raw.trimEnd()
+
+        for (line in text.replace("\r\n", "\n").split('\n')) {
+            val open = code
+            if (open != null) {
+                if (FENCE.matches(line)) {
+                    blocks += MdBlock.Code(open.toString().trimEnd('\n'))
+                    code = null
+                } else {
+                    open.append(line).append('\n')
+                }
+                continue
+            }
+            if (FENCE.matches(line)) {
+                flush()
+                inItem = false
+                code = StringBuilder()
+                continue
+            }
+            if (line.isBlank()) {
+                flush()
+                inItem = false
+                continue
+            }
             val heading = HEADING.matchEntire(line)
             val bullet = BULLET.matchEntire(line)
             val numbered = NUMBERED.matchEntire(line)
             when {
                 heading != null -> {
                     flush()
-                    result += Block(Kind.HEADING, inline(heading.groupValues[1].trim()))
+                    inItem = false
+                    blocks += MdBlock.Heading(heading.groupValues[1].length, heading.groupValues[2].trim().trimEnd('#').trim())
                 }
                 bullet != null -> {
                     flush()
-                    result += Block(Kind.BULLET, inline(bullet.groupValues[1].trim()))
+                    inItem = true
+                    blocks += MdBlock.Item("•", level(bullet.groupValues[1]), bullet.groupValues[2].trim())
                 }
                 numbered != null -> {
                     flush()
-                    result += Block(Kind.NUMBERED, inline(numbered.groupValues[2].trim()), numbered.groupValues[1])
+                    inItem = true
+                    blocks += MdBlock.Item(numbered.groupValues[2] + ".", level(numbered.groupValues[1]), numbered.groupValues[3].trim())
                 }
-                line.isBlank() -> flush()
-                else -> paragraph.append(if (paragraph.isEmpty()) "" else " ").append(line.trim())
+                // An indented line right after a list item continues that item.
+                inItem && line.startsWith(" ") && blocks.lastOrNull() is MdBlock.Item -> {
+                    val item = blocks.removeAt(blocks.lastIndex) as MdBlock.Item
+                    blocks += item.copy(text = item.text + " " + line.trim())
+                }
+                else -> {
+                    inItem = false
+                    if (paragraph.isNotEmpty()) paragraph.append('\n')
+                    paragraph.append(line.trimEnd())
+                }
             }
         }
         flush()
-        return result
+        // A fence that is still open (the answer is being written): what there is so far.
+        code?.let { blocks += MdBlock.Code(it.toString().trimEnd('\n')) }
+        return blocks
     }
 
-    fun inline(text: String): List<Span> {
-        val spans = mutableListOf<Span>()
-        var at = 0
-        for (match in INLINE.findAll(text)) {
-            if (match.range.first > at) spans += Span(text.substring(at, match.range.first))
-            val g = match.groupValues
-            spans += when {
-                g[1].isNotEmpty() -> Span(g[1], bold = true)
-                g[2].isNotEmpty() -> Span(g[2], link = g[3].takeIf { it.startsWith("https://") || it.startsWith("http://") })
-                else -> Span(g[4], italic = true)
-            }
-            at = match.range.last + 1
+    private fun level(indent: String): Int = (indent.replace("\t", "  ").length / 2).coerceAtMost(MAX_LEVEL)
+
+    /** `**bold**` and `` `code` `` inside one block; unmatched marks stay as they are. */
+    fun spans(text: String): List<MdSpan> {
+        val spans = mutableListOf<MdSpan>()
+        val plain = StringBuilder()
+        var bold = false
+        var index = 0
+
+        fun flush() {
+            if (plain.isNotEmpty()) spans += MdSpan(plain.toString(), bold = bold)
+            plain.setLength(0)
         }
-        if (at < text.length) spans += Span(text.substring(at))
+
+        while (index < text.length) {
+            val char = text[index]
+            if (char == '`') {
+                val end = text.indexOf('`', index + 1)
+                if (end > index + 1) {
+                    flush()
+                    spans += MdSpan(text.substring(index + 1, end), bold = bold, code = true)
+                    index = end + 1
+                    continue
+                }
+            } else if (char == '*' && text.startsWith("**", index)) {
+                // Opens only when it also closes; closes whenever it is open.
+                if (bold || text.indexOf("**", index + 2) > index + 2) {
+                    flush()
+                    bold = !bold
+                    index += 2
+                    continue
+                }
+            }
+            plain.append(char)
+            index++
+        }
+        flush()
         return spans
     }
 }

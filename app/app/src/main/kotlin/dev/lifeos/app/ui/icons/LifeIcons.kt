@@ -134,6 +134,17 @@ object LifeIcons {
     )
     val Folder = icon("Folder", line = FOLDER)
 
+    // ---- chat and sessions
+
+    /** "New chat": a sheet with a pen. */
+    val Compose = icon(
+        "Compose",
+        line = "M12 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5V12" +
+            "M17.6 3.6l2.8 2.8-8 8-3.4.6.6-3.4z",
+    )
+    val Pin = icon("Pin", line = "M9 3.5h6l-1 6 3 3.5H7l3-3.5zM12 13v7.5")
+    val Search = icon("Search", line = "M4.5 10.5a6 6 0 1 0 12 0a6 6 0 1 0-12 0zM15 15l5 5")
+
     val Activity = icon("Activity", line = "M5 19.5v-6M12 19.5v-14M19 19.5v-9")
     val Settings = icon(
         "Settings",

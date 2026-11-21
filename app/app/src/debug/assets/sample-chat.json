@@ -1,0 +1,38 @@
+{
+  "_comment": "Invented chat answers for the debug test aid lifeos.test.sample_data (Chat and Sessions). ago_minutes becomes last_activity, a moment that many minutes before now. 'answer' is what a sent message is answered with, piece by piece.",
+  "GET /folders": {
+    "folders": [
+      {"path": "/home/owner/brain", "label": "brain", "kind": "memory", "default": true},
+      {"path": "/home/owner/project-alpha", "label": "project-alpha", "kind": "allowed", "default": false},
+      {"path": "/home/owner/course-notes", "label": "course-notes", "kind": "allowed", "default": false}
+    ]
+  },
+  "GET /sessions": {
+    "sessions": [
+      {"id": "sample-session-1", "title": "Weekly planning", "folder": "/home/owner/brain", "ago_minutes": 12, "in_use": true, "auto_group": "brain", "pinned": true},
+      {"id": "sample-session-2", "title": "What is still open for Project Alpha this week?", "folder": "/home/owner/project-alpha", "ago_minutes": 120, "in_use": false, "auto_group": "project-alpha", "pinned": false},
+      {"id": "sample-session-3", "title": "Milestone summary draft", "folder": "/home/owner/project-alpha", "ago_minutes": 1500, "in_use": false, "auto_group": "project-alpha", "pinned": false},
+      {"id": "sample-session-4", "title": "Summarise the lecture notes of week 3", "folder": "/home/owner/course-notes", "ago_minutes": 4400, "in_use": false, "auto_group": "course-notes", "pinned": false},
+      {"id": "sample-session-5", "title": "Which tasks are overdue?", "folder": "/home/owner/brain", "ago_minutes": 9000, "in_use": false, "auto_group": "brain", "pinned": false}
+    ],
+    "total": 5,
+    "groups": []
+  },
+  "GET /sessions/ID/history": {
+    "exchanges": [
+      {
+        "id": "x1",
+        "at": "2026-01-01T08:00:00.000Z",
+        "user": "What is still open for Project Alpha this week?",
+        "assistant": "Three things are still open:\n\n- Draft the outline — due today\n- Review the check-in notes\n- Write the milestone summary by Tuesday\n\nThe notes are in the project folder:\n\n```\n$ ls notes/alpha\noutline.md   check-in.md\n```",
+        "tools": [{"name": "Read", "count": 3}],
+        "complete": true,
+        "truncated": false
+      }
+    ],
+    "older": null,
+    "total_exchanges_known": null
+  },
+  "GET /sessions/ID/queue": {"running": false, "paused": null, "queue": [], "last": null},
+  "answer": "Here is what I found:\n\n1. **Draft the outline** is due today.\n2. The check-in notes still need a review.\n\nBoth are in `notes/alpha`:\n\n```\n$ ls notes/alpha\noutline.md   check-in.md\n```\n\nShall I add the summary as a task for Monday?"
+}

@@ -145,7 +145,9 @@ class RelayClient(
     /**
      * A request whose answer arrives in pieces: text of a streamed answer, or a file. The flow
      * ends after [AnswerEvent.Done]; it fails with [RelayException] when nothing arrives for
-     * [idleTimeoutMillis]. A started stream is never retried here.
+     * [idleTimeoutMillis]. A started stream is never retried here. [firstTimeoutMillis] is how
+     * long the first message may take: the computer answers a request within seconds even when
+     * the rest of the answer (a model run) then stays quiet for minutes.
      */
     fun stream(
         method: String,
@@ -153,7 +155,8 @@ class RelayClient(
         query: Map<String, String> = emptyMap(),
         body: JsonElement? = null,
         idleTimeoutMillis: Long = DEFAULT_IDLE_MILLIS,
-    ): Flow<AnswerEvent> = exchange(method, path, query, body, idleTimeoutMillis)
+        firstTimeoutMillis: Long = idleTimeoutMillis,
+    ): Flow<AnswerEvent> = exchange(method, path, query, body, idleTimeoutMillis, firstTimeoutMillis)
 
     private fun exchange(
         method: String,
@@ -161,6 +164,7 @@ class RelayClient(
         query: Map<String, String>,
         body: JsonElement?,
         idleTimeoutMillis: Long,
+        firstTimeoutMillis: Long = idleTimeoutMillis,
     ): Flow<AnswerEvent> = flow {
         val requestId = random(8).joinToString("") { "%02x".format(it) }
         val inbox = Queue<Message>(UNLIMITED)
@@ -191,9 +195,11 @@ class RelayClient(
                 }
             }
             val assembler = AnswerAssembler()
+            var limit = firstTimeoutMillis
             while (true) {
-                val message = withTimeoutOrNull(idleTimeoutMillis) { inbox.receive() }
+                val message = withTimeoutOrNull(limit) { inbox.receive() }
                     ?: throw RelayException(RelayException.Reason.TIMEOUT)
+                limit = idleTimeoutMillis
                 for (event in assembler.feed(message)) {
                     emit(event)
                     if (event is AnswerEvent.Done) return@flow
