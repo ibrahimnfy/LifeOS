@@ -95,13 +95,13 @@ class ChatStartTest {
         answers(event("session", """{"session_id":"${id(1)}"}"""), event("done", """{"answer":"Hello.","session_id":"${id(1)}"}"""), done())
         chat.send("Hi")
         // Found again whatever happens to the answer, although it names no folder.
-        assertEquals(ChatPointer(id(1)), store.pointer)
+        assertEquals(ChatPointer(id(1), kind = FolderKinds.CHAT), store.pointer)
         advanceUntilIdle()
         val first = posts().single()
         assertEquals("/ask", first.path)
         assertFalse("folder" in (first.body as JsonObject))
         assertEquals(id(1), chat.state.value.sessionId)
-        assertEquals(ChatPointer(id(1)), store.pointer)
+        assertEquals(ChatPointer(id(1), kind = FolderKinds.CHAT), store.pointer)
         // After a restart the same conversation is continued, in the folder the computer gave it.
         val again = chat()
         again.restore()
@@ -396,7 +396,7 @@ class ChatStartTest {
         transport.answer(
             "GET /sessions",
             200,
-            """{"sessions":[{"id":"s-1","in_use":true,"running_here":true,"open_elsewhere":false},{"id":"s-2","in_use":false,"running_here":false,"open_elsewhere":true},{"id":"s-3","in_use":false,"running_here":false,"open_elsewhere":null}],"total":3,"groups":[]}""",
+            """{"sessions":[{"id":"s-1","in_use":true,"running_here":true,"open_elsewhere":false},{"id":"s-2","in_use":false,"running_here":false,"open_elsewhere":true},{"id":"s-3","in_use":false,"running_here":false,"open_elsewhere":null}],"total":3,"folders":[]}""",
         )
         val sessions = api.get(ChatEndpoints.sessions).first.sessions
         assertEquals(listOf(true, false, false), sessions.map { it.inUse })

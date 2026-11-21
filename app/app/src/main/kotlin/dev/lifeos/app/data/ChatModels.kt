@@ -10,10 +10,36 @@ import java.time.Instant
 
 // ---------------------------------------------------------------- chat and sessions (docs/bridge.md)
 
-/** A folder a new conversation may run in: the memory folder ([kind] "memory") or an allowed folder. */
+/** The kinds of folder a conversation belongs to (`kind` in `GET /folders` and `GET /sessions`, #163). */
+object FolderKinds {
+    /** Every blank chat: one entry for all of them. */
+    const val CHAT = "chat"
+
+    /** The coach conversation and its earlier sessions (only in the session list). */
+    const val COACH = "coach"
+    const val MEMORY = "memory"
+    const val PROJECT = "project"
+    const val COURSE = "course"
+}
+
+/**
+ * A folder a new conversation may run in (`GET /folders`): the blank chats ([FolderKinds.CHAT],
+ * the default; [usable] false with [reason] when the computer refuses them), the memory folder
+ * and the allowed folders. [colour] is the bridge's stable colour number.
+ */
 @Serializable
-data class Folder(val path: String, val label: String = "", val kind: String = "allowed", val default: Boolean = false) {
-    val isMemory: Boolean get() = kind == "memory"
+data class Folder(
+    val path: String,
+    val label: String = "",
+    val kind: String = FolderKinds.PROJECT,
+    val default: Boolean = false,
+    /** The bridge's colour number; a folder made on the phone ("Ask about this project") has none yet. */
+    val colour: Int = ChatFolder.NO_COLOUR,
+    val usable: Boolean = true,
+    val reason: String? = null,
+) {
+    val isMemory: Boolean get() = kind == FolderKinds.MEMORY
+    val isChat: Boolean get() = kind == FolderKinds.CHAT
 }
 
 @Serializable
@@ -31,19 +57,23 @@ private const val NO_TITLE = "(untitled)"
 data class SessionSummary(
     val id: String,
     val title: String = "",
+    /** The exact working directory (a blank chat's own folder under the chat root). */
     val folder: String = "",
     @SerialName("last_activity") val lastActivity: String? = null,
     @SerialName("in_use") val inUse: Boolean = false,
-    @SerialName("auto_group") val autoGroup: String = "",
+    // ---- the folder it belongs to (#163): the root that contains it; all blank chats are one
+    @SerialName("folder_key") val folderKey: String = "",
+    @SerialName("folder_label") val folderLabel: String = "",
+    /** [FolderKinds]: chat, coach, memory, project or course. */
+    val kind: String = "",
+    /** The folder's stable colour number (an index into the app's palette). */
+    val colour: Int = 0,
     val pinned: Boolean = false,
     /** The session's own model and effort; null: the default for chat sessions. */
     val model: String? = null,
     val effort: String? = null,
     /** The owner switched the folder's skills and commands on for this session. */
     val skills: Boolean = false,
-    // ---- the owner's own organisation of sessions (#74), kept on the computer
-    /** The id of the owner's group this session is in; null: it is shown under its folder. */
-    val group: String? = null,
     /** What the computer found as the title, whatever the owner named the session. */
     @SerialName("detected_title") val detectedTitle: String = "",
     /**
@@ -60,23 +90,40 @@ data class SessionSummary(
     val queue: List<QueuedData> = emptyList(),
     @SerialName("queue_paused") val queuePaused: String? = null,
 ) {
-    /** The folder's name as the rows show it. */
-    val folderLabel: String get() = autoGroup.ifEmpty { folder.trimEnd('/').substringAfterLast('/') }
+    /** The folder's name as the rows show it: the bridge's label, else the last part of the path. */
+    val folderName: String get() = folderLabel.ifEmpty { folder.trimEnd('/').substringAfterLast('/') }
+
+    /** A blank chat (#163): it has no folder of its own to name. */
+    val isChat: Boolean get() = kind == FolderKinds.CHAT
+
+    /** The tile it is listed under: the bridge's key, else its folder. */
+    val tileKey: String get() = folderKey.ifEmpty { folder }
 
     /** The title, or empty when the computer found none (it then says "(untitled)"). */
     val shownTitle: String get() = title.trim().takeIf { it != NO_TITLE }.orEmpty()
 }
 
-/** A group the owner made for sessions (#74). */
+/**
+ * One folder of the session list (#163), for the Sessions screen's tiles. [count] and
+ * [lastActivity] are counted over all of its sessions, not only the listed ones.
+ */
 @Serializable
-data class SessionGroup(val id: String = "", val name: String = "")
+data class SessionFolder(
+    val key: String = "",
+    val name: String = "",
+    val kind: String = "",
+    val path: String = "",
+    val colour: Int = 0,
+    val count: Int = 0,
+    @SerialName("last_activity") val lastActivity: String? = null,
+)
 
 @Serializable
 data class SessionList(
     val sessions: List<SessionSummary> = emptyList(),
     val total: Int = 0,
-    /** The owner's groups, in the order they were made. */
-    val groups: List<SessionGroup> = emptyList(),
+    /** One entry per folder, in the bridge's order: chats, coach, memory, then the allowed folders. */
+    val folders: List<SessionFolder> = emptyList(),
 )
 
 /** One message of the owner and what the assistant answered to it. */
@@ -185,23 +232,22 @@ object ChatEndpoints {
     /** Where a new conversation may run. */
     val folders = Endpoint("folders", "/folders", serializer = FolderList.serializer())
 
-    /** The sessions in the allowed folders, pinned first, then newest first. */
-    val sessions = Endpoint("sessions", "/sessions", mapOf("limit" to "100"), SessionList.serializer())
+    /**
+     * The sessions in the allowed folders and the blank chats, pinned first, then newest first;
+     * as many as the bridge lists at most (200), so a folder's list is as complete as it can be.
+     */
+    val sessions = Endpoint("sessions", "/sessions", mapOf("limit" to "200"), SessionList.serializer())
 
     /** Every reminder of every session (#75), those that have fired too. */
     val reminders = Endpoint("reminders", "/reminders", serializer = ReminderList.serializer())
 }
 
-/** One of the owner's groups with its sessions (#74). */
-data class OwnGroup(val group: SessionGroup, val sessions: List<SessionSummary>)
-
 /**
- * What the owner changes about a session or a group (#74): the bodies of `PATCH /sessions/{id}`
- * and of the `/session-groups` requests, and what a refusal means. Titles and names are one line.
+ * What the owner changes about a session (#74): the bodies of `PATCH /sessions/{id}`, and what
+ * a refusal means. Titles are one line. Custom groups are gone (#168): pinning stays.
  */
 object SessionEdits {
     const val MAX_TITLE = 120
-    const val MAX_NAME = 60
 
     enum class Problem {
         /** The computer could not be reached: nothing was changed. */
@@ -210,13 +256,10 @@ object SessionEdits {
         /** The request left the phone but no answer came: it may or may not have been done. */
         UNCERTAIN,
 
-        /** A group of this name exists already. */
-        GROUP_EXISTS,
-
-        /** The session or the group is no longer there. */
+        /** The session or the reminder is no longer there. */
         GONE,
 
-        /** The computer did not accept it (it keeps a limited number of groups and of reminders). */
+        /** The computer did not accept it (it keeps a limited number of reminders). */
         REFUSED,
         FAILED,
     }
@@ -231,24 +274,15 @@ object SessionEdits {
 
     fun pinned(pinned: Boolean): JsonObject = buildJsonObject { put("pinned", JsonPrimitive(pinned)) }
 
-    /** Into the group [groupId]; null takes the session out of its group (it is shown under its folder). */
-    fun group(groupId: String?): JsonObject = buildJsonObject { put("group", groupId?.let(::JsonPrimitive) ?: JsonNull) }
-
-    fun name(name: String): JsonObject = buildJsonObject { put("name", JsonPrimitive(line(name, MAX_NAME))) }
-
     fun problemOf(error: ApiException): Problem = when {
         error.kind == ApiException.Kind.UNCERTAIN -> Problem.UNCERTAIN
         error.kind != ApiException.Kind.HTTP -> Problem.NOT_REACHED
-        error.code == "group_exists" -> Problem.GROUP_EXISTS
-        error.code == "session_not_found" || error.code == "group_not_found" || error.code == "reminder_not_found" -> Problem.GONE
-        // What the app sends is well-formed: what is left are the computer's limits (50 groups, 200 reminders).
+        error.code == "session_not_found" || error.code == "reminder_not_found" -> Problem.GONE
+        // What the app sends is well-formed: what is left are the computer's limits (200 reminders).
         error.code == "bad_request" -> Problem.REFUSED
         else -> Problem.FAILED
     }
 }
-
-/** The sessions of one folder. */
-data class FolderGroup(val folder: String, val label: String, val sessions: List<SessionSummary>)
 
 object SessionLists {
     private fun moment(session: SessionSummary): Long = try {
@@ -264,25 +298,23 @@ object SessionLists {
     fun pinned(sessions: List<SessionSummary>): List<SessionSummary> = newestFirst(sessions.filter { it.pinned })
 
     /**
-     * Every session that is neither pinned nor in one of the owner's [groups], grouped by its
-     * folder: the folder with the most recent session first, and inside a folder the newest
-     * session first. Two folders of the same name in different places stay two groups.
+     * The Sessions screen's tiles (#168): the bridge's folders in its order (chats, coach,
+     * memory, then the allowed folders). Should a bridge send no folders, the tiles are made
+     * from the listed sessions, the folder with the newest session first.
      */
-    fun byFolder(sessions: List<SessionSummary>, groups: List<SessionGroup> = emptyList()): List<FolderGroup> {
-        val known = groups.map { it.id }.toSet()
-        return newestFirst(sessions.filter { !it.pinned && it.group !in known })
-            .groupBy { it.folder }
-            .map { (folder, items) -> FolderGroup(folder, items.first().folderLabel, items) }
+    fun tiles(list: SessionList): List<SessionFolder> {
+        val listed = list.folders.filter { it.key.isNotEmpty() }
+        if (listed.isNotEmpty() || list.sessions.isEmpty()) return listed
+        return newestFirst(list.sessions).groupBy { it.tileKey }.map { (key, items) ->
+            val first = items.first()
+            SessionFolder(key, first.folderName, first.kind, first.folder, first.colour, items.size, first.lastActivity)
+        }
     }
 
-    /**
-     * The owner's [groups] in their own order, each with its sessions that are not pinned,
-     * newest first. A group without sessions is listed too (it can be renamed, deleted and
-     * filled); a session whose group is not among [groups] is not here but under its folder.
-     */
-    fun inGroups(sessions: List<SessionSummary>, groups: List<SessionGroup>): List<OwnGroup> {
-        val members = newestFirst(sessions.filter { !it.pinned && it.group != null }).groupBy { it.group }
-        return groups.filter { it.id.isNotEmpty() }.map { OwnGroup(it, members[it.id].orEmpty()) }
+    /** The sessions of the tile [key]: the pinned ones first, each part newest first. */
+    fun inFolder(sessions: List<SessionSummary>, key: String): List<SessionSummary> {
+        val (pinned, others) = sessions.filter { it.tileKey == key }.partition { it.pinned }
+        return newestFirst(pinned) + newestFirst(others)
     }
 
     /** Sessions whose title or folder name contains every word of [query]. */
@@ -290,7 +322,7 @@ object SessionLists {
         val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
         if (words.isEmpty()) return sessions
         return sessions.filter { session ->
-            val text = (session.shownTitle + " " + session.folderLabel).lowercase()
+            val text = (session.shownTitle + " " + session.folderName).lowercase()
             words.all { it in text }
         }
     }

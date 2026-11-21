@@ -198,7 +198,7 @@ class CommandsTest {
         transport.events = { flow { emit(AnswerEvent.Stream("session", json("""{"session_id":"s-1"}"""))); emit(AnswerEvent.Stream("done", json("""{"answer":"ok"}"""))) } }
         chat.send("Hi")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"model":"sonnet","effort":"low","new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"folder":"/home/owner/brain","interactive":true,"model":"sonnet","effort":"low","new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
         // From then on the computer remembers it: later messages do not repeat it.
         chat.send("Again")
         advanceUntilIdle()
@@ -211,7 +211,7 @@ class CommandsTest {
         val chat = chat()
         transport.answer("GET /sessions/s-1/queue", 200, """{"running":false,"queue":[]}""")
         transport.answer("GET /sessions/s-1/history", 200, """{"exchanges":[],"older":null}""")
-        chat.open(SessionSummary("s-1", "Plan", "/home/owner/brain", autoGroup = "brain", model = "opus"))
+        chat.open(SessionSummary("s-1", "Plan", "/home/owner/brain", folderLabel = "brain", model = "opus"))
         advanceUntilIdle()
         assertEquals(ModelChoice("opus", null), chat.state.value.choice)
 

@@ -92,6 +92,7 @@ internal fun InteractionCard(
             Interaction.Kind.QUESTION -> Question(interaction, open, onAnswer, onSkip)
             Interaction.Kind.SKILL_INSTALL -> SkillInstallCard(interaction, open, onApprove)
             Interaction.Kind.MCP_SERVER -> McpApprovalCard(interaction, open, onApprove)
+            Interaction.Kind.MOVE_FILES -> MoveFilesCard(interaction, open, onApprove)
         }
         if (open) {
             val left = interaction.remainingMillis(now) / 1000
@@ -104,6 +105,7 @@ internal fun InteractionCard(
                         Interaction.Kind.QUESTION -> R.string.question_time_left
                         Interaction.Kind.SKILL_INSTALL -> R.string.install_time_left
                         Interaction.Kind.MCP_SERVER -> R.string.mcp_time_left
+                        Interaction.Kind.MOVE_FILES -> R.string.move_time_left
                         Interaction.Kind.APPROVAL -> R.string.interaction_time_left
                     },
                     time,
@@ -123,6 +125,7 @@ internal fun InteractionCard(
 private fun Interaction.Status.resultRes(kind: Interaction.Kind, personal: Boolean = false): Int? {
     val install = kind == Interaction.Kind.SKILL_INSTALL
     if (kind == Interaction.Kind.MCP_SERVER) return mcpResultRes(personal)
+    if (kind == Interaction.Kind.MOVE_FILES) return moveResultRes()
     return when (this) {
         Interaction.Status.WAITING -> null
         Interaction.Status.SENDING -> R.string.interaction_sending
@@ -133,7 +136,7 @@ private fun Interaction.Status.resultRes(kind: Interaction.Kind, personal: Boole
         Interaction.Status.EXPIRED -> when (kind) {
             Interaction.Kind.QUESTION -> R.string.question_expired
             Interaction.Kind.SKILL_INSTALL -> R.string.install_expired
-            Interaction.Kind.APPROVAL, Interaction.Kind.MCP_SERVER -> R.string.interaction_expired
+            Interaction.Kind.APPROVAL, Interaction.Kind.MCP_SERVER, Interaction.Kind.MOVE_FILES -> R.string.interaction_expired
         }
         Interaction.Status.GONE -> R.string.interaction_gone
         Interaction.Status.NOT_DONE -> R.string.install_not_done
@@ -144,8 +147,15 @@ private fun Interaction.Status.resultRes(kind: Interaction.Kind, personal: Boole
 internal fun Interaction.Refusal.textRes(kind: Interaction.Kind): Int = when (this) {
     Interaction.Refusal.STILL_DOWNLOADING -> R.string.install_refusal_downloading
     Interaction.Refusal.EXISTS -> R.string.install_refusal_exists
-    Interaction.Refusal.UNRECORDED -> if (kind == Interaction.Kind.MCP_SERVER) R.string.mcp_refusal_unrecorded else R.string.install_refusal_unrecorded
+    Interaction.Refusal.UNRECORDED -> when (kind) {
+        Interaction.Kind.MCP_SERVER -> R.string.mcp_refusal_unrecorded
+        Interaction.Kind.MOVE_FILES -> R.string.move_refusal_unrecorded
+        else -> R.string.install_refusal_unrecorded
+    }
     Interaction.Refusal.WRITE_FAILED -> R.string.install_refusal_write
+    Interaction.Refusal.FILE_EXISTS -> R.string.move_refusal_exists
+    Interaction.Refusal.FILES_CHANGED -> R.string.move_refusal_changed
+    Interaction.Refusal.CANNOT_MOVE -> R.string.move_refusal_other
 }
 
 @Composable

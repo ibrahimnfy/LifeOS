@@ -143,6 +143,14 @@ class Looks private constructor(private val byCourse: Map<Long, Look>, private v
             return Looks(looks, courses)
         }
 
+        /**
+         * A conversation folder's look (#168) from the bridge's stable [colour] number: the
+         * palette's tone and an ornament at that place. The folder icon stands in for the
+         * glyph; the screens show the icon of the folder's kind.
+         */
+        fun folder(colour: Int): Look =
+            Look(TONES[Math.floorMod(colour, TONES.size)], Glyph.FOLDER, PATTERNS[Math.floorMod(colour, PATTERNS.size)])
+
         private fun wanted(id: Long): Look {
             val glyph = Math.floorMod(id, COURSE_GLYPHS.size.toLong()).toInt()
             return Look(TONES[Math.floorMod(id, TONES.size.toLong()).toInt()], COURSE_GLYPHS[glyph], PATTERNS[glyph])

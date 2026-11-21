@@ -67,7 +67,7 @@ class InteractionsTest {
         transport.events = { flow { emit(event("session", """{"session_id":"s-1"}""")); emit(event("done", """{"answer":"ok"}""")) } }
         chat.send("Hi")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"folder":"/home/owner/brain","interactive":true,"new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
 
         chat.setCapable(true)
         chat.send("Tidy up")

@@ -90,17 +90,17 @@ class ChatTest {
         assertEquals("s-1", state.sessionId)
         assertNull(state.failure)
         // The conversation is found again after the app was closed: its id and folder, no text.
-        assertEquals(ChatPointer("s-1", "/home/owner/project-alpha", "project-alpha", memory = false), store.pointer)
+        assertEquals(ChatPointer("s-1", "/home/owner/project-alpha", "project-alpha", memory = false, kind = FolderKinds.PROJECT), store.pointer)
     }
 
     @Test
-    fun `the memory folder is the default and is not named in the request`() = runTest {
+    fun `a conversation in the memory folder names it, as no folder means a blank chat since #163`() = runTest {
         val chat = chat()
         chat.newChat(memory)
         answerWith("s-1", "Hello there")
         chat.send("Hi")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.single().body)
+        assertEquals(json("""{"prompt":"Hi","stream":true,"interactive":true,"folder":"/home/owner/brain","new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.single().body)
     }
 
     @Test
@@ -568,7 +568,7 @@ class ChatTest {
     fun `opening a session from the list shows its last messages and continues it`() = runTest {
         val chat = chat()
         chat.newChat(memory)
-        val session = SessionSummary("s-1", "Milestone summary", "/home/owner/project-alpha", "2027-01-15T08:00:00Z", autoGroup = "project-alpha")
+        val session = SessionSummary("s-1", "Milestone summary", "/home/owner/project-alpha", "2027-01-15T08:00:00Z", folderLabel = "project-alpha")
         history("Earlier" to "Answer")
         running(false)
         chat.open(session)
@@ -576,6 +576,7 @@ class ChatTest {
         advanceUntilIdle()
         assertEquals(listOf("me:Earlier", "it:Answer"), texts(chat))
         assertEquals("project-alpha", chat.state.value.folder?.label)
+        // A session of an older bridge names no kind: its colour is not known.
         assertEquals(ChatPointer("s-1", "/home/owner/project-alpha", "project-alpha"), store.pointer)
         // Opening the same one again asks nothing.
         val calls = transport.calls.size
@@ -592,7 +593,7 @@ class ChatTest {
         val chat = chat()
         history("Earlier" to "Answer", "Running now" to "", complete = false)
         running(true)
-        chat.open(SessionSummary("s-1", "Busy", "/home/owner/brain", autoGroup = "brain"))
+        chat.open(SessionSummary("s-1", "Busy", "/home/owner/brain", folderLabel = "brain"))
         advanceUntilIdle()
         assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
         assertFalse(chat.state.value.canSend)
@@ -631,36 +632,36 @@ class ChatTest {
     // ------------------------------------------------------------------ lists and small rules
 
     @Test
-    fun `sessions are grouped by folder with the newest first`() {
+    fun `sessions are sorted newest first, pinned ones picked, and searched by title and folder`() {
         val sessions = listOf(
-            SessionSummary("a", "Old alpha", "/w/alpha", "2027-01-10T08:00:00Z", autoGroup = "alpha"),
-            SessionSummary("b", "Pinned", "/w/beta", "2027-01-11T08:00:00Z", autoGroup = "beta", pinned = true),
-            SessionSummary("c", "Beta", "/w/beta", "2027-01-12T08:00:00Z", autoGroup = "beta"),
-            SessionSummary("d", "New alpha", "/w/alpha", "2027-01-14T08:00:00Z", autoGroup = "alpha"),
-            SessionSummary("e", "Other alpha", "/x/alpha", null, autoGroup = "alpha"),
+            SessionSummary("a", "Old alpha", "/w/alpha", "2027-01-10T08:00:00Z", folderLabel = "alpha"),
+            SessionSummary("b", "Pinned", "/w/beta", "2027-01-11T08:00:00Z", folderLabel = "beta", pinned = true),
+            SessionSummary("c", "Beta", "/w/beta", "2027-01-12T08:00:00Z", folderLabel = "beta"),
+            SessionSummary("d", "New alpha", "/w/alpha", "2027-01-14T08:00:00Z", folderLabel = "alpha"),
+            SessionSummary("e", "Other alpha", "/x/alpha", null, folderLabel = "alpha"),
         )
-        val groups = SessionLists.byFolder(sessions)
-        assertEquals(listOf("/w/alpha", "/w/beta", "/x/alpha"), groups.map { it.folder })
-        assertEquals(listOf("alpha", "beta", "alpha"), groups.map { it.label })
-        assertEquals(listOf("d", "a"), groups[0].sessions.map { it.id })
         assertEquals(listOf("b"), SessionLists.pinned(sessions).map { it.id })
         assertEquals(listOf("d", "c", "b"), SessionLists.newestFirst(sessions).take(3).map { it.id })
         assertEquals(listOf("a", "d"), SessionLists.matching(sessions, " ALPHA ").filter { it.folder == "/w/alpha" }.map { it.id })
         assertEquals(listOf("d"), SessionLists.matching(sessions, "new").map { it.id })
         assertEquals(sessions, SessionLists.matching(sessions, "  "))
-        assertEquals("gamma", SessionSummary("f", folder = "/w/gamma/").folderLabel)
+        assertEquals("gamma", SessionSummary("f", folder = "/w/gamma/").folderName)
     }
 
     @Test
     fun `sessions, folders and history are read`() = runTest {
-        transport.answer("GET /sessions", 200, """{"sessions":[{"id":"s-1","title":"Plan","folder":"/home/owner/brain","last_activity":"2027-01-15T08:00:00Z","in_use":true,"detected_title":"x","group":null,"auto_group":"brain","pinned":true,"notify_replies":true,"model":null,"effort":null}],"total":1,"groups":[]}""")
-        transport.answer("GET /folders", 200, """{"folders":[{"path":"/home/owner/brain","label":"brain","kind":"memory","default":true},{"path":"/home/owner/project-alpha","label":"project-alpha","kind":"allowed","default":false}]}""")
+        transport.answer("GET /sessions", 200, """{"sessions":[{"id":"s-1","title":"Plan","folder":"/home/owner/brain","last_activity":"2027-01-15T08:00:00Z","in_use":true,"detected_title":"x","folder_key":"/home/owner/brain","folder_label":"brain","kind":"memory","colour":1,"pinned":true,"notify_replies":true,"model":null,"effort":null}],"total":1,"folders":[]}""")
+        transport.answer("GET /folders", 200, """{"folders":[{"path":"/home/owner/LifeOS-Chats","label":"Chats","kind":"chat","default":true,"colour":0,"usable":true,"reason":null},{"path":"/home/owner/brain","label":"brain","kind":"memory","default":false,"colour":1},{"path":"/home/owner/project-alpha","label":"project-alpha","kind":"project","default":false,"colour":2}]}""")
         val session = api.get(ChatEndpoints.sessions).first.sessions.single()
         assertTrue(session.inUse && session.pinned)
-        assertEquals("brain", session.folderLabel)
-        assertEquals(mapOf("limit" to "100"), transport.calls.last().query)
+        assertEquals("brain", session.folderName)
+        assertEquals(FolderKinds.MEMORY, session.kind)
+        assertEquals(1, session.colour)
+        assertEquals(mapOf("limit" to "200"), transport.calls.last().query)
         val folders = api.get(ChatEndpoints.folders).first.folders
-        assertEquals(listOf(true, false), folders.map { it.isMemory })
+        assertEquals(listOf(false, true, false), folders.map { it.isMemory })
+        assertEquals(listOf(true, false, false), folders.map { it.isChat })
+        assertEquals(listOf(0, 1, 2), folders.map { it.colour })
         history("Q" to "A", older = "p12")
         val page = api.history("s-1")
         assertEquals("p12", page.older)

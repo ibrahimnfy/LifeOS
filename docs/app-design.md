@@ -135,6 +135,26 @@ every section in its own clearly visible card.*
   the computer gives the chat its own new, empty folder (#163). The owner
   moves to other work by asking; an existing conversation continues in its
   own folder, and "Ask about this project" starts in the project's folder.
+  If blank chats are switched off on the computer (its chat folder cannot be
+  used), the failure says so with the computer's reason.
+- **Moving by asking (#164, #168):** an answer may carry a `switch`. With
+  one clear match the app opens that conversation at once; with several it
+  shows a short card in the conversation (title, folder, last activity) and
+  a tap opens one; a new conversation in a named folder opens empty there,
+  with the folder in the header, and its first message names that folder.
+  Only the answer to a message sent and received on this phone switches by
+  itself: an answer that was followed after a lock or a lost connection
+  shows its switch as a card, a replayed one and the history never switch;
+  a switch not acted on within a minute (the owner had left) becomes the
+  card too.
+  The marker lines behind it never show, not even while the answer is
+  written.
+- **Moving a blank chat's files (#163):** the assistant can propose to move
+  the chat's files into a project; an approval card like the skill and MCP
+  cards lists the files with their sizes and the target, with **Allow** /
+  **Don't allow**. Afterwards it says what was moved and which files stayed;
+  a refusal of the computer (a name taken in the target, files changed, no
+  audit log) keeps the card waiting with the reason.
 - **History:** opening a conversation loads only the last few exchanges
   (default 4); older ones load when the owner scrolls up. The computer keeps
   the full transcript; the phone does not store whole sessions.
@@ -195,20 +215,31 @@ every section in its own clearly visible card.*
 
 - **Purpose:** continue work, including sessions that were started in a
   terminal on the computer.
-- **Content:** search field on top, then:
+- **Content (#168):** search field on top, then:
   1. **Pinned** sessions;
-  2. the owner's own **groups**, each with its sessions;
-  3. **By folder:** every session without a group, grouped automatically by
-     its folder.
+  2. **By folder:** one coloured tile per folder, in the style of the
+     Courses tiles (P3: the first tile wide, the others two by two, each in
+     its colour with its icon and geometric ornament). All blank chats are
+     one tile, **Chats**; the coach conversation has its own tile once it
+     exists; then the memory folder and every allowed folder. A tile shows
+     the folder's name, how many conversations it has and when the last one
+     was. The colour is the bridge's stable colour number for that folder
+     (`colour`), mapped to the app's palette, so a folder keeps its colour.
 
-  A row shows title, folder name, last activity, an "in use" mark when the
-  session is open on the computer (it cannot be resumed then), and a bell
-  when it has a reminder.
+  Tapping a tile lists that folder's conversations, pinned ones first (back
+  returns to the tiles); the coach's tile opens the coach conversation. A
+  search lists every match across the folders. A row shows title, folder
+  (a blank chat says "Chat" and shows the chat icon; any other shows its
+  folder's first letter in the folder's colour), last activity, an "in use"
+  mark when the session is open on the computer (it cannot be resumed
+  then), and a bell when it has a reminder. Custom session groups were
+  removed by the owner's decision; pinning stays.
 - **Actions:**
-  - tap → opens in the Chat layout with the folder in the header; sending a
-    message resumes that session in its original folder;
-  - long-press or row menu → **rename**, **pin / unpin**, **move to group**
-    (or a new group), **remind me**, **reply notifications on / off**,
+  - tap → opens in the Chat layout with the folder in the header (a blank
+    chat: "Chat"; any other: its folder label and a dot in its colour);
+    sending a message resumes that session in its original folder;
+  - long-press or row menu → **rename**, **pin / unpin**, **remind me**,
+    **reply notifications on / off**,
     **use this folder's skills and commands** (per session, off by default)
     and **MCP servers** (the folder's and the owner's personal ones, each
     with its scope; list, approve one by one, revoke; an approved server
@@ -216,19 +247,23 @@ every section in its own clearly visible card.*
     server's approval covers every folder; a personal server the computer
     cannot show in full is "cannot be approved", without a button). The coach
     conversation's session has neither of the last two;
-  - groups: create, rename, delete (the sessions stay).
+  - **New chat** in the top bar opens a blank chat.
 - **Reminders:** "remind me about this session at <time>", with an optional
   note, once or repeating (daily, weekly). The notification opens the
   session.
 - **Reply notifications:** when a run in a session finishes, a push arrives;
   on by default, switchable per session.
-- **Rules:** only sessions in allowed folders are listed. Groups, titles and
-  pins are kept by the bridge; Claude Code's own session files are never
-  changed.
+- **Rules:** only sessions in allowed folders and the bridge's own blank
+  chats are listed. Titles and pins are kept by the bridge; Claude Code's
+  own session files are never changed. The list holds at most 200 sessions
+  (the bridge's limit); a folder with more says how many of how many are
+  listed.
 - **States:** loading · empty · in use · error with retry.
-- **Endpoints:** `GET /sessions`, `PATCH /sessions/{id}`, `/session-groups`,
-  `/reminders`, `POST /sessions/{id}/messages`; history, queue, cancel,
-  commands and models as in [`chat-design.md`](chat-design.md).
+- **Endpoints:** `GET /sessions` (sessions with `folder_key`,
+  `folder_label`, `kind`, `colour`; `folders` for the tiles),
+  `PATCH /sessions/{id}`, `/reminders`, `POST /sessions/{id}/messages`;
+  history, queue, cancel, commands and models as in
+  [`chat-design.md`](chat-design.md).
 
 ### 3.4 Capture
 
@@ -610,10 +645,11 @@ layout, subtle motion (short fades and slides, nothing bouncy).
 | Screen list | Notes and Projects added under More |
 | Today: advice card, top three, today's tasks; no events | set by the owner |
 | Tasks: prioritised, the rest behind "show all" | set by the owner |
-| Sessions: groups, rename, pin, reminders, reply notifications | set by the owner |
+| Sessions: rename, pin, reminders, reply notifications | set by the owner |
 | Coach: questions in chat, nudges with limits | set by the owner; design in `coach-design.md` |
 | Today in cards, "Assistant's picks", scrolling Today card; Courses with summary, all grades and four tabs; coach conversation pinned in Chat | set by the owner (2026-11-20) |
 | Tabs open their root; "+" offers note, task, new chat; new chat without a folder picker | set by the owner (2026-11-21, #166) |
+| Sessions as coloured folder tiles; custom groups removed, pinning stays; moving between conversations by asking (one match switches, several a card) | set by the owner (2026-11-21, #168) |
 | An assignment's task opens the assignment; other tasks open a bottom-sheet card | set by the owner (2026-11-21, #167) |
 | Chat: lazy history, queue / send now / cancel, "/" commands, model per session, file cards, questions | set by the owner; design in `chat-design.md` |
 | Visual direction | **D3 approved**; light theme by default, switch in settings |

@@ -572,38 +572,79 @@
     <string name="chat_fail_failed">The run failed on the computer.</string>
     <string name="sessions_search">Search sessions</string>
     <string name="sessions_by_folder">By folder</string>
-    <string name="sessions_automatic">automatic</string>
     <string name="sessions_empty">No sessions in the allowed folders yet.</string>
     <string name="sessions_none_found">No session matches.</string>
     <string name="sessions_working">Working</string>
     <string name="sessions_untitled">Untitled session</string>
 
-    <!-- Sessions: groups, rename and pin (#74) -->
+    <!-- Sessions: rename and pin (#74) -->
     <string name="session_menu">More about this session</string>
     <string name="session_rename">Rename</string>
     <string name="session_rename_field">Title</string>
     <string name="session_rename_reset">Use the title the computer found</string>
     <string name="session_pin">Pin</string>
     <string name="session_unpin">Unpin</string>
-    <string name="session_move">Move to a group</string>
-    <string name="session_move_none">No group</string>
-    <string name="session_move_none_note">Listed under its folder</string>
-    <string name="sessions_groups">Groups</string>
-    <string name="sessions_groups_none">No groups yet. Make one to keep sessions together that belong together.</string>
-    <string name="sessions_group_empty">No sessions in this group yet. Use “Move to a group” on a session.</string>
-    <string name="group_new">New group</string>
-    <string name="group_name_field">Name of the group</string>
-    <string name="group_menu">More about the group %1$s</string>
-    <string name="group_rename">Rename the group</string>
-    <string name="group_delete">Delete the group</string>
-    <string name="group_delete_title">Delete “%1$s”?</string>
-    <string name="group_delete_text">Only the group goes. Its sessions stay and are listed under their folders again.</string>
     <string name="session_edit_not_reached">Not changed: the computer cannot be reached right now.</string>
     <string name="session_edit_uncertain">The computer did not answer, so it is not known whether this was changed. The list shows what the computer has.</string>
-    <string name="session_edit_group_exists">A group with this name exists already.</string>
     <string name="session_edit_gone">Not changed: the computer no longer has it. Pull down to read the list again.</string>
-    <string name="session_edit_refused">The computer did not accept this. It keeps at most 50 groups and 200 reminders.</string>
+    <string name="session_edit_refused">The computer did not accept this. It keeps at most 200 reminders.</string>
     <string name="session_edit_failed">That could not be changed on the computer.</string>
+
+    <!-- Sessions as folder tiles; blank chats (#163, #168) -->
+    <string name="chat_folder_chat">Chat</string>
+    <string name="sessions_tile_chats">Chats</string>
+    <string name="sessions_tile_coach">Coach</string>
+    <plurals name="sessions_tile_count">
+        <item quantity="one">%1$d conversation</item>
+        <item quantity="other">%1$d conversations</item>
+    </plurals>
+    <string name="sessions_tile_line">%1$s · %2$s</string>
+    <string name="sessions_tile_none">No conversations yet</string>
+    <string name="sessions_folder_empty">No conversations in this folder yet.</string>
+    <string name="sessions_folder_partial">Listed here: the newest %1$d of %2$d.</string>
+    <string name="chat_fail_chat_root">Blank chats are switched off on the computer: its chat folder cannot be used. Once that is fixed there, try again.</string>
+    <string name="chat_fail_reason">The computer says: %1$s</string>
+
+    <!-- Moving between conversations by asking (#164, #168) -->
+    <string name="switch_choose_label">Which conversation?</string>
+    <string name="switch_offer_label">The assistant suggests</string>
+    <string name="switch_choose_note">Tap one to open it. It continues in its own folder, with its own history.</string>
+    <string name="switch_new_in">New chat in %1$s</string>
+    <string name="switch_new_blank">New blank chat</string>
+
+    <!-- Moving a blank chat's files into a project (#163, #168) -->
+    <string name="move_label">Move files</string>
+    <string name="move_title">The assistant proposes to move files of this chat into %1$s.</string>
+    <string name="move_title_plain">The assistant proposes to move files of this chat into a project folder.</string>
+    <plurals name="move_files">
+        <item quantity="one">%1$d file, %2$s</item>
+        <item quantity="other">%1$d files, %2$s</item>
+    </plurals>
+    <string name="move_target">Into this folder</string>
+    <string name="move_note">Nothing is moved without your tap, and nothing in the target is ever overwritten. Moved files leave this chat’s folder.</string>
+    <string name="move_time_left">Without an answer nothing is moved. It waits %1$s more.</string>
+    <plurals name="move_done">
+        <item quantity="one">Moved %1$d file into %2$s.</item>
+        <item quantity="other">Moved %1$d files into %2$s.</item>
+    </plurals>
+    <plurals name="move_failed">
+        <item quantity="one">%1$d file could not be moved and stays in the chat: %2$s</item>
+        <item quantity="other">%1$d files could not be moved and stay in the chat: %2$s</item>
+    </plurals>
+    <string name="move_refused">Not moved.</string>
+    <string name="move_expired">Not answered in time: nothing was moved.</string>
+    <string name="move_refusal_exists">Not moved: something of the same name is in the target folder by now, and nothing is overwritten. You can say no, or clear the name there and try again.</string>
+    <string name="move_refusal_changed">Not moved: the files changed since this card was made. Say no, and ask again for a new card.</string>
+    <string name="move_refusal_unrecorded">Not moved: the computer could not write its audit log, so it did nothing. You can try again.</string>
+    <string name="move_refusal_other">Not moved: a file or the target folder is no longer what this card shows. Say no, and ask again.</string>
+    <string name="move_problem_target">Cannot be moved: the target is not one of your allowed folders (the memory folder is not one).</string>
+    <string name="move_problem_file">Cannot be moved: a named file is not a plain, visible file of this chat.</string>
+    <string name="move_problem_instructions">Cannot be moved: instruction files (such as CLAUDE.md) are never moved into a folder.</string>
+    <string name="move_problem_exists">Cannot be moved: a file of the same name is in the target already, and nothing is overwritten.</string>
+    <string name="move_problem_too_many">Cannot be moved: more files than the computer moves at once (50), or more than three moves in one answer.</string>
+    <string name="move_problem_not_chat">Cannot be moved: only a blank chat’s files are moved this way.</string>
+    <string name="move_problem_unrecorded">The computer could not write its audit log, so it dropped the proposal.</string>
+    <string name="move_problem_other">Cannot be moved: the computer did not accept the proposal.</string>
 
     <!-- Chat: keep-alives, the phone's own session id, notifications that open the conversation (#148) -->
     <string name="chat_fail_first_lost">Your first message did not arrive: the app was locked before the computer had answered. Please send it again.</string>
