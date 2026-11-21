@@ -1,45 +1,48 @@
-import json
+"""Shared fixtures. The first lines fence the whole test process off from the real home."""
+
+import atexit
 import os
-import re
-import sys
-import uuid
+import pwd
+import shutil
+import tempfile
 from pathlib import Path
 
-import pytest
-from fastapi.testclient import TestClient
+# Before anything of the bridge is imported, and never undone: the whole process, with
+# every thread that outlives a test or the session, sees a temporary home and settings
+# folder. A fixture that restored the real values at the end of the session once let
+# relay threads of failed tests save their test pairings into the real device store.
+REAL_HOME = Path(pwd.getpwuid(os.getuid()).pw_dir)
+_PROCESS_BASE = Path(tempfile.mkdtemp(prefix="lifeos-tests-"))
+atexit.register(shutil.rmtree, _PROCESS_BASE, ignore_errors=True)
+(_PROCESS_BASE / "home").mkdir()
+(_PROCESS_BASE / "config").mkdir(mode=0o700)
+for _name in [name for name in os.environ if name.startswith("LIFEOS_")]:
+    del os.environ[_name]
+os.environ.update(
+    HOME=str(_PROCESS_BASE / "home"),
+    LIFEOS_CONFIG_DIR=str(_PROCESS_BASE / "config"),
+    LIFEOS_NOTIFY_SCRIPT="off",
+    LIFEOS_NOTIFY_PUSH="off",
+    LIFEOS_GUARD_AUTOCHECK="off",
+)
 
-from lifeos_bridge.app import create_app
-from lifeos_bridge.config import Settings
+import json  # noqa: E402
+import re  # noqa: E402
+import sys  # noqa: E402
+import uuid  # noqa: E402
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from lifeos_bridge.app import create_app  # noqa: E402
+from lifeos_bridge.config import Settings  # noqa: E402
 
 TEST_TOKEN = "test-token-" + "x" * 32
-
-
-REAL_HOME = Path.home()
-
-
-@pytest.fixture(scope="session", autouse=True)
-def session_isolation(tmp_path_factory):
-    """A second fence under the per-test one: even a test that undoes its own monkeypatching
-    (which also ends ``isolated_config``) lands in a temporary home and config folder, never
-    in the real ones."""
-    base = tmp_path_factory.mktemp("session")
-    (base / "home").mkdir()
-    (base / "config").mkdir(mode=0o700)
-    patch = pytest.MonkeyPatch()
-    patch.setenv("HOME", str(base / "home"))
-    patch.setenv("LIFEOS_CONFIG_DIR", str(base / "config"))
-    patch.setenv("LIFEOS_NOTIFY_SCRIPT", "off")
-    patch.setenv("LIFEOS_NOTIFY_PUSH", "off")
-    patch.setenv("LIFEOS_GUARD_AUTOCHECK", "off")
-    yield
-    patch.undo()
 
 
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
     """Tests never read the real ~/.config/lifeos or real LIFEOS_* variables, and never notify."""
-    import os
-
     for name in list(os.environ):
         if name.startswith("LIFEOS_"):
             monkeypatch.delenv(name)

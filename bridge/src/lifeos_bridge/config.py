@@ -11,6 +11,7 @@ import ipaddress
 import os
 import re
 import stat
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,7 +100,24 @@ class Settings:
 def config_dir(environ: Mapping[str, str] | None = None) -> Path:
     environ = os.environ if environ is None else environ
     override = environ.get(CONFIG_DIR_VAR)
-    return Path(override) if override else Path.home() / ".config" / "lifeos"
+    path = Path(override) if override else Path.home() / ".config" / "lifeos"
+    if "pytest" in sys.modules:
+        _refuse_real_folder(path)
+    return path
+
+
+def _refuse_real_folder(path: Path) -> None:
+    """Under the test suite the owner's real settings folder is never handed out.
+
+    The suite points ``HOME`` and ``LIFEOS_CONFIG_DIR`` at temporary folders; this is the
+    fence behind that one, for code that still runs after a test lost its isolation (a
+    thread that outlives a failed test once saved test pairings into the real folder).
+    """
+    import pwd
+
+    real = Path(pwd.getpwuid(os.getuid()).pw_dir) / ".config" / "lifeos"
+    if path == real or real in path.parents:
+        raise RuntimeError("the test suite reached the real private settings folder")
 
 
 def parse_env_text(text: str) -> dict[str, str]:
