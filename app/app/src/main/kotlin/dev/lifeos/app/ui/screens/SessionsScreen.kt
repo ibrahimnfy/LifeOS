@@ -40,6 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.SessionLists
 import dev.lifeos.app.data.SessionSummary
@@ -85,6 +86,10 @@ fun SessionsScreen(
     var groupFor by rememberSaveable { mutableStateOf<String?>(null) }
     var newGroup by rememberSaveable { mutableStateOf(false) }
     RefreshOnSessionChange(core, sessions)
+    // Which sessions have a reminder to come (#75).
+    val reminders = rememberLoad(core, ChatEndpoints.reminders)
+    RefreshOnSessionChange(core, reminders)
+    val reminded = Reminders.sessionsWithOne((reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty())
     // The coach conversation is a session too (#114), but it has its own screen and its own rules.
     val coachId = (rememberLoad(core, CoachEndpoints.chat).state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.sessionId
     val open: (SessionSummary) -> Unit = { session ->
@@ -120,7 +125,7 @@ fun SessionsScreen(
                     if (pinned.isNotEmpty()) {
                         LifeCard {
                             SectionHeader(title = stringResource(R.string.chat_pinned))
-                            Rows(pinned, showFolder = true, onOpen = open, onMenu = menu)
+                            Rows(pinned, showFolder = true, reminded, onOpen = open, onMenu = menu)
                         }
                     }
                     // The owner's own groups (#74). While searching, only those with a match.
@@ -139,7 +144,7 @@ fun SessionsScreen(
                                 if (group.sessions.isEmpty()) {
                                     Text(stringResource(R.string.sessions_group_empty), style = LifeType.small, color = LifeTheme.colors.muted, modifier = Modifier.padding(vertical = 8.dp))
                                 }
-                                Rows(group.sessions, showFolder = true, onOpen = open, onMenu = menu)
+                                Rows(group.sessions, showFolder = true, reminded, onOpen = open, onMenu = menu)
                             }
                         }
                     }
@@ -161,7 +166,7 @@ fun SessionsScreen(
                                     color = LifeTheme.colors.muted,
                                 )
                             }
-                            LifeCard { Rows(group.sessions, showFolder = false, onOpen = open, onMenu = menu) }
+                            LifeCard { Rows(group.sessions, showFolder = false, reminded, onOpen = open, onMenu = menu) }
                         }
                     }
                 }
@@ -170,10 +175,8 @@ fun SessionsScreen(
     }
     // Sheets are windows of their own: none may be open above the lock screen.
     val list = (state as? UiState.Content)?.data
+    SessionSheetHost(core, menuFor, change, onDismiss = { menuFor = null })
     if (!locked) {
-        list?.sessions?.firstOrNull { it.id == menuFor }?.let { session ->
-            SessionSheet(core, session, list.groups, change, onDismiss = { menuFor = null })
-        }
         list?.groups?.firstOrNull { it.id == groupFor }?.let { group ->
             GroupSheet(core, group, change, onDismiss = { groupFor = null })
         }
@@ -182,10 +185,10 @@ fun SessionsScreen(
 }
 
 @Composable
-private fun Rows(sessions: List<SessionSummary>, showFolder: Boolean, onOpen: (SessionSummary) -> Unit, onMenu: (SessionSummary) -> Unit) {
+private fun Rows(sessions: List<SessionSummary>, showFolder: Boolean, reminded: Set<String>, onOpen: (SessionSummary) -> Unit, onMenu: (SessionSummary) -> Unit) {
     sessions.forEachIndexed { index, session ->
         if (index > 0) RowDivider()
-        SessionRow(session, showFolder = showFolder, onMenu = { onMenu(session) }) { onOpen(session) }
+        SessionRow(session, showFolder = showFolder, onMenu = { onMenu(session) }, reminder = session.id in reminded) { onOpen(session) }
     }
 }
 

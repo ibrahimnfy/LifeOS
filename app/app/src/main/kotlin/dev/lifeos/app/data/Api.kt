@@ -273,6 +273,19 @@ class Api(private val transport: Transport) {
         read(CoachCompacted.serializer(), exchange("POST", "/coach/chat/compact", emptyMap(), null, PLAN_TIMEOUT_MILLIS))
     }
 
+    // ---- session reminders (#75): kept and fired by the computer
+
+    /** A new reminder for a session; the body is [Reminders.body] with the session's id. */
+    suspend fun createReminder(body: JsonElement): Reminder = read(Reminder.serializer(), chatCall("POST", "/reminders", body))
+
+    /** Change a reminder's time, note or repeat; a new time schedules it again. */
+    suspend fun updateReminder(reminderId: String, body: JsonElement): Reminder =
+        read(Reminder.serializer(), chatCall("PATCH", "/reminders/$reminderId", body))
+
+    suspend fun deleteReminder(reminderId: String) {
+        chatCall("DELETE", "/reminders/$reminderId")
+    }
+
     // ---- session groups (#74): the owner's own organisation, kept on the computer
 
     /** A new group; `409 group_exists` when one has this name. */

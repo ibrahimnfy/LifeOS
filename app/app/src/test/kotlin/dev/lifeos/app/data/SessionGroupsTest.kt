@@ -97,7 +97,7 @@ class SessionGroupsTest {
         assertEquals(SessionEdits.Problem.GROUP_EXISTS, SessionEdits.problemOf(refused))
         assertEquals(SessionEdits.Problem.GONE, SessionEdits.problemOf(ApiException(ApiException.Kind.HTTP, 404, "group_not_found")))
         assertEquals(SessionEdits.Problem.GONE, SessionEdits.problemOf(ApiException(ApiException.Kind.HTTP, 404, "session_not_found")))
-        assertEquals(SessionEdits.Problem.TOO_MANY, SessionEdits.problemOf(ApiException(ApiException.Kind.HTTP, 400, "bad_request")))
+        assertEquals(SessionEdits.Problem.REFUSED, SessionEdits.problemOf(ApiException(ApiException.Kind.HTTP, 400, "bad_request")))
         assertEquals(SessionEdits.Problem.NOT_REACHED, SessionEdits.problemOf(ApiException(ApiException.Kind.NOT_SENT)))
         assertEquals(SessionEdits.Problem.UNCERTAIN, SessionEdits.problemOf(ApiException(ApiException.Kind.UNCERTAIN)))
         assertEquals(SessionEdits.Problem.FAILED, SessionEdits.problemOf(ApiException(ApiException.Kind.HTTP, 500, "internal")))

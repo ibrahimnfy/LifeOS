@@ -221,6 +221,7 @@ internal class SampleChat(private val context: Context) {
             }
         }
         groupRequest(method, path, body)?.let { return it }
+        reminderRequest(method, path, body)?.let { return it }
         return data["$method $path"]?.let { RelayResponse(200, relative(it)) }
     }
 
@@ -261,6 +262,55 @@ internal class SampleChat(private val context: Context) {
                     name == "group" && groups.none { it.first == (value as? JsonPrimitive)?.content } -> put(name, JsonNull)
                     else -> put(name, value)
                 }
+            }
+        }
+    }
+
+    /**
+     * Session reminders (#75), kept while the app runs. One has fired already: the push test
+     * aid with `lifeos.test.push_ref sample-reminder-1` opens its session and shows its note.
+     */
+    private val reminders = mutableListOf(
+        buildJsonObject {
+            put("id", JsonPrimitive("sample-reminder-1"))
+            put("session_id", JsonPrimitive("sample-session-2"))
+            put("at", JsonPrimitive(Instant.now().minusSeconds(60).toString()))
+            put("note", JsonPrimitive("Send the outline to the reviewer"))
+            put("repeat", JsonPrimitive("none"))
+            put("timezone", JsonNull)
+            put("state", JsonPrimitive("fired"))
+        },
+    )
+
+    private fun reminderRequest(method: String, path: String, body: JsonElement?): RelayResponse? {
+        if (!path.startsWith("/reminders")) return null
+        val id = path.removePrefix("/reminders").trim('/')
+        val fields = body as? JsonObject ?: JsonObject(emptyMap())
+        // The computer keeps the time in UTC.
+        val at = (fields["at"] as? JsonPrimitive)?.content?.let { java.time.OffsetDateTime.parse(it).toInstant().toString() }
+        return synchronized(reminders) {
+            val index = reminders.indexOfFirst { it["id"]?.jsonPrimitive?.content == id }
+            when {
+                method == "GET" && id.isEmpty() -> ok { put("reminders", JsonArray(reminders.toList())) }
+                method == "POST" && id.isEmpty() -> {
+                    val made = JsonObject(
+                        mapOf("id" to JsonPrimitive("sample-reminder-${++asked}"), "note" to JsonNull, "repeat" to JsonPrimitive("none"), "timezone" to JsonNull) +
+                            fields + mapOf("at" to JsonPrimitive(at.orEmpty()), "state" to JsonPrimitive("scheduled")),
+                    )
+                    reminders += made
+                    RelayResponse(201, made)
+                }
+                index < 0 -> error(404, "reminder_not_found")
+                method == "DELETE" -> {
+                    reminders.removeAt(index)
+                    ok { put("deleted", JsonPrimitive(true)) }
+                }
+                method == "PATCH" -> {
+                    val changed = JsonObject(reminders[index] + fields + (if (at != null) mapOf("at" to JsonPrimitive(at), "state" to JsonPrimitive("scheduled")) else emptyMap()))
+                    reminders[index] = changed
+                    RelayResponse(200, changed)
+                }
+                else -> null
             }
         }
     }

@@ -587,8 +587,31 @@
     <string name="session_edit_uncertain">The computer did not answer, so it is not known whether this was changed. The list shows what the computer has.</string>
     <string name="session_edit_group_exists">A group with this name exists already.</string>
     <string name="session_edit_gone">Not changed: the computer no longer has it. Pull down to read the list again.</string>
-    <string name="session_edit_too_many">The computer keeps no more groups than it has now. Delete one first.</string>
+    <string name="session_edit_refused">The computer did not accept this. It keeps at most 50 groups and 200 reminders.</string>
     <string name="session_edit_failed">That could not be changed on the computer.</string>
+
+    <!-- Session reminders and reply notifications (#75) -->
+    <string name="reminder_action">Remind me</string>
+    <string name="reminder_title">Reminders for this session</string>
+    <string name="reminder_none">No reminder yet. The computer sends it as a notification that opens this session.</string>
+    <string name="reminder_new">New reminder</string>
+    <string name="reminder_edit">Change the reminder</string>
+    <string name="reminder_day">On %1$s</string>
+    <string name="reminder_time">At %1$s</string>
+    <string name="reminder_once">Once</string>
+    <string name="reminder_daily">Every day</string>
+    <string name="reminder_weekly">Every week</string>
+    <string name="reminder_next_daily">Every day, next %1$s</string>
+    <string name="reminder_next_weekly">Every week, next %1$s</string>
+    <string name="reminder_note">Note (optional)</string>
+    <string name="reminder_hint">The notification says only “Reminder”. The note is shown after you open it and unlock the app.</string>
+    <string name="reminder_past">This time has passed. Choose a later one.</string>
+    <string name="reminder_delete">Delete the reminder</string>
+    <string name="reminder_has">Has a reminder</string>
+    <string name="reminder_lost">The session of this reminder could not be opened. It may no longer be listed, or the computer cannot be reached.</string>
+    <string name="reminder_note_shown">Reminder: %1$s</string>
+    <string name="session_notify">Notify me when an answer is ready</string>
+    <string name="session_notify_note">For this session. A question or an approval that waits for you is always announced.</string>
 
     <!-- The coach conversation (#114) -->
     <string name="coach_about">About this conversation and its plan usage</string>

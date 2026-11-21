@@ -50,6 +50,7 @@ import dev.lifeos.app.data.ChatEndpoints
 import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.ChatState
 import dev.lifeos.app.data.Folder
+import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.SessionLists
 import dev.lifeos.app.data.SessionSummary
 import dev.lifeos.app.data.UiState
@@ -97,10 +98,11 @@ fun ChatListScreen(
     // What can be done with a session (#74): the same sheet as on the Sessions screen.
     val change = rememberSessionChange(core)
     var menuFor by rememberSaveable { mutableStateOf<String?>(null) }
-    (state as? UiState.Content)?.data?.let { list ->
-        val session = list.sessions.firstOrNull { it.id == menuFor }
-        if (session != null && !locked) SessionSheet(core, session, list.groups, change, onDismiss = { menuFor = null })
-    }
+    SessionSheetHost(core, menuFor, change, onDismiss = { menuFor = null })
+    // Which sessions have a reminder to come (#75).
+    val reminders = rememberLoad(core, ChatEndpoints.reminders)
+    RefreshOnSessionChange(core, reminders)
+    val reminded = Reminders.sessionsWithOne((reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty())
 
     // "The chat continues the same conversation": after a start the tab opens it directly.
     LaunchedEffect(locked, chat.sessionId) {
@@ -134,7 +136,7 @@ fun ChatListScreen(
                         val recent = SessionLists.newestFirst(list.sessions.filter { it.id != coachId }).take(RECENT)
                         recent.forEachIndexed { index, session ->
                             if (index > 0) RowDivider()
-                            SessionRow(session, onMenu = { menuFor = session.id }) {
+                            SessionRow(session, onMenu = { menuFor = session.id }, reminder = session.id in reminded) {
                                 core.chat.open(session, memory = isMemory(folderState, session))
                                 onOpenChat()
                             }
@@ -249,7 +251,14 @@ internal fun Thumb(featured: Boolean = false, content: @Composable () -> Unit) {
  * "Working" while the computer is answering a message of it.
  */
 @Composable
-internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onMenu: (() -> Unit)? = null, onClick: () -> Unit) {
+internal fun SessionRow(
+    session: SessionSummary,
+    showFolder: Boolean = true,
+    onMenu: (() -> Unit)? = null,
+    /** The session has a reminder to come (#75). */
+    reminder: Boolean = false,
+    onClick: () -> Unit,
+) {
     val colors = LifeTheme.colors
     val menuLabel = stringResource(R.string.session_menu)
     val pinnedLabel = stringResource(R.string.chat_pinned)
@@ -293,6 +302,9 @@ internal fun SessionRow(session: SessionSummary, showFolder: Boolean = true, onM
                         color = colors.muted,
                         maxLines = 1,
                     )
+                }
+                if (reminder) {
+                    Icon(LifeIcons.Bell, contentDescription = stringResource(R.string.reminder_has), tint = colors.muted, modifier = Modifier.size(14.dp))
                 }
             }
         }

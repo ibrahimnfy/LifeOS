@@ -37,6 +37,8 @@ import dev.lifeos.app.ui.components.BottomBar
 import dev.lifeos.app.ui.components.CaptureKind
 import dev.lifeos.app.ui.components.CaptureSheet
 import dev.lifeos.app.data.AssignmentMatch
+import dev.lifeos.app.data.ApiException
+import dev.lifeos.app.data.SessionLookup
 import dev.lifeos.app.push.Destination
 import dev.lifeos.app.push.PushOpen
 import dev.lifeos.app.ui.components.LocalLooks
@@ -166,6 +168,8 @@ fun LifeOsApp(
     LaunchedEffect(pairing != null, locked, connected) { if (pairing != null && !locked) core.loadLooks() }
     // ---- a tapped push notification (#38): its screen, once the app is unlocked
     val context = androidx.compose.ui.platform.LocalContext.current
+    val reminderLost = stringResource(R.string.reminder_lost)
+    val reminderNote = stringResource(R.string.reminder_note_shown)
     LaunchedEffect(openPush, locked) {
         val push = openPush ?: return@LaunchedEffect
         if (locked) return@LaunchedEffect
@@ -192,7 +196,30 @@ fun LifeOsApp(
                 navController.navigate(Routes.COACH) { launchSingleTop = true }
             }
             Destination.Sleep -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
-            is Destination.Reminder, Destination.Today, Destination.Notice -> navController.openTab(Tab.TODAY)
+            // A session reminder (#75): its session, and its note in one line.
+            is Destination.Reminder -> {
+                val reminder = try {
+                    SessionLookup.reminder(core.api, destination.reminderId)
+                } catch (_: ApiException) {
+                    null
+                }
+                val found = reminder?.let { SessionLookup.find(core.api, it.sessionId) }
+                when (found) {
+                    is SessionLookup.Found.Session -> {
+                        core.chat.open(found.session, found.memory)
+                        openChat()
+                    }
+                    SessionLookup.Found.Coach -> openCoach()
+                    else -> {
+                        // The reminder or its session could not be read: the list of sessions is the nearest place.
+                        navController.openTab(Tab.CHAT)
+                        navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true }
+                        showMessage(reminderLost)
+                    }
+                }
+                reminder?.note?.takeIf { it.isNotBlank() && found is SessionLookup.Found.Session }?.let { showMessage(reminderNote.format(it.trim().take(200))) }
+            }
+            Destination.Today, Destination.Notice -> navController.openTab(Tab.TODAY)
         }
         // A notice's own title is shown only here, in the unlocked app.
         push.noticeTitle?.let { showMessage(it) }

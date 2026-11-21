@@ -342,6 +342,18 @@ with plain HTTPS requests.
     (`PATCH /sessions/{id}`, `/session-groups`); Claude Code's own session
     files are not touched. A change is sent directly: without a connection
     nothing changes and a line says so.
+  - **Reminders and reply notifications (#75):** the same sheet has
+    **Remind me**: the session's reminders to come, and a new one with its
+    day, time, **Once / Every day / Every week** and an optional note. The
+    computer keeps and fires them (`/reminders`); a session with a reminder
+    to come has a small bell in its row. The notification says only
+    "Reminder"; a tap opens that session (the reminder is looked up on the
+    computer, also after it has fired) and shows the note in one line.
+    **Notify me when an answer is ready** is the per-session switch for the
+    notification after a finished run (`notify_replies`, on unless switched
+    off); questions and approvals are announced either way. In a
+    conversation the same sheet opens from the dots next to the pills above
+    the composer.
 - **Capture:** a note or a task with an optional due date. Also reachable
   from the home-screen shortcut (long-press on the app icon) and from other
   apps' "share" (text or a link).
@@ -739,6 +751,9 @@ adb shell am start -n dev.lifeos.app/.MainActivity \
   approval; the first is a deletion), `choose` (the run waits for the answer
   to two questions). With `hurry` the wait lasts 20 seconds instead of ten
   minutes, to see what running out of time looks like.
+  **Reminders** are kept while the app runs; one has fired already, so
+  `--es lifeos.test.push reminder --es lifeos.test.push_ref sample-reminder-1`
+  shows a reminder notification whose tap opens its session.
   **The coach conversation** starts empty there and counts as long after
   five messages, or at once for a message that contains `tidy`: the next
   answer then begins only after six seconds, in a renewed session.
@@ -754,8 +769,7 @@ The pairing text is the key. Never put it into a file, a log or a report.
 
 ## What is not in it yet
 
-- Chat: tables in answers (shown as text). Sessions: reminders. Projects is
-  a placeholder. The coach conversation shows only its current session: the
+- Chat: tables in answers (shown as text). Projects is a placeholder. The coach conversation shows only its current session: the
   messages from before it was tidied up are under Sessions ("Coach
   (earlier)").
 - Tasks cannot be moved up or down; topic notes cannot be edited (see above).
@@ -1039,6 +1053,31 @@ Paired (no model run is started by any step), or on an emulator with the
 6. Type into the search field: only groups with a matching session remain.
 7. Flight mode, then **Pin**: "Not changed: the computer cannot be reached
    right now." and the list is as before.
+
+### Session reminders and reply notifications
+
+Paired (no model run is needed for the reminder itself), or on an emulator
+with the `sample_data` test aid (see "Test aids" for its notification):
+
+1. Sessions → the dots of a session → **Remind me** → **New reminder**:
+   choose today, a time two minutes ahead, **Once**, a note, **Save**. The
+   row gets a small bell. On the computer, `GET /reminders` lists it with
+   the time in UTC and the phone's time zone.
+2. Lock the phone. When the time has come (the computer checks every 30
+   seconds) a notification "Reminder" arrives, without the note. Tap it and
+   unlock: the session's conversation opens and one line shows "Reminder:
+   <note>". The bell is gone from its row.
+3. **Remind me** → **New reminder** with a time that has passed: Save is
+   grey and "This time has passed." With **Every day** the same time can be
+   saved; the sheet then shows "Every day, next …".
+4. Tap a reminder in the list: change its time or note, Save; open it
+   again → **Delete the reminder**: it is gone, and so is the bell.
+5. **Notify me when an answer is ready** off for a session; send it a
+   message and close the app: no notification when the answer is ready
+   (`GET /sessions` shows `notify_replies: false`). Switched on again, the
+   next answer is announced. Another session is not affected.
+6. In a conversation, the dots at the right of the pills above the composer
+   open the same sheet for that session.
 
 ### Earlier messages, waiting messages, send now and stop
 

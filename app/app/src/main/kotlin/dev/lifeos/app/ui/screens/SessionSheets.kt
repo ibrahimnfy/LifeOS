@@ -48,6 +48,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ApiException
+import dev.lifeos.app.data.ChatEndpoints
+import dev.lifeos.app.data.Reminder
+import dev.lifeos.app.data.Reminders
+import dev.lifeos.app.data.UiState
+import dev.lifeos.app.data.notifyReplies
+import dev.lifeos.app.ui.components.rememberLoad
+import androidx.compose.runtime.remember
 import dev.lifeos.app.data.SessionEdits
 import dev.lifeos.app.data.SessionGroup
 import dev.lifeos.app.data.SessionSummary
@@ -97,7 +104,7 @@ private fun SessionEdits.Problem.textRes(): Int = when (this) {
     SessionEdits.Problem.UNCERTAIN -> R.string.session_edit_uncertain
     SessionEdits.Problem.GROUP_EXISTS -> R.string.session_edit_group_exists
     SessionEdits.Problem.GONE -> R.string.session_edit_gone
-    SessionEdits.Problem.TOO_MANY -> R.string.session_edit_too_many
+    SessionEdits.Problem.REFUSED -> R.string.session_edit_refused
     SessionEdits.Problem.FAILED -> R.string.session_edit_failed
 }
 
@@ -114,15 +121,49 @@ internal fun RefreshOnSessionChange(core: LifeOsCore, model: LoadModel<*>) {
     }
 }
 
-private enum class SessionSheetPage { MENU, RENAME, GROUP }
+private enum class SessionSheetPage { MENU, RENAME, GROUP, REMINDERS, REMINDER }
+
+/**
+ * The sheet of the session [sessionId] (null: none is open), with what it needs from the
+ * computer: the session as it is listed now, the owner's groups and the session's reminders.
+ */
+@Composable
+internal fun SessionSheetHost(core: LifeOsCore, sessionId: String?, change: SessionChange, onDismiss: () -> Unit) {
+    if (sessionId == null) return
+    val locked by core.locked.collectAsStateWithLifecycle()
+    val sessions = rememberLoad(core, ChatEndpoints.sessions) { it.sessions.isEmpty() }
+    val reminders = rememberLoad(core, ChatEndpoints.reminders)
+    val list = (sessions.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
+    val session = list?.sessions?.firstOrNull { it.id == sessionId }
+    val known = (reminders.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data?.reminders.orEmpty()
+    LaunchedEffect(sessionId) {
+        reminders.refresh()
+        // A conversation that has only just begun is not in the list the screen has.
+        if (session == null) sessions.refresh()
+    }
+    // Sheets are windows of their own: none may be open above the lock screen.
+    if (session == null || locked) return
+    SessionSheet(core, session, list?.groups.orEmpty(), Reminders.scheduled(known, session.id), change, onDismiss)
+}
 
 /**
  * What can be done with one session: rename it, pin it, put it into a group. Only the
  * computer's own notes about the session change; the session itself is never touched.
  */
 @Composable
-internal fun SessionSheet(core: LifeOsCore, session: SessionSummary, groups: List<SessionGroup>, change: SessionChange, onDismiss: () -> Unit) {
+internal fun SessionSheet(
+    core: LifeOsCore,
+    session: SessionSummary,
+    groups: List<SessionGroup>,
+    reminders: List<Reminder>,
+    change: SessionChange,
+    onDismiss: () -> Unit,
+) {
     var page by rememberSaveable { mutableStateOf(SessionSheetPage.MENU) }
+    // The reminder that is being changed; null on the reminder page: a new one.
+    var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    // Shown at once; the list follows when the computer has answered.
+    var notify by remember(session.notifyReplies) { mutableStateOf(session.notifyReplies) }
     val title = session.shownTitle.ifEmpty { stringResource(R.string.sessions_untitled) }
     val api = core.api
     when (page) {
@@ -133,6 +174,49 @@ internal fun SessionSheet(core: LifeOsCore, session: SessionSummary, groups: Lis
                 change { api.patchSession(session.id, SessionEdits.pinned(!session.pinned)) }
             }
             SheetAction(LifeIcons.Folder, stringResource(R.string.session_move)) { page = SessionSheetPage.GROUP }
+            // Reminders and reply notifications (#75).
+            SheetAction(LifeIcons.Bell, stringResource(R.string.reminder_action), note = reminders.firstOrNull()?.let { reminderLabel(it) }) {
+                page = SessionSheetPage.REMINDERS
+            }
+            SheetSwitch(stringResource(R.string.session_notify), stringResource(R.string.session_notify_note), checked = notify) { on ->
+                notify = on
+                change { api.patchSession(session.id, SessionEdits.notifyReplies(on)) }
+            }
+        }
+        SessionSheetPage.REMINDERS -> RemindersSheet(
+            reminders = reminders,
+            onDismiss = onDismiss,
+            onNew = {
+                editing = null
+                page = SessionSheetPage.REMINDER
+            },
+            onEdit = {
+                editing = it.id
+                page = SessionSheetPage.REMINDER
+            },
+        )
+        SessionSheetPage.REMINDER -> {
+            val reminder = reminders.firstOrNull { it.id == editing }
+            ReminderEditSheet(
+                reminder = reminder,
+                onDismiss = onDismiss,
+                onSave = { at, note, repeat ->
+                    onDismiss()
+                    change {
+                        if (reminder == null) {
+                            api.createReminder(Reminders.body(session.id, at, note, repeat))
+                        } else {
+                            api.updateReminder(reminder.id, Reminders.body(null, at, note, repeat))
+                        }
+                    }
+                },
+                onDelete = reminder?.let {
+                    {
+                        onDismiss()
+                        change { api.deleteReminder(it.id) }
+                    }
+                },
+            )
         }
         SessionSheetPage.RENAME -> NameSheet(
             title = stringResource(R.string.session_rename),

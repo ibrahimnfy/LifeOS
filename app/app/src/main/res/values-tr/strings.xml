@@ -585,8 +585,31 @@
     <string name="session_edit_uncertain">Bilgisayar yanıt vermedi; bunun değişip değişmediği bilinmiyor. Liste bilgisayardakini gösterir.</string>
     <string name="session_edit_group_exists">Bu adda bir grup zaten var.</string>
     <string name="session_edit_gone">Değiştirilmedi: bilgisayarda artık yok. Listeyi yeniden okumak için aşağı çek.</string>
-    <string name="session_edit_too_many">Bilgisayar şu ankinden fazla grup tutmuyor. Önce birini sil.</string>
+    <string name="session_edit_refused">Bilgisayar bunu kabul etmedi. En fazla 50 grup ve 200 hatırlatıcı tutar.</string>
     <string name="session_edit_failed">Bu, bilgisayarda değiştirilemedi.</string>
+
+    <!-- Session reminders and reply notifications (#75) -->
+    <string name="reminder_action">Bana hatırlat</string>
+    <string name="reminder_title">Bu oturumun hatırlatıcıları</string>
+    <string name="reminder_none">Henüz hatırlatıcı yok. Bilgisayar onu, bu oturumu açan bir bildirim olarak gönderir.</string>
+    <string name="reminder_new">Yeni hatırlatıcı</string>
+    <string name="reminder_edit">Hatırlatıcıyı değiştir</string>
+    <string name="reminder_day">Gün: %1$s</string>
+    <string name="reminder_time">Saat: %1$s</string>
+    <string name="reminder_once">Bir kez</string>
+    <string name="reminder_daily">Her gün</string>
+    <string name="reminder_weekly">Her hafta</string>
+    <string name="reminder_next_daily">Her gün, sıradaki %1$s</string>
+    <string name="reminder_next_weekly">Her hafta, sıradaki %1$s</string>
+    <string name="reminder_note">Not (isteğe bağlı)</string>
+    <string name="reminder_hint">Bildirimde yalnızca “Hatırlatıcı” yazar. Not, bildirimi açıp uygulamanın kilidini açtıktan sonra gösterilir.</string>
+    <string name="reminder_past">Bu saat geçti. Daha ileri bir zaman seç.</string>
+    <string name="reminder_delete">Hatırlatıcıyı sil</string>
+    <string name="reminder_has">Hatırlatıcısı var</string>
+    <string name="reminder_lost">Bu hatırlatıcının oturumu açılamadı. Artık listelenmiyor olabilir ya da bilgisayara ulaşılamıyor.</string>
+    <string name="reminder_note_shown">Hatırlatıcı: %1$s</string>
+    <string name="session_notify">Yanıt hazır olunca bildir</string>
+    <string name="session_notify_note">Bu oturum için. Seni bekleyen bir soru ya da onay her zaman bildirilir.</string>
 
     <!-- The coach conversation (#114) -->
     <string name="coach_about">Bu sohbet ve plan kullanımı hakkında</string>

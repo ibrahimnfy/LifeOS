@@ -249,13 +249,19 @@ internal fun ColumnScope.ConversationPane(
             if (!state.choiceKnown) sessions?.sessions?.firstOrNull { it.id == state.sessionId }?.let(chat::noteChoice)
         }
         var pickingModel by rememberSaveable { mutableStateOf(false) }
+        // What belongs to this session (#75): its title, group, reminders and reply notifications.
+        val change = rememberSessionChange(core)
+        var sessionSheet by rememberSaveable(state.sessionId) { mutableStateOf(false) }
         ModeRow(
             capable = state.capable,
             enabled = state.phase == ChatPhase.IDLE,
             onChange = chat::setCapable,
             model = state.choice.label(modelChoices).ifEmpty { stringResource(R.string.chat_model_default) },
             onModel = { pickingModel = true },
+            // A conversation without a message yet is no session on the computer.
+            onSession = if (state.sessionId != null) ({ sessionSheet = true }) else null,
         )
+        SessionSheetHost(core, state.sessionId.takeIf { sessionSheet }, change, onDismiss = { sessionSheet = false })
         if (pickingModel && !locked) {
             ModelSheet(
                 choice = state.choice,
@@ -386,7 +392,7 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
  * commands inside the guardrails, and asks here before a deletion and the like.
  */
 @Composable
-private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit, model: String, onModel: () -> Unit) {
+private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit, model: String, onModel: () -> Unit, onSession: (() -> Unit)? = null) {
     val colors = LifeTheme.colors
     val label = stringResource(R.string.chat_mode_toggle)
     val modelLabel = stringResource(R.string.chat_model_label, model)
@@ -436,6 +442,20 @@ private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> U
                     style = LifeType.label,
                     color = if (enabled) colors.text else colors.muted,
                 )
+            }
+        }
+        if (onSession != null) {
+            Spacer(Modifier.weight(1f))
+            val sessionLabel = stringResource(R.string.session_menu)
+            Box(
+                modifier = Modifier
+                    .size(LifeDimens.minTouch)
+                    .clip(CircleShape)
+                    .clickable(onClickLabel = sessionLabel, role = Role.Button, onClick = onSession)
+                    .semantics { contentDescription = sessionLabel },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LifeIcons.More, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
             }
         }
       }

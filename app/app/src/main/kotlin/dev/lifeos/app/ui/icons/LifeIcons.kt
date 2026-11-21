@@ -143,6 +143,7 @@ object LifeIcons {
             "M17.6 3.6l2.8 2.8-8 8-3.4.6.6-3.4z",
     )
     val Pin = icon("Pin", line = "M9 3.5h6l-1 6 3 3.5H7l3-3.5zM12 13v7.5")
+    val Bell = icon("Bell", line = "M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15zM10 20.5a2 2 0 0 0 4 0")
     val Search = icon("Search", line = "M4.5 10.5a6 6 0 1 0 12 0a6 6 0 1 0-12 0zM15 15l5 5")
 
     val Activity = icon("Activity", line = "M5 19.5v-6M12 19.5v-14M19 19.5v-9")

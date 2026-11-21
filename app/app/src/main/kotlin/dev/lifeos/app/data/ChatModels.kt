@@ -46,6 +46,8 @@ data class SessionSummary(
     val group: String? = null,
     /** What the computer found as the title, whatever the owner named the session. */
     @SerialName("detected_title") val detectedTitle: String = "",
+    /** A finished answer of this session is announced with a notification (#75); on unless switched off. */
+    @SerialName("notify_replies") val notifyReplies: Boolean = true,
 ) {
     /** The folder's name as the rows show it. */
     val folderLabel: String get() = autoGroup.ifEmpty { folder.trimEnd('/').substringAfterLast('/') }
@@ -148,6 +150,9 @@ object ChatEndpoints {
 
     /** The sessions in the allowed folders, pinned first, then newest first. */
     val sessions = Endpoint("sessions", "/sessions", mapOf("limit" to "100"), SessionList.serializer())
+
+    /** Every reminder of every session (#75), those that have fired too. */
+    val reminders = Endpoint("reminders", "/reminders", serializer = ReminderList.serializer())
 }
 
 /** One of the owner's groups with its sessions (#74). */
@@ -174,8 +179,8 @@ object SessionEdits {
         /** The session or the group is no longer there. */
         GONE,
 
-        /** The computer keeps no more groups than it has. */
-        TOO_MANY,
+        /** The computer did not accept it (it keeps a limited number of groups and of reminders). */
+        REFUSED,
         FAILED,
     }
 
@@ -198,9 +203,9 @@ object SessionEdits {
         error.kind == ApiException.Kind.UNCERTAIN -> Problem.UNCERTAIN
         error.kind != ApiException.Kind.HTTP -> Problem.NOT_REACHED
         error.code == "group_exists" -> Problem.GROUP_EXISTS
-        error.code == "session_not_found" || error.code == "group_not_found" -> Problem.GONE
-        // "At most 50 groups" is the only refusal of a well-formed name.
-        error.code == "bad_request" -> Problem.TOO_MANY
+        error.code == "session_not_found" || error.code == "group_not_found" || error.code == "reminder_not_found" -> Problem.GONE
+        // What the app sends is well-formed: what is left are the computer's limits (50 groups, 200 reminders).
+        error.code == "bad_request" -> Problem.REFUSED
         else -> Problem.FAILED
     }
 }
