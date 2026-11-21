@@ -274,7 +274,32 @@ operations for `[inferred <date>]` facts, shown to the owner like every
 other operation; only the approved ones are written, through the same check
 as every fact writer (`bridge/src/lifeos_bridge/facts.py`: existing topic
 files only, one line, appended, never over or beside an `[owner …]` fact
-with the same text). The consolidation run itself is not built yet.
+with the same text).
+
+**Built (#150).** A nightly run (from 02:00 local time, at most once a day,
+only when a capture waits in the inbox or the memory changed since the last
+run, and never while a proposal waits) uses the `consolidation` job of the
+model routing (Sonnet, Opus advisor), read-only in the memory folder, not
+saved as a session. It proposes at most 20 operations, each checked when
+proposed and again when applied:
+
+- `file_capture`: an inbox capture into an existing topic file
+  (`profile.md`, `projects/`, `courses/`, `people/`, `notes/`), as the
+  owner's own words `- [owner <capture day>] …` (a multi-line capture keeps
+  its lines under `## From the inbox`); it leaves the inbox and is kept in
+  `.trash/inbox-filed.md`;
+- `merge_facts`: of two fact lines of one file that say the same, the
+  dropped one gets `, superseded <day>`; an owner fact is never dropped for
+  an inferred one;
+- `add_fact`: an `[inferred <day>]` fact through `facts.py`.
+
+The proposal waits in `~/.config/lifeos/consolidation.json`; nothing is
+written to the memory until the owner approves. Approved operations are
+applied in one commit by the author `lifeos-consolidation` (undo with one
+`git revert`), after the check that no fact line disappears; an operation
+that no longer applies fails alone. A rejected operation is remembered by
+its fingerprint and not proposed again unchanged. One push on the coach
+channel with a fixed text says a proposal waits.
 
 ## 7. Search
 

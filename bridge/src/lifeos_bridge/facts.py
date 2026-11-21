@@ -27,7 +27,10 @@ from . import memory
 FILE = re.compile(r"profile\.md|(?:projects|courses)/[a-z0-9][a-z0-9-]*\.md")
 SOURCES = ("owner", "inferred")
 MAX_TEXT = 240
-FACT_LINE = re.compile(r"^- \[(owner|inferred|external:[^\] ]+)(?: [0-9-]+)?\] (.*)$")
+# A fact line: "- [owner 2027-01-15] text", also "[owner 2027-01-10, superseded 2027-01-20]".
+FACT_LINE = re.compile(
+    r"^- \[(owner|inferred|external:[^\] ,]+)(?: ([0-9-]+))?(, superseded [0-9-]+)?\] (.*)$"
+)
 
 
 def files(memory_dir: Path) -> list[str]:
@@ -52,10 +55,10 @@ def _plain(value: object) -> str | None:
 def _known(text: str) -> set[str]:
     """The texts of the fact lines a file has already (case and spacing ignored)."""
     return {
-        " ".join(match.group(2).split()).casefold()
+        " ".join(match.group(4).split()).casefold()
         for line in text.splitlines()
         if (match := FACT_LINE.match(line.strip()))
-    }
+    }  # superseded ones too: a fact that stopped being true is not proposed again
 
 
 def check(

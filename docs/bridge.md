@@ -118,6 +118,10 @@ documented here as they are built.
 | GET / POST | `/events` | yes | Lists or creates calendar events |
 | PATCH | `/events/{id}` | yes | Changes an event |
 | GET | `/agenda` | yes | Today's events and tasks, overdue tasks, the coming days |
+| GET | `/memory/consolidation` | yes | The waiting consolidation proposal and its operations |
+| GET | `/projects` · `/projects/{id}` | yes | Projects: status, state, last activity, open tasks, sessions (no run) |
+| POST | `/memory/consolidation/approve` · `/reject` | yes | Approves (applies, one commit) or rejects operations, one by one or all |
+| POST | `/memory/consolidation/run` | yes | Prepares a proposal now (one run, in the background) |
 | POST | `/activity/usage`, `/activity/sleep` | yes | The phone's daily screen-time and sleep summaries |
 | GET | `/activity` | yes | Recorded days of phone activity |
 | GET | `/context-map` | yes | Allowed folders and their summary files in the memory |
@@ -307,12 +311,13 @@ Subfolders of the memory folder are fine. Details:
 - **Plan usage of one restart:** a runner needs a check after an update of
   Claude Code or the Agent SDK, after a new version of the probe suite (the
   skill probes of #91 are suite version 2), or when it was never checked.
-  - The `claude -p` suite takes about 10 short runs on the small model per
+  - The `claude -p` suite takes about 11 short runs on the small model per
     environment.
-  - The SDK suite takes about 14 per environment, because it adds the
+  - The SDK suite takes about 15 per environment, because it adds the
     approval probes.
-  - Both runners in both environments come to **about 48 short runs**. The
-    skill probes add 8 of these (2 runs per environment and runner).
+  - Both runners in both environments come to **about 52 short runs**. The
+    skill probes of #91 and #92 add 12 of these (3 runs per environment and
+    runner); the MCP probes of #108 need no model run.
     Probes without a model run (invalid settings, nested folders) are not
     counted.
   - A restart where both markers still match costs nothing.
@@ -660,6 +665,72 @@ say what I chose". An `interaction` event appears. Answer it with the POST
 above, and the reply names the choice. Without `"stream": true` the same
 prompt is answered with a plain-text question.
 
+### Skill installs (#92)
+
+A capable run can propose a skill for its folder with a line of its own,
+`[[skill-install: https://…]]` (a `SKILL.md`, `.zip` or `.tar.gz`). The
+bridge removes the line from the answer and lists the proposal in the
+`done` event: `"skill_installs": [card]`. It downloads the source into a
+quarantine in the private settings folder, and the card then appears among
+the session's pending approvals:
+
+```json
+{"id": "a1b2c3d4e5f6", "kind": "skill_install", "session_id": "…",
+ "folder": "…", "source": "https://…/SKILL.md", "state": "ready",
+ "name": "tidy", "target": "<folder>/.claude/skills/tidy",
+ "description": "Tidy the notes.",
+ "warnings": ["shell_lines", "requests_tools", "has_scripts"],
+ "files": [{"path": "SKILL.md", "size": 812}], "total_size": 812,
+ "created_at": "…", "expires_at": "…"}
+```
+
+- `state` is `downloading` (wait), `ready` (can be approved), or `failed`
+  with an `error` sentence (it can only be refused). A proposal from a
+  non-HTTPS source is answered at once, in the `done` card, with
+  `"state": "refused"`.
+- `GET /sessions/{id}/interactions` lists it next to the questions and
+  approvals of a running turn. `POST /sessions/{id}/interactions/{iid}`
+  answers it with `{"approve": true|false}`. The reply is
+  `{"answered": true, "id": …, "installed": true|false, "name", "target"}`.
+  A missing or expired proposal answers `404 not_pending`, an existing skill
+  of the same name `409 skill_exists`, and an unwritable audit log
+  `503 audit_unavailable`.
+- Paired phones get a sealed `approval` push hint. Proposals wait 24 hours
+  (also across bridge restarts); after that they count as refused.
+- Details and limits: `permission-policy.md`, section 9.4.
+
+### MCP servers (#108)
+
+- `GET /sessions/{id}/mcp-servers` lists the servers of the session
+  folder's `.mcp.json` and starts nothing:
+
+  ```json
+  {"capable_only": true, "note": "An approved MCP server runs outside the sandbox: …",
+   "servers": [{"name": "tools", "type": "stdio", "command": "npx",
+                "args": ["-y", "some-server"], "url": null,
+                "env_names": ["API_TOKEN"], "header_names": [], "hash": "…",
+                "outside_sandbox": true,
+                "state": "not_approved", "approved_at": null}]}
+  ```
+
+  `state` is `not_approved`, `approved` or `changed` (approved, but the
+  definition changed since: not used).
+- `POST /sessions/{id}/mcp-servers/{name}/approval` creates an approval
+  card (and a sealed `approval` push hint):
+  `{"id", "kind": "mcp_server", "session_id", "folder", "server": {…as
+  above}, "warning": "…outside the sandbox…", "created_at", "expires_at"}`.
+  It is answered like every approval: `POST
+  /sessions/{id}/interactions/{iid}` with `{"approve": true|false}`, which
+  returns `{"answered": true, "id": …, "approved": true|false, "name"?,
+  "reason"?}`.
+- `DELETE /sessions/{id}/mcp-servers/{name}` revokes an approval
+  (`{"revoked": true|false}`).
+- A capable answer that used servers carries `"mcp_servers": [{"name",
+  "outside_sandbox": true}]` and `"mcp_note"`.
+- `503 mcp_unavailable`: the folder has approved servers, but the check
+  with the MCP probes has not passed yet.
+- Details: `permission-policy.md`, section 9.3.
+
 ### Model and effort
 
 - `GET /models` returns `{"models", "efforts", "default_model",
@@ -791,6 +862,66 @@ per-session switch for reply notifications.
   by this authenticated API. Once phone push exists, the same step wakes the
   phone, which fetches the fired reminder and opens the session.
 - Stored in `~/.config/lifeos/reminders.json` (mode 600).
+
+### Projects: `/projects`
+
+For the app's Projects screen (#152), read from files only, without a model
+run. A project is a memory file `projects/<name>.md` and/or an allowed folder
+with its context-map file; they belong together when the project file links
+`[[map/<slug>]]` or has the map's name. The course folder of the Moodle sync
+is not a project.
+
+- `GET /projects` → `{"projects": [P]}`, newest activity first, with `P` =
+  `{"id": "p-<name>" (from a memory file) | "f-<slug>" (a folder only),
+  "name", "title", "status": "active" | "paused" | "done" | null (front
+  matter), "summary": str | null (the file's first paragraph, else the map's
+  "What it is"), "state": str | null (the map's "State"), "folder": path |
+  null (start a chat there with `POST /ask` `"folder"`), "folder_exists",
+  "memory_file", "map_file", "last_activity": ISO | null (the newest of the
+  last session in the folder, the folder's last git commit and the memory
+  file's `updated` day), "open_task_count", "open_tasks": [task as in
+  /tasks, at most 20, those with `(project: <name>)`], "sessions": [{"id",
+  "title", "last_activity"}, at most 5, newest first]}`.
+- `GET /projects/{id}` → one `P`; `404 project_not_found`.
+
+Manual check: `curl -s -H "$H" $B/projects | python3 -m json.tool | head -40`
+lists the allowed folders and the memory's project files, with tasks that
+carry `(project: …)`; `/models/routing` shows no new run.
+
+### Memory consolidation: `/memory/consolidation`
+
+The nightly proposal of [`memory-design.md`](memory-design.md) §6 (trigger B:
+propose, then approve). Nothing is written to the memory until the owner
+approves; approve and reject start no run.
+
+- `GET /memory/consolidation` → `{"proposal": null | {"id", "created_at",
+  "operations": [OP]}, "waiting": int, "running": bool, "last_run",
+  "last_result"}` with `OP` = `{"id": "op1", "op": "file_capture" |
+  "merge_facts" | "add_fact", "file": "<topic file>", "why": str | null,
+  "status": "pending" | "applied" | "rejected" | "failed", "reason"?}` plus,
+  per kind, `"capture", "capture_text", "capture_at"` (file_capture),
+  `"keep", "drop"` (merge_facts) or `"text"` (add_fact, tagged inferred).
+- `POST /memory/consolidation/approve` with `{"operations": ["op1", …]}` or
+  `{"all": true}` applies them in **one** commit by `lifeos-consolidation`
+  and answers the view plus `{"applied": [ids], "failed": [ids],
+  "committed": bool}`; an operation that no longer applies (its capture was
+  edited, its line is gone) fails alone with `"reason": "no longer
+  applies"`. `409 check_failed` (nothing written) if a fact line would
+  disappear. `404 no_proposal`, `404 operation_not_found`, `400` for a bad
+  body.
+- `POST /memory/consolidation/reject` (same body) → the view plus
+  `{"rejected": [ids]}`; rejected operations are not proposed again
+  unchanged. When no operation is pending any more, `proposal` is `null`.
+- `POST /memory/consolidation/run` → `202 {"started": true}`, or `409`
+  (`"reason": "waiting"` or `"running"`) / `429 "too_soon"` (ten minutes).
+- Push: `coach` event, opens `consolidation`, `r` = proposal id; fixed text.
+
+Manual check: add two captures from the phone, `curl -s -X POST -H "$H"
+$B/memory/consolidation/run`, wait a minute, `curl -s -H "$H"
+$B/memory/consolidation` (operations with "why"); approve one with `-d
+'{"operations":["op1"]}' .../approve`; `git -C ~/brain log -1
+--format='%an %s'` shows `lifeos-consolidation`; reject the rest with `-d
+'{"all":true}' .../reject`.
 
 ### Memory: `/notes`, `/tasks`, `/events`, `/agenda`
 
@@ -1384,6 +1515,7 @@ are used, so it works while the app is closed.
   | `courses` | `courses` | `course` / `courses` | course id when one course changed, else none | a course sync found something (one push per sync) |
   | `signin` | `courses` | `moodle_signin` | – | the course sign-in needs renewal |
   | `coach` | `coach` | `coach` | message id of `GET /coach/plan` | the coach's daily note, and further nudges (frequency `"3"`) |
+  | `coach` | `coach` | `consolidation` | proposal id | a consolidation proposal waits for approval |
   | `reminder` | `reminders` | `reminder` | reminder id | a session reminder is due |
   | `notice` | `reminders` | `notice` | – (`t`, `l`) | `scripts/notify.sh` (for example a new owner issue) |
   | `update` | `reminders` | `app_update` | version code | a new app release was registered (`lifeos-bridge release`) |

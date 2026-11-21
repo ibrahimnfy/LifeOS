@@ -126,7 +126,8 @@ its own git like everything else there):
 owner said, a conclusion the answer clearly supports (`"source":
 "inferred"`); it is written as `- [inferred <date>] …`, at most three facts
 per answer in all. Every writer of facts (the filing step, the coach
-conversation's compaction, and the consolidation proposal once it exists)
+conversation's compaction, and the approved operations of the
+consolidation proposal, memory-design.md §6)
 uses the same check (`bridge/src/lifeos_bridge/facts.py`): only existing
 topic files inside the memory folder, one plain line of at most 240
 characters, appended under `## Facts` and never replacing a line, and not
