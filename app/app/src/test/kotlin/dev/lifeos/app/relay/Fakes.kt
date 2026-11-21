@@ -61,7 +61,11 @@ class FakeMailbox : Mailbox {
         .filter { it.key.startsWith("$path/") && '/' !in it.key.substring(path.length + 1) }
         .map { MailboxEntry(it.key.substring(path.length + 1), it.value) }
 
+    /** How many listeners were started (a reconnect starts a new one). */
+    var listens = 0
+
     override fun listen(path: String): Flow<MailboxEvent> = flow {
+        listens++
         emit(MailboxEvent.Up)
         while (true) {
             val entries = children(path)

@@ -148,6 +148,7 @@ app/                         Gradle root (this folder)
         │   ├── pairing/             QR text, pairing flow, storage, Keystore vault
         │   ├── relay/               mailbox (REST + stream), relay account, requests
         │   ├── data/                API calls and models, saved copies, outbox, downloads
+        │   ├── sync/                sending as soon as the phone is online again (network callback, background job)
         │   ├── activity/            screen time: usage events, per-day store, daily measurement, upload
         │   ├── lock/                lock timeout, system confirmation dialog
         │   ├── settings/            theme, language, lock timeout (DataStore)
@@ -561,6 +562,28 @@ Nothing on these screens is sample content any more. Not paired, they show
   on its way, the note cannot be edited until it is confirmed. A refusal by
   the computer is shown as "Not accepted". Unsent items are deleted on
   unpair.
+- **Online again (#165)** (`sync/`): the app follows the phone's default
+  network with Android's network callback (`NetworkWatch`). When a
+  validated network appears where there was none, `SyncTrigger` starts one
+  run at once: connections of the old network are dropped, the relay stream
+  is opened again without waiting out its pause between attempts, the
+  computer is asked (up to three times, two seconds apart) and what waits
+  is sent; a successful check also reloads the screens. Runs never overlap:
+  changes during a run become one follow-up run three seconds after it, so
+  a flapping connection does not start parallel sends, and a run is never
+  cut off half-way. Duplicates are still ruled out by the outbox itself
+  (one sender at a time, `client_id` on new notes and tasks). Before this,
+  the phone waited for the stream's own back-off and for the check that
+  runs once a minute, and nothing was sent while the app was in the
+  background. **In the background**, whenever something waits while the
+  computer cannot be reached, a unique WorkManager job (`OutboxWorker`,
+  expedited from Android 12 on) is planned with "network connected" as its
+  condition; Android starts it, and the app's process if it was paused or
+  stopped, when the phone is online again, and it asks the same core for a
+  run. **Limit:** sending needs the device secret, which is behind the app
+  lock. When the app has locked itself (after the chosen lock time out of
+  sight, and always after the process was restarted), the job ends without
+  sending, and what waits is sent right after the next unlock.
 - **Offline-first notes and tasks** (`data/Local.kt`): a new note or task
   is on every screen at once. While it waits it is shown where it belongs
   (Tasks in its date section or under "Just added", Today when it is due
@@ -1113,6 +1136,27 @@ running on the computer with the relay set up.
    is still planned (`adb shell dumpsys alarm | grep SLEEP_PROMPT`).
 11. **Unpair:** Today and Tasks show "Not connected yet" again; saved copies,
    waiting items and the screen time stored on the phone are gone.
+
+### Sending when the phone is online again (#165)
+
+The bridge runs on the computer; the app is paired and unlocked.
+
+1. Switch the phone to flight mode (Wi-Fi off too). Capture a note and a
+   task: both show "Waiting to sync".
+2. Switch flight mode off, keep the app open and watch the computer: the
+   note is in `inbox.md` and the task in `tasks.md` within a few seconds of
+   the phone showing its network, each once; on the phone both lose
+   "Waiting to sync".
+3. Repeat with the app in the background: capture in flight mode, go to
+   the home screen, switch flight mode off within the lock time (Settings →
+   App lock; five minutes is easiest to test with). Both reach the computer
+   within a few seconds without opening the app.
+4. Flapping: in flight mode capture a note, then switch flight mode off,
+   on, off quickly. The note arrives once.
+5. Locked: capture in flight mode, leave the app until it locks (or close
+   it from the recent apps), switch flight mode off. Nothing is sent yet;
+   open the app and confirm with fingerprint or screen lock: the note
+   arrives within seconds.
 
 ### Renewing the Moodle sign-in on the phone
 

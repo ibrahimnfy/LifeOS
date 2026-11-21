@@ -79,6 +79,7 @@ class RelayClient(
     val link: StateFlow<Link> = linkState
 
     /** Start listening for messages from the bridge. */
+    @Synchronized
     fun start() {
         if (listener != null) return
         listener = scope.launch {
@@ -92,10 +93,25 @@ class RelayClient(
         }
     }
 
+    @Synchronized
     fun stop() {
         listener?.cancel()
         listener = null
         linkState.value = Link.UNKNOWN
+    }
+
+    /**
+     * Listen again at once (#165): the phone is online again, so a stream that may still hang
+     * on the old network is dropped, and the listener's pause between attempts is skipped.
+     * Requests waiting for their answer keep waiting; the new stream delivers what arrived.
+     * Does nothing once stopped.
+     */
+    @Synchronized
+    fun reconnect() {
+        val old = listener ?: return
+        old.cancel()
+        listener = null
+        start()
     }
 
     /**
