@@ -36,6 +36,15 @@ class FakeTransport : Transport {
         return streams(call)
     }
 
+    /** Chat answers: what a streamed request ("METHOD /path") is answered with. */
+    var events: (Call) -> Flow<AnswerEvent> = { flow { } }
+
+    override fun events(method: String, path: String, body: JsonElement?, idleTimeoutMillis: Long): Flow<AnswerEvent> {
+        val call = Call(method, path, emptyMap(), body)
+        calls += call
+        return events(call)
+    }
+
     companion object {
         /** The answers of the bridge's course endpoints for its own synthetic test site. */
         val fixture = Json.parseToJsonElement(

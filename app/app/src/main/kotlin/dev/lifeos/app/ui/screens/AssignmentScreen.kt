@@ -37,7 +37,7 @@ import dev.lifeos.app.data.AssignmentDetail
 import dev.lifeos.app.data.AssignmentMatch
 import dev.lifeos.app.data.Dates
 import dev.lifeos.app.data.Endpoints
-import dev.lifeos.app.data.Markdown
+import dev.lifeos.app.data.SiteMarkdown
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
 import dev.lifeos.app.ui.icons.LifeIcons
@@ -262,12 +262,12 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     val colors = LifeTheme.colors
     val linkStyle = TextLinkStyles(SpanStyle(color = colors.link, textDecoration = TextDecoration.Underline))
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (block in Markdown.blocks(text)) {
+        for (block in SiteMarkdown.blocks(text)) {
             val body = buildAnnotatedString { appendSpans(block.spans, linkStyle) }
             when (block.kind) {
-                Markdown.Kind.HEADING -> Text(body, style = LifeType.rowTitle, color = colors.text)
-                Markdown.Kind.PARAGRAPH -> Text(body, style = LifeType.body, color = colors.text)
-                Markdown.Kind.BULLET, Markdown.Kind.NUMBERED -> Row {
+                SiteMarkdown.Kind.HEADING -> Text(body, style = LifeType.rowTitle, color = colors.text)
+                SiteMarkdown.Kind.PARAGRAPH -> Text(body, style = LifeType.body, color = colors.text)
+                SiteMarkdown.Kind.BULLET, SiteMarkdown.Kind.NUMBERED -> Row {
                     Text(block.marker ?: "•", style = LifeType.body, color = colors.muted, modifier = Modifier.width(22.dp))
                     Text(body, style = LifeType.body, color = colors.text)
                 }
@@ -276,7 +276,7 @@ fun MarkdownText(text: String, modifier: Modifier = Modifier) {
     }
 }
 
-private fun AnnotatedString.Builder.appendSpans(spans: List<Markdown.Span>, linkStyle: TextLinkStyles) {
+private fun AnnotatedString.Builder.appendSpans(spans: List<SiteMarkdown.Span>, linkStyle: TextLinkStyles) {
     for (span in spans) {
         val style = SpanStyle(
             fontWeight = if (span.bold) FontWeight.Bold else null,

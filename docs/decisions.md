@@ -232,6 +232,24 @@ a new entry is added that says what changed and why.
 - **The app's choices sit on top** of `LIFEOS_MODEL_ROUTING`, `LIFEOS_BACKGROUND_MODEL` and the defaults, per job and per field, in `~/.config/lifeos/model-routing.json`; read on every run, so no restart. `null` returns a field to the default underneath, `reset` the whole job. Models from `LIFEOS_MODELS` or a full `claude-…` name. Audited before the change; no record, no change.
 - **The SDK runner is switched on** (`LIFEOS_RUNNER=sdk` in the private settings) after both runners passed the guardrail check in the terminal and the service environment. Checked on the running bridge: a read-only question is answered, and a second message in the same session is answered by the live process in about a second.
 
+### Implementation choices for chat and sessions in the app (agent, #33; cheap to change)
+- **The Chat tab is the list of the mockups** (coach conversation pinned, the chat in progress, three recent sessions, "New chat"); the conversation is a screen below it. "The chat continues the same conversation" is met by keeping which session is open (its id and folder in a small private file, never a message) and opening it directly the first time the Chat tab is shown after a start.
+- **One conversation at a time, held outside the screens.** Opening another session or starting a new chat while an answer is being written leaves that run to finish on the computer; it is found again under Sessions.
+- **A new conversation goes out as `POST /ask`, every further message as `POST /sessions/{id}/messages`**, both streamed through the relay (which already carried streams; the app's client only gained a shorter limit for the first message).
+- **Nothing is sent unless the computer has just answered**; a message that was not sent returns to the composer. No first answer within 45 seconds counts as "no answer"; a started run may stay quiet for 11 minutes.
+- **A lost answer is never a failure and never a reason to send again.** The app asks the computer whether the session is still running (every five seconds while the conversation is on screen) and then reads its last messages; only when the message is not in the conversation there does it offer "Retry".
+- **Only the last page of the history is read** (default four exchanges); scrolling further back, the queue, send now and cancel stay with #94. Sending is disabled while an answer is awaited.
+- **"Working" on a session row** is the bridge's `in_use` (it is answering a message of that session). A session open in a terminal is only known from the refusal when a message is sent.
+- **Answers are rendered with a small Markdown subset** written for the app (paragraphs, headings, lists, fenced code, bold, inline code); no library was added. Tables are shown as text.
+
+### Implementation choices for approvals and questions in the app (agent, #53; cheap to change)
+- **Changes are allowed per conversation with a switch above the composer, off by default** ("Read-only" / "Changes allowed"). It sets `mode: capable` for the following messages and is off again after a new chat, another session or a lock of the app. This is how "a capable mode is chosen per request" (#5) is offered on the phone until the owner asks for something else.
+- **Every message opts in to questions and approvals** (`interactive: true`), also read-only ones, so the assistant's question tool gets cards instead of a refusal.
+- **Approval card:** the kind of action in words (from the gate's category), then the command and the folder exactly as the bridge sent them, whole and selectable; a deletion gets a red frame and a warning line. One tap on "Allow" is the confirmation; there is no second dialog. The mockup's sentence with the number of files cannot be built: the bridge sends the command, not a list of files.
+- **The phone never answers by itself.** When the time is over the card closes and nothing is sent; the bridge counts the silence as "no". The countdown runs on the phone's monotonic clock from the bridge's waiting time, so differing wall clocks neither shorten nor lengthen it.
+- **Question cards were built with the same mechanism** (choices, several choices, own words, skip), because a client that opts in must be able to answer them; #98 keeps whatever goes beyond that.
+- **Settled cards stay above the answer that followed them until the next message**, as a record of what was allowed or refused; they are kept in memory only.
+
 ### Implementation choices for coach nudges (agent, #72, 2026-11-21; cheap to change)
 - **Nudges after the daily note come from the same morning batch in its order**, two hours apart, only for today's batch, never in quiet hours (dropped that day), never about a task done meanwhile or a blocked question. Each push carries the message id (sealed); the visible text is fixed. `"low"` and `"normal"` are accepted for `"1"` and `"3"`.
 

@@ -37,6 +37,14 @@ class ApiException(val kind: Kind, val status: Int = 0, val code: String? = null
 interface Transport {
     suspend fun request(method: String, path: String, query: Map<String, String>, body: JsonElement?, timeoutMillis: Long): RelayResponse
     fun stream(method: String, path: String, query: Map<String, String>): Flow<AnswerEvent>
+
+    /**
+     * A request whose answer arrives as events while the computer works (a chat answer). The
+     * flow ends after [AnswerEvent.Done] and fails with [ApiException]: NOT_SENT when nothing
+     * left the phone, UNCERTAIN when the request left but the answer stopped arriving.
+     */
+    fun events(method: String, path: String, body: JsonElement?, idleTimeoutMillis: Long): Flow<AnswerEvent> =
+        kotlinx.coroutines.flow.flow { throw ApiException(ApiException.Kind.NOT_SENT) }
 }
 
 /**
@@ -46,6 +54,7 @@ interface Transport {
 class Api(private val transport: Transport) {
     private val oneAtATime = Mutex()
     private val planLane = Mutex()
+    private val chatLane = Mutex()
 
     suspend fun call(
         method: String,
@@ -161,7 +170,56 @@ class Api(private val transport: Transport) {
         return transport.stream("GET", "/files/${offer.offer}", query)
     }
 
+    // ---- chat and sessions
+
+    /**
+     * Send [prompt] and receive the answer as it is written: a new conversation in [folder]
+     * (null: the memory folder) when [sessionId] is null, otherwise the next message of that
+     * session, which runs in its own folder. Not one of the one-at-a-time requests: an answer
+     * takes minutes and nothing else may wait for it.
+     */
+    fun chat(prompt: String, sessionId: String?, folder: String?, options: Map<String, JsonElement> = emptyMap()): Flow<AnswerEvent> {
+        val body = buildJsonObject {
+            put("prompt", JsonPrimitive(prompt))
+            put("stream", JsonPrimitive(true))
+            if (sessionId == null && folder != null) put("folder", JsonPrimitive(folder))
+            options.forEach { (name, value) -> put(name, value) }
+        }
+        val path = if (sessionId == null) "/ask" else "/sessions/$sessionId/messages"
+        return transport.events("POST", path, body, CHAT_IDLE_MILLIS)
+    }
+
+    /** The latest exchanges of a session (the computer keeps the whole conversation). */
+    suspend fun history(sessionId: String): HistoryPage =
+        read(HistoryPage.serializer(), chatCall("GET", "/sessions/$sessionId/history"))
+
+    /** Whether the computer is working on the session right now, and what waits behind that. */
+    suspend fun runState(sessionId: String): RunState =
+        read(RunState.serializer(), chatCall("GET", "/sessions/$sessionId/queue"))
+
+    /** The questions and approvals a run of the session waits for right now. */
+    suspend fun interactions(sessionId: String): List<InteractionData> =
+        read(PendingInteractions.serializer(), chatCall("GET", "/sessions/$sessionId/interactions")).pending
+
+    /**
+     * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours).
+     * `404 not_pending` when the computer no longer waits for it.
+     */
+    suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement) {
+        chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)
+    }
+
+    /** Chat's own lane: its small requests wait neither for the screens' loaders nor the other way round. */
+    private suspend fun chatCall(method: String, path: String, body: JsonElement? = null): JsonElement =
+        chatLane.withLock { exchange(method, path, emptyMap(), body, READ_TIMEOUT_MILLIS) }
+
     companion object {
+        /**
+         * How long a chat answer may stay quiet before the app stops listening and asks the
+         * computer instead (the run itself goes on there). Longer than the computer's default
+         * limits for one run (5 minutes) and for one question to the owner (10 minutes).
+         */
+        const val CHAT_IDLE_MILLIS = 11 * 60_000L
         const val READ_TIMEOUT_MILLIS = 20_000L
         const val WRITE_TIMEOUT_MILLIS = 20_000L
         const val PLAN_TIMEOUT_MILLIS = 240_000L
