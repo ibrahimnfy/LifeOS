@@ -880,6 +880,8 @@ class Chat(
     fun answerQuestion(id: String, answers: Map<String, List<String>>) {
         val interaction = mutable.value.interactions.firstOrNull { it.id == id } ?: return
         if (!Interaction.complete(interaction.questions, answers)) return
+        val given = answers.mapValues { (_, values) -> values.map { it.trim() }.filter { it.isNotEmpty() } }
+        mutable.update { state -> state.copy(interactions = state.interactions.map { if (it.id == id) it.copy(answers = given) else it }) }
         answer(id, Interaction.answersBody(interaction.questions, answers), Interaction.Status.ANSWERED)
     }
 

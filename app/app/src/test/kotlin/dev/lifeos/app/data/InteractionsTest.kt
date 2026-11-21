@@ -271,6 +271,8 @@ class InteractionsTest {
         runCurrent()
         assertEquals(json("""{"answers":{"Red or blue?":"Purple, actually","Which days?":["Mon","Tue"]}}"""), posts().single().body)
         assertEquals(Interaction.Status.ANSWERED, chat.state.value.interactions.single().status)
+        // The card keeps what was answered, as it was sent.
+        assertEquals(mapOf("Red or blue?" to listOf("Purple, actually"), "Which days?" to listOf("Mon", "Tue")), chat.state.value.interactions.single().answers)
         gate.complete(Unit)
         advanceUntilIdle()
 

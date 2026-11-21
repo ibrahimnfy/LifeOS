@@ -63,6 +63,8 @@ data class Interaction(
     val status: Status = Status.WAITING,
     /** The answer could not be delivered; the owner can try again while the computer still waits. */
     val sendFailed: Boolean = false,
+    /** Question: what the owner answered, per question (shown on the card afterwards). */
+    val answers: Map<String, List<String>> = emptyMap(),
 ) {
     enum class Kind { APPROVAL, QUESTION }
 

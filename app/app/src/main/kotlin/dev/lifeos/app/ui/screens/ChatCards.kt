@@ -93,25 +93,28 @@ internal fun InteractionCard(
             val left = interaction.remainingMillis(now) / 1000
             // Not a live region: the time is not read out every second.
             Text(
-                text = stringResource(R.string.interaction_time_left, "%d:%02d".format(left / 60, left % 60)),
+                text = stringResource(
+                    if (interaction.kind == Interaction.Kind.QUESTION) R.string.question_time_left else R.string.interaction_time_left,
+                    "%d:%02d".format(left / 60, left % 60),
+                ),
                 style = LifeType.small,
                 color = colors.muted,
             )
         }
         if (interaction.sendFailed && open) Notice(stringResource(R.string.interaction_send_failed), alert = true)
-        interaction.status.resultRes()?.let { Notice(stringResource(it), alert = false) }
+        interaction.status.resultRes(interaction.kind)?.let { Notice(stringResource(it), alert = false) }
     }
 }
 
 /** What the card says once it is no longer open for an answer. */
-private fun Interaction.Status.resultRes(): Int? = when (this) {
+private fun Interaction.Status.resultRes(kind: Interaction.Kind): Int? = when (this) {
     Interaction.Status.WAITING -> null
     Interaction.Status.SENDING -> R.string.interaction_sending
     Interaction.Status.ALLOWED -> R.string.approval_allowed
     Interaction.Status.REFUSED -> R.string.approval_refused
     Interaction.Status.ANSWERED -> R.string.question_answered
     Interaction.Status.SKIPPED -> R.string.question_skipped
-    Interaction.Status.EXPIRED -> R.string.interaction_expired
+    Interaction.Status.EXPIRED -> if (kind == Interaction.Kind.QUESTION) R.string.question_expired else R.string.interaction_expired
     Interaction.Status.GONE -> R.string.interaction_gone
 }
 
@@ -206,6 +209,11 @@ private fun ColumnScope.Question(interaction: Interaction, open: Boolean, onAnsw
     interaction.questions.forEach { question ->
         if (question.header.isNotBlank()) Text(text = question.header, style = LifeType.small, color = colors.muted)
         Text(text = question.question, style = LifeType.rowTitle, color = colors.text)
+        // Afterwards the card keeps what was answered.
+        val given = interaction.answers[question.question].orEmpty()
+        if (!open && given.isNotEmpty()) {
+            Text(text = stringResource(R.string.question_your_answer, given.joinToString(", ")), style = LifeType.body, color = colors.text)
+        }
         if (open) {
             if (question.multiSelect) Text(text = stringResource(R.string.question_multi), style = LifeType.small, color = colors.muted)
             val picked = chosen[question.question].orEmpty()

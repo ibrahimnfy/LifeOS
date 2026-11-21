@@ -282,9 +282,15 @@ with plain HTTPS requests.
     the time left. A deletion has a red frame and a warning. Nothing runs
     without the tap on Allow; when the time is over the card says that it
     counted as "no".
-  - **Questions:** when the assistant asks with its question tool, a card
-    shows each question with its choices (one or several) and a field for
-    the owner's own words, with **Send** and **Skip**.
+  - **Questions (option cards):** when the assistant asks with its question
+    tool, the run waits and a card shows each question (up to four) with its
+    choices as rows to tap (one choice, or several where the question allows
+    it) and a field for the owner's own words, with **Send** and **Skip**
+    and the time left. Send is possible once every question has an answer.
+    Afterwards the card keeps what was answered. Without an answer in time
+    the assistant goes on without one. The cards use only the bridge's
+    interactions (the Agent SDK's documented question callback); a client
+    that could not show them would get the question as text instead.
 - **Sessions** (the clock in Chat, or under More): a field that filters by
   title and folder, pinned sessions, then every folder with its sessions,
   newest first; "Working" marks a session the computer is answering right
@@ -930,10 +936,13 @@ On an emulator with the `sample_data` test aid (no computer, nothing runs):
    nothing was changed. Send it again and tap **Allow**: "You allowed this."
 3. Send "hurry push it" and wait 20 seconds without tapping: the buttons go
    away and the card says that it was not answered in time.
-4. Send "choose for me": two questions with choices. Send stays grey until
-   both have an answer; choose one for the first, two for the second (or
-   type your own words), **Send**: "Answered." and the reply repeats the
-   choices. **Skip** declines instead.
+4. **Option cards:** send "choose for me": two questions with choices.
+   Send stays grey until both have an answer; choose one for the first, two
+   for the second (or type your own words), **Send**: the card shows "Your
+   answer: …" under each question and "Answered.", and the reply repeats
+   the choices. **Skip** declines instead. With "hurry choose" and no tap,
+   the card says after 20 seconds that the assistant went on without an
+   answer.
 
 With the computer (the bridge with `LIFEOS_RUNNER=sdk` and the capable mode
 switched on by its guardrail check; each step is a short run on the plan):
@@ -952,8 +961,12 @@ switched on by its guardrail check; each step is a short run on the plan):
 7. Lock the phone while a card is waiting, unlock and open the conversation:
    "The computer is still working on this" and the same card, which can
    still be answered.
-8. Send "Use the question tool to ask me Red or Blue, then say what I
-   chose": a question card; choose one, **Send**: the reply names it.
+8. **Option cards:** send "Use the question tool to ask me Red or Blue,
+   then say what I chose": a question card with the two choices; choose one,
+   **Send**: the reply names it. Send it again and type "Green" into "Or
+   write your own answer" instead: the reply names Green. Ask "Use the
+   question tool to ask me which of Mon, Tue, Wed suit me, several can be
+   chosen": the rows have check boxes and the reply lists all chosen days.
 9. With "Changes allowed" on and the capable mode switched off on the
    computer, a message is refused with "Making changes is switched off on
    the computer right now…" and **Retry**.
