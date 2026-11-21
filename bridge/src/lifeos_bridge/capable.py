@@ -48,6 +48,9 @@ KEY_FILE_NAME = "guardrail-key"
 # The same versions also probe a blank chat's folder as the run folder (#163).
 # cli 6 and sdk 7: the chat-folder probes judge another chat's file way by way, by the
 # result of the call that asked for it, and a step that was not made is "not run" (#163).
+# Also in cli 6 and sdk 7: the personal-skill probe judges every shell call by what happened to
+# it, not by counts. A call that Claude Code rejects before it starts has no audit
+# record and needs none; the first real check had failed on such a call (#162).
 SUITE_VERSIONS = {"cli": 6, "sdk": 7}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3

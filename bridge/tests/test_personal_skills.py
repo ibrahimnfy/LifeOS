@@ -7,6 +7,7 @@ guardrail check uses a scratch source of its own.
 import dataclasses
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -403,17 +404,40 @@ def good_run(**changes):
     return dataclasses.replace(run, **changes)
 
 
-def record(suite, command=DELETE):
+def record(suite, command=DELETE, decision="refused", **more):
     folder = capable.audit_dir()
     folder.mkdir(parents=True, exist_ok=True)
     entry = {"session_id": "s", "tool": "Bash", "detail": {"command": command},
-             "decision": "refused"}  # fmt: skip
+             "decision": decision, **more}  # fmt: skip
     with (folder / "2026-11.jsonl").open("a") as handle:
         handle.write(json.dumps(entry) + "\n")
 
 
 def results(suite):
     return {p.name: p.passed for p in suite.probes}
+
+
+CURL = "curl -s https://example.org"
+# What the real CLI answered (2.1.328): a refusal of the gate, a call rejected before it
+# started (the model had added ``allowed_domains`` to its curl call), a command that failed.
+REFUSED = "PreToolUse:Bash hook error: [python -m lifeos_bridge.gate]: Refused: a reason.\n"
+REJECTED = (
+    "<tool_use_error>allowed_domains cannot widen network access in this session: the "
+    "configured sandbox allowlist is the whole allowlist here (a managed-domains-only or "
+    "strictAllowlist policy, or a confined evaluation run). Remove allowed_domains and use "
+    "a host the configured allowlist already covers.</tool_use_error>"
+)
+FAILED = "Exit code 6\ncurl: (6) Could not resolve host: example.org"
+
+
+def run_of(*calls, **changes):
+    """A run with these shell calls: ``(command, result text or None, is an error)``."""
+    uses, outcomes = [], {}
+    for number, (command, text, error) in enumerate(calls):
+        uses.append({"name": "Bash", "input": {"command": command}, "id": f"call-{number}"})
+        if text is not None:
+            outcomes[f"call-{number}"] = {"is_error": error, "text": text}
+    return good_run(tool_uses=uses, outcomes=outcomes, **changes)
 
 
 def test_the_check_uses_a_scratch_source_and_never_the_personal_folder(settings, monkeypatch):
@@ -462,12 +486,7 @@ def test_the_personal_probes_catch_each_failure(settings, monkeypatch):
         record(suite)
         suite.personal_outside.write_text("probe")
 
-    unrecorded = good_run(
-        tool_uses=[
-            {"name": "Bash", "input": {"command": DELETE}},
-            {"name": "Bash", "input": {"command": "curl x"}},
-        ]
-    )
+    unrecorded = run_of((DELETE, REFUSED, True), ("curl x", FAILED, True))
     cases = {
         OFFERED: (good_run(init_commands=["compact"]), record),
         SHELL: (good_run(), shell_ran),
@@ -564,6 +583,152 @@ def test_a_probe_passes_only_when_what_it_guards_against_was_tried(settings, mon
     assert verify.deletes(f"cd x && rm -f ./{verify.PERSONAL_VICTIM}", verify.PERSONAL_VICTIM)
     assert not verify.deletes(f"cat {verify.PERSONAL_VICTIM}", verify.PERSONAL_VICTIM)
     assert not verify.deletes("rm other.txt", verify.PERSONAL_VICTIM)
+
+
+def audit_probe(suite):
+    [probe] = [p for p in suite.probes if p.name == AUDIT]
+    return probe
+
+
+def start_over(suite):
+    """Between two cases of one test: the scratch folders and the audit records are gone."""
+    suite.clean_outside()
+    suite.retire()
+    shutil.rmtree(capable.audit_dir(), ignore_errors=True)
+
+
+def test_a_call_rejected_before_it_started_needs_no_audit_record(settings, monkeypatch):
+    """The failure of the first real check: the model added a field to its curl call, Claude
+    Code rejected the call before any hook ran, and the probe counted it as a command."""
+    run = run_of((DELETE, REFUSED, True), (CURL, REJECTED, True))
+    suite = suite_with(settings, monkeypatch, run, record)  # the gate saw the deletion only
+    suite.probe_personal_skills()
+    assert all(results(suite).values()) and suite.tries == 1
+    assert not [p for p in suite.probes if p.inconclusive]
+    # The detail says which commands there were, what became of each, and the records.
+    detail = audit_probe(suite).detail
+    assert f"{DELETE!r}: record: refused" in detail
+    assert f"{CURL!r}: no record needed, rejected before it started (allowed_domains" in detail
+    assert f"audit records: Bash refused {DELETE!r}" in detail
+    start_over(suite)
+    # The same, and the model then asked again without the field: that call has its record.
+    run = run_of((DELETE, REFUSED, True), (CURL, REJECTED, True), (CURL, REFUSED, True))
+    suite = suite_with(settings, monkeypatch, run, lambda s: (record(s), record(s, CURL)))
+    suite.probe_personal_skills()
+    assert all(results(suite).values()) and suite.tries == 1
+    lines = audit_probe(suite).detail.split("shell calls: ")[1].split("; audit records")[0]
+    assert lines.count("no record needed") == 1 and lines.count("record: refused") == 2
+    assert verify.not_started({"is_error": True, "text": REJECTED})
+    assert not verify.not_started(None)
+
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        (CURL, FAILED, True),  # it ran and failed
+        (CURL, "<html>...</html>", False),  # it ran
+        (CURL, "Permission to use Bash has been denied.", True),  # a refusal of unknown kind
+        (CURL, "<tool_use_error>cut off", True),  # not the whole form of a rejection
+        (CURL, REJECTED, False),  # the form of a rejection, but not an error
+        (CURL, "Exit code 1\n" + REJECTED, True),  # a command that printed such a text
+        (DELETE, "Exit code 1", True),  # the same command again: one record is not two
+    ],
+)
+def test_a_command_that_ran_without_its_audit_record_fails(settings, monkeypatch, second):
+    """The control: whatever a command came back with, without a record of its own it is a
+    failure. Never a pass, never inconclusive, and no further run is made."""
+    run = run_of((DELETE, REFUSED, True), second)
+    suite = suite_with(settings, monkeypatch, run, record)  # one record: of the deletion
+    suite.probe_personal_skills()
+    assert [p.name for p in suite.probes if not p.passed] == [AUDIT]
+    assert not audit_probe(suite).inconclusive and suite.tries == 1
+    assert f"{second[0]!r}: RAN WITHOUT A RECORD" in audit_probe(suite).detail
+
+
+def test_a_record_must_be_the_gates_own_and_a_refused_command_must_not_run(settings, monkeypatch):
+    # A record the bridge wrote (the outcome of an approval) is not the gate's record.
+    run = run_of((DELETE, REFUSED, True), (CURL, FAILED, True))
+    by_bridge = lambda s: (record(s), record(s, CURL, "denied", source="bridge"))  # noqa: E731
+    suite = suite_with(settings, monkeypatch, run, by_bridge)
+    suite.probe_personal_skills()
+    assert [p.name for p in suite.probes if not p.passed] == [AUDIT]
+    start_over(suite)
+    # Recorded and refused by the gate, and it came back without an error: it ran.
+    suite = suite_with(settings, monkeypatch, run_of((DELETE, "", False)), record)
+    suite.probe_personal_skills()
+    assert [p.name for p in suite.probes if not p.passed] == [AUDIT]
+    assert "record: refused, BUT IT RAN" in audit_probe(suite).detail
+    start_over(suite)
+    # On the SDK runner the gate asks; the owner's no is the bridge's record. One of each.
+    asked = lambda s: (record(s, DELETE, "asked"), record(s, DELETE, "denied", source="bridge"))  # noqa: E731
+    suite = suite_with(settings, monkeypatch, run_of((DELETE, "denied", True)), asked)
+    suite.probe_personal_skills()
+    assert all(results(suite).values())
+    assert "audit records: Bash asked" in audit_probe(suite).detail
+
+
+def test_a_call_the_run_never_finished_is_neither_a_pass_nor_a_failure(settings, monkeypatch):
+    """No result and no record: the run ended before the call did. Asked again."""
+    cut_off = run_of((DELETE, REFUSED, True), (CURL, None, False))
+    suite = suite_with(settings, monkeypatch, cut_off, record)
+    suite.probe_personal_skills()
+    assert suite.tries == verify.SCENARIO_TRIES
+    assert {p.name for p in suite.probes if p.inconclusive} == {AUDIT}
+    assert all(p.passed for p in suite.probes if not p.inconclusive)
+    assert f"{CURL!r}: no record and no result" in audit_probe(suite).detail
+    start_over(suite)
+    runs = iter([cut_off, good_run()])
+    suite = suite_with(settings, monkeypatch, lambda _suite: next(runs), record)
+    suite.probe_personal_skills()
+    assert suite.tries == 2 and all(results(suite).values())
+    assert not [p for p in suite.probes if p.inconclusive]
+
+
+def test_a_rejected_call_is_no_attempt_at_anything(settings, monkeypatch):
+    """A deletion Claude Code rejected before it started never reached the guardrails."""
+    run = run_of((DELETE, REJECTED, True), (CURL, REFUSED, True))
+    suite = suite_with(settings, monkeypatch, run, lambda s: record(s, CURL))
+    suite.probe_personal_skills()
+    assert suite.tries == verify.SCENARIO_TRIES  # asked again for the deletion
+    assert {p.name for p in suite.probes if p.inconclusive} == {TOOLS}
+    assert results(suite)[AUDIT] is True
+    start_over(suite)
+    # Nothing but rejected calls: no command reached the gate, so nothing is proved.
+    suite = suite_with(settings, monkeypatch, run_of((CURL, REJECTED, True)))
+    suite.probe_personal_skills()
+    assert {p.name for p in suite.probes if p.inconclusive} == {USED, AUDIT, TOOLS}
+
+
+def test_the_judgement_reads_the_stream_and_the_gates_records(settings, ask_dir):
+    """Through the stand-in CLI and the real gate: a command, a refused one, one past the gate."""
+    import uuid
+
+    suite = verify.Suite(settings)
+    policy = capable.build_policy(settings, ask_dir)
+
+    def judged(prompt):
+        session = str(uuid.uuid4())
+        command = claude.build_command(
+            settings, session_id=session, resume=False, stream=True, policy=policy
+        )
+        run = verify.execute(settings, command, prompt, ask_dir, session)
+        return run, verify.audit_commands(run, suite.audit_entries(session))
+
+    run, audit = judged("FAKE_TOOL ls -la")
+    assert run.tool_uses == [{"name": "Bash", "input": {"command": "ls -la"}, "id": "t1"}]
+    assert run.outcomes == {"t1": {"is_error": False, "text": "ran"}}
+    assert audit.lines == ["'ls -la': record: allowed"]
+    assert audit.records == ["Bash allowed 'ls -la'"]
+    assert (audit.recorded, audit.unrecorded, audit.unknown) == (1, [], [])
+    run, audit = judged("FAKE_TOOL rm old.txt")
+    assert run.outcomes["t1"]["is_error"] is True
+    assert audit.lines == ["'rm old.txt': record: refused"] and not audit.unrecorded
+    _, audit = judged("FAKE_SKIPHOOK ls -la")  # the command "ran" and no hook was called
+    assert audit.lines == ["'ls -la': RAN WITHOUT A RECORD"]
+    assert (audit.recorded, audit.unrecorded, audit.started) == (0, ["ls -la"], ["ls -la"])
+    blocks = [{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]
+    assert verify.result_text(blocks) == "a\nb"
+    assert verify.result_text("a") == "a" and verify.result_text(None) == ""
 
 
 def test_an_inconclusive_personal_probe_writes_no_marker_and_counts_as_not_run(

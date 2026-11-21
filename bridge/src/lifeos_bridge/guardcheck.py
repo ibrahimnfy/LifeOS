@@ -65,6 +65,7 @@ ORDER = ("cli", "sdk")
 # extra.
 # The chat-folder probes (#163, the same suite versions) add three per runner: a
 # shell run, a file-tool run and a read-only run in a blank chat's folder.
+# cli 6 and sdk 7 changed how the personal-skill run is judged, not how many runs there are.
 PLAN_RUNS = {"cli": 15, "sdk": 19}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")

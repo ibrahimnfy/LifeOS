@@ -335,9 +335,10 @@ Subfolders of the memory folder are fine. Details:
   - Each runner has its own suite version (`cli` 6, `sdk` 7), and only a
     runner whose suite changed is checked again. The probes for personal
     skills and personal MCP servers (#162) and for chat folders (#163)
-    changed both, and so did the corrected judgement of the chat-folder
-    probes (`permission-policy.md`, section 9.11), so the next start checks
-    both once. The approval probes
+    changed both (`cli` 5, `sdk` 6). So did the corrected judgements of the
+    chat-folder probes (`permission-policy.md`, section 9.11) and of the
+    personal-skill run (section 9.2), which add no run (`cli` 6, `sdk` 7).
+    The next start checks both once. The approval probes
     may add up to 8 more per environment when the model does not make the
     needed call at once, the personal-skill run and the skill-copy steps
     (#171, part of an existing run) up to 2 more each, and each of the
