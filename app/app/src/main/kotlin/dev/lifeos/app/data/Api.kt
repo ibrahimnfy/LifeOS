@@ -273,8 +273,9 @@ class Api(private val transport: Transport) {
     /**
      * Answer a waiting question or approval ([Interaction.approvalBody] and its neighbours);
      * the computer's answer says what it did (`"installed"` for a skill install).
-     * `404 not_pending` when the computer no longer waits for it; for a skill install also
-     * `409 skill_exists`, and for it and an MCP server `503 audit_unavailable` (see [Interaction.refusal]).
+     * `404 not_pending` when the computer no longer waits for it. A yes it refuses leaves the
+     * card waiting (`409 still_downloading`, `409 skill_exists`, `503 audit_unavailable`, `500
+     * install_failed`; see [Interaction.refusal]); a no is always taken.
      */
     suspend fun answerInteraction(sessionId: String, interactionId: String, body: JsonElement): JsonElement =
         chatCall("POST", "/sessions/$sessionId/interactions/$interactionId", body)

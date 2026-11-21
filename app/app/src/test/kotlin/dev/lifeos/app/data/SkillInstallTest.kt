@@ -46,7 +46,7 @@ class SkillInstallTest {
         val head = """"id":"$id","kind":"skill_install","session_id":"s-1","folder":"/home/owner/project-alpha","source":"https://skills.example.org/tidy.zip""""
         return when (state) {
             "ready" -> """{$head,"state":"ready","name":"tidy","target":"/home/owner/project-alpha/.claude/skills/tidy","description":"Tidy the notes.","warnings":["shell_lines","has_scripts"],"files":[{"path":"SKILL.md","size":812},{"path":"scripts/run.py","size":300}],"total_size":1112,$times}"""
-            "failed" -> """{$head,"state":"failed","error":"there is no SKILL.md at the top",$times}"""
+            "failed" -> """{$head,"state":"failed","error":"there is no SKILL.md at the top","error_code":"source_refused",$times}"""
             else -> """{$head,"state":"downloading",$times}"""
         }
     }
@@ -133,7 +133,7 @@ class SkillInstallTest {
     fun `a failed download says why and can only be put away`() = runTest {
         val chat = opened(card("failed"))
         val failed = chat.state.value.interactions.single()
-        assertEquals(SkillInstall.Problem.NO_SKILL_FILE, failed.install?.problem)
+        assertEquals(SkillInstall.Problem.SOURCE_REFUSED, failed.install?.problem)
         assertFalse(failed.canApprove)
         transport.answer("POST /sessions/s-1/interactions/a1b2c3d4e5f6", 200, """{"answered":true,"id":"a1b2c3d4e5f6","installed":false}""")
         chat.answerApproval("a1b2c3d4e5f6", approve = false)
@@ -143,27 +143,55 @@ class SkillInstallTest {
     }
 
     @Test
-    fun `what the computer did with a yes is what the card says`() = runTest {
-        suspend fun TestScope.outcome(status: Int, body: String): Interaction {
-            transport.calls.clear()
-            val chat = opened(card("ready"))
-            transport.answer("POST /sessions/s-1/interactions/a1b2c3d4e5f6", status, body)
+    fun `a yes the computer refuses leaves the card waiting, with the reason, and it can be answered again`() = runTest {
+        val path = "POST /sessions/s-1/interactions/a1b2c3d4e5f6"
+        val chat = opened(card("ready"))
+
+        suspend fun TestScope.yes(status: Int, body: String): Interaction {
+            transport.answer(path, status, body)
             chat.answerApproval("a1b2c3d4e5f6", approve = true)
             runCurrent()
             return chat.state.value.interactions.single()
         }
-        // The computer no longer had it ready.
-        assertEquals(Interaction.Status.NOT_DONE, outcome(200, """{"answered":true,"id":"a1b2c3d4e5f6","installed":false}""").status)
-        // After these refusals the computer has dropped the card: there is nothing to try again.
-        val exists = outcome(409, """{"error":"skill_exists"}""")
-        assertEquals(Interaction.Status.EXISTS, exists.status)
-        assertFalse(exists.sendFailed)
-        assertEquals(Interaction.Status.UNRECORDED, outcome(503, """{"error":"audit_unavailable"}""").status)
-        assertEquals(Interaction.Status.GONE, outcome(404, """{"error":"not_pending"}""").status)
-        // Anything else did not get through: the card stays and can be answered again.
-        val again = outcome(500, """{"error":"internal"}""")
-        assertEquals(Interaction.Status.WAITING, again.status)
-        assertTrue(again.sendFailed)
+        for ((code, status, refusal) in listOf(
+            Triple("still_downloading", 409, Interaction.Refusal.STILL_DOWNLOADING),
+            Triple("skill_exists", 409, Interaction.Refusal.EXISTS),
+            Triple("audit_unavailable", 503, Interaction.Refusal.UNRECORDED),
+            Triple("install_failed", 500, Interaction.Refusal.WRITE_FAILED),
+        )) {
+            val looks = transport.calls.count { it.method == "GET" && it.path.endsWith("/interactions") }
+            val card = yes(status, """{"error":"$code"}""")
+            assertEquals(code, Interaction.Status.WAITING, card.status)
+            assertEquals(code, refusal, card.refusal)
+            // Refused is not "could not be sent"; the card still shows its files and is open for an answer.
+            assertFalse(card.sendFailed)
+            assertTrue(card.open(uptime) && card.canApprove)
+            assertEquals(2, card.install?.files?.size)
+            // The computer's list is looked at again: what the card shows may be behind.
+            assertEquals(looks + 1, transport.calls.count { it.method == "GET" && it.path.endsWith("/interactions") })
+        }
+        // Anything else did not get through.
+        val unsent = yes(500, """{"error":"internal"}""")
+        assertEquals(Interaction.Status.WAITING, unsent.status)
+        assertTrue(unsent.sendFailed)
+        assertNull(unsent.refusal)
+
+        // A no is always taken, and clears what was said before.
+        transport.answer(path, 200, """{"answered":true,"id":"a1b2c3d4e5f6","installed":false}""")
+        chat.answerApproval("a1b2c3d4e5f6", approve = false)
+        runCurrent()
+        val declined = chat.state.value.interactions.single()
+        assertEquals(Interaction.Status.REFUSED, declined.status)
+        assertNull(declined.refusal)
+    }
+
+    @Test
+    fun `an answer that another one overtook closes the card`() = runTest {
+        val chat = opened(card("ready"))
+        transport.answer("POST /sessions/s-1/interactions/a1b2c3d4e5f6", 404, """{"error":"not_pending"}""")
+        chat.answerApproval("a1b2c3d4e5f6", approve = true)
+        runCurrent()
+        assertEquals(Interaction.Status.GONE, chat.state.value.interactions.single().status)
     }
 
     @Test
@@ -186,7 +214,7 @@ class SkillInstallTest {
                 emit(
                     event(
                         "done",
-                        """{"answer":"This would help.","session_id":"s-1","skill_installs":[${card("downloading", hoursLeft = 24)},{"kind":"skill_install","source":"http://skills.example.org/plain.zip","state":"refused","error":"only HTTPS sources can be installed"}]}""",
+                        """{"answer":"This would help.","session_id":"s-1","skill_installs":[${card("downloading", hoursLeft = 24)},{"kind":"skill_install","source":"http://skills.example.org/plain.zip","state":"refused","error":"only HTTPS sources can be installed","error_code":"source_not_https"}]}""",
                     ),
                 )
                 emit(done())
@@ -211,14 +239,23 @@ class SkillInstallTest {
     }
 
     @Test
-    fun `the bridge's sentences about a proposal are told apart, and marker lines of earlier answers are hidden`() {
-        assertEquals(SkillInstall.Problem.TOO_LARGE, SkillInstall.problem("the download is larger than 5 MB"))
-        assertEquals(SkillInstall.Problem.UNSAFE, SkillInstall.problem("the archive holds an unsafe entry"))
-        assertEquals(SkillInstall.Problem.TOO_MANY, SkillInstall.problem("the skill holds too many files"))
-        assertEquals(SkillInstall.Problem.NO_NAME, SkillInstall.problem("the skill has no usable name"))
-        assertEquals(SkillInstall.Problem.EXISTS, SkillInstall.problem("a skill of that name is already installed"))
-        assertEquals(SkillInstall.Problem.NOT_HTTPS, SkillInstall.problem("the source may only redirect to HTTPS"))
-        assertEquals(SkillInstall.Problem.DOWNLOAD, SkillInstall.problem("the download failed"))
+    fun `the bridge's words for a failed proposal are told apart, and marker lines of earlier answers are hidden`() {
+        val codes = mapOf(
+            "source_not_https" to SkillInstall.Problem.NOT_HTTPS,
+            "audit_unavailable" to SkillInstall.Problem.UNRECORDED,
+            "source_refused" to SkillInstall.Problem.SOURCE_REFUSED,
+            "source_too_large" to SkillInstall.Problem.TOO_LARGE,
+            "source_unreadable" to SkillInstall.Problem.UNREADABLE,
+            "skill_exists" to SkillInstall.Problem.EXISTS,
+            "download_failed" to SkillInstall.Problem.DOWNLOAD,
+        )
+        for ((code, problem) in codes) assertEquals(problem, SkillInstall.problem(code))
+        // A word this app does not know, or none: still a card that says it cannot be installed.
+        assertEquals(SkillInstall.Problem.OTHER, SkillInstall.problem("something_new"))
+        assertEquals(SkillInstall.Problem.OTHER, SkillInstall.problem(null))
+        // The sentence is not read: only the word decides.
+        val failed = BridgeJson.decodeFromString(InteractionData.serializer(), """{"id":"a1","kind":"skill_install","source":"https://x.example.org/s.zip","state":"failed","error":"the download is larger than 5 MB","error_code":"source_unreadable"}""")
+        assertEquals(SkillInstall.Problem.UNREADABLE, SkillInstall.of(failed).problem)
         assertEquals("Before\nAfter", Chat.visible("Before\n  [[skill-install: https://skills.example.org/x.zip]]\nAfter"))
         // Without an id or a source there is nothing to show.
         assertNull(Interaction.of(InteractionData(id = "a1", kind = "skill_install"), 0, 0, fresh = true))

@@ -60,26 +60,25 @@ data class UsedServer(val name: String = "")
 /** Requests about a folder's MCP servers that go through the session's sheet, not a conversation. */
 object McpApprovals {
     /**
-     * The card that asks for exactly [server], as it waits now: one that was requested before
-     * and not answered (so it is not requested twice), or a new one from the computer.
+     * What became of the owner's yes or no: [status] when the card is settled, [refusal] when
+     * the computer did not act on a yes and the card still waits there.
      */
-    suspend fun card(api: Api, sessionId: String, server: McpServer): InteractionData {
-        val waiting = try {
-            api.interactions(sessionId).firstOrNull { it.kind == Interaction.MCP_SERVER && it.server?.name == server.name && it.server.hash == server.hash }
-        } catch (_: ApiException) {
-            null
-        }
-        return waiting ?: api.requestMcpApproval(sessionId, server.name)
-    }
+    data class Answer(val status: Interaction.Status? = null, val refusal: Interaction.Refusal? = null)
 
     /**
-     * The owner's yes or no to [cardId]; what comes back says what the computer did with it
-     * ([Interaction.settled], [Interaction.refusal]). Throws when the answer did not get
-     * through: it can then be given again.
+     * The card that asks for exactly [server]. The computer keeps one card per definition
+     * (#157): asked for again while it waits, the same card comes back and no phone is woken.
      */
-    suspend fun answer(api: Api, sessionId: String, cardId: String, approve: Boolean): Interaction.Status = try {
-        Interaction.settled(approve, api.answerInteraction(sessionId, cardId, Interaction.approvalBody(approve)))
+    suspend fun card(api: Api, sessionId: String, server: McpServer): InteractionData = api.requestMcpApproval(sessionId, server.name)
+
+    /**
+     * The owner's yes or no to [cardId] ([Interaction.settled], [Interaction.gone],
+     * [Interaction.refusal]). Throws when the answer did not get through: it can then be
+     * given again.
+     */
+    suspend fun answer(api: Api, sessionId: String, cardId: String, approve: Boolean): Answer = try {
+        Answer(status = Interaction.settled(approve, api.answerInteraction(sessionId, cardId, Interaction.approvalBody(approve))))
     } catch (error: ApiException) {
-        Interaction.refusal(error) ?: throw error
+        if (Interaction.gone(error)) Answer(status = Interaction.Status.GONE) else Answer(refusal = Interaction.refusal(error) ?: throw error)
     }
 }

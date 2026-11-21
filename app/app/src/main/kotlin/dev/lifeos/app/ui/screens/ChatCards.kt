@@ -113,6 +113,8 @@ internal fun InteractionCard(
             )
         }
         if (interaction.sendFailed && open) Notice(stringResource(R.string.interaction_send_failed), alert = true)
+        // The computer did not act on the yes; the card still waits there and can be answered again.
+        if (open) interaction.refusal?.let { Notice(stringResource(it.textRes(interaction.kind)), alert = true) }
         interaction.status.resultRes(interaction.kind)?.let { Notice(stringResource(it), alert = false) }
     }
 }
@@ -135,9 +137,15 @@ private fun Interaction.Status.resultRes(kind: Interaction.Kind): Int? {
         }
         Interaction.Status.GONE -> R.string.interaction_gone
         Interaction.Status.NOT_DONE -> R.string.install_not_done
-        Interaction.Status.EXISTS -> R.string.install_exists
-        Interaction.Status.UNRECORDED -> R.string.install_unrecorded
     }
+}
+
+/** Why the computer did not act on a yes, for a card that still waits. */
+internal fun Interaction.Refusal.textRes(kind: Interaction.Kind): Int = when (this) {
+    Interaction.Refusal.STILL_DOWNLOADING -> R.string.install_refusal_downloading
+    Interaction.Refusal.EXISTS -> R.string.install_refusal_exists
+    Interaction.Refusal.UNRECORDED -> if (kind == Interaction.Kind.MCP_SERVER) R.string.mcp_refusal_unrecorded else R.string.install_refusal_unrecorded
+    Interaction.Refusal.WRITE_FAILED -> R.string.install_refusal_write
 }
 
 @Composable

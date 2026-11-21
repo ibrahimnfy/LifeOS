@@ -154,8 +154,15 @@ every section in its own clearly visible card.*
   pauses, a card shows exactly what will happen and where, and the run
   continues or is told no after the owner's tap.
 - **Skill installs and other approvals:** an approval card shows exactly
-  what is asked (for a skill: source, contents, warnings, target folder);
-  nothing happens without the owner's tap.
+  what is asked (for a skill: source, contents, warnings, target folder; for
+  an MCP server: what would start and the outside-the-sandbox warning);
+  nothing happens without the owner's tap. These cards wait for up to a day
+  and are shown whenever the conversation is opened; an answer the computer
+  refuses keeps the card open with the reason.
+- **Answers that are written elsewhere:** the answer to a waiting message,
+  and an answer the app stopped receiving (lock, lost connection), are
+  followed live again when the conversation is on screen; see
+  [`chat-design.md`](chat-design.md), section 7.4.
 - **Coach questions:** the assistant sometimes asks a short question of its
   own (why a task is waiting, what is hard or easy about it). Such a message
   is marked "Coach" and has "Answer" and "Skip"; at most one is open at a
@@ -182,7 +189,11 @@ every section in its own clearly visible card.*
   - tap → opens in the Chat layout with the folder in the header; sending a
     message resumes that session in its original folder;
   - long-press or row menu → **rename**, **pin / unpin**, **move to group**
-    (or a new group), **remind me**, **reply notifications on / off**;
+    (or a new group), **remind me**, **reply notifications on / off**,
+    **use this folder's skills and commands** (per session, off by default)
+    and **MCP servers** (list, approve one by one, revoke; an approved server
+    runs outside the sandbox, and the sheet says so first). The coach
+    conversation's session has neither of the last two;
   - groups: create, rename, delete (the sessions stay).
 - **Reminders:** "remind me about this session at <time>", with an optional
   note, once or repeating (daily, weekly). The notification opens the

@@ -65,6 +65,9 @@ internal class SampleChat(private val context: Context) {
     /** One conversation as the bridge would hold it. */
     private inner class Session(seeded: Boolean, val parkedHere: Boolean = false) {
         val exchanges = mutableListOf<Pair<String, String>>()
+
+        /** The MCP servers the answer to a message used, by that message's place in [exchanges] (#157). */
+        val servers = HashMap<Int, List<String>>()
         val queue = mutableListOf<Pair<String, String>>()
         var running = false
         var skills = true
@@ -172,7 +175,7 @@ internal class SampleChat(private val context: Context) {
      * A skill install that waits across runs (#97), as the bridge keeps it for a day: it is
      * "downloading" for [FETCH_MILLIS], then ready (or failed, for a proposal with "broken").
      */
-    private class Proposal(val session: String, val source: String, val broken: Boolean, val madeAt: Instant = Instant.now())
+    private class Proposal(val session: String, val source: String, val broken: Boolean, val taken: Boolean = false, val madeAt: Instant = Instant.now())
 
     private val proposals = ConcurrentHashMap<String, Proposal>()
 
@@ -190,6 +193,7 @@ internal class SampleChat(private val context: Context) {
             proposal.broken -> {
                 put("state", JsonPrimitive("failed"))
                 put("error", JsonPrimitive("there is no SKILL.md at the top"))
+                put("error_code", JsonPrimitive("source_refused"))
             }
             else -> {
                 put("state", JsonPrimitive("ready"))
@@ -291,10 +295,11 @@ internal class SampleChat(private val context: Context) {
                     method == "POST" && rest.startsWith("mcp-servers/") && rest.endsWith("/approval") -> {
                         val name = rest.removePrefix("mcp-servers/").removeSuffix("/approval")
                         if (!mcpState.containsKey(name)) return@synchronized error(404, "mcp_server_not_found")
-                        val cardId = "samplemcp%03d".format(++asked)
-                        val card = McpCard(parts[1], name)
-                        mcpCards[cardId] = card
-                        RelayResponse(200, mcpCard(cardId, card))
+                        // One card per definition (#157): asked for again, the card that waits comes back.
+                        val waitingId = mcpCards.entries.firstOrNull { it.value.session == parts[1] && it.value.name == name }?.key
+                        val cardId = waitingId ?: "samplemcp%03d".format(++asked)
+                        val card = mcpCards.getOrPut(cardId) { McpCard(parts[1], name) }
+                        RelayResponse(200, JsonObject(mcpCard(cardId, card) + ("already_waiting" to JsonPrimitive(waitingId != null))))
                     }
                     method == "DELETE" && rest.startsWith("mcp-servers/") -> {
                         val name = rest.removePrefix("mcp-servers/")
@@ -317,8 +322,14 @@ internal class SampleChat(private val context: Context) {
                     // A skill install: the computer takes it out of its list, then acts on a yes.
                     method == "POST" && rest.startsWith("interactions/") && proposals[rest.removePrefix("interactions/")]?.session == parts[1] -> {
                         val id = rest.removePrefix("interactions/")
-                        val card = proposalCard(id, proposals.remove(id) ?: return@synchronized error(404, "not_pending"))
-                        val installed = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true" && card["state"]?.jsonPrimitive?.content == "ready"
+                        val proposal = proposals[id] ?: return@synchronized error(404, "not_pending")
+                        val yes = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true"
+                        val card = proposalCard(id, proposal)
+                        // A yes the computer refuses leaves the card waiting (#157); a no is always taken.
+                        if (yes && card["state"]?.jsonPrimitive?.content == "downloading") return@synchronized error(409, "still_downloading")
+                        if (yes && proposal.taken) return@synchronized error(409, "skill_exists")
+                        proposals.remove(id)
+                        val installed = yes && card["state"]?.jsonPrimitive?.content == "ready"
                         ok {
                             put("answered", JsonPrimitive(true))
                             put("id", JsonPrimitive(id))
@@ -603,11 +614,18 @@ internal class SampleChat(private val context: Context) {
             put(
                 "exchanges",
                 buildJsonArray {
-                    for ((user, assistant) in session.exchanges.subList(start, end)) {
+                    for ((index, exchange) in session.exchanges.subList(start, end).withIndex()) {
+                        val (user, assistant) = exchange
                         add(
                             buildJsonObject {
                                 put("user", JsonPrimitive(user))
                                 put("assistant", JsonPrimitive(assistant))
+                                put(
+                                    "mcp_servers",
+                                    buildJsonArray {
+                                        session.servers[start + index].orEmpty().forEach { add(buildJsonObject { put("name", JsonPrimitive(it)); put("outside_sandbox", JsonPrimitive(true)) }) }
+                                    },
+                                )
                                 put("complete", JsonPrimitive(assistant.isNotEmpty() || !session.running))
                             },
                         )
@@ -644,6 +662,7 @@ internal class SampleChat(private val context: Context) {
             ),
         )
         var sent = 0
+        var first = true
         while (run != null) {
             val end = run.end
             val text = synchronized(run) { run.text.toString() }
@@ -651,6 +670,9 @@ internal class SampleChat(private val context: Context) {
                 emit(AnswerEvent.Stream("delta", buildJsonObject { put("text", JsonPrimitive(text.substring(sent))) }))
                 sent = text.length
             }
+            // What the run had said before is over; from here on it is written as it comes (#157).
+            if (first) emit(AnswerEvent.Stream("replay_end", buildJsonObject { put("events", JsonPrimitive(if (sent > 0) 1 else 0)) }))
+            first = false
             if (end == "done") {
                 emit(AnswerEvent.Stream("done", buildJsonObject { put("answer", JsonPrimitive(text)); put("session_id", JsonPrimitive(id)) }))
             } else if (end != null) {
@@ -659,6 +681,7 @@ internal class SampleChat(private val context: Context) {
             if (end != null) break
             delay(250)
         }
+        if (run == null) emit(AnswerEvent.Stream("replay_end", buildJsonObject { put("events", JsonPrimitive(0)) }))
         emit(AnswerEvent.Done(RelayResponse(200, null)))
     }
 
@@ -834,6 +857,7 @@ internal class SampleChat(private val context: Context) {
                         // "mcp": the answer used the approved MCP servers of the folder (#153).
                         val used = mcpState.filterValues { it == "approved" }.keys.sorted()
                         if ("mcp" in prompt && used.isNotEmpty()) {
+                            synchronized(session) { session.servers[session.exchanges.lastIndex] = used }
                             put("mcp_servers", buildJsonArray { used.forEach { add(buildJsonObject { put("name", JsonPrimitive(it)); put("outside_sandbox", JsonPrimitive(true)) }) } })
                             put("mcp_note", JsonPrimitive("An approved MCP server runs outside the sandbox."))
                         }
@@ -841,10 +865,10 @@ internal class SampleChat(private val context: Context) {
                         // HTTPS and is refused at once; with "broken" the download fails.
                         if ("install" in prompt) {
                             val card = if ("plain" in prompt) {
-                                Json.parseToJsonElement("""{"kind":"skill_install","source":"http://skills.example.org/tidy-notes.zip","state":"refused","error":"only HTTPS sources can be installed"}""")
+                                Json.parseToJsonElement("""{"kind":"skill_install","source":"http://skills.example.org/tidy-notes.zip","state":"refused","error":"only HTTPS sources can be installed","error_code":"source_not_https"}""")
                             } else {
                                 val cardId = "samplecard%03d".format(++asked)
-                                val proposal = Proposal(id, "https://skills.example.org/tidy-notes.zip", broken = "broken" in prompt)
+                                val proposal = Proposal(id, "https://skills.example.org/tidy-notes.zip", broken = "broken" in prompt, taken = "taken" in prompt)
                                 proposals[cardId] = proposal
                                 proposalCard(cardId, proposal)
                             }

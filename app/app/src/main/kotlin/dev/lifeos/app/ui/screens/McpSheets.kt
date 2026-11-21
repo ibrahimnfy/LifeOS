@@ -111,7 +111,6 @@ internal fun Interaction.Status.mcpResultRes(): Int? = when (this) {
     Interaction.Status.REFUSED -> R.string.mcp_refused
     Interaction.Status.EXPIRED -> R.string.mcp_expired
     Interaction.Status.NOT_DONE -> R.string.mcp_not_done
-    Interaction.Status.UNRECORDED -> R.string.mcp_unrecorded
     Interaction.Status.GONE -> R.string.interaction_gone
     Interaction.Status.SENDING -> R.string.interaction_sending
     else -> null
@@ -141,6 +140,14 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
     val notThere = stringResource(R.string.mcp_request_gone)
     val revoked = stringResource(R.string.mcp_revoked)
     val nothingRevoked = stringResource(R.string.mcp_revoke_none)
+    val unrecorded = stringResource(R.string.mcp_refusal_unrecorded)
+
+    /** The owner's answer to the card that is shown; a yes the computer refused leaves it there to answer again. */
+    suspend fun answer(cardId: String, approve: Boolean) {
+        val answered = McpApprovals.answer(api, session.id, cardId, approve)
+        outcome = answered.status
+        if (answered.refusal != null) message = unrecorded
+    }
     LaunchedEffect(session.id, version) {
         try {
             servers = api.mcpServers(session.id).filter { it.usable }
@@ -179,9 +186,9 @@ internal fun McpSheet(core: LifeOsCore, session: SessionSummary, onDismiss: () -
                     busy -> Notice(stringResource(R.string.interaction_sending), alert = false)
                     result == null && message != null -> {
                         Notice(checkNotNull(message), alert = true)
-                        McpButtons { approve -> request { outcome = McpApprovals.answer(api, session.id, reviewed.id, approve) } }
+                        McpButtons { approve -> request { answer(reviewed.id, approve) } }
                     }
-                    result == null -> McpButtons { approve -> request { outcome = McpApprovals.answer(api, session.id, reviewed.id, approve) } }
+                    result == null -> McpButtons { approve -> request { answer(reviewed.id, approve) } }
                     else -> {
                         result.mcpResultRes()?.let { Notice(stringResource(it), alert = false) }
                         SecondaryButton(

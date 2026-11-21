@@ -234,24 +234,29 @@ class ChatLiveTest {
             emit(event("replay_truncated", "{}"))
             emit(event("delta", """{"text":"1 2 3"}"""))
             emit(event("interaction", """{"id":"a1","session_id":"s-1","kind":"approval","command":"rm x","folder":"/home/owner/brain","category":"deletion","created_at":"2027-01-15T08:00:00Z","expires_at":"$expires"}"""))
+            // From here on it is live (#157): a card made now has its whole wait ahead, whatever the clocks say.
+            emit(event("replay_end", """{"events":2}"""))
+            emit(event("interaction", """{"id":"a2","session_id":"s-1","kind":"approval","command":"rm y","folder":"/home/owner/brain","category":"deletion","created_at":"2027-01-15T08:00:00Z","expires_at":"2027-01-15T08:10:00Z"}"""))
             gate.await()
             emit(event("interaction_closed", """{"id":"a1","reason":"answered"}"""))
+            emit(event("interaction_closed", """{"id":"a2","reason":"answered"}"""))
             emit(event("done", """{"answer":"1 2 3 4","session_id":"s-1"}"""))
         }
         val chat = opened()
         // The unfinished answer read from the conversation gave way to the stream: it is there once.
         assertEquals(listOf("me:Earlier", "it:Answer", "me:Count", "it:1 2 3"), texts(chat))
         assertEquals(ChatPhase.ANSWERING, chat.state.value.phase)
-        val card = chat.state.value.interactions.single()
-        // Its time is what is left by its end time, not a whole new wait.
+        val (card, fresh) = chat.state.value.interactions
+        // A replayed card's time is what is left by its end time, not a whole new wait.
         assertEquals(uptime + 240_000, card.deadline)
+        assertEquals(uptime + 600_000, fresh.deadline)
 
         val read = gets("/history")
         gate.complete(Unit)
         advanceUntilIdle()
         assertEquals(listOf("me:Earlier", "it:Answer", "me:Count", "it:1 2 3 4"), texts(chat))
         assertEquals(ChatPhase.IDLE, chat.state.value.phase)
-        assertEquals(Interaction.Status.GONE, chat.state.value.interactions.single().status)
+        assertEquals(listOf(Interaction.Status.GONE, Interaction.Status.GONE), chat.state.value.interactions.map { it.status })
         assertEquals(read, gets("/history"))
     }
 
@@ -281,13 +286,62 @@ class ChatLiveTest {
     }
 
     @Test
+    fun `a stream the relay let go is followed again, and nothing is called a failure`() = runTest {
+        history(Triple("Earlier", "Answer", true))
+        queue(false)
+        val chat = opened()
+        // The phone's messages stayed unread for a while (#157): the relay's last word for the request.
+        transport.events = {
+            flow {
+                emit(event("session", """{"session_id":"s-1"}"""))
+                emit(event("delta", """{"text":"One"}"""))
+                emit(AnswerEvent.Done(RelayResponse(504, null, "stream_abandoned")))
+            }
+        }
+        queue(true)
+        live {
+            emit(event("delta", """{"text":"One two"}"""))
+            emit(event("replay_end", """{"events":1}"""))
+            emit(event("done", """{"answer":"One two three.","session_id":"s-1"}"""))
+        }
+        chat.send("Count")
+        advanceUntilIdle()
+        assertEquals(listOf("me:Earlier", "it:Answer", "me:Count", "it:One two three."), texts(chat))
+        assertNull(chat.state.value.failure)
+        assertEquals(ChatPhase.IDLE, chat.state.value.phase)
+    }
+
+    @Test
+    fun `an answer read from the conversation says which MCP servers it used`() = runTest {
+        transport.answer(
+            "GET /sessions/s-1/history",
+            200,
+            """{"exchanges":[{"user":"Look it up","assistant":"Found.","complete":true,"mcp_servers":[{"name":"tools","outside_sandbox":true},{"name":"remote","outside_sandbox":true}]},{"user":"Thanks","assistant":"Welcome.","complete":true,"mcp_servers":[]}],"older":null}""",
+        )
+        queue(false)
+        val chat = opened()
+        assertEquals(listOf(emptyList(), listOf("tools", "remote"), emptyList(), emptyList<String>()), chat.state.value.messages.map { it.servers })
+    }
+
+    @Test
     fun `a run that cannot be followed is asked about as before`() = runTest {
         history(Triple("Count", "", false))
         queue(true)
-        transport.live = { flow { emit(event("live", """{"session_id":"s-1","running":true,"followable":false,"queue_id":null}""")); emit(done()) } }
+        // The stream of a run that cannot be followed ends by itself: it is read to its end, not left open.
+        var readToEnd = false
+        transport.live = {
+            flow {
+                emit(event("live", """{"session_id":"s-1","running":true,"followable":false,"queue_id":null}"""))
+                emit(event("replay_end", """{"events":0}"""))
+                // The reader is still there for the stream's own end.
+                readToEnd = true
+                emit(done())
+            }
+        }
         val chat = opened()
         assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
         assertEquals(1, gets("/live"))
+        assertTrue(readToEnd)
 
         // Not reached at all: the same.
         transport.live = { flow { throw ApiException(ApiException.Kind.NOT_SENT) } }

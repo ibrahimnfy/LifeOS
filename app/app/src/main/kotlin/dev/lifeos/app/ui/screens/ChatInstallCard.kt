@@ -79,7 +79,7 @@ internal fun ColumnScope.SkillInstallCard(interaction: Interaction, open: Boolea
             Exact(stringResource(R.string.install_target), install.target)
         }
         SkillInstall.State.FAILED, SkillInstall.State.REFUSED -> Text(
-            text = stringResource((install.problem ?: SkillInstall.Problem.DOWNLOAD).textRes()),
+            text = stringResource((install.problem ?: SkillInstall.Problem.OTHER).textRes()),
             style = LifeType.label,
             color = colors.text,
         )
@@ -103,12 +103,11 @@ internal fun ColumnScope.SkillInstallCard(interaction: Interaction, open: Boolea
 
 private fun SkillInstall.Problem.textRes(): Int = when (this) {
     SkillInstall.Problem.NOT_HTTPS -> R.string.install_problem_https
-    SkillInstall.Problem.TOO_LARGE -> R.string.install_problem_large
-    SkillInstall.Problem.UNSAFE -> R.string.install_problem_unsafe
-    SkillInstall.Problem.NO_SKILL_FILE -> R.string.install_problem_no_skill
-    SkillInstall.Problem.TOO_MANY -> R.string.install_problem_many
-    SkillInstall.Problem.NO_NAME -> R.string.install_problem_name
-    SkillInstall.Problem.EXISTS -> R.string.install_problem_exists
     SkillInstall.Problem.UNRECORDED -> R.string.install_problem_unrecorded
+    SkillInstall.Problem.SOURCE_REFUSED -> R.string.install_problem_refused
+    SkillInstall.Problem.TOO_LARGE -> R.string.install_problem_large
+    SkillInstall.Problem.UNREADABLE -> R.string.install_problem_unreadable
+    SkillInstall.Problem.EXISTS -> R.string.install_problem_exists
     SkillInstall.Problem.DOWNLOAD -> R.string.install_problem_download
+    SkillInstall.Problem.OTHER -> R.string.install_problem_other
 }
