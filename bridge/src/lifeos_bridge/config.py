@@ -67,6 +67,8 @@ class Settings:
     # Model names the app offers. The CLI validates the choice when a run starts.
     models: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
     max_file_mb: int = 50
+    # The guardrail check may place a temporary probe skill in ~/.claude/skills (#91).
+    guard_personal_skill_probe: bool = False
     # Extra folders the owner allowed. The file is re-read on every use, so
     # changes made through the bridge apply without a restart.
     allowed_paths: tuple[Path, ...] = ()
@@ -213,6 +215,10 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
             if name
         ),
         max_file_mb=_int_setting(values, "LIFEOS_MAX_FILE_MB", 50, 1, 200),
+        guard_personal_skill_probe=(values.get("LIFEOS_GUARD_PERSONAL_SKILL_PROBE") or "")
+        .strip()
+        .lower()
+        in ("on", "1", "true", "yes"),
         allowed_paths_file=config_dir(environ) / ALLOWED_PATHS_FILE_NAME,
     )
 

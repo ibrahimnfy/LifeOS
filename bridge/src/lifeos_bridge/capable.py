@@ -209,6 +209,26 @@ async def skills_available(
     version = marker.get("suite_version") if isinstance(marker, dict) else None
     if not isinstance(version, int) or version < SKILLS_SUITE_VERSION:
         raise skills_unavailable()
+    if marker.get("skills_verified") is not True:
+        raise ClaudeError("skills_unavailable", 503, SKILLS_UNVERIFIED_REASON)
+
+
+SKILLS_UNVERIFIED_REASON = (
+    "The session's skills stay off because the guardrail check could not verify that "
+    "personal skills are kept out (there is none to test with, and the owner has not "
+    "allowed a temporary probe skill)."
+)
+
+
+def skills_recheck_needed(settings: Settings, runner: str) -> bool:
+    """A marker whose skill probes could not be verified, while the setting changed since."""
+    try:
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(marker, dict) or marker.get("skills_verified") is not False:
+        return False
+    return marker.get("personal_skill_probe") != settings.guard_personal_skill_probe
 
 
 def skills_unavailable() -> ClaudeError:

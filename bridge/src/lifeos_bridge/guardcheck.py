@@ -104,6 +104,7 @@ async def version_key(settings: Settings, runner: str) -> str:
         + " | sdk "
         + capable.installed_sdk_version()
         + f" | suite {capable.SUITE_VERSION}"
+        + f" | personal probe {'on' if settings.guard_personal_skill_probe else 'off'}"
     )
 
 
@@ -201,7 +202,11 @@ class GuardCheck:
                 entry = {"versions": key, "attempts": 0, "result": "", "next_try": 0}
             try:
                 await capable.check_available(self.settings, None, runner=runner)
-                if not capable.suite_outdated(runner):
+                # Unverified skill probes are final until the versions or the owner's
+                # setting change (no loop): a changed setting runs the check again.
+                if not capable.suite_outdated(runner) and not capable.skills_recheck_needed(
+                    self.settings, runner
+                ):
                     if entry.get("result") != "passed":
                         self._save(runner, entry | {"result": "passed"})
                     continue  # verified for exactly these versions and this suite

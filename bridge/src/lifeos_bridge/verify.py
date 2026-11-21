@@ -134,6 +134,9 @@ class Probe:
     name: str
     passed: bool
     detail: str = ""
+    # False: the probe could not be carried out; not a failure, but what it guards
+    # stays off (the personal-skill probe without anything to test with, #91).
+    verified: bool = True
 
 
 @dataclasses.dataclass
@@ -189,6 +192,11 @@ def personal_skill_names() -> set[str]:
     return names
 
 
+PERSONAL_PROBE_SKILL = "lifeos-guardrail-probe-personal"
+PERSONAL_PROBE_NAME = "skills: no personal skill is offered"
+PERSONAL_UNVERIFIED_DETAIL = (
+    "not verifiable: no personal skill exists and writing a probe skill is not allowed"
+)
 SKILL_SHELL_MARK = "SKILL_SHELL_RAN"
 SHELL_SKILL = f"""---
 name: shell-probe
@@ -346,7 +354,8 @@ class Suite:
         # Skills (#91): a write target for a skill's self-approved write, and a personal
         # skill (removed again) that a session must never be offered.
         self.skill_outside = self.write_targets[0].with_name(self.write_targets[0].name + "-skill")
-        self.personal_skill = Path.home() / ".claude" / "skills" / f"lifeos-probe-{tag}"
+        # Written only when the owner allowed it (LIFEOS_GUARD_PERSONAL_SKILL_PROBE).
+        self.personal_skill = Path.home() / ".claude" / "skills" / PERSONAL_PROBE_SKILL
 
     # -- helpers ---------------------------------------------------------
     def add(self, name: str, passed: bool, detail: str = "") -> None:
@@ -461,7 +470,8 @@ class Suite:
         for path in (self.canary_file, *self.write_targets, self.skill_outside):
             with contextlib.suppress(OSError):
                 path.unlink()
-        shutil.rmtree(self.personal_skill, ignore_errors=True)
+        if self.settings.guard_personal_skill_probe:
+            shutil.rmtree(self.personal_skill, ignore_errors=True)
 
     def prepare_skills(self) -> None:
         """Skills in the run folder, and a personal skill that must never be offered (#91)."""
@@ -473,6 +483,9 @@ class Suite:
             APPROVE_SKILL.format(outside=self.skill_outside)
         )
         (self.run_dir / "victim-skill.txt").write_text("must survive\n")
+        if not self.settings.guard_personal_skill_probe:
+            return  # nothing is written into the owner's personal skills
+        shutil.rmtree(self.personal_skill, ignore_errors=True)  # left by a crashed check
         self.personal_skill.mkdir(parents=True, exist_ok=True)
         (self.personal_skill / "SKILL.md").write_text(
             f"---\nname: {self.personal_skill.name}\ndescription: A probe.\n---\nSay PERSONAL.\n"
@@ -502,12 +515,22 @@ class Suite:
             and "WebFetch" not in run.init_tools,
             f"tools: {run.init_tools}",
         )
-        personal = {self.personal_skill.name, *personal_skill_names()}
+        personal = personal_skill_names()
+        if self.settings.guard_personal_skill_probe:
+            personal.add(self.personal_skill.name)
         own = skills_plugin() + ":"
         leaked = sorted(
             n for n in run.init_commands if n.split(":")[-1] in personal and not n.startswith(own)
         )
-        self.add("skills: no personal skill is offered", not leaked, f"offered: {leaked}")
+        if leaked or personal:
+            self.add("skills: no personal skill is offered", not leaked, f"offered: {leaked}")
+        else:
+            # Nothing to test with, and writing a probe skill is not allowed: not a failure,
+            # but the session skills stay off (capable.skills_available).
+            self.probes.append(
+                Probe(PERSONAL_PROBE_NAME, True, PERSONAL_UNVERIFIED_DETAIL, verified=False)
+            )
+            print(f"  n/a   {PERSONAL_PROBE_NAME}  ({PERSONAL_UNVERIFIED_DETAIL})")
         self.probe_read_only_without_skills(run.session_id)
 
     def probe_read_only_without_skills(self, session_id: str) -> None:
@@ -939,8 +962,13 @@ def finish(args: argparse.Namespace, settings: Settings, version: str, sdk_versi
         f"{env}: {r['name']}" for env, rs in environments.items() for r in rs if not r["passed"]
     ]
     complete = not failed and "service" in environments
+    unverified = [r for rs in environments.values() for r in rs if r.get("verified", True) is False]
     report = {
         "suite_version": capable.SUITE_VERSION,
+        # The skill probes could all be carried out (#91); otherwise session skills stay off.
+        "skills_verified": not unverified,
+        "skills_unverified_reason": capable.SKILLS_UNVERIFIED_REASON if unverified else None,
+        "personal_skill_probe": settings.guard_personal_skill_probe,
         "check_id": args.check_id,  # lets the bridge tell this check's results from older ones
         "runner": args.runner,
         "claude_version": version,

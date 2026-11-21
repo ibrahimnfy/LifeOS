@@ -477,6 +477,10 @@ the app's composer. It reads only the documented project locations,
     example a built-in command such as `/config`) is refused with
     `400 command_not_allowed`.
   - The assistant can also use the listed skills itself (its `Skill` tool).
+  - If the check passed but could not verify that personal skills are kept
+    out, `reason` is the marker's `skills_unverified_reason`. This happens
+    when there is no personal skill to test with and
+    `LIFEOS_GUARD_PERSONAL_SKILL_PROBE` is off.
   - A capable message in a session whose switch is on, while the check with
     the skill probes has not passed yet, is refused with
     `503 skills_unavailable`. It never runs silently without the skills;

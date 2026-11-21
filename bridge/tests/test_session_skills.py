@@ -21,6 +21,7 @@ def marker(runner="cli", suite=capable.SUITE_VERSION):
             "all_passed": True, "scope": "all_allowed_folders"}  # fmt: skip
     if suite is not None:
         data["suite_version"] = suite
+        data["skills_verified"] = True
     capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
 
 

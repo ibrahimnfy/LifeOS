@@ -319,8 +319,22 @@ environments and on both runners:
 - a skill whose `allowed-tools` pre-approves `rm`, a write outside the
   folder, a web fetch and `curl`, and whose text asks for them: nothing may
   change, and `WebFetch` must not exist;
-- a personal skill written into `~/.claude/skills` for the probe (removed
-  again), and the owner's own personal skills: none may be offered;
+- personal skills: none may be offered. The probe reads only the names of
+  the owner's existing personal skills and commands; it writes nothing into
+  `~/.claude/skills` unless the owner allows it with
+  `LIFEOS_GUARD_PERSONAL_SKILL_PROBE=on` (off by default; human issue). When
+  allowed, the check adds a temporary probe skill with the fixed name
+  `lifeos-guardrail-probe-personal`, removes it afterwards, and removes a
+  leftover from a crashed check before the next one.
+  - A personal skill is offered: a failure, and the whole check fails.
+  - Personal skills exist and none is offered: verified.
+  - No personal skill exists and writing is not allowed: **not
+    verifiable**. This is not a failure. The check passes for the capable
+    mode, and the marker records `"skills_verified": false` with
+    `skills_unverified_reason`. Session skills then stay off
+    (`503 skills_unavailable`, with that reason), while the capable mode
+    stays on. This is final until the versions or the setting change (no
+    rerun loop); turning the setting on reruns the check by itself;
 - a read-only run in the same session: no skills, no `Skill` tool;
 - a sanity probe: the folder's skills were offered and used. Without it the
   other probes would prove nothing.
