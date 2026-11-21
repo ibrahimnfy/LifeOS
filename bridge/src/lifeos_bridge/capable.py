@@ -43,15 +43,18 @@ KEY_FILE_NAME = "guardrail-key"
 # 5 (SDK runner only): its approval probes tell a scenario that did not happen
 # (recorded as inconclusive, the check counts as not run) from a guardrail that
 # held or broke; the escape probe targets a file outside the sandbox (#106).
+# cli 5 and sdk 6: the owner's personal skills and personal MCP servers (#162).
 # Each runner reruns only when its own suite changed.
-# cli 5 / sdk 6: a blank chat's folder as the run folder (#163), together with the
-# changed skill and MCP probes of #162.
+# The same versions also probe a blank chat's folder as the run folder (#163).
 SUITE_VERSIONS = {"cli": 5, "sdk": 6}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
 # The first suite of each runner that probes a chat folder as the run folder (#163).
 CHAT_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
+# Personal skills and personal MCP servers (#162) need the probes of these suite
+# versions, per runner: the SDK runner's suite 5 still proved the opposite rule.
+PERSONAL_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
 SDK_PACKAGE = "claude-agent-sdk"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
@@ -217,38 +220,38 @@ async def check_available(
         )
 
 
+def _marker_suite(runner: str) -> int:
+    """The suite version of the runner's marker; 0 when there is none."""
+    try:
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+    version = marker.get("suite_version") if isinstance(marker, dict) else None
+    return version if isinstance(version, int) else 0
+
+
 async def skills_available(
     settings: Settings, run_dir: Path | None = None, runner: str = "cli"
 ) -> None:
     """Raise unless the capable mode is on and its check included the skill probes (#91)."""
     await check_available(settings, run_dir, runner=runner)
-    try:
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise skills_unavailable() from exc
-    version = marker.get("suite_version") if isinstance(marker, dict) else None
-    if not isinstance(version, int) or version < SKILLS_SUITE_VERSION:
+    if _marker_suite(runner) < SKILLS_SUITE_VERSION:
         raise skills_unavailable()
-    if marker.get("skills_verified") is not True:
-        raise ClaudeError("skills_unavailable", 503, SKILLS_UNVERIFIED_REASON)
 
 
-SKILLS_UNVERIFIED_REASON = (
-    "The session's skills stay off because the guardrail check could not verify that "
-    "personal skills are kept out (there is none to test with, and the owner has not "
-    "allowed a temporary probe skill)."
+def personal_available(runner: str) -> bool:
+    """Whether the runner's check included the probes for personal skills and servers (#162).
+
+    Asked after ``check_available``. With an older marker a capable run simply
+    gets no personal skill and no personal MCP server, as before #162.
+    """
+    return _marker_suite(runner) >= PERSONAL_SUITE_VERSIONS.get(runner, SUITE_VERSION)
+
+
+PERSONAL_UNAVAILABLE_REASON = (
+    "the owner's personal skills are offered after the guardrail check with the "
+    "personal-skill probes has passed (it runs by itself at the next start of the bridge)"
 )
-
-
-def skills_recheck_needed(settings: Settings, runner: str) -> bool:
-    """A marker whose skill probes could not be verified, while the setting changed since."""
-    try:
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    if not isinstance(marker, dict) or marker.get("skills_verified") is not False:
-        return False
-    return marker.get("personal_skill_probe") != settings.guard_personal_skill_probe
 
 
 async def mcp_available(
@@ -256,12 +259,7 @@ async def mcp_available(
 ) -> None:
     """Raise unless the capable mode is on and its check included the MCP probes (#108)."""
     await check_available(settings, run_dir, runner=runner)
-    try:
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        marker = {}
-    version = marker.get("suite_version") if isinstance(marker, dict) else None
-    if not isinstance(version, int) or version < MCP_SUITE_VERSION:
+    if _marker_suite(runner) < MCP_SUITE_VERSION:
         raise ClaudeError(
             "mcp_unavailable",
             503,
@@ -354,6 +352,7 @@ def build_policy(
     *,
     ask_host: bool = False,
     skills_dir: Path | None = None,
+    personal_skills_dir: Path | None = None,
     mcp: dict[str, dict] | None = None,
 ) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
@@ -361,11 +360,13 @@ def build_policy(
     ``ask_host``: the run's approval actions go to the bridge's permission
     callback (SDK runner) instead of being refused by the gate.
     ``skills_dir``: the snapshot of the folder's skills (``skills.snapshot``),
-    for a session whose skills are switched on; shell lines in skills and the
-    bundled skills are switched off with it.
-    ``mcp``: the folder's approved, unchanged MCP servers (``mcp_servers.for_run``),
-    passed explicitly with permission to call their tools; they run outside the
-    sandbox by the owner's approval (#108).
+    for a session whose skills are switched on.
+    ``personal_skills_dir``: the copy of the owner's personal skills
+    (``skills.personal_snapshot``, #162). With either copy, shell lines in
+    skills and the bundled skills are switched off.
+    ``mcp``: the approved, unchanged MCP servers of the folder and of the owner
+    (``mcp_servers.for_run``), passed explicitly with permission to call their
+    tools; they run outside the sandbox by the owner's approval (#108, #162).
 
     A blank chat's folder (#163) is accepted like an allowed folder, with the same
     guardrails: the run may write its own chat folder and the memory folder, and
@@ -443,8 +444,8 @@ def build_policy(
         from . import mcp_servers  # local: only runs with approved servers need it
 
         settings_json["permissions"]["allow"] += mcp_servers.allow_rules(mcp)
-        mcp_config = mcp_servers.run_config(mcp)
-    if skills_dir is not None:
+        mcp_config = str(mcp_servers.run_config_file(mcp))
+    if skills_dir is not None or personal_skills_dir is not None:
         from .skills import SETTINGS as SKILL_SETTINGS  # local: skills imports commands
 
         settings_json |= SKILL_SETTINGS
@@ -454,6 +455,7 @@ def build_policy(
         settings_json=json.dumps(settings_json),
         add_dirs=(*(folder for folder in writable if folder != run_dir), *shared),
         skills_dir=skills_dir,
+        personal_skills_dir=personal_skills_dir,
         mcp_config=mcp_config,
         clean=is_chat,  # a blank chat: no memory file of any level is loaded
     )

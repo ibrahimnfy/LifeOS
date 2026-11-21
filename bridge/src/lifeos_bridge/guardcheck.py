@@ -60,9 +60,12 @@ ORDER = ("cli", "sdk")
 # Probes that need no model (invalid settings, nested folders) are not counted.
 # Suite version 2 (#91) added two skill runs (the skill probes, then read-only);
 # version 3 (#92) one more (a run trying to add a skill to its folder).
-# The chat-folder probes (#163) add three per runner: a shell run, a file-tool run and a
-# read-only run in a blank chat's folder.
-PLAN_RUNS = {"cli": 14, "sdk": 18}
+# Personal skills (#162, cli 5 and sdk 6): one more (a run that starts a personal
+# skill with a "/" message); the read-only skill run and the MCP probes cost nothing
+# extra.
+# The chat-folder probes (#163, the same suite versions) add three per runner: a
+# shell run, a file-tool run and a read-only run in a blank chat's folder.
+PLAN_RUNS = {"cli": 15, "sdk": 19}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 
@@ -107,7 +110,6 @@ async def version_key(settings: Settings, runner: str) -> str:
         + " | sdk "
         + capable.installed_sdk_version()
         + f" | suite {capable.suite_version(runner)}"
-        + f" | personal probe {'on' if settings.guard_personal_skill_probe else 'off'}"
     )
 
 
@@ -207,11 +209,7 @@ class GuardCheck:
                 entry = {"versions": key, "attempts": 0, "result": "", "next_try": 0}
             try:
                 await capable.check_available(self.settings, None, runner=runner)
-                # Unverified skill probes are final until the versions or the owner's
-                # setting change (no loop): a changed setting runs the check again.
-                if not capable.suite_outdated(runner) and not capable.skills_recheck_needed(
-                    self.settings, runner
-                ):
+                if not capable.suite_outdated(runner):
                     if entry.get("result") != "passed":
                         self._save(runner, entry | {"result": "passed"})
                     continue  # verified for exactly these versions and this suite

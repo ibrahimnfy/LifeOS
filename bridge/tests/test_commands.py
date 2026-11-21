@@ -57,8 +57,12 @@ def test_session_outside_allowed_folders_is_404(client, auth, tmp_path, write_se
 
 def test_folder_without_claude_directory_lists_nothing(client, auth, ask_dir, write_session):
     body = get_commands(client, auth, session_in(ask_dir, write_session))
+    personal = body.pop("personal")
     assert body == {"enabled": False, "switched_on": False, "reason": REASON, "capable_only": True,
                     "prefix": "folder:", "commands": []}  # fmt: skip
+    # The owner's personal skills (#162): their own state, here "the capable mode is off".
+    assert personal["enabled"] is False and personal["prefix"] == "personal:"
+    assert "capable mode" in personal["reason"]
 
 
 def test_lists_skill_command_and_nested_command(client, auth, ask_dir, write_session):
@@ -67,6 +71,7 @@ def test_lists_skill_command_and_nested_command(client, auth, ask_dir, write_ses
     command(ask_dir, "git/log/short", "Show the short log\n\nMore text that stays private.\n")
     body = get_commands(client, auth, session_in(ask_dir, write_session))
     assert body["enabled"] is False and body["reason"] == REASON
+    assert {entry.pop("source") for entry in body["commands"]} == {"folder"}
     assert body["commands"] == [
         {
             "name": "git:log:short",
@@ -202,14 +207,22 @@ def test_symlinked_claude_directory_lists_nothing(ask_dir, tmp_path):
     assert commands.list_commands(ask_dir) == []
 
 
-def test_home_folder_skills_are_not_listed(client, auth, ask_dir, tmp_path, write_session):
+def test_personal_skills_are_listed_after_the_folders_own(
+    client, auth, ask_dir, tmp_path, write_session
+):
     home = tmp_path / "home"
-    skill(home, "x", "---\ndescription: personal skill\n---\n")
-    command(home, "personal", "personal command\n")
+    skill(home, "x", "---\ndescription: personal skill\n---\nPrivate text of the skill.\n")
+    command(home, "mine", "personal command\n")
     skill(ask_dir, "project", "Project skill\n")
+    outside = write(tmp_path / "elsewhere" / "SKILL.md", "linked skill\n")
+    (home / ".claude" / "skills" / "linked").symlink_to(outside.parent, target_is_directory=True)
     body = get_commands(client, auth, session_in(ask_dir, write_session))
-    assert [entry["name"] for entry in body["commands"]] == ["project"]
-    assert "personal" not in str(body)
+    assert [(entry["name"], entry["source"]) for entry in body["commands"]] == [
+        ("project", "folder"),
+        ("mine", "personal"),
+        ("x", "personal"),
+    ]  # a link in the personal folder is never followed
+    assert "Private text" not in str(body)  # only the description, as for the folder's own
 
 
 def test_names_must_be_plain(ask_dir):

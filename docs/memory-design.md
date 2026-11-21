@@ -135,12 +135,22 @@ One line per task, plain Markdown checkboxes, grouped under fixed headings:
 ```markdown
 ## Open
 - [ ] Hand in example assignment  (due: 2026-12-01) (course: example-course) (added: 2026-11-20) ^t-20261120-01
-- [ ] Reply to example person  (added: 2026-11-20) ^t-20261120-02
+- [ ] Reply to example person  (added: 2026-11-20) (note: ask about the dates [both weeks] first) ^t-20261120-02
 ```
 
 - Optional fields in parentheses: `due`, `project`, `course`, `added`;
   `assignment: moodle-<id>` on a task the course sync created for an
   assignment (it completes when the site shows the work as submitted).
+- `note: <text>` is the owner's own free-text note on the task (#170),
+  written from the phone's task card or capture. It is **one paragraph on
+  the task's own line**: line breaks and runs of spaces become one space,
+  `(` and `)` become `[` and `]` (a bracket would end the field), at most
+  500 characters, no control characters and no `^t-`/`^e-` id markers. The
+  bridge writes it as the last field before the id; a line without it is
+  a task without a note, so older lines stay valid, and it can be typed or
+  changed by hand in the same form. It is separate from the coach's
+  `next` step. Every writer (the phone's edits, the course sync, the coach,
+  completing) rewrites the line field by field, so the note is kept.
 - The `^t-…` suffix is a stable id so the phone can tick a task without
   ambiguity.
 - Completing a task moves its line to `tasks-done.md` with `(done: <date>)`.

@@ -80,7 +80,44 @@ object LocalItems {
     /** The id of a task that waits on the phone: it has no id of the computer yet. */
     const val PREFIX = "local-"
 
-    fun isWaiting(task: Task): Boolean = task.id.startsWith(PREFIX)
+    fun isWaiting(task: Task): Boolean = isWaiting(task.id)
+
+    fun isWaiting(taskId: String): Boolean = taskId.startsWith(PREFIX)
+
+    /**
+     * The id a tick or an edit names (#167): for a task made on this phone, the computer's id
+     * once it confirmed the task ([known] in this run of the app, or still in [confirmed]);
+     * otherwise [taskId] itself.
+     */
+    fun currentId(taskId: String, known: Map<String, String>, confirmed: List<Confirmed>): String {
+        if (!isWaiting(taskId)) return taskId
+        return known[taskId] ?: confirmed.firstOrNull { PREFIX + it.clientId == taskId }?.task?.id ?: taskId
+    }
+
+    /** Where a waiting tick or edit of a task goes when it is its turn to be sent. */
+    sealed interface SendTo {
+        /** The computer's task. */
+        data class Computer(val id: String) : SendTo
+
+        /** The task itself has not reached the computer: wait. */
+        data object Later : SendTo
+
+        /** The task never reached the computer (it was refused or discarded): nothing to send. */
+        data object Nowhere : SendTo
+    }
+
+    /**
+     * Where a tick or an edit of [taskId] goes now. A task made on this phone that the computer
+     * has not confirmed: while it still waits in [outbox] (it is always sent before what was done
+     * to it, see [Outbox.retarget]) the tick or edit waits too; once it was refused, or is gone
+     * without a known id, there is no task on the computer to change.
+     */
+    fun sendTo(taskId: String, known: Map<String, String>, confirmed: List<Confirmed>, outbox: List<OutboxItem>): SendTo {
+        val id = currentId(taskId, known, confirmed)
+        if (!isWaiting(id)) return SendTo.Computer(id)
+        val own = outbox.firstOrNull { it.kind == OutboxItem.Kind.TASK && PREFIX + it.id == id }
+        return if (own != null && own.state != OutboxItem.State.FAILED) SendTo.Later else SendTo.Nowhere
+    }
 
     /**
      * New tasks a list from [listAtMillis] does not have yet: those confirmed after it, then
@@ -90,7 +127,7 @@ object LocalItems {
     fun tasks(outbox: List<OutboxItem>, confirmed: List<Confirmed>, listAtMillis: Long): List<Task> =
         confirmed.filter { it.atMillis >= listAtMillis }.mapNotNull { it.task } +
             outbox.filter { it.kind == OutboxItem.Kind.TASK && it.state != OutboxItem.State.FAILED }
-                .map { Task(PREFIX + it.id, it.text, due = it.due) }
+                .map { Task(PREFIX + it.id, it.text, due = it.due, note = TaskNote.of(it.note)) }
 
     /** The computer's tasks with the phone's new ones; each task once (the computer's copy wins). */
     fun withTasks(server: List<Task>, local: List<Task>): List<Task> = (server + local).distinctBy { it.id }

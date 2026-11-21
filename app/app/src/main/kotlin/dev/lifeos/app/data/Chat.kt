@@ -217,8 +217,17 @@ data class ChatFailure(val problem: ChatProblem, val prompt: String? = null, val
  */
 data class QueuedMessage(val key: Long, val id: String, val prompt: String, val busy: Boolean = false)
 
-/** Where the conversation runs, as the header shows it. */
-data class ChatFolder(val path: String, val label: String, val memory: Boolean)
+/**
+ * Where the conversation runs, as the header shows it. A blank chat (#166) has no folder of its
+ * own on the phone ([BLANK]): its first message names none, and the computer chooses.
+ */
+data class ChatFolder(val path: String, val label: String, val memory: Boolean) {
+    val blank: Boolean get() = path.isEmpty() && !memory
+
+    companion object {
+        val BLANK = ChatFolder("", "", false)
+    }
+}
 
 data class ChatState(
     /** Changes whenever another conversation is shown; work for an earlier one is dropped. */
@@ -347,9 +356,6 @@ class Chat(
     @Volatile
     private var awaiting: Pair<String, Long>? = null
 
-    @Volatile
-    private var resume = false
-
     /** The id the computer called a repeat of an earlier first message (see [read]). */
     @Volatile
     private var repeatedId: String? = null
@@ -383,7 +389,7 @@ class Chat(
 
     /**
      * After a start or an unlock: continue the conversation that was open last. Its messages
-     * are read when the screen asks ([load]).
+     * are read when the screen asks ([load]); the Chat tab shows it as the current chat.
      */
     fun restore() {
         if (coach) return
@@ -397,23 +403,20 @@ class Chat(
             loaded = false,
             choiceKnown = false,
         )
-        resume = true
     }
 
-    /** True once per app start when there is a conversation to continue: the Chat tab opens it directly. */
-    fun takeResume(): Boolean {
-        val wanted = resume && mutable.value.sessionId != null
-        resume = false
-        return wanted
-    }
-
-    /** "New chat": an empty conversation in [folder]. The previous one stays on the computer (Sessions). */
-    fun newChat(folder: Folder) {
+    /**
+     * "New chat": an empty conversation. Without [folder] it is a blank chat (#166): its first
+     * message is sent without a folder, so the computer gives it a folder of its own. With one
+     * ("Ask about this project") it runs there. [draft] goes into the composer. The previous
+     * conversation stays on the computer (Sessions).
+     */
+    fun newChat(folder: Folder? = null, draft: String? = null) {
         if (coach) return
         stopWork()
-        resume = false
         startingPrompt = null
-        mutable.update { ChatState(generation = it.generation + 1, folder = ChatFolder(folder.path, folder.label, folder.isMemory)) }
+        val where = folder?.let { ChatFolder(it.path, it.label, it.isMemory) } ?: ChatFolder.BLANK
+        mutable.update { ChatState(generation = it.generation + 1, folder = where, draft = draft?.takeIf { text -> text.isNotBlank() }) }
         store.save(null)
     }
 
@@ -430,7 +433,6 @@ class Chat(
             return
         }
         stopWork()
-        resume = false
         val folder = ChatFolder(session.folder, session.folderLabel, memory)
         mutable.update {
             ChatState(generation = it.generation + 1, sessionId = session.id, folder = folder, loaded = false, choice = ModelChoice(session.model, session.effort))
@@ -463,7 +465,6 @@ class Chat(
     /** Unpaired: forget everything, also the file. */
     fun forget() {
         stopWork()
-        resume = false
         mutable.update { blank(it.generation + 1) }
         store.save(null)
     }

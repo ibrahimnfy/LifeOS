@@ -21,7 +21,6 @@ def marker(runner="cli", suite=capable.SUITE_VERSION):
             "all_passed": True, "scope": "all_allowed_folders"}  # fmt: skip
     if suite is not None:
         data["suite_version"] = suite
-        data["skills_verified"] = True
     capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
 
 
@@ -64,11 +63,11 @@ def test_only_capable_runs_with_skills_get_the_folder_plugin(settings, tmp_path)
     assert "disableSkillShellExecution" not in json.loads(option(without, "--settings"))
 
     read_only = claude.READ_ONLY
-    assert read_only.skills_dir is None
+    assert read_only.skills_dir is None and read_only.personal_skills_dir is None
     flags = claude.run_flags(settings, session_id="s", resume=False)
     assert "--disable-slash-commands" in flags and "--plugin-dir" not in flags
     # Even a read-only policy carrying a plugin by mistake gets no skills.
-    stray = dataclasses.replace(read_only, skills_dir=plugin)
+    stray = dataclasses.replace(read_only, skills_dir=plugin, personal_skills_dir=plugin)
     flags = claude.run_flags(settings, session_id="s", resume=False, policy=stray)
     assert "--disable-slash-commands" in flags and "--plugin-dir" not in flags
 
@@ -90,6 +89,10 @@ def test_the_snapshot_holds_only_the_folders_skills_and_commands(settings, tmp_p
         "skills/tidy/SKILL.md",
         "skills/tidy/helper.sh",
     ]
+    # The skill's frontmatter is written by the bridge (see test_personal_skills).
+    assert (plugin / "skills" / "tidy" / "SKILL.md").read_text() == (
+        '---\nname: "tidy"\ndescription: "Tidy up."\n---\nTidy.\n'
+    )
     assert json.loads((plugin / ".claude-plugin" / "plugin.json").read_text())["name"] == "folder"
     assert skills.snapshot(folder, "session-1") == plugin  # unchanged: the same copy
     (folder / ".claude" / "skills" / "tidy" / "SKILL.md").write_text("changed")
@@ -104,14 +107,16 @@ def test_the_personal_folder_is_never_copied(settings, tmp_path):
     assert sorted(p.name for p in plugin.rglob("*") if p.is_file()) == ["plugin.json"]
 
 
-def test_messages_starting_with_a_slash_must_name_a_folder_skill(tmp_path):
+def test_messages_starting_with_a_slash_must_name_a_folder_skill(settings, tmp_path):
     folder = folder_with_skills(tmp_path / "f")
-    assert skills.check_prompt("hello /there", folder) == "hello /there"
-    assert skills.check_prompt("/tidy now", folder) == "/folder:tidy now"
-    assert skills.check_prompt("  /folder:git:log", folder) == "/folder:git:log"
-    for bad in ("/config model=x", "/ghost", "/folder:missing", "/compact"):
+    offered = skills.for_run(settings, folder, "s", folder_skills=True, personal=True).names
+    assert offered == {"folder": {"tidy", "git:log"}}  # no personal skill exists here
+    assert skills.check_prompt("hello /there", offered) == "hello /there"
+    assert skills.check_prompt("/tidy now", offered) == "/folder:tidy now"
+    assert skills.check_prompt("  /folder:git:log", offered) == "/folder:git:log"
+    for bad in ("/config model=x", "/ghost", "/folder:missing", "/compact", "/personal:tidy"):
         with pytest.raises(ClaudeError) as caught:
-            skills.check_prompt(bad, folder)
+            skills.check_prompt(bad, offered)
         assert caught.value.code == "command_not_allowed"
 
 
@@ -264,13 +269,9 @@ def test_the_skill_probes_pass_when_nothing_happened(settings, monkeypatch):
     suite.probe_skills()
     assert len(suite.probes) == 5 and all(results(suite).values())
     suite.clean_outside()
-    assert not suite.personal_skill.exists()  # the personal probe skill is removed again
 
 
 def test_the_skill_probes_catch_each_failure(settings, monkeypatch):
-    personal = good_run(init_commands=["folder:shell-probe", "ghost-skill"])
-    (settings.ask_dir.parent / ".claude" / "skills" / "ghost-skill").mkdir(parents=True)
-
     def shell_ran(*a, **k):
         (suite.run_dir / verify.SKILL_SHELL_MARK).write_text("ran")
         return good_run()
@@ -281,7 +282,6 @@ def test_the_skill_probes_catch_each_failure(settings, monkeypatch):
         "skills: a shell line in a skill does not run": shell_ran,
         "skills: tools a skill approves for itself change nothing":
             lambda *a, **k: good_run(init_tools=["Read", "WebFetch", "Skill"]),
-        "skills: no personal skill is offered": lambda *a, **k: personal,
     }  # fmt: skip
     for name, capable_run in cases.items():
         suite = suite_with(settings, monkeypatch, capable_run, READ_ONLY_RUN)

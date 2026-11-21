@@ -34,7 +34,40 @@ data class Task(
     val project: String? = null,
     val course: String? = null,
     val added: String? = null,
+    /** The coach's first step for it (`next`); null when it has none. Not the owner's [note]. */
+    val next: String? = null,
+    /** The course assignment it was made from (`moodle-<assignment id>`, #167); null for other tasks. */
+    val assignment: String? = null,
+    /** The owner's own note on it (#170): one paragraph, at most [TaskNote.MAX] characters; null when none. */
+    val note: String? = null,
 )
+
+/** The owner's note on a task (#170), kept the way the computer keeps it. */
+object TaskNote {
+    /** The longest note the computer accepts (the bridge's MAX_TASK_NOTE). */
+    const val MAX = 500
+
+    /**
+     * What the form keeps while the owner types: one paragraph (a line break becomes a space,
+     * as on the computer), no other control characters (the computer refuses them), at most [MAX].
+     */
+    fun typed(value: String): String =
+        value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ').filterNot { it.isISOControl() }.take(MAX)
+
+    /** The note to send: trimmed; blank means none. */
+    fun of(value: String?): String? = value?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * What an edit does to the note: null when [typed] is null or says what [shown] says (the
+     * edit leaves the note alone, so a title or date change never touches it), "" to remove it,
+     * otherwise the new note.
+     */
+    fun change(shown: String?, typed: String?): String? {
+        if (typed == null) return null
+        val next = of(typed)
+        return if (next == of(shown)) null else next ?: ""
+    }
+}
 
 @Serializable
 data class TaskList(val tasks: List<Task> = emptyList())
@@ -103,10 +136,11 @@ data class TaskSaved(
     val project: String? = null,
     val course: String? = null,
     val added: String? = null,
+    val note: String? = null,
     val gone: Boolean = false,
     val repeat: Boolean = false,
 ) {
-    fun task(): Task? = if (gone || id == null) null else Task(id, title, done, due, project, course, added)
+    fun task(): Task? = if (gone || id == null) null else Task(id, title, done, due, project, course, added, note = note)
 }
 
 @Serializable
@@ -286,6 +320,37 @@ object AssignmentMatch {
 
 @Serializable
 data class Assignments(val assignments: List<Assignment> = emptyList())
+
+/** What tapping a task opens (#167). */
+sealed interface TaskTarget {
+    /** The page of the course assignment the task was made from. */
+    data class AssignmentPage(val courseId: Long, val assignmentId: Long) : TaskTarget
+
+    /** The task's own card (a bottom sheet). */
+    data object Card : TaskTarget
+
+    companion object {
+        /** The marker the course sync writes into an assignment's task: `(assignment: moodle-<id>)`. */
+        private val MARKER = Regex("^moodle-(\\d+)$")
+
+        /** A course folder as the bridge names it (`<short name>-<course id>`): the id is its last part. */
+        private val FOLDER = Regex("^[a-z0-9-]*-(\\d+)$")
+
+        /**
+         * A task made from a course assignment opens the assignment, when both ids can be told:
+         * the assignment's from the marker, the course's from the course list ([courseOf]) or else
+         * from the course folder's name. Anything else (and a task still waiting on the phone)
+         * opens the card, so a tap never leads nowhere.
+         */
+        fun of(task: Task, courseOf: (String) -> Course? = { null }): TaskTarget {
+            if (LocalItems.isWaiting(task)) return Card
+            val assignmentId = task.assignment?.trim()?.let { MARKER.matchEntire(it) }?.groupValues?.get(1)?.toLongOrNull()?.takeIf { it > 0 } ?: return Card
+            val course = task.course?.trim()?.takeIf { it.isNotEmpty() } ?: return Card
+            val courseId = courseOf(course)?.id ?: FOLDER.matchEntire(course)?.groupValues?.get(1)?.toLongOrNull()
+            return if (courseId != null && courseId > 0) AssignmentPage(courseId, assignmentId) else Card
+        }
+    }
+}
 
 @Serializable
 data class GradeItem(

@@ -233,10 +233,15 @@ def create_app(settings: Settings) -> FastAPI:
         async def resources_tick() -> None:
             """A syllabus is new, changed or asked for: one course-resources run, apart
             from the six-hour sync (which never starts a run)."""
-            if not resource_runs and await asyncio.to_thread(resources.due):
+            if resource_runs:
+                return
+            if await asyncio.to_thread(resources.due):
                 run = asyncio.create_task(resources.run_next(settings))
                 resource_runs.add(run)
                 run.add_done_callback(resource_runs.discard)
+                return
+            # Nothing running or waiting: the day's one summary of what was downloaded.
+            await asyncio.to_thread(resources.send_summary, settings.notify_script)
 
         consolidation_runs: set[asyncio.Task] = set()
 
@@ -629,7 +634,7 @@ def create_app(settings: Settings) -> FastAPI:
         streaming = bool(data.get("stream"))
         use_sdk = sdk_pool is not None
         watch = None
-        used_servers: list[str] = []
+        used_servers: list[tuple[str, str]] = []
         slots.acquire(session_id)
         control.take_stopped(session_id)  # a stop request for an earlier run is not ours
         if not data.get("_queued"):
@@ -664,31 +669,43 @@ def create_app(settings: Settings) -> FastAPI:
                 if not use_sdk and sdk_pool is not None:
                     await sdk_pool.drop(session_id)  # never two kinds of writer at once
                 watch = capable.AuditWatch(session_id)
-                skills_dir = None
+                runner = "sdk" if use_sdk else "cli"
+                # The owner's personal skills and MCP servers (#162): in every capable
+                # run, once the check with their probes has passed on this runner.
+                personal = capable.personal_available(runner)
                 if chosen["skills"]:
                     # The folder's own skills (#91): only after the check with the skill
                     # probes; never silently without them (switch them off instead).
-                    runner = "sdk" if use_sdk else "cli"
                     await capable.skills_available(settings, cwd, runner=runner)
-                    prompt = skills.check_prompt(prompt, cwd)
-                    skills_dir = await asyncio.to_thread(skills.snapshot, cwd, session_id)
-                # MCP servers the owner approved for this folder (#108): exactly those,
-                # unchanged, and only after the check with the MCP probes.
-                servers = await asyncio.to_thread(mcp_servers.for_run, cwd)
+                offer = await asyncio.to_thread(
+                    skills.for_run, settings, cwd, session_id,
+                    folder_skills=chosen["skills"], personal=personal,
+                )  # fmt: skip
+                if offer.any:
+                    # Slash commands are live in this run: only the offered ones may
+                    # be named, never one of Claude Code's own.
+                    prompt = skills.check_prompt(prompt, offer.names)
+                # MCP servers the owner approved (#108, #162): exactly those, unchanged,
+                # and only after the check with the MCP probes.
+                servers = await asyncio.to_thread(
+                    mcp_servers.for_run, cwd, settings.personal_mcp_file if personal else None
+                )
                 if servers:
-                    await capable.mcp_available(settings, cwd, runner="sdk" if use_sdk else "cli")
+                    await capable.mcp_available(settings, cwd, runner=runner)
+                    scopes = await asyncio.to_thread(mcp_servers.scopes_for_run, cwd, servers)
                     try:
                         detail = {"session": session_id, "folder": str(cwd),
-                                  "names": sorted(servers)}  # fmt: skip
+                                  "names": sorted(servers), "scopes": scopes}  # fmt: skip
                         audit.record("mcp_servers_used", detail)
                     except audit.AuditUnavailable as exc:
                         raise ClaudeError(
                             "audit_unavailable", 503, "the audit log could not be written"
                         ) from exc
-                    used_servers = sorted(servers)
+                    used_servers = [(name, scopes[name]) for name in sorted(servers)]
                 policy = capable.build_policy(
-                    settings, cwd, ask_host=use_sdk, skills_dir=skills_dir, mcp=servers
-                )
+                    settings, cwd, ask_host=use_sdk, skills_dir=offer.folder_dir,
+                    personal_skills_dir=offer.personal_dir, mcp=servers,
+                )  # fmt: skip
                 run_args |= {"policy": policy, "observer": watch}
             elif read_only_policy is not claude.READ_ONLY:
                 run_args["policy"] = read_only_policy
@@ -788,12 +805,13 @@ def create_app(settings: Settings) -> FastAPI:
                         await asyncio.to_thread(with_switch, payload, session_id)
                         if used_servers:
                             payload["mcp_servers"] = [
-                                {"name": name, "outside_sandbox": True} for name in used_servers
+                                {"name": name, "scope": scope, "outside_sandbox": True}
+                                for name, scope in used_servers
                             ]
                             payload["mcp_note"] = mcp_servers.OUTSIDE_SANDBOX
                             await asyncio.to_thread(
                                 remember_servers, payload.get("session_id") or session_id,
-                                used_servers, started,
+                                [name for name, _scope in used_servers], started,
                             )  # fmt: skip
                     yield event, payload
             except ClaudeError as error:
@@ -937,7 +955,7 @@ def create_app(settings: Settings) -> FastAPI:
                 if entry["kind"] == skill_installs.KIND:
                     return skill_installs.answer(entry, approve)
                 if entry["kind"] == mcp_servers.KIND:
-                    return mcp_servers.answer(entry, approve)
+                    return mcp_servers.answer(entry, approve, settings.personal_mcp_file)
                 if entry["kind"] == moves.KIND:
                     return moves.answer(settings, entry, approve)
                 raise ClaudeError("not_pending", 404, "this approval is no longer waiting")
@@ -955,17 +973,31 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions/{session_id}/mcp-servers")
     async def list_mcp_servers(session_id: str):
-        """The MCP servers defined in the session's folder (nothing is started)."""
+        """The MCP servers of the session's folder, then the owner's personal ones
+        (``scope``); nothing is started."""
         info = listed_session(session_id)
-        found = await asyncio.to_thread(mcp_servers.listing, info.folder)
+        found = await asyncio.to_thread(
+            mcp_servers.listing, info.folder, settings.personal_mcp_file
+        )
         return {"servers": found, "capable_only": True, "note": mcp_servers.OUTSIDE_SANDBOX}
 
+    def mcp_scope(folder: Path, name: str, scope: str | None) -> str:
+        return mcp_servers.resolve_scope(folder, name, scope, settings.personal_mcp_file)
+
     @app.post("/sessions/{session_id}/mcp-servers/{name}/approval")
-    async def request_mcp_approval(session_id: str, name: str):
-        """Ask the owner to approve exactly this server: an approval card (#108)."""
+    async def request_mcp_approval(session_id: str, name: str, scope: str | None = None):
+        """Ask the owner to approve exactly this server: an approval card (#108).
+
+        ``?scope=folder|personal`` says which one; without it the folder's own server
+        of that name is meant, else the owner's personal one.
+        """
         info = listed_session(session_id)
         await asyncio.to_thread(expire_approvals)
-        card = await asyncio.to_thread(mcp_servers.request, info.id, info.folder, name)
+        chosen_scope = await asyncio.to_thread(mcp_scope, info.folder, name, scope)
+        card = await asyncio.to_thread(
+            mcp_servers.request, info.id, info.folder, name, chosen_scope,
+            settings.personal_mcp_file,
+        )  # fmt: skip
         if not card["already_waiting"]:  # the same definition asked again: no second push
             wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", info.id))
             background.add(wake)
@@ -973,10 +1005,19 @@ def create_app(settings: Settings) -> FastAPI:
         return card
 
     @app.delete("/sessions/{session_id}/mcp-servers/{name}")
-    async def revoke_mcp_server(session_id: str, name: str):
+    async def revoke_mcp_server(session_id: str, name: str, scope: str | None = None):
+        """Take an approval back. ``?scope=folder|personal`` says which one; without it
+        the folder's approval of that name, else the owner's personal one."""
         info = listed_session(session_id)
-        revoked = await asyncio.to_thread(mcp_servers.revoke, info.folder, name, info.id)
-        return {"revoked": revoked}
+        if scope is not None and scope not in mcp_servers.SCOPES:
+            raise ClaudeError("bad_request", 400, "scope must be folder or personal")
+        for one in (scope,) if scope else mcp_servers.SCOPES:
+            revoked = await asyncio.to_thread(
+                mcp_servers.revoke, info.folder, name, info.id, one, settings.personal_mcp_file
+            )
+            if revoked:
+                return {"revoked": True}
+        return {"revoked": False}
 
     @app.get("/sessions/{session_id}/queue")
     async def show_queue(session_id: str):
@@ -1419,7 +1460,10 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.patch("/tasks/{task_id}")
     async def update_task(task_id: str, request: Request):
-        """Change a task. Body: any of ``{"title": str, "due": "YYYY-MM-DD" | null}``."""
+        """Change a task. Body: any of ``{"title", "due": "YYYY-MM-DD" | null, "note"}``.
+
+        A ``null`` (or blank) ``note`` removes the note, as ``null`` removes the date.
+        """
         data = await read_json_object(request)
         return (await asyncio.to_thread(memory.update_task, brain, task_id, data)).as_json()
 
@@ -1430,7 +1474,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/tasks", status_code=201)
     async def add_task(request: Request):
-        """Body: ``{"title", "due"?: "YYYY-MM-DD", "project"?, "course"?, "client_id"?}``.
+        """Body: ``{"title", "due"?: "YYYY-MM-DD", "project"?, "course"?, "note"?, "client_id"?}``.
 
         A repeat with a known ``client_id`` answers 200 with the stored task and
         writes nothing; the same ``client_id`` with other fields answers 409.
@@ -1751,29 +1795,45 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions/{session_id}/commands")
     async def session_commands(session_id: str):
-        """Skills and commands of the session's folder, and whether its capable runs may use them.
+        """Skills and commands a capable run of the session may use: the folder's own
+        and the owner's personal ones (``source`` says which).
 
-        ``enabled`` is true only when the owner switched skills on for the session
-        and the guardrail check with the skill probes passed; ``reason`` says why not.
+        ``enabled`` is about the folder's own: true only when the owner switched
+        skills on for the session and the guardrail check with the skill probes
+        passed; ``reason`` says why not. ``personal`` says the same for the owner's
+        personal ones, which need no switch (#162).
         """
         info = listed_session(session_id)
         switched = (await asyncio.to_thread(session_meta.entry_for, info.id))["skills"]
         reason = None if switched else "skills are switched off for this session"
-        if reason is None:
-            try:
-                use_sdk = await capable_on_sdk(info.folder)
-                runner = "sdk" if use_sdk else "cli"
+        personal_reason = None
+        try:
+            use_sdk = await capable_on_sdk(info.folder)
+            runner = "sdk" if use_sdk else "cli"
+            if not capable.personal_available(runner):
+                personal_reason = capable.PERSONAL_UNAVAILABLE_REASON
+            if reason is None:
                 await capable.skills_available(settings, info.folder, runner=runner)
-            except ClaudeError as error:
-                reason = error.message
-        found = await asyncio.to_thread(commands.list_commands, info.folder)
+        except ClaudeError as error:
+            reason = reason or error.message
+            personal_reason = personal_reason or error.message
+        found = await asyncio.to_thread(
+            commands.list_commands, info.folder, settings.personal_claude_dir
+        )
+        own = await asyncio.to_thread(commands.list_personal, settings.personal_claude_dir)
         return {
             "enabled": reason is None,
             "switched_on": switched,
             "reason": reason,
             "capable_only": True,
             "prefix": skills.PLUGIN + ":",
-            "commands": found,
+            "personal": {
+                "enabled": personal_reason is None,
+                "reason": personal_reason,
+                "prefix": skills.PERSONAL + ":",
+            },
+            "commands": [entry | {"source": skills.PLUGIN} for entry in found]
+            + [entry | {"source": skills.PERSONAL} for entry in own],
         }
 
     # ---- the university Moodle: status, courses, assignments, deadlines ----

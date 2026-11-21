@@ -85,6 +85,11 @@ settings. It is enabled only after the guardrail check with the skill
 probes passed. Details: `docs/permission-policy.md`, section 9.2; API:
 `docs/bridge.md`, `GET /sessions/{id}/commands`.
 
+**Changed (#162, owner's decision #149):** every capable run is also offered
+the owner's personal skills and commands, as a second copy
+(`personal:<name>`), and personal MCP servers once approved. "No personal
+skills" above no longer holds for capable runs; everything else does.
+
 What the documentation says, and what follows:
 
 - Skills and custom commands work in headless runs: a prompt that starts

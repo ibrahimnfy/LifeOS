@@ -37,6 +37,12 @@ data class OutboxItem(
     val attempts: Int = 0,
     val attemptAtMillis: Long? = null,
     val errorCode: String? = null,
+    /**
+     * The owner's note of a task (#170). A new task: its note (null or blank: none). A task
+     * edit: blank removes the note, other text replaces it, null leaves it as it is (so an edit
+     * stored before notes existed never touches one).
+     */
+    val note: String? = null,
 ) {
     @Serializable
     enum class Kind { NOTE, TASK, COMPLETE, EVENT_CREATE, EVENT_UPDATE, TASK_EDIT, NOTE_EDIT }
@@ -162,14 +168,28 @@ class Outbox(
     /**
      * Change the text of an item that has not left the phone yet (a second edit of the same
      * note must replace the first: the first one changes the id the second would aim at).
-     * False if the item is on its way, needs a look, or is gone.
+     * False if the item is on its way, needs a look, or is gone. [unsentOnly]: also false once
+     * an attempt may have reached the computer (a new task is stored there under its first
+     * title, and a repeat with another title would be refused, #167). [note] (a task's, #170):
+     * null keeps the item's note as it is.
      */
-    fun revise(id: String, text: String, due: String? = null): Boolean {
+    fun revise(id: String, text: String, due: String? = null, unsentOnly: Boolean = false, note: String? = null): Boolean {
+        fun open(item: OutboxItem) = !item.sending && item.state == OutboxItem.State.WAITING && (!unsentOnly || item.attempts == 0)
         val item = state.value.firstOrNull { it.id == id } ?: return false
-        if (item.sending || item.state != OutboxItem.State.WAITING) return false
-        return update { items ->
-            items.map { if (it.id == id && !it.sending && it.state == OutboxItem.State.WAITING) it.copy(text = text, due = due) else it }
+        if (!open(item)) return false
+        var changed = false
+        val stored = update { items ->
+            items.map { if (it.id == id && open(it)) it.copy(text = text, due = due, note = note ?: it.note).also { changed = true } else it }
         }
+        return stored && changed
+    }
+
+    /**
+     * A task made on this phone reached the computer (#167): ticks and edits that wait for it
+     * under its phone id ([from], see [LocalItems.PREFIX]) now name the computer's id [to].
+     */
+    fun retarget(from: String, to: String): Boolean = update { items ->
+        items.map { if (it.taskId == from && !it.sending) it.copy(taskId = to) else it }
     }
 
     fun settled(item: OutboxItem): Boolean = nowMillis() - (item.attemptAtMillis ?: 0) > SETTLE_MILLIS

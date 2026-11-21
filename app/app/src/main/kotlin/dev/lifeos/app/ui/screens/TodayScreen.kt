@@ -113,12 +113,19 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                     val picks = plan.topThree.filter { top -> TaskLists.open(listOf(top.task), outbox, ticked).isNotEmpty() }
                     if (picks.isNotEmpty()) {
                         val looks = LocalLooks.current
+                        val openTask = LocalOpenTask.current
+                        val openLabel = stringResource(R.string.task_open)
                         LifeCard(watermark = Watermark(LifeIcons.SparkMark, SectionTones.PICKS)) {
                             SectionHeader(title = stringResource(R.string.section_picks), icon = LifeIcons.Spark, tone = SectionTones.PICKS)
                             picks.forEachIndexed { index, top ->
                                 if (index > 0) RowDivider()
-                                // The rank takes the colour of the task's course or project.
-                                MarkRow(title = top.task.title, subtitle = top.reason?.takeIf { it.isNotBlank() }) {
+                                // The rank takes the colour of the task's course or project; a tap opens the task (#167).
+                                val task = TaskLists.open(listOf(top.task), outbox, ticked).firstOrNull() ?: top.task
+                                MarkRow(
+                                    title = task.title,
+                                    subtitle = top.reason?.takeIf { it.isNotBlank() },
+                                    modifier = Modifier.clickable(onClickLabel = openLabel, role = Role.Button) { openTask(task) },
+                                ) {
                                     RankMark(index + 1, tone = looks.forTask(top.task)?.tone)
                                 }
                             }

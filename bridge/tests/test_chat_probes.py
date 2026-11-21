@@ -183,4 +183,4 @@ def test_suite_versions_and_plan_runs():
     assert capable.SUITE_VERSIONS == {"cli": 5, "sdk": 6}
     assert capable.CHAT_SUITE_VERSIONS == {"cli": 5, "sdk": 6}
     # three short runs per runner and environment for the chat-folder probes
-    assert guardcheck.PLAN_RUNS == {"cli": 14, "sdk": 18}
+    assert guardcheck.PLAN_RUNS == {"cli": 15, "sdk": 19}  # 12 and 16 of #162, plus three

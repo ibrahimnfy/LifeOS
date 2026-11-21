@@ -67,8 +67,13 @@ class Policy:
     # Capable runs with the session's skills on (#91): a copy of the folder's skills
     # and commands, loaded as a plugin; slash commands and the skill tool are enabled.
     skills_dir: Path | None = None
-    # Capable runs in a folder with MCP servers the owner approved (#108): exactly those,
-    # as an --mcp-config JSON; --strict-mcp-config stays, so nothing else loads.
+    # Capable runs (#162): a copy of the owner's personal skills and commands, loaded
+    # as a second plugin, whether or not the session's own skills are switched on.
+    personal_skills_dir: Path | None = None
+    # Capable runs with MCP servers the owner approved (#108, #162): exactly those, as
+    # the path of an --mcp-config file in the private settings folder (the definitions
+    # may hold secrets, which must not appear on a command line);
+    # --strict-mcp-config stays, so nothing else loads.
     mcp_config: str | None = None
     # Allow rules for tools that would otherwise ask, and so be denied in dontAsk
     # (the web tools of the course-resources profile).
@@ -76,6 +81,14 @@ class Policy:
     # A blank chat (#163): Claude Code is told to load no memory file at all (no
     # CLAUDE.md of any level, no auto-memory), on top of the restricted mode.
     clean: bool = False
+
+    @property
+    def plugin_dirs(self) -> tuple[Path, ...]:
+        """The plugin copies a run is started with; none unless the run is capable."""
+        if not self.capable:
+            return ()
+        found = (self.skills_dir, self.personal_skills_dir)
+        return tuple(folder for folder in found if folder is not None)
 
 
 READ_ONLY = Policy()
@@ -217,7 +230,7 @@ def run_flags(
         # Nobody is at the computer: never wait for an approval, deny instead.
         prompts = ["--permission-mode", "dontAsk", "--permission-prompts", "none"]
         tools = policy.tools
-    if policy.capable and policy.skills_dir is not None:
+    if policy.plugin_dirs:
         tools += "," + SKILL_TOOL
     command = [
         *prompts,
@@ -230,10 +243,12 @@ def run_flags(
     ]  # fmt: skip
     if policy.capable and policy.mcp_config:
         command += ["--mcp-config", policy.mcp_config]
-    if policy.capable and policy.skills_dir is not None:
-        # Only the copy of the folder's own skills and commands: no personal, project
-        # or plugin ones (restricted mode ignores every settings file and source).
-        command += ["--plugin-dir", str(policy.skills_dir)]
+    if policy.plugin_dirs:
+        # Only the bridge's own copies (the owner's personal skills and commands, and
+        # the folder's own when switched on): restricted mode ignores every settings
+        # file and source, so nothing else is loaded.
+        for folder in policy.plugin_dirs:
+            command += ["--plugin-dir", str(folder)]
     else:
         command += ["--disable-slash-commands"]
     if policy.allowed:

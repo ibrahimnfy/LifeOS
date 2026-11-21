@@ -49,6 +49,7 @@ import dev.lifeos.app.data.EventDraft
 import dev.lifeos.app.data.NoteLists
 import dev.lifeos.app.data.Task
 import dev.lifeos.app.data.TaskLists
+import dev.lifeos.app.data.TaskNote
 import dev.lifeos.app.data.Outbox
 import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.OutboxStore
@@ -79,6 +80,9 @@ import dev.lifeos.app.relay.RelayClient
 import dev.lifeos.app.relay.RelayException
 import dev.lifeos.app.relay.RtdbMailbox
 import dev.lifeos.app.relay.TokenSource
+import dev.lifeos.app.sync.NetworkWatch
+import dev.lifeos.app.sync.OutboxWorker
+import dev.lifeos.app.sync.SyncTrigger
 import dev.lifeos.app.settings.SettingsStore
 import dev.lifeos.app.update.AppUpdater
 import kotlinx.coroutines.CancellationException
@@ -90,6 +94,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -426,15 +432,43 @@ class LifeOsCore(private val app: Application) {
                     confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), note = note))
                 }
             }
-            OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId).let { saved ->
+            OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId, item.note).let { saved ->
                 val task = saved.task()
                 if (task != null && item.clientId != null) confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), task = task))
+                if (task != null) taskConfirmed(LocalItems.PREFIX + item.id, task.id)
             }
-            OutboxItem.Kind.COMPLETE -> api.completeTask(checkNotNull(item.taskId))
+            OutboxItem.Kind.COMPLETE -> toTask(checkNotNull(item.taskId)) { api.completeTask(it) }
             OutboxItem.Kind.EVENT_CREATE -> api.createEvent(checkNotNull(item.event))
             OutboxItem.Kind.EVENT_UPDATE -> api.updateEvent(checkNotNull(item.eventId), checkNotNull(item.event))
-            OutboxItem.Kind.TASK_EDIT -> api.editTask(checkNotNull(item.taskId), item.text, item.due)
+            OutboxItem.Kind.TASK_EDIT -> toTask(checkNotNull(item.taskId)) { api.editTask(it, item.text, item.due, item.note) }
             OutboxItem.Kind.NOTE_EDIT -> api.editNote(checkNotNull(item.noteId), item.text)
+        }
+    }
+
+    /** Tasks made on this phone that the computer confirmed in this run of the app: phone id → its id (#167). */
+    private val confirmedTaskIds = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * A task made on this phone reached the computer: what waits for it (a tick, an edit) now
+     * names its real id, and a tick still in its undo time hides it under that id too.
+     */
+    private fun taskConfirmed(localId: String, id: String) {
+        confirmedTaskIds[localId] = id
+        outbox.retarget(localId, id)
+        if (localId in tickedState.value) tickedState.value += id
+    }
+
+    /** The id to name a task by now: a task made on this phone by the computer's id once it has one. */
+    private fun taskIdNow(taskId: String): String = LocalItems.currentId(taskId, confirmedTaskIds, confirmed.items.value)
+
+    /** Send a tick or an edit to its task (see [LocalItems.sendTo]). */
+    private suspend fun toTask(taskId: String, send: suspend (String) -> Unit) {
+        when (val to = LocalItems.sendTo(taskId, confirmedTaskIds, confirmed.items.value, outbox.items.value)) {
+            is LocalItems.SendTo.Computer -> send(to.id)
+            // Nothing left the phone: the item keeps waiting behind its task.
+            LocalItems.SendTo.Later -> throw ApiException(ApiException.Kind.NOT_SENT)
+            // The task never reached the computer: there is nothing to tick or change there.
+            LocalItems.SendTo.Nowhere -> Unit
         }
     }
 
@@ -569,13 +603,17 @@ class LifeOsCore(private val app: Application) {
      */
     fun tick(task: Task) {
         if (task.id in tickedState.value) return
-        tickedState.value += task.id
+        // Hidden under both ids when a task made on this phone was confirmed meanwhile (its card shows it as tapped).
+        tickedState.value += setOf(task.id, taskIdNow(task.id))
         tickTimers[task.id] = scope.launch {
             delay(UNDO_MILLIS)
             tickTimers.remove(task.id)
-            val item = OutboxItem(newItemId(), OutboxItem.Kind.COMPLETE, System.currentTimeMillis(), text = task.title, taskId = task.id)
+            // A task made on this phone (#167) is ticked by the computer's id once it has one;
+            // until then the tick waits behind it in the outbox and is renamed when it arrives.
+            val id = taskIdNow(task.id)
+            val item = OutboxItem(newItemId(), OutboxItem.Kind.COMPLETE, System.currentTimeMillis(), text = task.title, taskId = id)
             val stored = outbox.add(item)
-            tickedState.value -= task.id
+            tickedState.value -= setOf(task.id, id)
             if (stored && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
         }
     }
@@ -584,17 +622,19 @@ class LifeOsCore(private val app: Application) {
     fun undoTick(task: Task): Boolean {
         val timer = tickTimers.remove(task.id) ?: return false
         timer.cancel()
-        tickedState.value -= task.id
+        tickedState.value -= setOf(task.id, taskIdNow(task.id))
         return true
     }
 
-    suspend fun capture(note: Boolean, text: String, due: String?): Boolean = submit(
+    /** A new note, or a new task with its date and the owner's note on it ([taskNote], #170). */
+    suspend fun capture(note: Boolean, text: String, due: String?, taskNote: String? = null): Boolean = submit(
         OutboxItem(
             newItemId(),
             if (note) OutboxItem.Kind.NOTE else OutboxItem.Kind.TASK,
             System.currentTimeMillis(),
             text = text,
             due = if (note) null else due,
+            note = if (note) null else TaskNote.of(taskNote),
         ),
     )
 
@@ -608,11 +648,23 @@ class LifeOsCore(private val app: Application) {
         ),
     )
 
-    /** Change a task's title and date ([due] null: no date). Shown changed at once (see [TaskLists.open]). */
-    suspend fun editTask(task: Task, title: String, due: String?): Boolean {
-        val waiting = TaskLists.pendingEdit(task.id, outbox.items.value)
-        if (waiting != null && outbox.revise(waiting.id, title, due)) return sendWaiting(waiting.id)
-        return submit(OutboxItem(newItemId(), OutboxItem.Kind.TASK_EDIT, System.currentTimeMillis(), text = title, due = due, taskId = task.id))
+    /**
+     * Change a task's title, date ([due] null: no date) and note ([note] blank: none, #170).
+     * Shown changed at once (see [TaskLists.open]). A task made on this phone that has not left
+     * it yet (#167) simply leaves with the new title, date and note; one on its way, or one that
+     * may have arrived already (an attempt without an answer), gets the edit right after it.
+     * The note is sent only when it differs from the one [task] shows (see [TaskNote.change]).
+     */
+    suspend fun editTask(task: Task, title: String, due: String?, note: String? = null): Boolean {
+        val id = taskIdNow(task.id)
+        val noteChange = TaskNote.change(task.note, note)
+        if (LocalItems.isWaiting(id)) {
+            val own = id.removePrefix(LocalItems.PREFIX)
+            if (outbox.revise(own, title, due, unsentOnly = true, note = noteChange)) return sendWaiting(own)
+        }
+        val waiting = TaskLists.pendingEdit(id, outbox.items.value)
+        if (waiting != null && outbox.revise(waiting.id, title, due, note = noteChange)) return sendWaiting(waiting.id)
+        return submit(OutboxItem(newItemId(), OutboxItem.Kind.TASK_EDIT, System.currentTimeMillis(), text = title, due = due, taskId = id, note = noteChange))
     }
 
     /**
@@ -997,6 +1049,44 @@ class LifeOsCore(private val app: Application) {
         }
     }
 
+    // ---- sending as soon as the phone is online again (#165)
+
+    private val syncTrigger = SyncTrigger(scope, NetworkWatch.validatedNow(app)) { networkBack() }
+
+    init {
+        NetworkWatch.register(app, syncTrigger::networkChanged)
+        // Something waits and the computer cannot be reached: let the system start the sending
+        // when the network is there, also if this process is paused or stopped by then.
+        scope.launch {
+            combine(outbox.items, connectionState, lockedState) { items, state, locked ->
+                !locked && state == ConnectionState.UNREACHABLE && items.any { it.state == OutboxItem.State.WAITING }
+            }.distinctUntilChanged().collect { if (it) OutboxWorker.schedule(app) }
+        }
+    }
+
+    /** Send what waits now if the app is unlocked (the background job asks for this). */
+    fun syncNow() = syncTrigger.request()
+
+    /**
+     * The phone is online again: drop connections that belonged to the old network, listen
+     * again at once, ask the computer, and send what waits. A successful check also refreshes
+     * the screens (see [reached]). The first check may come a moment too early; it is repeated.
+     */
+    private suspend fun networkBack() {
+        val current = session ?: return
+        // The stream first, so its connection is let go before the idle ones are closed.
+        current.client.reconnect()
+        http.connectionPool.evictAll()
+        repeat(NETWORK_BACK_CHECKS) { attempt ->
+            if (session !== current) return
+            if (attempt > 0) delay(NETWORK_BACK_PAUSE_MILLIS)
+            if (check() is TestResult.Ok) {
+                if (outbox.drain() > 0) reloadState.value++
+                return
+            }
+        }
+    }
+
     /** "Test connection" in settings: one `GET /whoami` through the relay. */
     suspend fun testConnection(): TestResult {
         if (session == null) return TestResult.Failed(TestProblem.NOT_PAIRED)
@@ -1149,6 +1239,10 @@ class LifeOsCore(private val app: Application) {
         const val CHECK_TIMEOUT_MILLIS = 20_000L
         const val SUBMIT_WAIT_MILLIS = 8_000L
         const val RECHECK_MILLIS = 60_000L
+
+        /** When the network comes back: how often the computer is asked, and the pause in between. */
+        const val NETWORK_BACK_CHECKS = 3
+        const val NETWORK_BACK_PAUSE_MILLIS = 2_000L
         const val ACTIVITY_SYNC_GAP_MILLIS = 60 * 60_000L
 
         /** Chat: how long the computer may take to take a message (it answers at once, the model later). */

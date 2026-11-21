@@ -390,3 +390,6 @@ val LocalSnackbar = staticCompositionLocalOf<(String) -> Unit> { {} }
 
 /** Shows a short message with "Undo" for as long as undoing is possible: (message, onUndo). */
 val LocalUndo = staticCompositionLocalOf<(String, () -> Unit) -> Unit> { { _, _ -> } }
+
+/** Opens a tapped task (#167): its assignment's page, or its card; provided by the app's root. */
+val LocalOpenTask = staticCompositionLocalOf<(dev.lifeos.app.data.Task) -> Unit> { {} }

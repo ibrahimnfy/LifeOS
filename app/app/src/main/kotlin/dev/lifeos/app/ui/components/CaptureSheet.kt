@@ -1,6 +1,7 @@
 package dev.lifeos.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,8 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -37,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -44,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import dev.lifeos.app.R
 import dev.lifeos.app.data.Dates
+import dev.lifeos.app.data.TaskNote
 import java.time.Instant
 import java.time.ZoneOffset
 import dev.lifeos.app.ui.theme.LifeDimens
@@ -54,18 +59,22 @@ import kotlinx.coroutines.launch
 enum class CaptureKind { NOTE, TASK }
 
 /**
- * Quick capture: one text field with the keyboard open, a Note/Task switch, for a task an
- * optional due date, and Save. [prefill] is text shared from another app.
+ * Quick capture ("+"): one text field with the keyboard open, then the three things "+" offers
+ * (#166), in this order: Note, Task (a switch; a task may get a due date and a note of its own,
+ * #170; Save) and New chat, which opens a blank chat at once and hands it what was typed.
+ * [prefill] is text shared from another app. [onSaved] gets the kind, the text, the date and the
+ * task's note (null for a note or a task without one).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, String, String?) -> Unit) {
+fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, String, String?, String?) -> Unit, onNewChat: (String) -> Unit) {
     val colors = LifeTheme.colors
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     var text by rememberSaveable { mutableStateOf(prefill) }
     var kind by rememberSaveable { mutableStateOf(CaptureKind.NOTE) }
     var due by rememberSaveable { mutableStateOf<String?>(null) }
+    var taskNote by rememberSaveable { mutableStateOf("") }
     var pickingDate by rememberSaveable { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
@@ -79,6 +88,8 @@ fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                // The task's date and note make the form taller: it scrolls above the keyboard.
+                .verticalScroll(rememberScrollState())
                 .padding(start = LifeDimens.pad, end = LifeDimens.pad, bottom = LifeDimens.pad),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -125,6 +136,11 @@ fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, 
                 KindOption(stringResource(R.string.capture_kind_task), kind == CaptureKind.TASK) {
                     kind = CaptureKind.TASK
                 }
+                // Not a third kind to save but a way out: a blank chat opens at once.
+                KindOption(stringResource(R.string.chat_new), selected = false, role = Role.Button) {
+                    val draft = text.trim()
+                    scope.launch { sheetState.hide() }.invokeOnCompletion { onNewChat(draft) }
+                }
             }
             if (kind == CaptureKind.TASK) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -141,6 +157,7 @@ fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, 
                         )
                     }
                 }
+                TaskNoteField(taskNote) { taskNote = it }
             }
             PrimaryButton(
                 text = stringResource(R.string.capture_save),
@@ -148,7 +165,8 @@ fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, 
                 onClick = {
                     val saved = text.trim()
                     val day = due.takeIf { kind == CaptureKind.TASK }
-                    scope.launch { sheetState.hide() }.invokeOnCompletion { onSaved(kind, saved, day) }
+                    val note = TaskNote.of(taskNote).takeIf { kind == CaptureKind.TASK }
+                    scope.launch { sheetState.hide() }.invokeOnCompletion { onSaved(kind, saved, day, note) }
                 },
             )
         }
@@ -165,7 +183,7 @@ fun CaptureSheet(prefill: String, onDismiss: () -> Unit, onSaved: (CaptureKind, 
 }
 
 @Composable
-private fun RowScope.KindOption(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun RowScope.KindOption(label: String, selected: Boolean, role: Role = Role.RadioButton, onClick: () -> Unit) {
     val colors = LifeTheme.colors
     val shape = RoundedCornerShape(9.dp)
     Box(
@@ -174,11 +192,11 @@ private fun RowScope.KindOption(label: String, selected: Boolean, onClick: () ->
             .heightIn(min = LifeDimens.minTouch)
             .clip(shape)
             .background(if (selected) colors.text else colors.surface)
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .then(if (role == Role.RadioButton) Modifier.selectable(selected = selected, role = role, onClick = onClick) else Modifier.clickable(role = role, onClick = onClick))
+            .padding(horizontal = 6.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = label, style = LifeType.button, color = if (selected) colors.bg else colors.muted)
+        Text(text = label, style = LifeType.button, color = if (selected) colors.bg else colors.muted, textAlign = TextAlign.Center)
     }
 }
 

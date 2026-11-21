@@ -79,6 +79,23 @@ class RelayClientTest {
     }
 
     @Test
+    fun `listening again at once keeps answering, and not after a stop`() = runTest {
+        val s = setup()
+        s.bridge.answer = { listOf(Kind.END to json("""{"status":200,"body":{"n":1}}""")) }
+        advanceTimeBy(10)
+        assertEquals(1, box.listens)
+        s.client.reconnect()
+        advanceTimeBy(10)
+        assertEquals(2, box.listens)
+        assertEquals(RelayResponse(200, json("""{"n":1}""")), s.client.request("GET", "/whoami"))
+        s.client.stop()
+        s.client.reconnect()
+        advanceTimeBy(10)
+        assertEquals(2, box.listens)
+        assertEquals(Link.UNKNOWN, s.client.link.value)
+    }
+
+    @Test
     fun `query and body are passed on`() = runTest {
         val s = setup()
         s.bridge.answer = { request -> listOf(Kind.END to buildJsonObject { put("status", JsonPrimitive(201)); put("body", request) }) }

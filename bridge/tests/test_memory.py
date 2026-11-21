@@ -294,6 +294,113 @@ def test_a_task_can_be_retitled_and_redated(client, auth, brain):
     )
 
 
+# ---- the owner's note on a task (#170) -------------------------------------------
+
+
+def test_a_task_carries_a_note_on_its_own_line(client, auth, brain, no_runs):
+    body = {"title": "Read chapter 3", "due": "2027-01-20", "course": "example-course",
+            "note": "  Pages 40 to 60 (skip the\nexercises),\tthen   summary  "}  # fmt: skip
+    response = client.post("/tasks", headers=auth, json=body)
+    assert response.status_code == 201
+    task = response.json()
+    assert task["note"] == "Pages 40 to 60 [skip the exercises], then summary"
+    line = (brain / "tasks.md").read_text().splitlines()[-1]
+    assert line == (
+        "- [ ] Read chapter 3  (due: 2027-01-20) (course: example-course) "
+        f"(added: {task['added']}) (note: Pages 40 to 60 [skip the exercises], then summary) "
+        f"^{task['id']}"
+    )
+    (listed,) = client.get("/tasks", headers=auth).json()["tasks"]
+    assert listed["note"] == task["note"] and listed["title"] == "Read chapter 3"
+    plain = client.post("/tasks", headers=auth, json={"title": "No note", "note": "  "}).json()
+    assert "note" not in plain and "(note:" not in (brain / "tasks.md").read_text().splitlines()[-1]
+    nulled = client.post("/tasks", headers=auth, json={"title": "Null note", "note": None})
+    assert nulled.status_code == 201 and "note" not in nulled.json()
+    assert (
+        client.post("/tasks", headers=auth, json={"title": "x", "note": "x" * 500}).status_code
+        == 201
+    )
+
+
+def test_old_task_lines_and_hand_written_notes_are_read(brain):
+    (brain / "tasks.md").write_text(
+        "# Tasks\n\n## Open\n"
+        "- [ ] Old line  (due: 2027-01-20) (added: 2026-11-20) ^t-20261120-01\n"
+        "- [ ] Typed by hand (note: ask: which room?) (course: example-course) ^t-20261120-02\n"
+    )
+    old, typed = memory.list_tasks(brain)
+    assert "note" not in old.as_json() and old.fields == {
+        "due": "2027-01-20",
+        "added": "2026-11-20",
+    }
+    assert typed.title == "Typed by hand" and typed.as_json()["note"] == "ask: which room?"
+    assert typed.as_json()["course"] == "example-course"
+
+
+def test_bad_task_notes_are_refused(client, auth, brain):
+    task = client.post("/tasks", headers=auth, json={"title": "Target"}).json()
+    for note in [
+        "x" * 501,
+        "bell\x07",
+        "nul\x00",
+        "escape \x1b[31m",
+        5,
+        ["a"],
+        "see ^t-20270101-01",
+    ]:
+        body = {"title": "x", "note": note}
+        assert client.post("/tasks", headers=auth, json=body).status_code == 400, note
+        patch = client.patch(f"/tasks/{task['id']}", headers=auth, json={"note": note})
+        assert patch.status_code == 400, note
+    assert len(client.get("/tasks", headers=auth).json()["tasks"]) == 1
+    assert "(note:" not in (brain / "tasks.md").read_text()
+
+
+def test_a_note_is_set_changed_and_cleared_and_other_marks_stay(client, auth, brain):
+    (brain / "tasks.md").write_text(
+        "# Tasks\n\n## Open\n"
+        "- [ ] Call the office  (due: 2027-01-20) (course: example-course) (added: 2027-01-12) "
+        "(assignment: moodle-41) (next: Find the number) ^t-20270112-01\n"
+    )
+    task_id = "t-20270112-01"
+    url = f"/tasks/{task_id}"
+    first = client.patch(url, headers=auth, json={"note": "Mornings only"}).json()
+    assert first["note"] == "Mornings only" and first["next"] == "Find the number"
+    assert first["title"] == "Call the office" and first["due"] == "2027-01-20"
+    line = (brain / "tasks.md").read_text().splitlines()[-1]
+    assert line.endswith("(next: Find the number) (note: Mornings only) ^t-20270112-01")
+    # A title or date change leaves the note alone; a new note keeps its place on the line.
+    both = client.patch(url, headers=auth, json={"title": "Call", "due": None}).json()
+    assert both["note"] == "Mornings only" and both["due"] is None
+    changed = client.patch(url, headers=auth, json={"note": "Before 10"}).json()
+    assert changed["note"] == "Before 10" and changed["assignment"] == "moodle-41"
+    assert commits(brain)[0] == "Edit a task"
+    for cleared in (None, "", "   "):
+        client.patch(url, headers=auth, json={"note": "again"})
+        gone = client.patch(url, headers=auth, json={"note": cleared}).json()
+        assert "note" not in gone and gone["next"] == "Find the number"
+        assert "(note:" not in (brain / "tasks.md").read_text()
+
+
+def test_every_writer_keeps_the_note(brain):
+    from lifeos_bridge import coach
+
+    saved = memory.save_task(brain, {"title": "Write the report", "note": "Use the template"}, NOW)
+    task_id = saved["id"]
+    memory.update_task(brain, task_id, {"due": "2027-01-22"})  # the course sync moves a date
+    with memory.LOCK:  # the coach files a next step
+        assert coach._set_task_fields(
+            brain, task_id, {"next": "Open the template", "effort": "small"}
+        )
+    (task,) = memory.list_tasks(brain)
+    assert task.fields["note"] == "Use the template" and task.fields["next"] == "Open the template"
+    assert task.as_json()["note"] == "Use the template" and task.fields["due"] == "2027-01-22"
+    done = memory.complete_task(brain, task_id, NOW)
+    assert done.as_json()["note"] == "Use the template"
+    assert memory.find_task(brain, task_id).fields["note"] == "Use the template"
+    assert "(note: Use the template)" in (brain / "tasks-done.md").read_text()
+
+
 # ---- phone ids: idempotent create ------------------------------------------------
 
 PHONE_NOTE = "0f6c2a9e-4b1d-4c55-9a3e-7d1b2c3d4e5f"
@@ -356,6 +463,33 @@ def test_same_phone_id_with_other_content_is_a_conflict(client, auth, brain, no_
     assert client.post("/tasks", headers=auth, json=moved).status_code == 409
     assert "two" not in (brain / "inbox.md").read_text()
     assert len(client.get("/tasks", headers=auth).json()["tasks"]) == 1
+
+
+def test_a_repeated_task_with_a_note_is_a_repeat_another_note_a_conflict(
+    client, auth, brain, no_runs
+):
+    body = {"title": "Offline task", "note": "Bring the (old) notes", "client_id": PHONE_TASK}
+    first = client.post("/tasks", headers=auth, json=body)
+    assert first.status_code == 201 and first.json()["note"] == "Bring the [old] notes"
+    # The same note (also spaced differently) is the same request sent again.
+    spaced = {**body, "note": "Bring  the (old)\nnotes"}
+    again = client.post("/tasks", headers=auth, json=spaced)
+    assert again.status_code == 200 and again.json() == {**first.json(), "repeat": True}
+    # Another note, or none, under the same phone id is another item: refused, as for titles.
+    for other in ({**body, "note": "Bring nothing"}, {**body, "note": None}):
+        response = client.post("/tasks", headers=auth, json=other)
+        assert response.status_code == 409 and response.json()["error"] == "client_id_conflict"
+    assert (brain / "tasks.md").read_text().count("Offline task") == 1
+    assert "Bring" not in (brain / memory.IDS_FILE).read_text()  # a fingerprint, no text
+
+
+def test_a_create_without_a_note_keeps_its_old_fingerprint(client, auth, brain, no_runs):
+    """Phone ids stored before notes existed still answer their repeats."""
+    body = {"title": "Offline task", "due": "2027-01-20", "client_id": PHONE_TASK}
+    client.post("/tasks", headers=auth, json=body)
+    old = memory._fingerprint("task", {"title": "Offline task", "due": "2027-01-20"})
+    assert old in (brain / memory.IDS_FILE).read_text()
+    assert client.post("/tasks", headers=auth, json={**body, "note": ""}).status_code == 200
 
 
 def test_phone_ids_survive_a_restart(settings, auth, brain, no_runs):

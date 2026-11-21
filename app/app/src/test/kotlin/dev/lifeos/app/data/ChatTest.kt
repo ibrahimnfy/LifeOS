@@ -499,11 +499,7 @@ class ChatTest {
     fun `after a restart the same conversation is continued`() = runTest {
         store.pointer = ChatPointer("s-1", "/home/owner/project-alpha", "project-alpha")
         val chat = chat()
-        assertFalse(chat.takeResume())
         chat.restore()
-        // Once per start the Chat tab opens the conversation directly.
-        assertTrue(chat.takeResume())
-        assertFalse(chat.takeResume())
         var state = chat.state.value
         assertEquals("s-1", state.sessionId)
         assertEquals("project-alpha", state.folder?.label)
