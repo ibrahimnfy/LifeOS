@@ -109,7 +109,9 @@ async def read_json_object(request: Request) -> dict:
         raise ClaudeError("bad_request", 400, "the request body must be JSON") from exc
     if not isinstance(data, dict):
         raise ClaudeError("bad_request", 400, "the request body must be a JSON object")
-    return data
+    # Keys starting with "_" are the bridge's own markers (a queued message, an
+    # admitted run); a client never sets them.
+    return {key: value for key, value in data.items() if not str(key).startswith("_")}
 
 
 def read_prompt(data: dict) -> str:
@@ -371,6 +373,17 @@ def create_app(settings: Settings) -> FastAPI:
     drains: set[asyncio.Task] = set()
     app.state.drains = drains
     silent_runs: set[str] = set()  # sessions whose current run must not wake the phone
+    # Sessions whose current run is a coach compaction: it is never interrupted, so a
+    # cancel can never renew the coach session without its facts and summary.
+    compacting: set[str] = set()
+
+    def compaction_refusal(session_id: str) -> None:
+        if session_id in compacting:
+            raise ClaudeError(
+                "compaction_running", 409,
+                "the coach conversation is being compacted; it cannot be stopped, and your "
+                "message is answered as soon as it is done",
+            )  # fmt: skip
 
     def read_choice(data: dict, name: str, allowed: tuple[str, ...]) -> str | None:
         value = data.get(name)
@@ -465,9 +478,13 @@ def create_app(settings: Settings) -> FastAPI:
                 session_id, prompt, mode, cwd, front=when == "now",
                 interactive=data.get("interactive") is True,
             )  # fmt: skip
+            interrupted = False
             if when == "now":
                 control.unpause(session_id)
-                await control.stop(session_id)
+                # A coach compaction is never interrupted: the message goes first after it.
+                if session_id not in compacting:
+                    await control.stop(session_id)
+                    interrupted = True  # as before: the run is asked to stop
             return JSONResponse(
                 {
                     "queued": True,
@@ -475,7 +492,7 @@ def create_app(settings: Settings) -> FastAPI:
                     "position": control.queue(session_id).index(entry) + 1
                     if entry in control.queue(session_id)
                     else 0,
-                    "interrupted_current_run": when == "now",
+                    "interrupted_current_run": interrupted,
                 },
                 status_code=202,
             )
@@ -567,6 +584,8 @@ def create_app(settings: Settings) -> FastAPI:
                 followed = streaming or bool(data.get("_queued"))
                 run_args["answering"] = followed and data.get("interactive") is True
             # Queued messages take the event path too, so a client can follow them live.
+            if isinstance(data.get("_admitted"), dict):
+                data["_admitted"]["run"] = True  # every check passed: the run begins now
             if not is_capable and not streaming and not data.get("_queued"):
                 try:
                     if use_sdk:
@@ -762,7 +781,9 @@ def create_app(settings: Settings) -> FastAPI:
         """Stop the session's current run: interrupt first, terminate only if needed.
 
         The queue is kept but paused. Changes the run already made are not undone.
+        A coach compaction is not stopped (``409 compaction_running``).
         """
+        compaction_refusal(session_id)
         stopped = await control.stop(session_id)
         if stopped:
             control.pause(session_id, "cancel")
@@ -863,7 +884,9 @@ def create_app(settings: Settings) -> FastAPI:
         control.promote(session_id, queue_id)
         control.unpause(session_id)
         interrupted = False
-        if session_id in slots.active:
+        if session_id in compacting:
+            pass  # a coach compaction is never interrupted; the message goes next after it
+        elif session_id in slots.active:
             interrupted = await control.stop(session_id)  # its end sends the next message
         else:
             start_drain(session_id)
@@ -960,13 +983,27 @@ def create_app(settings: Settings) -> FastAPI:
                 or sessions.find_session(chosen_id, settings.allowed_roots) is not None
             )
             if claimed == "conflict" or exists:
+                if exists:
+                    await asyncio.to_thread(
+                        session_meta.release_new_session, chosen_id, fingerprint
+                    )
                 raise ClaudeError(
                     "session_id_conflict", 409, "this session id is already used for another start"
                 )
             if claimed == "repeat":
                 return {"repeat": True, "session_id": chosen_id,
                         "running": chosen_id in slots.active}  # fmt: skip
-            return await run_prompt(data, session_id=chosen_id, resume=False, cwd=cwd)
+            admitted: dict = {}
+            try:
+                return await run_prompt(
+                    {**data, "_admitted": admitted}, session_id=chosen_id, resume=False, cwd=cwd
+                )
+            except ClaudeError:
+                if not admitted:  # refused before its run began (busy, checks): not claimed
+                    await asyncio.to_thread(
+                        session_meta.release_new_session, chosen_id, fingerprint
+                    )
+                raise
         resume = data.get("session_id") is not None
         if resume:
             session_id = data["session_id"]
@@ -1406,14 +1443,19 @@ def create_app(settings: Settings) -> FastAPI:
         except ClaudeError:
             usable = False
         if usable:
-            with contextlib.suppress(ClaudeError):
-                prompt = await asyncio.to_thread(coach_chat.compact_prompt, settings.ask_dir)
-                silent_runs.add(session_id)
-                result = await run_prompt(
-                    {"prompt": prompt}, session_id=session_id, resume=True, cwd=settings.ask_dir
-                )
-                answer = result.get("answer") if isinstance(result, dict) else None
-            silent_runs.discard(session_id)
+            compacting.add(session_id)  # never interrupted (cancel, send now)
+            try:
+                with contextlib.suppress(ClaudeError):
+                    prompt = await asyncio.to_thread(coach_chat.compact_prompt, settings.ask_dir)
+                    silent_runs.add(session_id)
+                    result = await run_prompt(
+                        {"prompt": prompt}, session_id=session_id, resume=True,
+                        cwd=settings.ask_dir,
+                    )  # fmt: skip
+                    answer = result.get("answer") if isinstance(result, dict) else None
+            finally:
+                silent_runs.discard(session_id)
+                compacting.discard(session_id)
         return await asyncio.to_thread(
             coach_chat.apply_compaction, settings, answer, memory.now_local()
         )
@@ -1431,19 +1473,63 @@ def create_app(settings: Settings) -> FastAPI:
             raise ClaudeError(
                 "bad_request", 400, "the coach conversation is read-only and uses its own model"
             )
-        compacted = None
+        # Decided before the compaction starts, so its event is never lost.
+        streamed_compaction = bool(data.get("stream")) and await asyncio.to_thread(
+            coach_chat.too_long, settings
+        )
+        prepare = asyncio.create_task(prepare_coach_session())
+        drains.add(prepare)  # finished even if the client goes away: a compaction is kept whole
+        prepare.add_done_callback(drains.discard)
+        if streamed_compaction:
+            # A compaction comes first: one stream with keep-alives while it runs, then
+            # `compacted`, then the message's own events.
+            return StreamingResponse(
+                coach_stream_after_compaction(prepare, data),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+            )
+        session_id, compacted = await asyncio.shield(prepare)
+        answer = await coach_message(data, session_id)
+        if compacted is not None and isinstance(answer, dict):
+            answer["compacted"] = compacted
+        return answer
+
+    async def prepare_coach_session() -> tuple[str, dict | None]:
+        """The coach session a message goes to, compacted first when it grew too long."""
         async with coach_compacting:  # never into a session that is being compacted
             session_id = (await asyncio.to_thread(coach_chat.state))["session_id"]
             if session_id not in slots.active and await asyncio.to_thread(
                 coach_chat.too_long, settings
             ):
                 compacted = await compact_coach()
-                session_id = compacted["session_id"]
+                return compacted["session_id"], compacted
+            return session_id, None
+
+    async def coach_message(data: dict, session_id: str):
         resume = await asyncio.to_thread(coach_chat.started, settings, session_id)
-        answer = await run_prompt(data, session_id=session_id, resume=resume, cwd=settings.ask_dir)
-        if compacted is not None and isinstance(answer, dict):
-            answer["compacted"] = compacted
-        return answer
+        return await run_prompt(data, session_id=session_id, resume=resume, cwd=settings.ask_dir)
+
+    async def coach_stream_after_compaction(prepare: asyncio.Task, data: dict):
+        while True:
+            done, _ = await asyncio.wait({prepare}, timeout=KEEPALIVE_SECONDS)
+            if done:
+                break
+            yield sse("keepalive", {})
+        try:
+            session_id, compacted = prepare.result()
+            if compacted is not None:
+                yield sse("compacted", compacted)
+            answer = await coach_message(data, session_id)
+        except ClaudeError as error:
+            yield sse("error", {"error": error.code, "message": error.message})
+            return
+        if isinstance(answer, StreamingResponse):
+            async for chunk in answer.body_iterator:
+                yield chunk if isinstance(chunk, bytes) else chunk.encode()
+        elif isinstance(answer, JSONResponse):  # it had to wait in the queue
+            yield sse("queued", json.loads(answer.body))
+        else:
+            yield sse("done", answer)
 
     @app.post("/coach/chat/compact")
     async def compact_coach_conversation():

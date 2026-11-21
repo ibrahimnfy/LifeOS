@@ -208,6 +208,14 @@ Today and pinned at the top of the Chat tab (owner, sixth round).
   previous summary, so it never grows without bound. The compaction turn
   wakes no phone, and a message that arrives meanwhile waits and goes to
   the new session.
+- **The compaction is protected (#155).** It is never interrupted: a cancel
+  of that session answers `409 compaction_running`, and "send now" waits
+  behind it, so the session is never renewed without its facts and summary
+  because of a cancel. It is finished even when the app goes away.
+- **A streamed message reports it (#155).** When a compaction runs first,
+  the app's stream gets keep-alives while it runs, then `compacted
+  {"facts", "summary", "session_id"}` (the new session), then the answer's
+  events.
 - **Usage** of the conversation, its compaction and the filing of answers is
   counted as the `coach_chat` job, apart from the morning run (`coach_plan`),
   as the runs report it.

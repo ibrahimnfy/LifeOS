@@ -192,3 +192,15 @@ def claim_new_session(session_id: str, fingerprint: str) -> str:
         known[session_id] = fingerprint
         store.write_json(path, {"ids": dict(list(known.items())[-MAX_NEW_SESSIONS:])})
     return "new"
+
+
+def release_new_session(session_id: str, fingerprint: str) -> None:
+    """Forget a claim whose first message was refused before its run was admitted, so
+    sending it again is a new start, not a ``repeat`` with nothing running."""
+    path = config_dir() / NEW_SESSIONS_FILE
+    with _NEW:
+        data = store.read_json(path, {})
+        known = data.get("ids") if isinstance(data.get("ids"), dict) else {}
+        if known.get(session_id) == fingerprint:
+            del known[session_id]
+            store.write_json(path, {"ids": known})

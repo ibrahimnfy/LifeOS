@@ -95,6 +95,33 @@ def test_a_phone_chosen_session_id_is_run_once(client, auth, calls, ask_dir):
     assert follow.status_code == 200 and len(calls()) == 2
 
 
+def test_a_refused_first_message_does_not_keep_its_id_claimed(client, auth, calls, ask_dir):
+    chosen = str(uuid.uuid4())
+    body = {"prompt": "first question", "new_session_id": chosen}
+    slots = client.app.state.slots
+    slots.active.update({"other-1", "other-2"})  # the bridge is busy: refused before running
+    refused = client.post("/ask", headers=auth, json=body)
+    assert refused.status_code == 429 and refused.json()["error"] == "busy"
+    slots.active.clear()
+    again = client.post("/ask", headers=auth, json=body)  # not a "repeat" with nothing running
+    assert again.status_code == 200 and again.json()["session_id"] == chosen
+    assert claude.session_exists(ask_dir, chosen) and len(calls()) == 1
+    # Once its run was admitted, the id stays claimed: the same message is a repeat.
+    assert client.post("/ask", headers=auth, json=body).json()["repeat"] is True
+
+
+def test_internal_markers_cannot_come_from_a_client():
+    from starlette.requests import Request
+
+    body = json.dumps({"prompt": "hi", "_queued": True, "_admitted": {"run": True}}).encode()
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request = Request({"type": "http", "method": "POST", "headers": []}, receive)
+    assert asyncio.run(app_module.read_json_object(request)) == {"prompt": "hi"}
+
+
 def test_bad_or_used_phone_chosen_ids(client, auth, ask_dir, write_session):
     for bad in ["not-a-uuid", str(uuid.uuid4()).upper(), 5]:
         answer = client.post("/ask", headers=auth, json={"prompt": "x", "new_session_id": bad})
