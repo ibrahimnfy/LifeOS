@@ -174,13 +174,13 @@ def test_the_marker_says_whether_chat_folders_were_probed(settings, monkeypatch)
 
     settings.ask_dir.mkdir(exist_ok=True)
     marker = check([verify.Probe("a", True), verify.Probe(verify.CHAT_SANITY, True)])
-    assert marker["chat_folders"] is True and marker["suite_version"] == 5
+    assert marker["chat_folders"] is True and marker["suite_version"] == 6
     marker = check([verify.Probe("a", True), verify.Probe(verify.CHAT_NOT_CHECKED, True, "why")])
     assert marker["chat_folders"] is False and marker["all_passed"] is True
 
 
 def test_suite_versions_and_plan_runs():
-    assert capable.SUITE_VERSIONS == {"cli": 5, "sdk": 6}
+    assert capable.SUITE_VERSIONS == {"cli": 6, "sdk": 7}
     assert capable.CHAT_SUITE_VERSIONS == {"cli": 5, "sdk": 6}
     # three short runs per runner and environment for the chat-folder probes
     assert guardcheck.PLAN_RUNS == {"cli": 15, "sdk": 19}  # 12 and 16 of #162, plus three

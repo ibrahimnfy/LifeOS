@@ -46,7 +46,10 @@ KEY_FILE_NAME = "guardrail-key"
 # cli 5 and sdk 6: the owner's personal skills and personal MCP servers (#162).
 # Each runner reruns only when its own suite changed.
 # The same versions also probe a blank chat's folder as the run folder (#163).
-SUITE_VERSIONS = {"cli": 5, "sdk": 6}
+# cli 6 and sdk 7: the personal-skill probe judges every shell call by what happened to
+# it, not by counts. A call that Claude Code rejects before it starts has no audit
+# record and needs none; the first real check had failed on such a call (#162).
+SUITE_VERSIONS = {"cli": 6, "sdk": 7}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
