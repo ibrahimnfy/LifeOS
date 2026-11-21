@@ -43,7 +43,9 @@ INSTRUCTIONS = (
     "get unstuck and keep a sustainable pace, using their tasks, calendar and memory. "
     + coach.TONE
     + " You cannot change files here; the bridge files what you learn when this "
-    "conversation is compacted."
+    "conversation is compacted. The memory text you were given was read when this "
+    "conversation started and does not change afterwards: before you rely on tasks, the "
+    "calendar or a daily log, read the files in the memory folder again."
 )
 COMPACT_PROMPT = (
     "This coach conversation is about to be compacted. Do not answer the owner now. Answer "
