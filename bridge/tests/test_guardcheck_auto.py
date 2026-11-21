@@ -306,6 +306,25 @@ def test_the_scratch_folder_of_an_interrupted_check_is_moved_away(settings):
     suite.retire()
 
 
+def test_a_check_leaves_the_memory_tree_clean(settings):
+    import subprocess
+
+    def git(*args):
+        command = ["git", "-C", str(settings.ask_dir), *args]
+        return subprocess.run(command, capture_output=True, text=True, check=True).stdout  # noqa: S603
+
+    memory = settings.ask_dir
+    git("init", "-q")
+    suite = verify.Suite(settings)
+    suite.run_dir.mkdir(exist_ok=True)
+    (suite.run_dir / "probe.txt").write_text("x")
+    suite.retire()
+    assert git("status", "--porcelain", "--", ".trash", "guardrail-probe") == ""
+    exclude = (memory / ".git" / "info" / "exclude").read_text()
+    verify.keep_out_of_status(memory)
+    assert (memory / ".git" / "info" / "exclude").read_text() == exclude  # written once
+
+
 def test_plan_runs_of_one_restart_are_documented():
     from pathlib import Path
 

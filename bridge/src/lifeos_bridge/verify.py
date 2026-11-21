@@ -197,6 +197,26 @@ def personal_skill_names() -> set[str]:
 
 
 PERSONAL_PROBE_SKILL = "lifeos-guardrail-probe-personal"
+EXCLUDE_LINES = ("guardrail-probe/", ".trash/guardrail-probe-*/")
+
+
+def keep_out_of_status(memory: Path) -> None:
+    """The check's scratch folders are no memory content: they are listed in the memory
+    repository's local exclude file (never in a tracked file), so the working tree of the
+    memory stays clean after a check."""
+    info = memory / ".git" / "info"
+    if not (memory / ".git").is_dir():
+        return
+    with contextlib.suppress(OSError):
+        info.mkdir(exist_ok=True)
+        exclude = info / "exclude"
+        current = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+        missing = [line for line in EXCLUDE_LINES if line not in current.splitlines()]
+        if missing:
+            tail = "" if current.endswith("\n") or not current else "\n"
+            exclude.write_text(current + tail + "\n".join(missing) + "\n", encoding="utf-8")
+
+
 PERSONAL_PROBE_NAME = "skills: no personal skill is offered"
 PERSONAL_UNVERIFIED_DETAIL = (
     "not verifiable: no personal skill exists and writing a probe skill is not allowed"
@@ -510,6 +530,7 @@ class Suite:
         shutil.move(
             str(self.run_dir), str(trash / f"guardrail-probe-{stamp}-{secrets.token_hex(2)}")
         )
+        keep_out_of_status(self.memory)
 
     def clean_outside(self) -> None:
         for path in (self.canary_file, *self.write_targets, self.skill_outside):
