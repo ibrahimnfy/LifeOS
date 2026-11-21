@@ -1,10 +1,7 @@
 package dev.lifeos.app.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -13,9 +10,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -63,7 +57,6 @@ import dev.lifeos.app.data.notifyReplies
 import dev.lifeos.app.ui.components.rememberLoad
 import androidx.compose.runtime.remember
 import dev.lifeos.app.data.SessionEdits
-import dev.lifeos.app.data.SessionGroup
 import dev.lifeos.app.data.SessionSummary
 import dev.lifeos.app.ui.components.LoadModel
 import dev.lifeos.app.ui.components.LocalSnackbar
@@ -75,8 +68,8 @@ import dev.lifeos.app.ui.theme.LifeTheme
 import dev.lifeos.app.ui.theme.LifeType
 import kotlinx.coroutines.launch
 
-// The owner's own organisation of sessions (#74): groups, titles and pins. All of it is kept
-// on the computer (`PATCH /sessions/{id}`, `/session-groups`); the phone only asks for changes.
+// The owner's own organisation of sessions (#74): titles and pins (custom groups are gone,
+// #168). All of it is kept on the computer (`PATCH /sessions/{id}`); the phone only asks for changes.
 
 /** Starts one change on the computer; see [rememberSessionChange]. */
 internal typealias SessionChange = (suspend () -> Unit) -> Unit
@@ -109,7 +102,6 @@ internal fun rememberSessionChange(core: LifeOsCore): SessionChange {
 private fun SessionEdits.Problem.textRes(): Int = when (this) {
     SessionEdits.Problem.NOT_REACHED -> R.string.session_edit_not_reached
     SessionEdits.Problem.UNCERTAIN -> R.string.session_edit_uncertain
-    SessionEdits.Problem.GROUP_EXISTS -> R.string.session_edit_group_exists
     SessionEdits.Problem.GONE -> R.string.session_edit_gone
     SessionEdits.Problem.REFUSED -> R.string.session_edit_refused
     SessionEdits.Problem.FAILED -> R.string.session_edit_failed
@@ -128,11 +120,11 @@ internal fun RefreshOnSessionChange(core: LifeOsCore, model: LoadModel<*>) {
     }
 }
 
-private enum class SessionSheetPage { MENU, RENAME, GROUP, REMINDERS, REMINDER, MCP }
+private enum class SessionSheetPage { MENU, RENAME, REMINDERS, REMINDER, MCP }
 
 /**
  * The sheet of the session [sessionId] (null: none is open), with what it needs from the
- * computer: the session as it is listed now, the owner's groups and the session's reminders.
+ * computer: the session as it is listed now and the session's reminders.
  */
 @Composable
 internal fun SessionSheetHost(core: LifeOsCore, sessionId: String?, change: SessionChange, onDismiss: () -> Unit) {
@@ -162,18 +154,17 @@ internal fun SessionSheetHost(core: LifeOsCore, sessionId: String?, change: Sess
     LaunchedEffect(sessionId) { reminders.refresh() }
     // Sheets are windows of their own: none may be open above the lock screen.
     if (session == null || locked) return
-    SessionSheet(core, session, list?.groups.orEmpty(), Reminders.scheduled(known, session.id), change, onDismiss, coach = session.id == coachId)
+    SessionSheet(core, session, Reminders.scheduled(known, session.id), change, onDismiss, coach = session.id == coachId)
 }
 
 /**
- * What can be done with one session: rename it, pin it, put it into a group. Only the
+ * What can be done with one session: rename it, pin it, its reminders and switches. Only the
  * computer's own notes about the session change; the session itself is never touched.
  */
 @Composable
 internal fun SessionSheet(
     core: LifeOsCore,
     session: SessionSummary,
-    groups: List<SessionGroup>,
     reminders: List<Reminder>,
     change: SessionChange,
     onDismiss: () -> Unit,
@@ -194,7 +185,6 @@ internal fun SessionSheet(
                 onDismiss()
                 change { api.patchSession(session.id, SessionEdits.pinned(!session.pinned)) }
             }
-            SheetAction(LifeIcons.Folder, stringResource(R.string.session_move)) { page = SessionSheetPage.GROUP }
             // Reminders and reply notifications (#75).
             SheetAction(LifeIcons.Bell, stringResource(R.string.reminder_action), note = reminders.firstOrNull()?.let { reminderLabel(it) }) {
                 page = SessionSheetPage.REMINDERS
@@ -270,20 +260,6 @@ internal fun SessionSheet(
                 change { api.patchSession(session.id, SessionEdits.title(name)) }
             },
         )
-        SessionSheetPage.GROUP -> GroupChoiceSheet(
-            current = session.group?.takeIf { id -> groups.any { it.id == id } },
-            groups = groups,
-            onDismiss = onDismiss,
-            onPick = { groupId ->
-                onDismiss()
-                if (groupId != session.group) change { api.patchSession(session.id, SessionEdits.group(groupId)) }
-            },
-            onNew = { name ->
-                onDismiss()
-                // Two requests: when the second fails the new group exists and is empty.
-                change { api.patchSession(session.id, SessionEdits.group(api.createGroup(name).id)) }
-            },
-        )
     }
 }
 
@@ -352,58 +328,6 @@ private fun SkillsSwitch(core: LifeOsCore, session: SessionSummary, change: Sess
     }
 }
 
-private enum class GroupSheetPage { MENU, RENAME, DELETE }
-
-/** One of the owner's groups: rename it or delete it (its sessions stay). */
-@Composable
-internal fun GroupSheet(core: LifeOsCore, group: SessionGroup, change: SessionChange, onDismiss: () -> Unit) {
-    var page by rememberSaveable { mutableStateOf(GroupSheetPage.MENU) }
-    val api = core.api
-    when (page) {
-        GroupSheetPage.MENU -> SheetFrame(group.name, onDismiss) {
-            SheetAction(LifeIcons.Pen, stringResource(R.string.group_rename)) { page = GroupSheetPage.RENAME }
-            SheetAction(LifeIcons.Close, stringResource(R.string.group_delete)) { page = GroupSheetPage.DELETE }
-        }
-        GroupSheetPage.RENAME -> NameSheet(
-            title = stringResource(R.string.group_rename),
-            label = stringResource(R.string.group_name_field),
-            initial = group.name,
-            limit = SessionEdits.MAX_NAME,
-            onDismiss = onDismiss,
-            onSave = { name ->
-                onDismiss()
-                change { api.renameGroup(group.id, name) }
-            },
-        )
-        GroupSheetPage.DELETE -> ConfirmDialog(
-            title = stringResource(R.string.group_delete_title, group.name),
-            text = stringResource(R.string.group_delete_text),
-            confirm = stringResource(R.string.group_delete),
-            onDismiss = onDismiss,
-            onConfirm = {
-                onDismiss()
-                change { api.deleteGroup(group.id) }
-            },
-        )
-    }
-}
-
-/** A new group, made from the Sessions screen (it starts empty). */
-@Composable
-internal fun NewGroupSheet(core: LifeOsCore, change: SessionChange, onDismiss: () -> Unit) {
-    NameSheet(
-        title = stringResource(R.string.group_new),
-        label = stringResource(R.string.group_name_field),
-        initial = "",
-        limit = SessionEdits.MAX_NAME,
-        onDismiss = onDismiss,
-        onSave = { name ->
-            onDismiss()
-            change { core.api.createGroup(name) }
-        },
-    )
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SheetFrame(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
@@ -459,7 +383,7 @@ internal fun SheetAction(icon: ImageVector, text: String, note: String? = null, 
     }
 }
 
-/** One line of text to give or change: a title or a group's name. */
+/** One line of text to give or change: a title. */
 @Composable
 private fun NameSheet(
     title: String,
@@ -498,58 +422,5 @@ private fun NameSheet(
         )
         PrimaryButton(text = stringResource(R.string.capture_save), enabled = clean.isNotEmpty() && clean != initial, onClick = { onSave(clean) })
         if (reset != null) SecondaryButton(text = reset, onClick = onReset, modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-/** Where a session belongs: one of the owner's groups, a new one, or none (then its folder). */
-@Composable
-private fun GroupChoiceSheet(current: String?, groups: List<SessionGroup>, onDismiss: () -> Unit, onPick: (String?) -> Unit, onNew: (String) -> Unit) {
-    var naming by rememberSaveable { mutableStateOf(false) }
-    if (naming) {
-        NameSheet(
-            title = stringResource(R.string.group_new),
-            label = stringResource(R.string.group_name_field),
-            initial = "",
-            limit = SessionEdits.MAX_NAME,
-            onDismiss = onDismiss,
-            onSave = onNew,
-        )
-        return
-    }
-    SheetFrame(stringResource(R.string.session_move), onDismiss) {
-        Column(Modifier.selectableGroup()) {
-            GroupChoice(stringResource(R.string.session_move_none), stringResource(R.string.session_move_none_note), selected = current == null) { onPick(null) }
-            groups.forEach { group -> GroupChoice(group.name, null, selected = group.id == current) { onPick(group.id) } }
-        }
-        SheetAction(LifeIcons.Plus, stringResource(R.string.group_new)) { naming = true }
-    }
-}
-
-@Composable
-private fun GroupChoice(name: String, note: String?, selected: Boolean, onSelect: () -> Unit) {
-    val colors = LifeTheme.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = LifeDimens.minTouch)
-            .clip(RoundedCornerShape(12.dp))
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
-            .padding(vertical = 10.dp, horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        // The radio mark: a ring, filled when chosen.
-        Box(
-            modifier = Modifier
-                .size(22.dp)
-                .border(if (selected) 2.dp else 1.5.dp, if (selected) colors.primary else colors.muted, CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (selected) Box(Modifier.size(10.dp).background(colors.primary, CircleShape))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(name, style = LifeType.body, color = colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (note != null) Text(note, style = LifeType.small, color = colors.muted)
-        }
     }
 }

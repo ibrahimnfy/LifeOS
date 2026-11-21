@@ -2,11 +2,23 @@ package dev.lifeos.app.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import dev.lifeos.app.ui.theme.LifeDimens
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -102,6 +114,76 @@ fun CourseMark(look: Look, modifier: Modifier = Modifier, size: Dp = 44.dp, onTi
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon ?: look.glyph.icon(), contentDescription = null, tint = colors.ink, modifier = Modifier.size(size * 0.48f))
+    }
+}
+
+/**
+ * P3: tiles of different sizes: the first one wide, the others two by two, the inner corners
+ * of each pair a little sharper. [cell] draws one item with the shape and size it gets
+ * (Courses, and the folders of the Sessions screen, #168).
+ */
+@Composable
+fun <T> TileGrid(items: List<T>, cell: @Composable (item: T, shape: Shape, modifier: Modifier) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        items.firstOrNull()?.let { cell(it, RoundedCornerShape(20.dp), Modifier.fillMaxWidth()) }
+        items.drop(1).chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                cell(pair[0], RoundedCornerShape(topStart = 20.dp, topEnd = 8.dp, bottomEnd = 20.dp, bottomStart = 20.dp), Modifier.weight(1f).fillMaxHeight())
+                if (pair.size > 1) {
+                    cell(pair[1], RoundedCornerShape(topStart = 8.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp), Modifier.weight(1f).fillMaxHeight())
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One P3 tile in [look]'s colour: its ornament and mark on top ([icon] instead of the look's
+ * own glyph), then [title] (two lines at most) and one muted line. [badge] sits top right.
+ */
+@Composable
+fun ToneTile(
+    look: Look,
+    title: String,
+    subtitle: String,
+    shape: Shape,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    badge: (@Composable () -> Unit)? = null,
+) {
+    val colors = LifeTheme.colors
+    val toned = colors.tone(look.tone)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(toned.card)
+            .border(LifeDimens.hairline, toned.second, shape)
+            .clickable(role = Role.Button, onClick = onClick),
+    ) {
+        Box(Modifier.fillMaxWidth().height(48.dp)) {
+            Ornament(look.pattern, look.tone, Modifier.matchParentSize())
+            CourseMark(look, Modifier.padding(start = 10.dp, top = 8.dp), size = 32.dp, onTint = true, icon = icon)
+            if (badge != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp)) { badge() }
+        }
+        Text(
+            title,
+            style = LifeType.rowTitle,
+            color = colors.text,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp),
+        )
+        Text(
+            text = subtitle,
+            style = LifeType.small,
+            color = colors.muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 10.dp),
+        )
     }
 }
 

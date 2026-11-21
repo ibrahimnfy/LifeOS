@@ -28,7 +28,15 @@ import java.util.concurrent.atomic.AtomicLong
  * session's id and its folder: never a message. The computer keeps the conversation itself.
  */
 @Serializable
-data class ChatPointer(val sessionId: String, val folderPath: String = "", val folderLabel: String = "", val memory: Boolean = false)
+data class ChatPointer(
+    val sessionId: String,
+    val folderPath: String = "",
+    val folderLabel: String = "",
+    val memory: Boolean = false,
+    /** The folder's kind and colour (#168); a pointer saved before them has neither. */
+    val kind: String = "",
+    val colour: Int = ChatFolder.NO_COLOUR,
+)
 
 interface ChatStore {
     fun load(): ChatPointer?
@@ -201,6 +209,9 @@ enum class ChatProblem {
     /** This phone is not paired any more. */
     NOT_PAIRED,
 
+    /** Blank chats are switched off on the computer: its chat folder cannot be used (#163). */
+    CHAT_ROOT_UNUSABLE,
+
     /** Anything else the computer answered with. */
     FAILED,
 }
@@ -208,8 +219,9 @@ enum class ChatProblem {
 /**
  * Why the last message has no answer. [prompt] is what "Retry" sends again (null: retrying makes
  * no sense); [replaces] is the bubble a retry replaces (a message the computer never took).
+ * [detail]: the computer's own reason, where the screen shows it ([ChatProblem.CHAT_ROOT_UNUSABLE]).
  */
-data class ChatFailure(val problem: ChatProblem, val prompt: String? = null, val replaces: Long? = null, val status: Int = 0)
+data class ChatFailure(val problem: ChatProblem, val prompt: String? = null, val replaces: Long? = null, val status: Int = 0, val detail: String? = null)
 
 /**
  * A message in the session's queue on the computer. [key] is the phone's own handle for the
@@ -219,13 +231,37 @@ data class QueuedMessage(val key: Long, val id: String, val prompt: String, val 
 
 /**
  * Where the conversation runs, as the header shows it. A blank chat (#166) has no folder of its
- * own on the phone ([BLANK]): its first message names none, and the computer chooses.
+ * own on the phone ([BLANK]): its first message names none, and the computer gives it a folder
+ * of its own; a blank chat continued from the list has that folder as its [path], and its
+ * [kind] says that it is a blank chat (#163). [colour]: the folder's colour number, or
+ * [NO_COLOUR] while it is not known.
  */
-data class ChatFolder(val path: String, val label: String, val memory: Boolean) {
-    val blank: Boolean get() = path.isEmpty() && !memory
+data class ChatFolder(val path: String, val label: String, val memory: Boolean, val kind: String = "", val colour: Int = NO_COLOUR) {
+    val blank: Boolean get() = kind == FolderKinds.CHAT || (kind.isEmpty() && path.isEmpty() && !memory)
+
+    /** What the first message of a new conversation names as its folder: none for a blank chat. */
+    val requested: String? get() = path.takeIf { !blank && it.isNotEmpty() }
+
+    fun pointer(sessionId: String) = ChatPointer(sessionId, path, label, memory, kind, colour)
+
+    /** What the fresh read of the session says about its folder; an older bridge says nothing. */
+    fun refreshed(session: SessionSummary): ChatFolder = if (session.kind.isEmpty()) {
+        this
+    } else {
+        ChatFolder(session.folder.ifEmpty { path }, session.folderName.ifEmpty { label }, memory || session.kind == FolderKinds.MEMORY, session.kind, session.colour)
+    }
 
     companion object {
-        val BLANK = ChatFolder("", "", false)
+        const val NO_COLOUR = -1
+        val BLANK = ChatFolder("", "", false, FolderKinds.CHAT)
+
+        fun of(pointer: ChatPointer) = ChatFolder(pointer.folderPath, pointer.folderLabel, pointer.memory, pointer.kind, pointer.colour)
+
+        fun of(session: SessionSummary, memory: Boolean) =
+            ChatFolder(session.folder, session.folderName, memory || session.kind == FolderKinds.MEMORY, session.kind, if (session.kind.isEmpty()) NO_COLOUR else session.colour)
+
+        /** A new conversation in [folder]; a blank chat without one. */
+        fun of(folder: Folder?) = if (folder == null || folder.isChat) BLANK else ChatFolder(folder.path, folder.label, folder.isMemory, folder.kind, folder.colour)
     }
 }
 
@@ -287,6 +323,14 @@ data class ChatState(
     val compacting: Boolean = false,
     /** What the tidying up before [renewedAt] did, as the answer's own stream said it (#156): files that got facts, a summary. */
     val tidied: CoachCompacted? = null,
+    // ---- moving between conversations by asking (#164, #168); never from the history
+    /**
+     * The answer to the owner's message asked to open a conversation or to start one in a
+     * folder: the screen does it once ([Chat.takeSwitch]). Gone with a lock or another conversation.
+     */
+    val switchTo: ChatSwitch? = null,
+    /** Conversations (or a folder) the last answer offers on a card; the owner picks. Gone with the next message. */
+    val choices: ChatSwitch? = null,
 ) {
     val canSend: Boolean get() = phase == ChatPhase.IDLE && !loading && loadProblem == null && loaded && !compacting
 
@@ -399,25 +443,39 @@ class Chat(
         mutable.value = ChatState(
             generation = current.generation + 1,
             sessionId = pointer.sessionId,
-            folder = ChatFolder(pointer.folderPath, pointer.folderLabel, pointer.memory),
+            folder = ChatFolder.of(pointer),
             loaded = false,
             choiceKnown = false,
         )
     }
 
     /**
-     * "New chat": an empty conversation. Without [folder] it is a blank chat (#166): its first
-     * message is sent without a folder, so the computer gives it a folder of its own. With one
-     * ("Ask about this project") it runs there. [draft] goes into the composer. The previous
-     * conversation stays on the computer (Sessions).
+     * "New chat": an empty conversation. Without [folder] (or with the blank chats' entry) it
+     * is a blank chat (#166): its first message is sent without a folder, so the computer gives
+     * it a folder of its own. With one ("Ask about this project", or a switch to a folder,
+     * #164) it runs there, the memory folder included. [draft] goes into the composer. The
+     * previous conversation stays on the computer (Sessions).
      */
     fun newChat(folder: Folder? = null, draft: String? = null) {
         if (coach) return
         stopWork()
         startingPrompt = null
-        val where = folder?.let { ChatFolder(it.path, it.label, it.isMemory) } ?: ChatFolder.BLANK
+        val where = ChatFolder.of(folder)
         mutable.update { ChatState(generation = it.generation + 1, folder = where, draft = draft?.takeIf { text -> text.isNotBlank() }) }
         store.save(null)
+    }
+
+    /**
+     * The switch the last answer asked for, taken once by the screen that acts on it (it
+     * opens the conversation, or starts the new one). Null when there is none.
+     */
+    fun takeSwitch(): ChatSwitch? {
+        var taken: ChatSwitch? = null
+        mutable.update {
+            taken = it.switchTo
+            if (it.switchTo == null) it else it.copy(switchTo = null)
+        }
+        return taken
     }
 
     /**
@@ -433,11 +491,11 @@ class Chat(
             return
         }
         stopWork()
-        val folder = ChatFolder(session.folder, session.folderLabel, memory)
+        val folder = ChatFolder.of(session, memory)
         mutable.update {
             ChatState(generation = it.generation + 1, sessionId = session.id, folder = folder, loaded = false, choice = ModelChoice(session.model, session.effort))
         }
-        store.save(ChatPointer(session.id, folder.path, folder.label, folder.memory))
+        store.save(folder.pointer(session.id))
         load()
     }
 
@@ -509,12 +567,20 @@ class Chat(
     /**
      * The session's own model and effort as the computer has them now. A choice the owner made
      * since the question was asked ([edits] then differs) is newer than the answer and stays.
+     * Its folder too (#168): a conversation opened by a switch, or restored from a pointer of
+     * an older app, learns its path, kind and colour here.
      */
     private suspend fun settings(generation: Int, id: String, edits: Int) {
         val session = attempt { api.session(id) }.getOrNull() ?: return
-        change(generation) {
-            if (it.sessionId == id && choiceEdits == edits) it.copy(choice = ModelChoice(session.model, session.effort), choiceKnown = true) else it
+        var moved: ChatFolder? = null
+        change(generation) { state ->
+            if (state.sessionId != id) return@change state
+            val folder = state.folder?.refreshed(session) ?: state.folder
+            if (folder != state.folder) moved = folder
+            val chosen = if (choiceEdits == edits) state.copy(choice = ModelChoice(session.model, session.effort), choiceKnown = true) else state
+            chosen.copy(folder = folder)
         }
+        moved?.let { store.save(it.pointer(id)) }
     }
 
     /**
@@ -898,7 +964,8 @@ class Chat(
                         // The final answer carries the whole text, whatever of the replay was left out.
                         !attached || event.event == "replay_truncated" -> false
                         // A replayed card has only its end time; a new one has its whole wait ahead.
-                        else -> onEvent(generation, event, prompt, answer, streamed, fresh = caughtUp).also { ended = it }
+                        // A followed answer never switches by itself (#168): what it asks for is offered on a card.
+                        else -> onEvent(generation, event, prompt, answer, streamed, fresh = caughtUp, own = false).also { ended = it }
                     }
                     else -> false
                 }
@@ -959,6 +1026,8 @@ class Chat(
                 // A waiting message's own run: the stop that made room for it is done with.
                 stopping = if (row != null) false else state.stopping,
                 failure = state.failure?.takeIf { row == null || it.problem != ChatProblem.STOPPED_HERE },
+                // Another run begins: a card of the answer before belonged to that answer.
+                choices = null,
             )
         }
         return prompt to known
@@ -994,7 +1063,7 @@ class Chat(
         if (starting != null) {
             startingPrompt = text
             // From here on the conversation can be found again, whatever happens to this answer.
-            current.folder?.let { store.save(ChatPointer(starting, it.path, it.label, it.memory)) }
+            current.folder?.let { store.save(it.pointer(starting)) }
         }
         mutable.update {
             if (it.generation != generation) return false
@@ -1008,6 +1077,9 @@ class Chat(
                 unreachable = false,
                 stopping = false,
                 interactions = carried(it.interactions),
+                // The card of the last answer belonged to it (#168).
+                switchTo = null,
+                choices = null,
                 // What the computer said last: the next message is tidied up first. Its stream confirms it.
                 tidying = coach && it.coach?.dueForCompaction == true,
                 // As on the computer: the hold a stop put on the queue ends with the owner's next message.
@@ -1093,7 +1165,7 @@ class Chat(
                     }
                     // Nothing heard here says how it goes on: ask, and follow the answer.
                     if (!heard) {
-                        change(generation) { if (it.phase == ChatPhase.IDLE) it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), interactions = carried(it.interactions)) else it }
+                        change(generation) { if (it.phase == ChatPhase.IDLE) it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), interactions = carried(it.interactions), choices = null) else it }
                         delay(RESUME_LOOK_MILLIS)
                         read(generation, id, wholeThread = false)
                     }
@@ -1164,7 +1236,7 @@ class Chat(
         val hold = state.queueHold
         if (hold == null || state.queue.isEmpty() || state.phase != ChatPhase.IDLE) return
         val generation = state.generation
-        change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), queueHold = null, failure = null, interactions = carried(it.interactions)) }
+        change(generation) { it.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = nowMillis(), queueHold = null, failure = null, interactions = carried(it.interactions), choices = null) }
         launchSide {
             if (attempt { api.resumeQueue(id) }.isFailure) {
                 // It may have arrived all the same: the computer's own word decides.
@@ -1212,7 +1284,9 @@ class Chat(
         var abandoned = false
         if (!queued) awaiting = prompt to key
         try {
-            val folder = before.folder?.takeIf { !it.memory }?.path?.takeIf { it.isNotEmpty() }
+            // Only a new conversation names its folder: none for a blank chat (#166), the path for
+            // any other, the memory folder included (no folder means a blank chat since #163).
+            val folder = before.folder?.requested
             val ended = api.chat(prompt, before.sessionId, folder, options(before), coach = coach).firstOrNull { event ->
                 when (event) {
                     // Coach (#156): after its wait for the tidying up the message was put in line after all.
@@ -1268,6 +1342,8 @@ class Chat(
                 stopping = false,
                 unreachable = false,
                 interactions = carried(state.interactions),
+                switchTo = null,
+                choices = null,
             )
         }
     }
@@ -1415,18 +1491,24 @@ class Chat(
         mark(generation, id) { it.copy(status = Interaction.Status.SENDING, sendFailed = false, refusal = null) }
         scope.launch {
             var refusal: Interaction.Refusal? = null
+            var answered: JsonElement? = null
             val outcome = try {
-                val answered = api.answerInteraction(session, id, body)
+                answered = api.answerInteraction(session, id, body)
                 // A card that waits across runs says what the computer did with the yes.
                 if (interaction.crossRun) Interaction.settled(approve, answered) else result
             } catch (error: ApiException) {
                 // "No longer waiting" closes the card. A yes the computer refused leaves it waiting
                 // there (#157), and one that was not delivered too: both can be answered again.
-                refusal = Interaction.refusal(error).takeIf { interaction.crossRun }
+                refusal = Interaction.refusal(error, interaction.kind).takeIf { interaction.crossRun }
                 Interaction.Status.GONE.takeIf { Interaction.gone(error) }
             }
             mark(generation, id) {
-                if (outcome != null) it.copy(status = outcome, sendFailed = false) else it.copy(status = Interaction.Status.WAITING, sendFailed = refusal == null, refusal = refusal)
+                if (outcome != null) {
+                    // A move says which files went and which did not (#163).
+                    it.copy(status = outcome, sendFailed = false, move = it.move?.answered(answered))
+                } else {
+                    it.copy(status = Interaction.Status.WAITING, sendFailed = refusal == null, refusal = refusal)
+                }
             }
             // What the card shows may be behind (downloaded meanwhile, or failed): look again.
             if (refusal != null) pending(generation, session)
@@ -1442,16 +1524,23 @@ class Chat(
      */
     private fun carried(interactions: List<Interaction>): List<Interaction> = interactions.filter { it.crossRun && it.pending }
 
-    /** The skill installs a finished answer proposed (#97): cards that wait from now on, and what was refused at once. */
+    /**
+     * The skill installs (#97) and the moves of a blank chat's files (#163) a finished answer
+     * proposed: cards that wait from now on, and what was refused at once.
+     */
     private fun proposals(data: JsonObject?): List<Interaction> {
         val now = uptimeMillis()
-        return (data?.get("skill_installs") as? JsonArray).orEmpty().mapNotNull { item ->
+        return listOf("skill_installs", "file_moves").flatMap { field -> (data?.get(field) as? JsonArray).orEmpty() }.mapNotNull { item ->
             val card = try {
                 BridgeJson.decodeFromJsonElement(InteractionData.serializer(), item)
             } catch (_: Exception) {
                 return@mapNotNull null
             }
-            if (card.state == "refused" || card.id.isEmpty()) Interaction.refusedInstall(card, keys.incrementAndGet(), now) else Interaction.of(card, now, nowMillis(), fresh = true)
+            when {
+                card.state != "refused" && card.id.isNotEmpty() -> Interaction.of(card, now, nowMillis(), fresh = true)
+                card.kind == Interaction.MOVE_FILES -> Interaction.refusedMove(card, keys.incrementAndGet(), now)
+                else -> Interaction.refusedInstall(card, keys.incrementAndGet(), now)
+            }
         }
     }
 
@@ -1488,15 +1577,19 @@ class Chat(
         change(generation) { renewed(it, result) }
     }
 
-    /** True when the event ends the answer. */
-    private fun onEvent(generation: Int, event: AnswerEvent.Stream, prompt: String?, answer: Long, streamed: StringBuilder, fresh: Boolean = true): Boolean {
+    /**
+     * True when the event ends the answer. [fresh]: it happens now (not a replay of a followed
+     * run). [own]: the answer to a message this app sent and is receiving itself; only such an
+     * answer switches to another conversation by itself (#168).
+     */
+    private fun onEvent(generation: Int, event: AnswerEvent.Stream, prompt: String?, answer: Long, streamed: StringBuilder, fresh: Boolean = true, own: Boolean = true): Boolean {
         val data = event.data as? JsonObject
         when (event.event) {
             "session" -> {
                 val id = data.text("session_id")?.takeIf(::validId) ?: return false
                 // From here on the conversation can be found again, whatever happens to this answer.
                 change(generation) { state ->
-                    state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
+                    state.folder?.let { store.save(it.pointer(id)) }
                     // Coach: that it was tidied up first is said by `compacted`, not guessed from the id.
                     // Earlier messages of another session are not part of this one in any case.
                     val other = coach && state.sessionId != null && state.sessionId != id
@@ -1516,7 +1609,7 @@ class Chat(
             }
             "delta" -> {
                 streamed.append(data.text("text").orEmpty())
-                val text = visible(streamed)
+                val text = streaming(streamed)
                 if (text.isNotBlank()) {
                     change(generation) { it.copy(messages = put(it.messages, ChatMessage(answer, false, text)), phase = ChatPhase.ANSWERING) }
                 }
@@ -1553,9 +1646,14 @@ class Chat(
                 val files = files(data, id ?: mutable.value.sessionId)
                 val proposed = proposals(data)
                 val servers = (data?.get("mcp_servers") as? JsonArray).orEmpty().mapNotNull { ((it as? JsonObject)?.get("name") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank) }
+                // Another conversation to go to (#164): only the answer of a run that happens now
+                // carries one. Received here, "open" and "new" are done at once; "choose", or any
+                // switch of an answer that was followed, is a card for the owner.
+                val switch = if (fresh) ChatSwitch.of(data?.get("switch")) else null
+                val direct = switch?.takeIf { own && it.action != ChatSwitch.CHOOSE }
                 change(generation) { state ->
                     val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files, servers = servers))
-                    if (id != null && id != state.sessionId) state.folder?.let { store.save(ChatPointer(id, it.path, it.label, it.memory)) }
+                    if (id != null && id != state.sessionId) state.folder?.let { store.save(it.pointer(id)) }
                     state.copy(
                         messages = messages,
                         phase = ChatPhase.IDLE,
@@ -1565,6 +1663,8 @@ class Chat(
                         stopping = false,
                         tidying = false,
                         interactions = closed(state.interactions).let { cards -> cards + proposed.filter { new -> cards.none { it.id == new.id } } },
+                        switchTo = direct,
+                        choices = switch.takeIf { direct == null },
                     )
                 }
                 return true
@@ -1575,7 +1675,7 @@ class Chat(
                 change(generation) { state ->
                     val messages = state.messages.map { if (it.key == answer) it.copy(incomplete = true) else it }
                     // The owner stopped it from here: that is what was asked for, not a failure to retry.
-                    val failure = if (problem == ChatProblem.STOPPED && state.stopping) ChatFailure(ChatProblem.STOPPED_HERE) else ChatFailure(problem, prompt)
+                    val failure = if (problem == ChatProblem.STOPPED && state.stopping) ChatFailure(ChatProblem.STOPPED_HERE) else ChatFailure(problem, prompt, detail = detailOf(problem, data.text("message")))
                     // The run had started: the message is part of the conversation, a retry is a new message.
                     state.copy(messages = messages, phase = ChatPhase.IDLE, stopping = false, tidying = false, failure = failure, interactions = closed(state.interactions))
                 }
@@ -1611,7 +1711,7 @@ class Chat(
             // has the conversation under the id the phone chose; its run, or its end, is read from there.
             repeatedId = repeated
             change(generation) { state ->
-                state.folder?.let { store.save(ChatPointer(repeated, it.path, it.label, it.memory)) }
+                state.folder?.let { store.save(it.pointer(repeated)) }
                 state.copy(sessionId = repeated, startingId = null, phase = ChatPhase.ELSEWHERE)
             }
             return read(generation, repeated, wholeThread = false)
@@ -1627,7 +1727,7 @@ class Chat(
         }
         // Nothing ran: "Retry" sends the same message in place of this one.
         change(generation) {
-            it.copy(phase = ChatPhase.IDLE, startingId = null, tidying = false, failure = ChatFailure(problem, prompt, replaces = key, status = response.status))
+            it.copy(phase = ChatPhase.IDLE, startingId = null, tidying = false, failure = ChatFailure(problem, prompt, replaces = key, status = response.status, detail = detailOf(problem, body.text("message"))))
         }
     }
 
@@ -1687,15 +1787,36 @@ class Chat(
 
         /** How long the app waits before it asks again after a followed answer stopped arriving. */
         private const val FOLLOW_AGAIN_MILLIS = 2_000L
-        // Also the lines that propose a skill install (#97): the computer turns them into cards.
-        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[(?:file|skill-install):[^\\n]*]][ \\t]*\\n?")
+        /**
+         * The marker lines the computer takes out of a finished answer: file offers, skill
+         * installs (#97), switches to another conversation (#164) and moves of a blank chat's
+         * files (#163). The history keeps the move lines, so they are hidden there too.
+         */
+        private val MARKERS = listOf("file", "skill-install", "switch-new", "switch", "move-files")
+        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[(?:${MARKERS.joinToString("|")}):[^\\n]*]][ \\t]*\\n?")
         private val FILE_PATH = Regex("(?m)^[ \\t]*\\[\\[file:([^\\n]*?)]][ \\t]*$")
 
         /** Ids are put into request paths: only the characters a session id can have. */
         fun validId(id: String): Boolean = ID.matches(id)
 
-        /** The streamed text without the marker lines the computer turns into file cards at the end. */
+        /** The text without the marker lines the computer turns into cards and switches at the end. */
         fun visible(streamed: CharSequence): String = FILE_LINE.replace(streamed, "").trimEnd()
+
+        /**
+         * What is shown of an answer while it is written: [visible], and a last line that is
+         * becoming a marker line (`[[swi…`) is held back until it is complete, so it never flashes.
+         */
+        fun streaming(streamed: CharSequence): String {
+            val shown = FILE_LINE.replace(streamed, "")
+            val start = shown.lastIndexOf('\n') + 1
+            val tail = shown.substring(start).trimStart(' ', '\t')
+            val unfinished = tail.isNotEmpty() && MARKERS.any { name -> "[[$name:".let { head -> tail.startsWith(head) || head.startsWith(tail) } }
+            return (if (unfinished) shown.substring(0, start) else shown).trimEnd()
+        }
+
+        /** The computer's own reason, for the problems whose notice shows it. */
+        internal fun detailOf(problem: ChatProblem, message: String?): String? =
+            message?.takeIf { problem == ChatProblem.CHAT_ROOT_UNUSABLE }?.substringAfter(": ")?.trim()?.takeIf { it.isNotEmpty() }
 
         /** The names of the files a text offers with its marker lines (the last part of each path). */
         fun offeredNames(text: String): List<String> = FILE_PATH.findAll(text).mapNotNull { match ->
@@ -1751,6 +1872,7 @@ class Chat(
             "skills_unavailable" -> ChatProblem.SKILLS_OFF
             "mcp_unavailable" -> ChatProblem.MCP_OFF
             "audit_unavailable" -> ChatProblem.UNRECORDED
+            "chat_root_unusable" -> ChatProblem.CHAT_ROOT_UNUSABLE
             else -> if (status == 503) ChatProblem.NOT_SET_UP else ChatProblem.FAILED
         }
     }

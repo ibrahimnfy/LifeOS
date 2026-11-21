@@ -56,6 +56,10 @@ import dev.lifeos.app.ui.screens.ProjectScreen
 import dev.lifeos.app.ui.screens.ProjectsScreen
 import dev.lifeos.app.data.Folder
 import dev.lifeos.app.data.SessionSummary
+import dev.lifeos.app.data.ChatSwitch
+import dev.lifeos.app.data.FolderKinds
+import dev.lifeos.app.data.SwitchStep
+import dev.lifeos.app.data.step
 import dev.lifeos.app.ui.screens.SessionsScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
 import dev.lifeos.app.ui.screens.AllGradesScreen
@@ -164,6 +168,24 @@ fun LifeOsApp(
         navController.navigate(Routes.CHAT_COACH) {
             popUpTo(Routes.CHAT)
             launchSingleTop = true
+        }
+    }
+
+    // Moving between conversations by asking (#164, #168): a switch of an answer, or the owner's
+    // pick on its card. A conversation continues in its own folder, the coach's on its own
+    // screen; a new one starts empty in the folder named (the blank chats: a blank chat).
+    val switchTo: (ChatSwitch) -> Unit = { switch ->
+        when (val step = switch.step()) {
+            SwitchStep.Coach -> openCoach()
+            is SwitchStep.Open -> {
+                core.chat.open(step.session, memory = step.session.kind == FolderKinds.MEMORY)
+                openChat()
+            }
+            is SwitchStep.New -> {
+                core.chat.newChat(step.folder)
+                openChat()
+            }
+            null -> Unit
         }
     }
 
@@ -334,6 +356,7 @@ fun LifeOsApp(
                         onConnectionClick = openSettings,
                         onPair = openPair,
                         onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
+                        onSwitch = switchTo,
                     )
                 }
             }
@@ -356,6 +379,7 @@ fun LifeOsApp(
                     onPair = openPair,
                     onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
                     onNewChat = { newChat(null) },
+                    onSwitch = switchTo,
                 )
             }
             // The same list from the Chat tab and from More.

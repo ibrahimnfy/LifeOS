@@ -75,7 +75,9 @@ import dev.lifeos.app.data.ChatMessage
 import dev.lifeos.app.data.ChatPhase
 import dev.lifeos.app.data.ChatProblem
 import dev.lifeos.app.data.ChatState
+import dev.lifeos.app.data.ChatSwitch
 import dev.lifeos.app.data.CoachCompacted
+import dev.lifeos.app.data.Looks
 import dev.lifeos.app.data.Interaction
 import dev.lifeos.app.data.SkillInstall
 import dev.lifeos.app.ui.components.ErrorNotice
@@ -114,10 +116,13 @@ fun ChatScreen(
     onPair: () -> Unit,
     onSessions: () -> Unit,
     onNewChat: () -> Unit,
+    /** Another conversation, asked for in this one (#164): opened, or started in its folder. */
+    onSwitch: (ChatSwitch) -> Unit,
 ) {
     val chat = core.chat
     val state by chat.state.collectAsStateWithLifecycle()
     val models = (rememberLoad(core, Endpoints.modelChoices) { false }.state.collectAsStateWithLifecycle().value as? UiState.Content)?.data
+    val folder = state.folder
     Column(
         Modifier
             .fillMaxSize()
@@ -125,8 +130,9 @@ fun ChatScreen(
     ) {
         TopBar(
             title = stringResource(R.string.nav_chat),
-            // Where it runs and with what: the folder, the model and the effort.
-            subtitle = listOfNotNull(state.folder?.let { folderName(it) }, state.choice.label(models).takeIf { it.isNotEmpty() }).joinToString(" · ").takeIf { it.isNotEmpty() },
+            // Where it runs and with what: the folder (in its colour, #168), the model and the effort.
+            subtitle = listOfNotNull(folder?.let { folderName(it) }, state.choice.label(models).takeIf { it.isNotEmpty() }).joinToString(" · ").takeIf { it.isNotEmpty() },
+            subtitleDot = folder?.takeIf { !it.blank && it.colour >= 0 }?.let { LifeTheme.colors.tone(Looks.folder(it.colour).tone).ink },
             onBack = onBack,
             onConnectionClick = onConnectionClick,
             actions = {
@@ -134,7 +140,7 @@ fun ChatScreen(
                 TopBarAction(LifeIcons.Compose, stringResource(R.string.chat_new), onClick = onNewChat)
             },
         )
-        ConversationPane(core, chat, onPair = onPair, onSessions = onSessions)
+        ConversationPane(core, chat, onPair = onPair, onSessions = onSessions, onSwitch = onSwitch)
     }
 }
 
@@ -148,6 +154,7 @@ internal fun ColumnScope.ConversationPane(
     chat: Chat,
     onPair: () -> Unit,
     onSessions: () -> Unit,
+    onSwitch: (ChatSwitch) -> Unit,
     modes: Boolean = true,
     empty: @Composable ColumnScope.(onPrompt: (String) -> Unit) -> Unit = { EmptyChat(it) },
 ) {
@@ -156,6 +163,15 @@ internal fun ColumnScope.ConversationPane(
     val locked by core.locked.collectAsStateWithLifecycle()
     val reload by core.reload.collectAsStateWithLifecycle()
     var draft by rememberSaveable { mutableStateOf("") }
+
+    // The answer to the owner's own message asked for another conversation (#164): it is
+    // opened (or started) once, while this screen is shown and the app is unlocked. A switch
+    // is never read from the history, so a re-read conversation never switches by itself.
+    val switchTo = state.switchTo
+    val switching by rememberUpdatedState(onSwitch)
+    LaunchedEffect(switchTo, locked) {
+        if (switchTo != null && !locked) chat.takeSwitch()?.let(switching)
+    }
 
     // Read the conversation when it is shown, after an unlock and when the connection returns.
     LaunchedEffect(state.generation, paired, locked, reload) {
@@ -238,7 +254,7 @@ internal fun ColumnScope.ConversationPane(
             state.loading && state.messages.isEmpty() -> SkeletonCard(rows = 2)
             state.loadProblem != null -> ErrorNotice(checkNotNull(state.loadProblem), 0, onRetry = chat::load)
             state.isEmpty && state.loaded -> empty { draft = it }
-            else -> Thread(core, state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true })
+            else -> Thread(core, state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true }, onSwitch = onSwitch)
         }
     }
     if (paired && state.queue.isNotEmpty()) QueueList(state, chat, locked)
@@ -309,11 +325,14 @@ internal fun ColumnScope.ConversationPane(
     }
 }
 
-/** The folder as the header names it; null for a blank chat (#166), whose folder the computer chooses. */
+/**
+ * The folder as the header names it: "Chat" for a blank chat (#166), whose folder the computer
+ * gives it and which has no name worth showing (#168); "Memory" for the memory folder.
+ */
 @Composable
 internal fun folderName(folder: ChatFolder): String? = when {
     folder.memory -> stringResource(R.string.chat_memory_label)
-    folder.blank -> null
+    folder.blank -> stringResource(R.string.chat_folder_chat)
     else -> folder.label.ifBlank { null }
 }
 
@@ -347,7 +366,7 @@ internal fun EmptyChat(onPrompt: (String) -> Unit) {
 }
 
 @Composable
-private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, onSessions: () -> Unit, onOlder: () -> Unit, onStop: () -> Unit) {
+private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, onSessions: () -> Unit, onOlder: () -> Unit, onStop: () -> Unit, onSwitch: (ChatSwitch) -> Unit) {
     if (state.loadingOlder) {
         SystemLine(stringResource(R.string.chat_older_loading))
     } else if (state.olderExist) {
@@ -377,6 +396,8 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
         if (message.fromOwner) OwnerBubble(message) else AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
     }
     if (answer == null) cards(settled)
+    // Conversations the last answer offers to go to (#164): the owner picks one.
+    state.choices?.let { offer -> SwitchCard(offer, onPick = onSwitch) }
     cards(waiting)
     // "Waiting for you" is about the run: a card that waits across runs does not hold it up.
     val asked = state.interactions.any { it.status == Interaction.Status.WAITING && !it.crossRun }
@@ -598,6 +619,8 @@ private fun FailureNotice(failure: ChatFailure, onRetry: () -> Unit, onDismiss: 
                 color = colors.text,
                 modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
+            // The computer's own reason (its words, in English), where it helps to fix it there.
+            failure.detail?.let { Text(text = stringResource(R.string.chat_fail_reason, it), style = LifeType.small, color = colors.muted) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (failure.prompt != null) {
                     PrimaryButton(text = stringResource(R.string.action_retry), onClick = onRetry, modifier = Modifier.weight(1f))
@@ -622,6 +645,7 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.FOLDER_IN_REPOSITORY -> R.string.error_folder_in_repository
     ChatProblem.CAPABLE_OFF -> R.string.chat_fail_capable_off
     ChatProblem.NOT_SET_UP -> R.string.chat_fail_not_set_up
+    ChatProblem.CHAT_ROOT_UNUSABLE -> R.string.chat_fail_chat_root
     ChatProblem.TOO_LONG -> R.string.chat_fail_too_long
     ChatProblem.STOPPED -> R.string.chat_fail_stopped
     ChatProblem.COMPACTING -> R.string.coach_fail_compacting

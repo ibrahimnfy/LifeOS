@@ -55,6 +55,9 @@ data class InteractionData(
     val server: McpServer? = null,
     /** Whose server it is: "folder" or "personal" (#162); a personal approval covers every folder. */
     val scope: String = "",
+    // ---- moving a blank chat's files into a project (#163): [target], [files], [totalSize] as above
+    /** The target folder as the owner knows it ("project/notes"). */
+    @SerialName("target_label") val targetLabel: String = "",
 ) {
     /** [server] with the card's own [scope], which decides whose approval this is. */
     val scopedServer: McpServer? get() = server?.let { if (scope.isBlank()) it else it.copy(scope = scope) }
@@ -154,6 +157,75 @@ data class SkillInstall(
     }
 }
 
+/**
+ * A blank chat's files the assistant proposed to move into a project (#163). Only the owner's
+ * yes moves them, and the computer never overwrites anything. [problem]: why the proposal was
+ * refused at once (the bridge's `error_code`); [moved] and [failed]: what a yes did.
+ */
+data class FileMove(
+    val target: String,
+    val targetLabel: String = "",
+    val files: List<InstallFile> = emptyList(),
+    val totalSize: Long = 0,
+    val problem: String? = null,
+    val moved: List<String> = emptyList(),
+    val failed: List<String> = emptyList(),
+) {
+    /** The target as the card names it: its label, else its path. */
+    val shownTarget: String get() = targetLabel.ifBlank { target }
+
+    /** What the computer answered to the owner's yes (`files`, `failed`); a no changes nothing. */
+    fun answered(answer: JsonElement?): FileMove {
+        val body = answer as? JsonObject ?: return this
+        fun names(field: String) = (body[field] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.content }
+        return copy(moved = names("files"), failed = names("failed"), targetLabel = (body["target_label"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() } ?: targetLabel)
+    }
+
+    enum class Problem {
+        /** The target is not an allowed folder (or the memory folder, or hidden). */
+        TARGET,
+
+        /** A file is not one of this chat's files, is hidden, or is not a plain file. */
+        FILE,
+
+        /** Something of that name is in the target already: nothing is overwritten. */
+        EXISTS,
+
+        /** More files, or more proposals, than the computer takes at once. */
+        TOO_MANY,
+
+        /** Only a blank chat's files are moved this way. */
+        NOT_A_CHAT,
+
+        /** The computer could not write its audit log, so it did not take the proposal. */
+        UNRECORDED,
+        OTHER,
+    }
+
+    /** The bridge's word for a proposal it refused at once, as what the card says. */
+    val problemKind: Problem? get() = problem?.let(::problemOf)
+
+    companion object {
+        fun of(data: InteractionData): FileMove = FileMove(
+            target = data.target,
+            targetLabel = data.targetLabel,
+            files = data.files.filter { it.path.isNotBlank() },
+            totalSize = data.totalSize,
+            problem = if (data.state == "refused") data.errorCode ?: "" else null,
+        )
+
+        fun problemOf(code: String): Problem = when (code) {
+            "target_not_allowed" -> Problem.TARGET
+            "file_missing", "file_not_regular", "file_not_in_chat", "file_hidden", "no_files" -> Problem.FILE
+            "file_exists" -> Problem.EXISTS
+            "too_many_files", "too_many" -> Problem.TOO_MANY
+            "not_a_chat" -> Problem.NOT_A_CHAT
+            "audit_unavailable" -> Problem.UNRECORDED
+            else -> Problem.OTHER
+        }
+    }
+}
+
 @Serializable
 data class PendingInteractions(val pending: List<InteractionData> = emptyList())
 
@@ -184,6 +256,8 @@ data class Interaction(
     val server: McpServer? = null,
     /** The computer did not act on the last yes, and the card still waits there (#157): why. */
     val refusal: Refusal? = null,
+    /** Moving a blank chat's files: which files, where to, and what a yes did (#163). */
+    val move: FileMove? = null,
 ) {
     /**
      * Why a yes was not acted on. The card stays on the computer with everything it had, so the
@@ -201,9 +275,18 @@ data class Interaction(
 
         /** The skill's files could not be written; nothing was installed. */
         WRITE_FAILED,
+
+        /** A move: something is at a target path by now; nothing is overwritten (#163). */
+        FILE_EXISTS,
+
+        /** A move: a file changed since the card was made. */
+        FILES_CHANGED,
+
+        /** A move the computer cannot do now (a file or the target is no longer what the card shows). */
+        CANNOT_MOVE,
     }
 
-    enum class Kind { APPROVAL, QUESTION, SKILL_INSTALL, MCP_SERVER }
+    enum class Kind { APPROVAL, QUESTION, SKILL_INSTALL, MCP_SERVER, MOVE_FILES }
 
     enum class Status {
         /** The computer waits for the owner. */
@@ -234,10 +317,11 @@ data class Interaction(
 
     /**
      * It waits for the owner whether or not a run is in progress (a skill install, the
-     * approval of an MCP server): for up to a day, across runs, messages and restarts of the computer. Only an answer, its own end
-     * time or the computer's list closes it; the end of a run or the next message does not.
+     * approval of an MCP server, a move of a blank chat's files): for up to a day, across runs,
+     * messages and restarts of the computer. Only an answer, its own end time or the
+     * computer's list closes it; the end of a run or the next message does not.
      */
-    val crossRun: Boolean get() = kind == Kind.SKILL_INSTALL || kind == Kind.MCP_SERVER
+    val crossRun: Boolean get() = kind == Kind.SKILL_INSTALL || kind == Kind.MCP_SERVER || kind == Kind.MOVE_FILES
 
     /** A yes is possible: an install only once its contents are listed. */
     val canApprove: Boolean get() = install == null || install.state == SkillInstall.State.READY
@@ -277,6 +361,9 @@ data class Interaction(
                     if (data.source.isBlank()) null else Interaction(data.id, Kind.SKILL_INSTALL, folder = data.folder, deadline = deadline, install = SkillInstall.of(data))
                 MCP_SERVER ->
                     if (data.server?.usable != true) null else Interaction(data.id, Kind.MCP_SERVER, folder = data.folder, deadline = deadline, server = data.scopedServer)
+                // Only a usable proposal waits; one without files or a target would be nothing to approve.
+                MOVE_FILES ->
+                    if (data.target.isBlank() || data.files.none { it.path.isNotBlank() }) null else Interaction(data.id, Kind.MOVE_FILES, folder = data.folder, deadline = deadline, move = FileMove.of(data.copy(state = "ready")))
                 "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline)
                 "question" -> {
                     val questions = data.questions.filter { it.question.isNotBlank() }
@@ -293,7 +380,8 @@ data class Interaction(
         private const val MAX_CARD_MILLIS = 25 * 3_600_000L
         const val SKILL_INSTALL = "skill_install"
         const val MCP_SERVER = "mcp_server"
-        private val CROSS_RUN = setOf(SKILL_INSTALL, MCP_SERVER)
+        const val MOVE_FILES = "move_files"
+        private val CROSS_RUN = setOf(SKILL_INSTALL, MCP_SERVER, MOVE_FILES)
 
         /**
          * A proposal the computer refused at once (it is only in the answer's own list and
@@ -306,13 +394,24 @@ data class Interaction(
         }
 
         /**
+         * A move of a chat's files the computer refused at once (#163): a card that says why,
+         * with nothing to answer and nothing moved.
+         */
+        fun refusedMove(data: InteractionData, key: Long, now: Long): Interaction? {
+            if (data.kind != MOVE_FILES) return null
+            val move = FileMove.of(data.copy(state = "refused"))
+            return Interaction("local-$key", Kind.MOVE_FILES, deadline = now, status = Status.NOT_DONE, move = move)
+        }
+
+        /**
          * What the computer's answer to a yes or no means. A yes it did not act on
-         * (`"installed": false`, `"approved": false`) is [Status.NOT_DONE]; everything else is what was tapped.
+         * (`"installed": false`, `"approved": false`, a move that broke off part-way:
+         * `"moved": false`) is [Status.NOT_DONE]; everything else is what was tapped.
          */
         fun settled(approve: Boolean, answer: JsonElement?): Status {
             if (!approve) return Status.REFUSED
             val body = answer as? JsonObject
-            val undone = listOf("installed", "approved").any { (body?.get(it) as? JsonPrimitive)?.content == "false" }
+            val undone = listOf("installed", "approved", "moved").any { (body?.get(it) as? JsonPrimitive)?.content == "false" }
             return if (undone) Status.NOT_DONE else Status.ALLOWED
         }
 
@@ -321,9 +420,10 @@ data class Interaction(
 
         /**
          * Why the computer refused a yes while the card stays there (#157), or null when the
-         * answer simply did not get through. Either way the owner can answer again.
+         * answer simply did not get through. Either way the owner can answer again. A move
+         * the computer refuses for one of its checks waits too ([Refusal.CANNOT_MOVE]).
          */
-        fun refusal(error: ApiException): Refusal? = if (error.kind != ApiException.Kind.HTTP) {
+        fun refusal(error: ApiException, kind: Kind? = null): Refusal? = if (error.kind != ApiException.Kind.HTTP) {
             null
         } else {
             when (error.code) {
@@ -331,7 +431,9 @@ data class Interaction(
                 "skill_exists" -> Refusal.EXISTS
                 "audit_unavailable" -> Refusal.UNRECORDED
                 "install_failed" -> Refusal.WRITE_FAILED
-                else -> null
+                "file_exists" -> Refusal.FILE_EXISTS
+                "files_changed" -> Refusal.FILES_CHANGED
+                else -> Refusal.CANNOT_MOVE.takeIf { kind == Kind.MOVE_FILES && error.status == 409 }
             }
         }
 

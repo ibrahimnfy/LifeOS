@@ -95,13 +95,13 @@ class ChatStartTest {
         answers(event("session", """{"session_id":"${id(1)}"}"""), event("done", """{"answer":"Hello.","session_id":"${id(1)}"}"""), done())
         chat.send("Hi")
         // Found again whatever happens to the answer, although it names no folder.
-        assertEquals(ChatPointer(id(1)), store.pointer)
+        assertEquals(ChatPointer(id(1), kind = FolderKinds.CHAT), store.pointer)
         advanceUntilIdle()
         val first = posts().single()
         assertEquals("/ask", first.path)
         assertFalse("folder" in (first.body as JsonObject))
         assertEquals(id(1), chat.state.value.sessionId)
-        assertEquals(ChatPointer(id(1)), store.pointer)
+        assertEquals(ChatPointer(id(1), kind = FolderKinds.CHAT), store.pointer)
         // After a restart the same conversation is continued, in the folder the computer gave it.
         val again = chat()
         again.restore()

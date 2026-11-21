@@ -28,6 +28,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -41,7 +43,10 @@ import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.ChatEndpoints
 import dev.lifeos.app.data.CoachEndpoints
+import dev.lifeos.app.data.ChatFolder
 import dev.lifeos.app.data.ChatState
+import dev.lifeos.app.data.FolderKinds
+import dev.lifeos.app.data.Looks
 import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.SessionLists
 import dev.lifeos.app.data.SessionSummary
@@ -203,14 +208,9 @@ private fun CurrentChat(chat: ChatState, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Thumb {
-                if (folder != null) {
-                    Text(folder.take(1).uppercase(), style = LifeType.rowTitle, color = colors.text)
-                } else {
-                    // A blank chat (#166): no folder to take a letter from.
-                    Icon(LifeIcons.Chat, contentDescription = null, tint = colors.text, modifier = Modifier.size(22.dp))
-                }
-            }
+            // A blank chat (#166) has no folder to take a letter from: the chat icon.
+            val where = chat.folder ?: ChatFolder.BLANK
+            FolderThumb(if (where.blank) FolderKinds.CHAT else where.kind.ifEmpty { FolderKinds.PROJECT }, where.colour, folder.orEmpty())
             Column(Modifier.weight(1f)) {
                 Text(
                     text = chat.messages.firstOrNull { it.fromOwner }?.text ?: stringResource(R.string.chat_current_new),
@@ -228,20 +228,52 @@ private fun CurrentChat(chat: ChatState, onClick: () -> Unit) {
     }
 }
 
-/** The round mark of a session row; [featured] draws the gradient ring. */
+/** The round mark of a session row; [featured] draws the gradient ring, [fill] is its ground. */
 @Composable
-internal fun Thumb(featured: Boolean = false, content: @Composable () -> Unit) {
+internal fun Thumb(featured: Boolean = false, fill: Color = LifeTheme.colors.surface2, content: @Composable () -> Unit) {
     val colors = LifeTheme.colors
     Box(
         modifier = Modifier
             .size(44.dp)
             .then(if (featured) Modifier.background(colors.gradient, CircleShape).padding(LifeDimens.ring) else Modifier)
-            .background(colors.surface2, CircleShape),
+            .background(fill, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         content()
     }
 }
+
+/** The icon of a folder's kind (#168): blank chats, the coach, the memory, a course folder, a project. */
+internal fun folderIcon(kind: String): ImageVector = when (kind) {
+    FolderKinds.CHAT -> LifeIcons.Chat
+    FolderKinds.COACH -> LifeIcons.Spark
+    FolderKinds.MEMORY -> LifeIcons.Notes
+    FolderKinds.COURSE -> LifeIcons.Courses
+    else -> LifeIcons.Folder
+}
+
+/**
+ * The mark of a conversation's folder: a blank chat has no folder of its own and shows the
+ * chat icon; any other shows its folder's first letter in the folder's colour (#168). Without
+ * a known [colour] the mark stays grey.
+ */
+@Composable
+internal fun FolderThumb(kind: String, colour: Int, label: String, featured: Boolean = false) {
+    val colors = LifeTheme.colors
+    val toned = if (colour >= 0 && kind.isNotEmpty()) colors.tone(Looks.folder(colour).tone) else null
+    Thumb(featured = featured, fill = toned?.second ?: colors.surface2) {
+        when {
+            kind == FolderKinds.CHAT || (kind.isEmpty() && label.isEmpty()) ->
+                Icon(LifeIcons.Chat, contentDescription = null, tint = toned?.ink ?: colors.text, modifier = Modifier.size(22.dp))
+            kind == FolderKinds.COACH -> Icon(LifeIcons.Spark, contentDescription = null, tint = toned?.ink ?: colors.text, modifier = Modifier.size(22.dp))
+            else -> Text(label.take(1).uppercase(), style = LifeType.rowTitle, color = toned?.ink ?: colors.text)
+        }
+    }
+}
+
+/** The folder as a row names it: "Chat" for a blank chat, which has no folder name of its own. */
+@Composable
+internal fun folderText(session: SessionSummary): String = if (session.isChat) stringResource(R.string.chat_folder_chat) else session.folderName
 
 /**
  * One session: the first letter of its folder, its title, folder and last activity, and
@@ -270,9 +302,7 @@ internal fun SessionRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (onMenu != null) 10.dp else 14.dp),
     ) {
-        Thumb(featured = session.pinned) {
-            Text(session.folderLabel.take(1).uppercase(), style = LifeType.rowTitle, color = colors.text)
-        }
+        FolderThumb(session.kind, if (session.kind.isEmpty()) ChatFolder.NO_COLOUR else session.colour, session.folderName, featured = session.pinned)
         Column(Modifier.weight(1f)) {
             Text(
                 text = session.shownTitle.ifEmpty { stringResource(R.string.sessions_untitled) },
@@ -284,7 +314,7 @@ internal fun SessionRow(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (showFolder) {
                     Text(
-                        text = session.folderLabel,
+                        text = folderText(session),
                         style = LifeType.small.copy(fontFamily = FontFamily.Monospace),
                         color = colors.muted,
                         maxLines = 1,

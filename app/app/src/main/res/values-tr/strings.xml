@@ -570,38 +570,78 @@
     <string name="chat_fail_failed">Çalışma bilgisayarda başarısız oldu.</string>
     <string name="sessions_search">Oturumlarda ara</string>
     <string name="sessions_by_folder">Klasöre göre</string>
-    <string name="sessions_automatic">otomatik</string>
     <string name="sessions_empty">İzin verilen klasörlerde henüz oturum yok.</string>
     <string name="sessions_none_found">Eşleşen oturum yok.</string>
     <string name="sessions_working">Çalışıyor</string>
     <string name="sessions_untitled">Adsız oturum</string>
 
-    <!-- Sessions: groups, rename and pin (#74) -->
+    <!-- Sessions: rename and pin (#74) -->
     <string name="session_menu">Bu oturumla ilgili diğer işlemler</string>
     <string name="session_rename">Yeniden adlandır</string>
     <string name="session_rename_field">Başlık</string>
     <string name="session_rename_reset">Bilgisayarın bulduğu başlığı kullan</string>
     <string name="session_pin">Sabitle</string>
     <string name="session_unpin">Sabitlemeyi kaldır</string>
-    <string name="session_move">Bir gruba taşı</string>
-    <string name="session_move_none">Grup yok</string>
-    <string name="session_move_none_note">Klasörünün altında listelenir</string>
-    <string name="sessions_groups">Gruplar</string>
-    <string name="sessions_groups_none">Henüz grup yok. Birbirine ait oturumları bir arada tutmak için bir grup oluştur.</string>
-    <string name="sessions_group_empty">Bu grupta henüz oturum yok. Bir oturumda “Bir gruba taşı”yı kullan.</string>
-    <string name="group_new">Yeni grup</string>
-    <string name="group_name_field">Grubun adı</string>
-    <string name="group_menu">%1$s grubuyla ilgili diğer işlemler</string>
-    <string name="group_rename">Grubu yeniden adlandır</string>
-    <string name="group_delete">Grubu sil</string>
-    <string name="group_delete_title">“%1$s” silinsin mi?</string>
-    <string name="group_delete_text">Yalnızca grup silinir. Oturumları kalır ve yeniden klasörlerinin altında listelenir.</string>
     <string name="session_edit_not_reached">Değiştirilmedi: bilgisayara şu an ulaşılamıyor.</string>
     <string name="session_edit_uncertain">Bilgisayar yanıt vermedi; bunun değişip değişmediği bilinmiyor. Liste bilgisayardakini gösterir.</string>
-    <string name="session_edit_group_exists">Bu adda bir grup zaten var.</string>
     <string name="session_edit_gone">Değiştirilmedi: bilgisayarda artık yok. Listeyi yeniden okumak için aşağı çek.</string>
-    <string name="session_edit_refused">Bilgisayar bunu kabul etmedi. En fazla 50 grup ve 200 hatırlatıcı tutar.</string>
+    <string name="session_edit_refused">Bilgisayar bunu kabul etmedi. En fazla 200 hatırlatıcı tutar.</string>
     <string name="session_edit_failed">Bu, bilgisayarda değiştirilemedi.</string>
+
+    <!-- Sessions as folder tiles; blank chats (#163, #168) -->
+    <string name="chat_folder_chat">Sohbet</string>
+    <string name="sessions_tile_chats">Sohbetler</string>
+    <string name="sessions_tile_coach">Koç</string>
+    <plurals name="sessions_tile_count">
+        <item quantity="one">%1$d konuşma</item>
+        <item quantity="other">%1$d konuşma</item>
+    </plurals>
+    <string name="sessions_tile_line">%1$s · %2$s</string>
+    <string name="sessions_tile_none">Henüz konuşma yok</string>
+    <string name="sessions_folder_empty">Bu klasörde henüz konuşma yok.</string>
+    <string name="sessions_folder_partial">En yeni %1$d / %2$d konuşma listeleniyor.</string>
+    <string name="chat_fail_chat_root">Boş sohbetler bilgisayarda kapalı: sohbet klasörü kullanılamıyor. Bu orada düzeltilince yeniden dene.</string>
+    <string name="chat_fail_reason">Bilgisayarın söylediği: %1$s</string>
+
+    <!-- Moving between conversations by asking (#164, #168) -->
+    <string name="switch_choose_label">Hangi konuşma?</string>
+    <string name="switch_offer_label">Asistanın önerisi</string>
+    <string name="switch_choose_note">Açmak için birine dokun. Kendi klasöründe, kendi geçmişiyle devam eder.</string>
+    <string name="switch_new_in">%1$s içinde yeni sohbet</string>
+    <string name="switch_new_blank">Yeni boş sohbet</string>
+
+    <!-- Moving a blank chat's files into a project (#163, #168) -->
+    <string name="move_label">Dosyaları taşı</string>
+    <string name="move_title">Asistan bu sohbetin dosyalarını %1$s klasörüne taşımayı öneriyor.</string>
+    <string name="move_title_plain">Asistan bu sohbetin dosyalarını bir proje klasörüne taşımayı öneriyor.</string>
+    <plurals name="move_files">
+        <item quantity="one">%1$d dosya, %2$s</item>
+        <item quantity="other">%1$d dosya, %2$s</item>
+    </plurals>
+    <string name="move_target">Bu klasöre</string>
+    <string name="move_note">Senin dokunuşun olmadan hiçbir şey taşınmaz ve hedefteki hiçbir şeyin üzerine yazılmaz. Taşınan dosyalar bu sohbetin klasöründen çıkar.</string>
+    <string name="move_time_left">Cevap verilmezse hiçbir şey taşınmaz. %1$s daha bekler.</string>
+    <plurals name="move_done">
+        <item quantity="one">%1$d dosya %2$s klasörüne taşındı.</item>
+        <item quantity="other">%1$d dosya %2$s klasörüne taşındı.</item>
+    </plurals>
+    <plurals name="move_failed">
+        <item quantity="one">%1$d dosya taşınamadı ve sohbette kalıyor: %2$s</item>
+        <item quantity="other">%1$d dosya taşınamadı ve sohbette kalıyor: %2$s</item>
+    </plurals>
+    <string name="move_refused">Taşınmadı.</string>
+    <string name="move_expired">Zamanında cevaplanmadı: hiçbir şey taşınmadı.</string>
+    <string name="move_refusal_exists">Taşınmadı: hedef klasörde artık aynı adda bir şey var ve hiçbir şeyin üzerine yazılmaz. Hayır diyebilir ya da oradaki adı boşaltıp yeniden deneyebilirsin.</string>
+    <string name="move_refusal_changed">Taşınmadı: dosyalar bu kart oluşturulduktan sonra değişti. Hayır de ve yeni bir kart için yeniden iste.</string>
+    <string name="move_refusal_unrecorded">Taşınmadı: bilgisayar denetim kaydını yazamadığı için hiçbir şey yapmadı. Yeniden deneyebilirsin.</string>
+    <string name="move_refusal_other">Taşınmadı: bir dosya ya da hedef klasör artık bu kartta gösterildiği gibi değil. Hayır de ve yeniden iste.</string>
+    <string name="move_problem_target">Taşınamaz: hedef, izin verilen klasörlerinden biri değil (hafıza klasörü bunlardan biri değildir).</string>
+    <string name="move_problem_file">Taşınamaz: adı geçen bir dosya bu sohbetin sade, gizli olmayan bir dosyası değil.</string>
+    <string name="move_problem_exists">Taşınamaz: hedefte aynı adda bir dosya zaten var ve hiçbir şeyin üzerine yazılmaz.</string>
+    <string name="move_problem_too_many">Taşınamaz: bilgisayarın bir seferde taşıdığından (50) fazla dosya ya da bir cevapta üçten fazla taşıma var.</string>
+    <string name="move_problem_not_chat">Taşınamaz: yalnızca boş bir sohbetin dosyaları bu yolla taşınır.</string>
+    <string name="move_problem_unrecorded">Bilgisayar denetim kaydını yazamadığı için öneriyi bıraktı.</string>
+    <string name="move_problem_other">Taşınamaz: bilgisayar öneriyi kabul etmedi.</string>
 
     <!-- Chat: keep-alives, the phone's own session id, notifications that open the conversation (#148) -->
     <string name="chat_fail_first_lost">İlk mesajın ulaşmadı: bilgisayar yanıt vermeden uygulama kilitlendi. Lütfen yeniden gönder.</string>

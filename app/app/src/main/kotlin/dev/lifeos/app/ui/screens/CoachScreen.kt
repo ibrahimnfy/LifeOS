@@ -55,7 +55,15 @@ import java.time.OffsetDateTime
  * apart from the morning run's.
  */
 @Composable
-fun CoachScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> Unit, onPair: () -> Unit, onSessions: () -> Unit) {
+fun CoachScreen(
+    core: LifeOsCore,
+    onBack: () -> Unit,
+    onConnectionClick: () -> Unit,
+    onPair: () -> Unit,
+    onSessions: () -> Unit,
+    /** Another conversation the coach was asked to open (#164): it opens in Chat. */
+    onSwitch: (dev.lifeos.app.data.ChatSwitch) -> Unit = {},
+) {
     val chat = core.coach
     val state by chat.state.collectAsStateWithLifecycle()
     val locked by core.locked.collectAsStateWithLifecycle()
@@ -75,7 +83,7 @@ fun CoachScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
             actions = { TopBarAction(LifeIcons.Activity, stringResource(R.string.coach_about), enabled = view != null, onClick = { about = true }) },
         )
         if (view != null) UsageStrip(view, onClick = { about = true })
-        ConversationPane(core, chat, onPair = onPair, onSessions = onSessions, modes = false, empty = { CoachEmpty(view, it) })
+        ConversationPane(core, chat, onPair = onPair, onSessions = onSessions, onSwitch = onSwitch, modes = false, empty = { CoachEmpty(view, it) })
     }
     if (about && view != null && !locked) {
         CoachSheet(

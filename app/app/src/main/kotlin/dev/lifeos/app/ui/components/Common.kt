@@ -92,6 +92,8 @@ fun TopBar(
     onConnectionClick: (() -> Unit)? = null,
     actions: (@Composable RowScope.() -> Unit)? = null,
     subtitle: String? = null,
+    /** A small dot before [subtitle] in this colour (a conversation's folder colour, #168). */
+    subtitleDot: androidx.compose.ui.graphics.Color? = null,
 ) {
     val colors = LifeTheme.colors
     Row(
@@ -135,7 +137,10 @@ fun TopBar(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.semantics { heading() },
                 )
-                Text(text = subtitle, style = LifeType.small, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (subtitleDot != null) Box(Modifier.padding(end = 6.dp).size(8.dp).background(subtitleDot, CircleShape))
+                    Text(text = subtitle, style = LifeType.small, color = colors.muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
         if (actions != null) actions()

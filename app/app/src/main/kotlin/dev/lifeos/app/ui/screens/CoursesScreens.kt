@@ -336,60 +336,25 @@ private const val TICKETS = 3
  */
 @Composable
 private fun CourseGrid(courses: List<Course>, locale: java.util.Locale, onOpenCourse: (Long) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        courses.firstOrNull()?.let { CourseCell(it, locale, RoundedCornerShape(20.dp), onOpenCourse, Modifier.fillMaxWidth()) }
-        courses.drop(1).chunked(2).forEach { pair ->
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CourseCell(pair[0], locale, RoundedCornerShape(topStart = 20.dp, topEnd = 8.dp, bottomEnd = 20.dp, bottomStart = 20.dp), onOpenCourse, Modifier.weight(1f).fillMaxHeight())
-                if (pair.size > 1) {
-                    CourseCell(pair[1], locale, RoundedCornerShape(topStart = 8.dp, topEnd = 20.dp, bottomEnd = 20.dp, bottomStart = 20.dp), onOpenCourse, Modifier.weight(1f).fillMaxHeight())
-                } else {
-                    Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-    }
+    TileGrid(courses) { course, shape, modifier -> CourseCell(course, locale, shape, onOpenCourse, modifier) }
 }
 
 @Composable
-private fun CourseCell(course: Course, locale: java.util.Locale, shape: RoundedCornerShape, onOpenCourse: (Long) -> Unit, modifier: Modifier) {
-    val colors = LifeTheme.colors
-    val look = LocalLooks.current.course(course.id)
-    val toned = colors.tone(look.tone)
-    Column(
-        modifier = modifier
-            .clip(shape)
-            .background(toned.card)
-            .border(LifeDimens.hairline, toned.second, shape)
-            .clickable(role = Role.Button) { onOpenCourse(course.id) },
-    ) {
-        Box(Modifier.fillMaxWidth().height(48.dp)) {
-            Ornament(look.pattern, look.tone, Modifier.matchParentSize())
-            CourseMark(look, Modifier.padding(start = 10.dp, top = 8.dp), size = 32.dp, onTint = true)
-            if (course.hasNew) Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp)) { NewBadge(course.new.total) }
-        }
-        Text(
-            course.name.ifEmpty { course.shortname },
-            style = LifeType.rowTitle,
-            color = colors.text,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 4.dp),
-        )
-        val next = course.nextDeadline
-        Text(
-            text = if (next?.due != null) {
-                stringResource(R.string.courses_next_deadline, next.name, momentLabel(next.due, locale))
-            } else {
-                stringResource(R.string.courses_no_next_deadline)
-            },
-            style = LifeType.small,
-            color = colors.muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 10.dp),
-        )
-    }
+private fun CourseCell(course: Course, locale: java.util.Locale, shape: androidx.compose.ui.graphics.Shape, onOpenCourse: (Long) -> Unit, modifier: Modifier) {
+    val next = course.nextDeadline
+    ToneTile(
+        look = LocalLooks.current.course(course.id),
+        title = course.name.ifEmpty { course.shortname },
+        subtitle = if (next?.due != null) {
+            stringResource(R.string.courses_next_deadline, next.name, momentLabel(next.due, locale))
+        } else {
+            stringResource(R.string.courses_no_next_deadline)
+        },
+        shape = shape,
+        onClick = { onOpenCourse(course.id) },
+        modifier = modifier,
+        badge = if (course.hasNew) ({ NewBadge(course.new.total) }) else null,
+    )
 }
 
 /** "3 new": a red pill with the count in words, so colour is not the only signal. */
