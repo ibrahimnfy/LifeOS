@@ -583,6 +583,9 @@ def test_a_detach_before_a_worker_is_free_is_remembered(long_runs):
         phone.request("POST", "/sessions/s1/messages", rid=f"s{index}")
         until(lambda index=index: len(streams) == index + 1)
     phone.request("GET", "/sessions/s9/live", rid="follow")  # waits for a worker
+    # One after the other: two requests written in the same instant can reach the
+    # bridge in the wrong order, and the receiver drops the one with the older counter.
+    until(lambda: len(service._waiting) == 1)
     phone.request("POST", "/sessions/s9/messages", rid="chat")  # waits too
     until(lambda: len(service._waiting) == 2)
     for rid in ("follow", "chat"):
