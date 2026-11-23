@@ -700,7 +700,7 @@ event:
   lines until it is compacted or renewed. New conversations do.
 
 **The owner's request goes along (#187).** When the owner asks to work
-somewhere else ("go to the course folder and solve hw2 there"), a line that
+somewhere else ("go to the course folder and write up the week's notes there"), a line that
 starts a new chat carries the request after a `|`:
 
 | Line | Meaning |

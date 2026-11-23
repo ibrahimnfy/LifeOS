@@ -466,8 +466,8 @@ class ChatSwitchTest {
     // ------------------------------------------------------------------ the request carried along (#187)
 
     private val oldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    private val request = "Solve the hw2 questions as an HTML file, from the course materials"
-    private val newWithRequest = """{"action":"new","sessions":[],"folder":{"path":"/home/owner/course-ex","label":"2026/2027-1 EX362.01","kind":"course","colour":3},"forward":${JsonPrimitive(request)}}"""
+    private val request = "Summarise week 3 as a notes file, from the course materials"
+    private val newWithRequest = """{"action":"new","sessions":[],"folder":{"path":"/home/owner/course-ex","label":"2027-1 EX101.01","kind":"course","colour":3},"forward":${JsonPrimitive(request)}}"""
 
     /** A blank chat (session [oldId]) whose answer switches to a course folder, carrying [request]. */
     private suspend fun TestScope.switched(switch: String = newWithRequest): Chat {
@@ -475,11 +475,11 @@ class ChatSwitchTest {
         chat.newChat()
         answers(
             event("session", """{"session_id":"$oldId"}"""),
-            event("delta", """{"text":"Opening it.\n[[switch-find: EX362 | $request]]"}"""),
+            event("delta", """{"text":"Opening it.\n[[switch-find: EX101 | $request]]"}"""),
             event("done", """{"answer":"Opening it.","session_id":"$oldId","switch":$switch}"""),
             done(),
         )
-        chat.send("Go to the EX362 folder, open a chat there and solve hw2 there")
+        chat.send("Go to the EX101 folder, open a chat there and summarise week 3 there")
         advanceUntilIdle()
         return chat
     }
@@ -515,7 +515,7 @@ class ChatSwitchTest {
 
         answers(
             event("session", """{"session_id":"00000000-0000-4000-8000-000000000001"}"""),
-            event("done", """{"answer":"Here is hw2.html.","session_id":"00000000-0000-4000-8000-000000000001"}"""),
+            event("done", """{"answer":"Here is week3.md.","session_id":"00000000-0000-4000-8000-000000000001"}"""),
             done(),
         )
         chat.startFrom(step.folder, step.forward, step.origin)
@@ -523,14 +523,14 @@ class ChatSwitchTest {
         assertEquals(listOf("me:$request"), texts(chat))
         assertEquals(oldId, chat.state.value.origin?.id)
         advanceUntilIdle()
-        assertEquals(listOf("me:$request", "it:Here is hw2.html."), texts(chat))
+        assertEquals(listOf("me:$request", "it:Here is week3.md."), texts(chat))
         val sent = body(transport.calls.last())
         assertEquals("/ask", transport.calls.last().path)
         assertEquals(JsonPrimitive(request), sent["prompt"])
         assertEquals(JsonPrimitive("/home/owner/course-ex"), sent["folder"])
         assertEquals(JsonPrimitive(oldId), sent["continued_from"])
         assertEquals(JsonPrimitive("00000000-0000-4000-8000-000000000001"), sent["new_session_id"])
-        assertEquals("2026/2027-1 EX362.01", chat.state.value.folder?.label)
+        assertEquals("2027-1 EX101.01", chat.state.value.folder?.label)
     }
 
     @Test
@@ -563,7 +563,7 @@ class ChatSwitchTest {
     fun `offline, the request waits in the composer of the new chat`() = runTest {
         val chat = Chat(api, store, this, { wall }, { false }, { uptime }, newId = { "00000000-0000-4000-8000-000000000001" })
         val origin = SwitchSession(oldId, folderLabel = "Chats", kind = FolderKinds.CHAT)
-        chat.startFrom(Folder("/home/owner/course-ex", "EX362", FolderKinds.COURSE), request, origin)
+        chat.startFrom(Folder("/home/owner/course-ex", "EX101", FolderKinds.COURSE), request, origin)
         advanceUntilIdle()
         assertEquals(emptyList<String>(), texts(chat))
         assertEquals(request, chat.state.value.draft)
@@ -619,15 +619,15 @@ class ChatSwitchTest {
         transport.answer(
             "GET /sessions/$oldId/history",
             200,
-            """{"exchanges":[{"user":"Go to EX362 and solve hw2","assistant":"Opening it.","complete":true,"continued_in":{"id":"$newId","title":"Solve the hw2","folder_label":"2026/2027-1 EX362.01","kind":"course","colour":3}}],"older":null,"continued_from":null}""",
+            """{"exchanges":[{"user":"Go to EX101 and summarise week 3","assistant":"Opening it.","complete":true,"continued_in":{"id":"$newId","title":"Summarise week 3","folder_label":"2027-1 EX101.01","kind":"course","colour":3}}],"older":null,"continued_from":null}""",
         )
         val chat = chat()
-        chat.open(SessionSummary(oldId, "Go to EX362"))
+        chat.open(SessionSummary(oldId, "Go to EX101"))
         advanceUntilIdle()
         val answer = chat.state.value.messages.last()
         assertEquals("Opening it.", answer.text)
         assertEquals(newId, answer.continuedIn?.id)
-        assertEquals("2026/2027-1 EX362.01", answer.continuedIn?.folderLabel)
+        assertEquals("2027-1 EX101.01", answer.continuedIn?.folderLabel)
         assertNull(chat.state.value.origin)
         // A tap on it opens that chat.
         assertEquals(newId, (ChatSwitch.open(checkNotNull(answer.continuedIn)).step() as SwitchStep.Open).session.id)
@@ -636,12 +636,12 @@ class ChatSwitchTest {
         transport.answer(
             "GET /sessions/$newId/history",
             200,
-            """{"exchanges":[{"user":"Solve the hw2","assistant":"Done.","complete":true,"continued_in":null}],"older":null,"continued_from":{"id":"$oldId","title":"Go to EX362","folder_label":"Chats","kind":"chat","colour":0}}""",
+            """{"exchanges":[{"user":"Summarise week 3","assistant":"Done.","complete":true,"continued_in":null}],"older":null,"continued_from":{"id":"$oldId","title":"Go to EX101","folder_label":"Chats","kind":"chat","colour":0}}""",
         )
-        chat.open(SessionSummary(newId, "Solve the hw2"))
+        chat.open(SessionSummary(newId, "Summarise week 3"))
         advanceUntilIdle()
         assertEquals(oldId, chat.state.value.origin?.id)
-        assertEquals(listOf("me:Solve the hw2", "it:Done."), texts(chat))
+        assertEquals(listOf("me:Summarise week 3", "it:Done."), texts(chat))
         assertNull(chat.state.value.messages.last().continuedIn)
     }
 

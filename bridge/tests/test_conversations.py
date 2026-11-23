@@ -251,7 +251,7 @@ def test_text_that_only_mentions_the_marker_is_left_alone(world, auth, known, ho
 
 # ------------------------------------------------------------- the request carried along (#187)
 
-REQUEST = "Solve the hw2 questions as an HTML file, from the course materials"
+REQUEST = "Summarise week 3 as a notes file, from the course materials"
 
 
 def test_a_new_chat_line_carries_the_owners_request(world, auth, known, home, project):
