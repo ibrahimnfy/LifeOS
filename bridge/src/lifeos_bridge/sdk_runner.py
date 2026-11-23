@@ -616,7 +616,8 @@ class LiveSession:
             if not _audit(record, "approved" if approved else "refused", why):
                 return PermissionResultDeny(message=gate.APPROVAL_NOTE)
             if approved and plan is not None:
-                return await self._push(record, plan)
+                pushing, plan = plan, None  # the push owns its folder from here on
+                return await self._push(record, pushing)
             if approved:
                 return PermissionResultAllow(updated_input=tool_input)  # exactly what was shown
         finally:
@@ -643,18 +644,45 @@ class LiveSession:
         The run's own command never runs: the answer is a refusal whose text is the
         result, so nothing of the run gets network. Recorded before it starts (and
         not started if that fails) and after it ended.
+
+        The push runs to its end in its own thread, also when the run is stopped
+        meanwhile (it has its own time limit); that thread records the end and
+        removes the push's folder. The run's own time limit pauses meanwhile, as it
+        does while the owner is asked.
         """
-        if not await asyncio.to_thread(netpush.public_host, plan.host):
-            _audit(record, "network_refused", "host is not public")
-            return PermissionResultDeny(message=NETWORK_HOST_NOTE)
-        if not _audit(record, "network_started"):
-            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+
+        def push() -> netpush.Outcome:
+            outcome, started = netpush.Outcome(1, "the push could not be started"), False
+            try:
+                if not netpush.public_host(plan.host):
+                    _audit(record, "network_refused", "host is not public")
+                    return netpush.Outcome(-1, "")
+                if not _audit(record, "network_started"):
+                    return netpush.Outcome(-2, "")
+                started = True
+                outcome = netpush.run(plan, netpush.credentials(plan.url))
+                return outcome
+            except (OSError, subprocess.SubprocessError):
+                return outcome
+            finally:
+                if started:
+                    _audit({**record, "exit_status": outcome.status}, "network_finished")
+                netpush.discard(plan)
+
+        turn = self._turn
+        if turn is not None:
+            turn.waiting += 1
+        began = time.monotonic()
         try:
-            login = await asyncio.to_thread(netpush.credentials, plan.url)
-            outcome = await asyncio.to_thread(netpush.run, plan, login)
-        except (OSError, subprocess.SubprocessError):
-            outcome = netpush.Outcome(1, "the push could not be started")
-        _audit({**record, "exit_status": outcome.status}, "network_finished")
+            outcome = await asyncio.shield(asyncio.ensure_future(asyncio.to_thread(push)))
+        finally:
+            if turn is not None:
+                turn.waiting -= 1
+                turn.waited += time.monotonic() - began
+        if outcome.status == -1:
+            return PermissionResultDeny(message=NETWORK_HOST_NOTE)
+        if outcome.status == -2:
+            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
         return PermissionResultDeny(message=netpush.note(plan, outcome))
 
 

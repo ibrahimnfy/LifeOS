@@ -88,6 +88,8 @@ FLAGS = {
     "-v": "verbose",
     "--verbose": "verbose",
     "--no-verify": "",  # hooks never run anyway
+    "-u": "upstream",  # accepted; the upstream is not set (the run is told so)
+    "--set-upstream": "upstream",
 }
 REMOTE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 BRANCH = re.compile(r"(?!-)(?!.*\.\.)(?!.*//)(?!.*/\.)(?!.*\.lock$)[A-Za-z0-9._/-]{1,200}(?<![./])")
@@ -103,6 +105,7 @@ class Request:
     force: bool = False
     quiet: bool = False
     verbose: bool = False
+    upstream: bool = False
 
 
 def _branch(name: str) -> str | None:
@@ -388,11 +391,14 @@ REPO_CONFIG = """[core]
 \tfsmonitor = false
 [http]
 \tsslVerify = true
+\tfollowRedirects = false
 [gc]
 \tauto = 0
 """
+# Answers only for exactly the host on the card (git names it on standard input).
 HELPER = """#!/bin/sh
 [ "$1" = get ] || exit 0
+grep -xF "host=$LIFEOS_PUSH_HOST" > /dev/null || exit 0
 printf 'username=%s\\npassword=%s\\n' "$LIFEOS_PUSH_USERNAME" "$LIFEOS_PUSH_PASSWORD"
 """
 
@@ -464,7 +470,11 @@ def run(plan: Plan, login: tuple[str, str] | None = None) -> Outcome:
         helper = fresh / "credential-helper"
         helper.write_text(HELPER, encoding="utf-8")
         helper.chmod(0o500)
-        env |= {"LIFEOS_PUSH_USERNAME": login[0], "LIFEOS_PUSH_PASSWORD": login[1]}
+        env |= {
+            "LIFEOS_PUSH_USERNAME": login[0],
+            "LIFEOS_PUSH_PASSWORD": login[1],
+            "LIFEOS_PUSH_HOST": urlsplit(plan.url).netloc,
+        }
         read = (helper,)
     parts = urlsplit(plan.url)
     if parts.scheme == "file":  # tests only
@@ -500,7 +510,7 @@ def note(plan: Plan, outcome: Outcome) -> str:
         "The owner approved this push. The bridge ran it itself, outside your sandbox and "
         f"with network access for this one push only: {what}. {state}. Do not run the "
         "command again; tell the owner the result. Your repository's remote-tracking branch "
-        "was not updated.\nOutput:\n" + (outcome.output or "(none)")
+        "and upstream setting were not changed.\nOutput:\n" + (outcome.output or "(none)")
     )
 
 

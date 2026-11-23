@@ -1156,10 +1156,12 @@ Agent SDK pages and real runs in scratch folders:
 
 - **Which commands.** Exactly one plain `git push [remote] [branch | src:dst
   | +src:dst]`.
-  - Allowed options: `-f`/`--force`, `-q`, `-v`, `--no-verify`.
+  - Allowed options: `-f`/`--force`, `-q`, `-v`, `--no-verify`, and
+    `-u`/`--set-upstream`, which is accepted but sets nothing (the run is
+    told so).
   - Not allowed: shell syntax of any kind (quotes, variables, `;`, `&&`,
     pipes, redirection), an environment prefix, a git option before `push`
-    (`-c`, `-C`, ...), any other option (`-u`, `--receive-pack`, `--exec`,
+    (`-c`, `-C`, ...), any other option (`--receive-pack`, `--exec`,
     `--all`, `--mirror`, `--tags`, `--delete`, `--signed`, ...).
   - Any other command that needs approval keeps today's behaviour:
     approved, then run in the sandbox without network.
@@ -1167,6 +1169,14 @@ Agent SDK pages and real runs in scratch folders:
   the run folder, not a linked worktree, no borrowed objects. Never the
   memory folder or anything inside it: the memory never leaves the
   computer.
+  - Claude Code's sandbox leaves an empty `objects/info/alternates` file
+    behind in a repository its commands ran in (seen with 2.1.330). An
+    empty one is accepted; one with content is refused.
+  - Capable runs happen today in the memory folder and in blank chats'
+    folders, as long as the marker's scope is `memory_folder` (section 6).
+    So for now a push can come only from a chat folder that the run made
+    into a git repository. Allowed project folders follow once the check
+    covers them.
 - **Before the card** (no network):
   - In a bubblewrap confinement that sees only the system folders and the
     repository's `.git` folder, read-only, git reads the branch, the
@@ -1187,9 +1197,10 @@ Agent SDK pages and real runs in scratch folders:
 - **After the yes.** `network_started` is written to the audit log first;
   if it cannot be written, nothing runs. Then:
   1. The bridge checks again that every address of the host is public.
-  2. It creates a fresh bare repository, configured only by the bridge: no
-     hooks, no system or global configuration, TLS verification on, no
-     proxy.
+  2. It creates a fresh bare repository, configured only by the bridge:
+     no hooks, no system or global configuration, TLS verification on, no
+     proxy, and **no HTTP redirects** (git would otherwise follow one on
+     the first request, to a host that is not on the card).
   3. That repository takes the commit from the bundle, without network. It
      must be exactly the commit on the card: if the run moved its branch
      after the card was shown, nothing changes.
@@ -1204,6 +1215,13 @@ Agent SDK pages and real runs in scratch folders:
      output. The run is told not to run the command again. Its
      remote-tracking branch is not updated.
   6. `network_finished` is recorded afterwards, with the exit status.
+  7. The push has its own time limit (3 minutes). It runs to its end even
+     when the run is stopped meanwhile; it then still records its end and
+     removes its folder. The run's own time limit pauses during the push,
+     as it does while the owner is asked.
+  8. Because the answer is formally a refusal, the run's final result
+     lists `Bash` among its denied tools (`denied_tools` in the `done`
+     event). The app does not show that list.
 - **What the run wrote cannot ride along.**
   - The run's repository takes part only as data, read without network.
   - None of these reach the git that pushes: its hooks, `core.hooksPath`,
@@ -1221,7 +1239,9 @@ Agent SDK pages and real runs in scratch folders:
   - Whatever the owner's global or system configuration answers for that
     host is handed to the one confined push process, for example the
     GitHub CLI's helper for github.com. It goes through a helper that the
-    bridge writes, and is removed from the output if git ever prints it.
+    bridge writes. That helper answers only when git asks for exactly the
+    card's host, and the secret is removed from the output if git ever
+    prints it.
   - Nothing is asked for any other host. No key file or agent socket is
     ever exposed.
   - So **SSH pushes are not offered**: they would need the owner's key or
@@ -1295,6 +1315,10 @@ folders). All six probes passed. Two control runs each made a probe fail:
 - With `example.org` added to the run's sandbox allow-list, the next command
   reached the host, and "the next command had no network" failed.
 
+Not run yet: a real push with the owner's credentials, and the block in the
+service environment. The service environment runs with the next full check.
+The credential hand-off is covered by the unit tests below.
+
 **Unit tests** use local bare repositories, with the `file` scheme enabled
 for tests only. They cover:
 
@@ -1302,6 +1326,10 @@ for tests only. They cover:
 - the confinement: no home folder, no private settings folder, no network,
   no inherited environment;
 - an exact push with every trap planted;
+- the owner's login reaching a local stand-in HTTP server that asks for it;
+- a redirect that is not followed. In a control without that setting git
+  follows it, and the helper still gives the login to no other host;
+- a push that runs to its end, recorded, when the run is stopped meanwhile;
 - the commit on the card being pushed even when the branch moved later;
 - a rejected push;
 - credentials only from the owner's own configuration, and the secret kept

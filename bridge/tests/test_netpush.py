@@ -2,9 +2,12 @@
 """An approved push with network for exactly that one command (#178). Local repositories only."""
 
 import asyncio
+import base64
 import dataclasses
+import http.server
 import json
 import subprocess
+import threading
 import uuid
 
 import pytest
@@ -66,6 +69,7 @@ def project(tmp_path, ask_dir):
         ("git push origin HEAD", netpush.Request("origin", None, None)),
         ("git push origin feature/x:main", netpush.Request("origin", "feature/x", "main")),
         ("git push --force origin main", netpush.Request("origin", "main", None, force=True)),
+        ("git push -u origin main", netpush.Request("origin", "main", None, upstream=True)),
         ("git push origin +main:main", netpush.Request("origin", "main", "main", force=True)),
         (
             "git push -q https://example.org/x.git main",
@@ -88,7 +92,6 @@ def test_plain_pushes_qualify(command, expected):
         "git -C other push",
         "git push --receive-pack=/tmp/x origin main",
         "git push --exec=x origin",
-        "git push -u origin main",
         "git push --all origin",
         "git push --mirror origin",
         "git push --tags origin",
@@ -361,6 +364,49 @@ def test_an_approved_push_is_run_by_the_bridge_and_its_result_handed_back(
 
 
 @needs_bwrap
+def test_a_push_runs_to_its_end_and_is_recorded_when_the_run_is_stopped_meanwhile(
+    settings, project, local_scheme, monkeypatch
+):
+    import time
+
+    folder, _remote = project
+    monkeypatch.setattr(netpush, "_forced", True)
+    real_run = netpush.run
+    seen = {}
+
+    def slow_run(plan, login=None):
+        time.sleep(0.6)
+        seen["work_during_push"] = plan.work.exists()
+        return real_run(plan, login)
+
+    monkeypatch.setattr(netpush, "run", slow_run)
+    live = live_session(settings, folder)
+
+    async def ask(kind, data):
+        return ANSWERED, {"approve": True}
+
+    monkeypatch.setattr(live, "_ask", ask)
+
+    async def scenario():
+        task = asyncio.ensure_future(live._approval({"command": "git push origin main"}))
+        await asyncio.sleep(0.3)
+        task.cancel()  # the run is stopped while the push runs
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            finished = "network_finished" in [e["decision"] for e in records(live.session_id)]
+            if finished and not list((capable.config_dir() / netpush.WORK_DIR_NAME).iterdir()):
+                break
+
+    asyncio.run(scenario())
+    assert seen["work_during_push"]  # its folder was not taken away under it
+    assert records(live.session_id)[-1]["decision"] == "network_finished"
+    assert records(live.session_id)[-1]["exit_status"] == 0
+    assert not list((capable.config_dir() / netpush.WORK_DIR_NAME).iterdir())
+
+
+@needs_bwrap
 def test_a_refused_push_never_runs_and_leaves_nothing(settings, project, local_scheme, monkeypatch):
     folder, remote = project
     monkeypatch.setattr(netpush, "_forced", True)
@@ -505,3 +551,90 @@ def test_the_push_block_is_skipped_on_the_cli_runner_and_without_a_chat_root(set
     verify.probe_network_push(suite)
     assert [(p.name, p.passed) for p in suite.probes] == [(verify.NET_NOT_CHECKED, True)]
     assert not verify.network_push_checked({"terminal": [dataclasses.asdict(suite.probes[0])]})
+
+
+# -- credentials and redirects over HTTP (a local stand-in server; production is https) ------
+class Stub(http.server.BaseHTTPRequestHandler):
+    """Asks for a login until it gets the expected one; or sends every request elsewhere."""
+
+    def do_GET(self):  # the name http.server calls
+        self.server.seen.append((self.path, self.headers.get("Authorization")))
+        if self.server.redirect:
+            self.send_response(302)
+            self.send_header("Location", self.server.redirect + self.path)
+        elif self.headers.get("Authorization") != self.server.expected:
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="probe"')
+        else:
+            self.send_response(404)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def stub():
+    servers = []
+
+    def start(expected=None, redirect=None):
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+        server.seen, server.expected, server.redirect = [], expected, redirect
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        servers.append(server)
+        return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+    yield start
+    for server in servers:
+        server.shutdown()
+
+
+def http_plan(project, monkeypatch, url):
+    """A prepared plan whose address is a local stand-in (``check_url`` allows https only)."""
+    monkeypatch.setattr(netpush, "SCHEMES", ("https", "file", "http"))
+    folder, _remote = project
+    plan = netpush.prepare("git push origin main", folder, folder.parent / "brain")
+    return dataclasses.replace(plan, url=url, host="local")
+
+
+@needs_bwrap
+def test_the_owners_credentials_reach_the_confined_push_for_that_host_only(
+    project, monkeypatch, stub
+):
+    expected = "Basic " + base64.b64encode(b"owner:s3cret").decode()
+    server, address = stub(expected=expected)
+    plan = http_plan(project, monkeypatch, f"{address}/x.git")
+    outcome = netpush.run(plan, ("owner", "s3cret"))
+    netpush.discard(plan)
+    assert expected in [auth for _path, auth in server.seen], server.seen
+    assert "s3cret" not in outcome.output
+
+
+@needs_bwrap
+def test_a_redirect_is_not_followed_and_gets_no_credentials(project, monkeypatch, stub):
+    elsewhere, other = stub(expected="never")
+    server, address = stub(redirect=other)
+    plan = http_plan(project, monkeypatch, f"{address}/x.git")
+    outcome = netpush.run(plan, ("owner", "s3cret"))
+    netpush.discard(plan)
+    assert server.seen and not elsewhere.seen  # the push never went to the other host
+    assert outcome.status != 0
+
+
+@needs_bwrap
+def test_control_git_would_follow_the_redirect_but_the_helper_still_answers_one_host(
+    project, monkeypatch, stub
+):
+    """Control for the test above: without the setting git follows the redirect, and the
+    other host asks for a login, but the helper gives the card's login to no other host."""
+    setting = "\tfollowRedirects = false\n"
+    assert setting in netpush.REPO_CONFIG
+    monkeypatch.setattr(netpush, "REPO_CONFIG", netpush.REPO_CONFIG.replace(setting, ""))
+    elsewhere, other = stub(expected="never")
+    _server, address = stub(redirect=other)
+    plan = http_plan(project, monkeypatch, f"{address}/x.git")
+    netpush.run(plan, ("owner", "s3cret"))
+    netpush.discard(plan)
+    assert elsewhere.seen  # followed
+    assert all(auth is None for _path, auth in elsewhere.seen)
