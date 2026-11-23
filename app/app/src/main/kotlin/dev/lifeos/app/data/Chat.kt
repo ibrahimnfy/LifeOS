@@ -1659,7 +1659,7 @@ class Chat(
                 // carries one. Received here, "open" and "new" are done at once; "choose", or any
                 // switch of an answer that was followed, is a card for the owner.
                 val switch = if (fresh) ChatSwitch.of(data?.get("switch")) else null
-                val direct = switch?.takeIf { own && it.action != ChatSwitch.CHOOSE }
+                val direct = switch?.takeIf { own && !it.isChoice }
                 change(generation) { state ->
                     val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files, servers = servers))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(it.pointer(id)) }
@@ -1802,10 +1802,11 @@ class Chat(
         const val SWITCH_FRESH_MILLIS = 60_000L
         /**
          * The marker lines the computer takes out of a finished answer: file offers, skill
-         * installs (#97), switches to another conversation (#164) and moves of a blank chat's
-         * files (#163). The history keeps the move lines, so they are hidden there too.
+         * installs (#97), switches to another conversation (#164), folders found or removed by
+         * asking (#179) and moves of a blank chat's files (#163). The history keeps the move
+         * lines, so they are hidden there too.
          */
-        private val MARKERS = listOf("file", "skill-install", "switch-new", "switch", "move-files")
+        private val MARKERS = listOf("file", "skill-install", "switch-new", "switch-find", "switch-remove", "switch", "move-files")
         private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[(?:${MARKERS.joinToString("|")}):[^\\n]*]][ \\t]*\\n?")
         private val FILE_PATH = Regex("(?m)^[ \\t]*\\[\\[file:([^\\n]*?)]][ \\t]*$")
 

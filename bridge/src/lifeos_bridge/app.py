@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import hmac
 import json
@@ -31,7 +32,9 @@ from . import (
     consolidation,
     contextmap,
     conversations,
+    course_folders,
     files,
+    folder_requests,
     folders,
     guardcheck,
     history,
@@ -369,17 +372,22 @@ def create_app(settings: Settings) -> FastAPI:
     # Moving between conversations by asking (#164): where the index is, and the answer.
     phone_instructions += " " + conversations.instructions(settings)
 
-    def with_switch(payload: dict, session_id: str) -> None:
+    def with_switch(payload: dict, session_id: str, owner: bool = False) -> None:
         """A fresh answer that asks to open, offer or start a conversation: the ``switch``
-        item. Everything it names is checked against the bridge's own lists."""
+        item. Everything it names is checked against the bridge's own lists.
+
+        Folders by asking (#179) change the allowed folders without an approval prompt,
+        so they act only in the answer to a message the owner sent (``owner``); a find
+        that led somewhere wins over a conversation line of the same answer."""
         answer = str(payload.get("answer") or "")
         if "[[switch" not in answer:
             return
+        answer, folder_switch = folder_requests.from_answer(settings, answer, owner=owner)
         found = known_sessions()
         text, switch = conversations.from_answer(settings, answer, session_id, found)
         payload["answer"] = text
-        if switch is not None:
-            payload["switch"] = switch
+        if folder_switch is not None or switch is not None:
+            payload["switch"] = folder_switch or switch
 
     def with_installs(payload: dict, session_id: str, cwd: Path) -> None:
         """Skill-install proposals of a capable run: cards, then a download into quarantine."""
@@ -556,6 +564,7 @@ def create_app(settings: Settings) -> FastAPI:
                     "mode": entry["mode"],
                     "_queued": True,
                     "_queue_id": entry["id"],
+                    "_owner": True,  # a message the owner sent, queued
                     "interactive": entry.get("interactive") is True,
                 },
                 session_id=session_id,
@@ -573,6 +582,7 @@ def create_app(settings: Settings) -> FastAPI:
         prompt = read_prompt(data)
         mode = read_mode(data)
         is_capable = mode == "capable"
+        owner = data.get("_owner") is True  # a message the owner sent (not a bridge turn)
         # The coach conversation runs through this same path, on its own job and
         # instructions, read-only (coach_chat.py).
         is_coach = session_id == await asyncio.to_thread(coach_chat.current_id)
@@ -642,6 +652,18 @@ def create_app(settings: Settings) -> FastAPI:
             instructions += " " + chats.context(settings)
             # The memory folder is in reach (read on request); no memory file is loaded.
             read_only_policy = chats.read_only_policy(settings)
+        # The owner's own folder of this course (#179): read-only context of the course's
+        # chats, in reach of the file tools; never written, nothing in it loaded.
+        course_dirs = (
+            []
+            if is_coach or is_chat
+            else await asyncio.to_thread(course_folders.for_folder, settings, cwd)
+        )
+        if course_dirs:
+            instructions += " " + course_folders.context(course_dirs)
+            read_only_policy = dataclasses.replace(
+                read_only_policy, add_dirs=(*read_only_policy.add_dirs, *course_dirs)
+            )
         run_args["context"] = instructions
         streaming = bool(data.get("stream"))
         use_sdk = sdk_pool is not None
@@ -714,9 +736,11 @@ def create_app(settings: Settings) -> FastAPI:
                             "audit_unavailable", 503, "the audit log could not be written"
                         ) from exc
                     used_servers = [(name, scopes[name]) for name in sorted(servers)]
+                # Its course folder only after a check whose course-folder probes passed.
+                readable = course_dirs if capable.course_folders_available(runner) else []
                 policy = capable.build_policy(
                     settings, cwd, ask_host=use_sdk, skills_dir=offer.folder_dir,
-                    personal_skills_dir=offer.personal_dir, mcp=servers,
+                    personal_skills_dir=offer.personal_dir, mcp=servers, course_dirs=readable,
                 )  # fmt: skip
                 run_args |= {"policy": policy, "observer": watch}
             elif read_only_policy is not claude.READ_ONLY:
@@ -756,7 +780,7 @@ def create_app(settings: Settings) -> FastAPI:
                 )
                 if is_chat:
                     with_moves(answer, session_id, cwd)
-                await asyncio.to_thread(with_switch, answer, session_id)
+                await asyncio.to_thread(with_switch, answer, session_id, owner)
                 return answer
             started = True
         finally:
@@ -814,7 +838,7 @@ def create_app(settings: Settings) -> FastAPI:
                             with_installs(payload, session_id, cwd)
                         if is_chat:
                             with_moves(payload, session_id, cwd)
-                        await asyncio.to_thread(with_switch, payload, session_id)
+                        await asyncio.to_thread(with_switch, payload, session_id, owner)
                         if used_servers:
                             payload["mcp_servers"] = [
                                 {"name": name, "scope": scope, "outside_sandbox": True}
@@ -1124,9 +1148,15 @@ def create_app(settings: Settings) -> FastAPI:
         wanted = Path(folder).expanduser()
         if wanted.is_absolute() and wanted.resolve() == chats.root(settings).resolve():
             return None
-        for root in settings.allowed_roots:
+        roots = settings.allowed_roots
+        for root in roots:
             if wanted == root or (wanted.is_absolute() and wanted.resolve() == root):
                 return root
+        # A course's own folder of the Moodle sync (where a switch to a course leads, #179).
+        if wanted.is_absolute() and wanted.is_dir() and course_folders.is_sync_folder(wanted):
+            resolved = wanted.resolve()
+            if any(resolved.is_relative_to(root) for root in roots):
+                return resolved
         raise ClaudeError("folder_not_allowed", 403, "this folder is not an allowed folder")
 
     def new_chat_folder() -> Path:
@@ -1166,6 +1196,15 @@ def create_app(settings: Settings) -> FastAPI:
             listed.append(item)
         return {"folders": listed}
 
+    @app.post("/folders/open")
+    async def open_folder(request: Request):
+        """The folder the owner picked on a "choose_folder" card (#179): added to the
+        allowed folders when needed, by the same rules as a find in a chat. Body:
+        ``{"path": "<a folder of the card>"}``. Answers ``{"added": bool, "folder":
+        {"path", "label", "kind", "colour"}}``; the app then starts a new chat there."""
+        data = await read_json_object(request)
+        return await asyncio.to_thread(folder_requests.open_folder, settings, data.get("path"))
+
     @app.post("/ask")
     async def ask(request: Request):
         """Run a prompt through headless Claude.
@@ -1173,7 +1212,8 @@ def create_app(settings: Settings) -> FastAPI:
         Body: ``{"prompt": str, "session_id": str?, "folder": str?, "stream": bool?}``.
         A new conversation without ``folder`` is a blank chat: it runs in its own
         new, empty folder under the chat root, with no personal context (#163).
-        ``folder`` names the memory folder or an allowed folder instead.
+        ``folder`` names the memory folder or an allowed folder instead (or a
+        course's own folder of the Moodle sync, #179).
         ``session_id`` continues an earlier conversation in
         the folder it was started in. ``new_session_id`` (a UUID the phone chose)
         names a new conversation, so its first message can be sent again safely:
@@ -1218,7 +1258,10 @@ def create_app(settings: Settings) -> FastAPI:
                 if cwd is None:
                     cwd = new_chat_folder()
                 return await run_prompt(
-                    {**data, "_admitted": admitted}, session_id=chosen_id, resume=False, cwd=cwd
+                    {**data, "_admitted": admitted, "_owner": True},
+                    session_id=chosen_id,
+                    resume=False,
+                    cwd=cwd,
                 )
             except ClaudeError:
                 if not admitted:  # refused before its run began (busy, checks): not claimed
@@ -1241,14 +1284,18 @@ def create_app(settings: Settings) -> FastAPI:
                 if found is None:
                     raise ClaudeError("session_not_found", 404, "unknown session")
                 cwd = found
-            return await run_prompt(data, session_id=session_id, resume=True, cwd=cwd)
+            return await run_prompt(
+                {**data, "_owner": True}, session_id=session_id, resume=True, cwd=cwd
+            )
         chosen = chosen_folder(data)
         cwd = chosen if chosen is not None else new_chat_folder()
         # No --name: a fixed name would hide the first prompt, which is the
         # more useful title in the session list.
         session_id = str(uuid.uuid4())
         try:
-            return await run_prompt(data, session_id=session_id, resume=False, cwd=cwd)
+            return await run_prompt(
+                {**data, "_owner": True}, session_id=session_id, resume=False, cwd=cwd
+            )
         except ClaudeError:
             if chosen is None:
                 tidy_chat(cwd)  # refused before it ran: no empty folder is left behind
@@ -1268,7 +1315,9 @@ def create_app(settings: Settings) -> FastAPI:
             raise ClaudeError("session_not_found", 404, "unknown session")
         if session_folder(info) is None:
             raise ClaudeError("folder_missing", 409, "the session's folder no longer exists")
-        return await run_prompt(data, session_id=info.id, resume=True, cwd=info.folder)
+        return await run_prompt(
+            {**data, "_owner": True}, session_id=info.id, resume=True, cwd=info.folder
+        )
 
     background: set[asyncio.Task] = set()
 
@@ -1746,7 +1795,9 @@ def create_app(settings: Settings) -> FastAPI:
 
     async def coach_message(data: dict, session_id: str):
         resume = await asyncio.to_thread(coach_chat.started, settings, session_id)
-        return await run_prompt(data, session_id=session_id, resume=resume, cwd=settings.ask_dir)
+        return await run_prompt(
+            {**data, "_owner": True}, session_id=session_id, resume=resume, cwd=settings.ask_dir
+        )
 
     async def coach_stream_after_compaction(prepare: asyncio.Task, data: dict):
         while True:

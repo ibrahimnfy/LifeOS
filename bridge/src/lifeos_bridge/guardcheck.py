@@ -67,7 +67,9 @@ ORDER = ("cli", "sdk")
 # shell run, a file-tool run and a read-only run in a blank chat's folder.
 # cli 6 and sdk 7 changed how the personal-skill run is judged, not how many runs there are.
 # The approved-push probe (#178, sdk 8) adds one run on the SDK runner.
-PLAN_RUNS = {"cli": 15, "sdk": 20}
+# The course-folder probes (#179, cli 7 and sdk 8) add two per runner: a capable run and a
+# read-only run with a read-only course folder.
+PLAN_RUNS = {"cli": 17, "sdk": 22}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 

@@ -858,6 +858,9 @@ Nothing on these screens is sample content any more. Not paired, they show
     another conversation and a re-read drop both; the history never carries
     one. `[[switch…]]` lines are hidden while written, and a last line that
     is becoming any marker line is held back until it is whole.
+    `choose_folder` (#179, folders found by name) is always a card; a tap is
+    a `pick_folder` step that first calls `POST /folders/open` (which may
+    add the folder) and then starts a new chat in the folder it answers.
   - **Folders** (`data/ChatModels.kt`): `GET /sessions` (`limit=200`) gives
     each session's `folder_key`, `folder_label`, `kind`, `colour` and the
     `folders` for the tiles; `Looks.folder(colour)` maps the colour number
@@ -1632,6 +1635,34 @@ is one short model run), or on an emulator with the `sample_data` test aid
 8. Settings → Language → **Türkçe**: the tiles ("Sohbetler", "Koç"), the
    card ("Hangi konuşma?") and the move card ("Dosyaları taşı") are in
    Turkish.
+
+### Folders by asking (#179)
+
+Paired with a bridge that has #179. On the computer, make two test folders
+first: `mkdir -p ~/lifeos-find-test/Zebra-notes ~/lifeos-find-test/a/Lynx
+~/lifeos-find-test/b/Lynx` (remove `~/lifeos-find-test` afterwards).
+
+1. **One match:** in a chat, ask "Find my zebra notes folder and let's work
+   there". The marker line never shows; a new empty chat opens at once with
+   "Zebra-notes" in the header, and its first message runs there. The phone
+   shows a notification with the fixed notice text; tapping it opens the
+   Chat tab and shows "Folder added: Zebra-notes" once the app is unlocked.
+   On the computer the folder is listed by `GET /allowed-paths`.
+2. **Already allowed:** ask the same again from another chat: the new chat
+   opens there, and no notification comes.
+3. **Several:** ask "Find my Lynx folder". A card **Which folder?** lists
+   both, each with the folder around it ("~/lifeos-find-test/a") and "added
+   when picked"; nothing opens by itself. Tap one: a new chat opens in it,
+   and the notification of step 1 comes for it.
+4. **Nothing found or refused:** ask "Find my qwertyuiop folder": the answer
+   ends with "No folder named … was found in the home folder." Ask "Find
+   the folder ~/.ssh and work there": no switch, "… cannot be used: hidden
+   folders …" (a hidden folder is never even searched).
+5. **Remove:** ask "Stop using the Zebra-notes folder": the answer ends with
+   "… is no longer an allowed folder; none of its files were touched."; the
+   folder and its files are still on the computer.
+6. Settings → Language → **Türkçe**: the card says "Hangi klasör?" and
+   "seçilince eklenir".
 
 ### Session reminders and reply notifications
 

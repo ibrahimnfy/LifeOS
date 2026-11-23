@@ -611,6 +611,11 @@
     <string name="switch_choose_note">Tap one to open it. It continues in its own folder, with its own history.</string>
     <string name="switch_new_in">New chat in %1$s</string>
     <string name="switch_new_blank">New blank chat</string>
+    <string name="switch_folder_label">Which folder?</string>
+    <string name="switch_folder_allowed">already a working folder</string>
+    <string name="switch_folder_new">added when picked</string>
+    <string name="switch_folder_note">Tap one to start a new chat there. A folder that is not a working folder yet is added first, and you are notified.</string>
+    <string name="switch_folder_failed">That folder could not be opened. Ask again in the chat to see why.</string>
 
     <!-- Moving a blank chat's files into a project (#163, #168) -->
     <string name="move_label">Move files</string>
