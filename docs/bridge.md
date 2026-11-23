@@ -2487,6 +2487,19 @@ approval card, kind `apply_update`, in the answer's `update_requests` and in
   "reason", "commit", "running_commit", "app_version", "restart_needed",
   "updated_at"}`.
 
+**Before the first use** (once, at the computer):
+
+1. List the program folder: one line with its path in
+   `~/.config/lifeos/allowed_paths` (or `POST /allowed-paths`).
+2. Name the build tools in `~/.config/lifeos/env`: `LIFEOS_JAVA_HOME`,
+   `LIFEOS_ANDROID_HOME`, `LIFEOS_GRADLE_USER_HOME`,
+   `LIFEOS_ANDROID_USER_HOME` (the values the terminal exports for
+   `./gradlew`).
+3. `scripts/install-service.sh` (or restart the service). The next start
+   reruns the guardrail check once (new suite versions; about 98 short
+   runs). Capable chats in the program folder work after it passed with
+   `"scope": "all_allowed_folders"` and `"program_folder": true`.
+
 Manual check (no phone needed; uses a few runs of the owner's plan):
 
 ```
