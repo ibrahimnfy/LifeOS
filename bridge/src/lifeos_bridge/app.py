@@ -1637,6 +1637,16 @@ def create_app(settings: Settings) -> FastAPI:
         data = await read_json_object(request)
         return await asyncio.to_thread(memory.update_note, brain, note_id, data.get("text"))
 
+    @app.delete("/notes/{note_id}")
+    async def delete_note(note_id: str):
+        """Move a captured or topic note to the memory folder's trash (one commit)."""
+        return await asyncio.to_thread(memory.delete_note, brain, note_id)
+
+    @app.post("/notes/{note_id}/restore")
+    async def restore_note(note_id: str):
+        """Bring a deleted note back from the trash under the same id (undo)."""
+        return await asyncio.to_thread(memory.restore_note, brain, note_id)
+
     @app.patch("/tasks/{task_id}")
     async def update_task(task_id: str, request: Request):
         """Change a task. Body: any of ``{"title", "due": "YYYY-MM-DD" | null, "note"}``.

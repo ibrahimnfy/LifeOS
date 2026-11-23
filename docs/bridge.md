@@ -114,7 +114,8 @@ documented here as they are built.
 | GET / POST | `/reminders` | yes | Lists or creates session reminders |
 | PATCH / DELETE | `/reminders/{id}` | yes | Changes or deletes a reminder |
 | GET / POST | `/notes` | yes | Lists notes, or captures one into the memory's inbox |
-| GET / PATCH | `/notes/{id}` | yes | Reads a note in full, or changes a captured note |
+| GET / PATCH / DELETE | `/notes/{id}` | yes | Reads a note in full, changes a captured note, or moves a note to the memory's trash |
+| POST | `/notes/{id}/restore` | yes | Brings a deleted note back from the trash under the same id |
 | GET / POST | `/tasks` | yes | Lists open tasks or adds one |
 | PATCH | `/tasks/{id}` | yes | Changes a task's title, due date or note |
 | POST | `/tasks/{id}/complete` | yes | Ticks a task |
@@ -1614,6 +1615,19 @@ git, or **has a git remote**: the memory must stay on the computer.
   `PATCH /notes/{id}` with `{"text": "…"}` changes a captured note (its id
   is derived from its text, so the answer carries the new id); topic notes
   are read-only here.
+- `DELETE /notes/{id}` deletes a captured or a topic note (#184). **Nothing is
+  destroyed** (CLAUDE.md rule 8): a capture moves, with its lines unchanged,
+  from `inbox.md` into `.trash/inbox-deleted.md`; a topic note's file moves
+  from `notes/` into `.trash/notes/` (an older deleted file of the same name
+  there is kept as `<name>~<time>.md`). One commit each. The answer is
+  `{"deleted": true, "id": "…", "kind": "inbox" | "topic"}`; an unknown id is
+  `404 note_not_found`, so a repeated delete finds nothing and the phone
+  counts it as done.
+- `POST /notes/{id}/restore` brings a deleted note back under the same id (the
+  id of a capture is a digest of its time and text, both unchanged): a capture
+  returns to its place by time in the inbox, a topic file to `notes/`. A note
+  that is back already answers `200` with `"repeat": true`; `409 note_exists`
+  when a new topic file of that name was written meanwhile. One commit.
 - `PATCH /tasks/{id}` with any of `{"title": "…", "due": "YYYY-MM-DD" |
   null, "note": "…" | null}` changes an open task; `null` (or blank text)
   removes the date or the note, and the other marks of the line are kept.
@@ -2739,6 +2753,10 @@ curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"phone note\",\"clie
 curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"phone note\",\"client_id\":\"$P\"}" $B/notes
 curl -s -w ' %{http_code}\n' -H "$H" -H "$J" -d "{\"text\":\"other text\",\"client_id\":\"$P\"}" $B/notes   # 409
 grep -c 'phone note' ~/brain/inbox.md            # 1
+# delete a note to the trash and restore it (#184); use the id from `curl -s -H "$H" $B/notes`
+curl -s -X DELETE -H "$H" $B/notes/<note id>          # {"deleted":true,…}; gone from inbox.md
+grep -c 'test note' ~/brain/.trash/inbox-deleted.md  # 1
+curl -s -X POST -H "$H" $B/notes/<note id>/restore    # back, same id; git -C ~/brain log -2 --oneline
 curl -s -H "$H" $B/tasks
 # a task note: set, read back on the line, removed
 curl -s -X PATCH -H "$H" -H "$J" -d '{"note":"Bring the (old) notes"}' $B/tasks/<id>   # "note":"Bring the [old] notes"

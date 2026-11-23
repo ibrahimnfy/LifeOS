@@ -240,6 +240,9 @@
     <string name="note_edit">Edit</string>
     <string name="note_edit_title">Edit note</string>
     <string name="note_edit_busy">An earlier change of this note is on its way. You can edit it again once the computer has confirmed it.</string>
+    <string name="note_delete">Delete</string>
+    <string name="note_delete_label">Delete note: %1$s</string>
+    <string name="note_deleted">Note deleted</string>
 
     <!-- Task editing -->
     <string name="task_open">Open the task</string>

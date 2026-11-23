@@ -315,15 +315,30 @@ every section in its own clearly visible card.*
 - **Content:** captured notes, newest first, each with its first lines, date
   and where it was filed (inbox, a project, a course, a topic). Search field
   on top; filter chips for the place.
-- **Actions:** open a note to read it in full; edit its text; move it to a
-  project, course or topic; add a new note (through Capture).
+- **Actions:** open a note to read it in full; edit its text; delete it
+  (#184); move it to a project, course or topic; add a new note (through
+  Capture).
+- **Deleting (#184):** "Delete" on the note screen, for captures and topic
+  notes; a capture still waiting on the phone has a delete button in the
+  waiting list. The note leaves the list at once and a snackbar offers
+  **Undo** for six seconds (as for a tick); only then is the deletion queued
+  in the outbox (kind `NOTE_DELETE`, sent like every other write, also
+  later when the computer was off). On the computer the note goes to the
+  memory folder's trash and can be restored. What waits on the phone: a
+  capture that never left the phone is simply dropped from the outbox; one
+  that may have reached the computer is deleted there right after it, by the
+  id the computer gave it; an edit of the note that never left is dropped
+  and the original note deleted; while an edit is on its way (or may have
+  arrived) "Delete" is not offered, as for a second edit. A deletion that
+  finds nothing (`404`) counts as done.
 - **States:** loading · saved copy · empty ("Nothing captured yet") · no
   search results · error with retry; edits made offline are queued like
   captures and marked "waiting to sync".
-- **Endpoints:** list, search, read and update notes (`GET /notes?query=`,
-  `GET /notes/{id}`, `PATCH /notes/{id}`; only inbox captures can be edited,
-  and a capture's id changes with its text). Built: list with search, open,
-  edit a capture, waiting captures on top. Not built yet: filter chips by
+- **Endpoints:** list, search, read, update and delete notes (`GET
+  /notes?query=`, `GET /notes/{id}`, `PATCH /notes/{id}`, `DELETE
+  /notes/{id}`; only inbox captures can be edited, and a capture's id
+  changes with its text). Built: list with search, open, edit a capture,
+  delete with undo, waiting captures on top. Not built yet: filter chips by
   place, moving a note.
 
 ### 3.7 Projects

@@ -238,6 +238,9 @@
     <string name="note_edit">Düzenle</string>
     <string name="note_edit_title">Notu düzenle</string>
     <string name="note_edit_busy">Bu notun önceki bir değişikliği yolda. Bilgisayar onayladıktan sonra yeniden düzenleyebilirsin.</string>
+    <string name="note_delete">Sil</string>
+    <string name="note_delete_label">Notu sil: %1$s</string>
+    <string name="note_deleted">Not silindi</string>
 
     <!-- Görev düzenleme -->
     <string name="task_open">Görevi aç</string>

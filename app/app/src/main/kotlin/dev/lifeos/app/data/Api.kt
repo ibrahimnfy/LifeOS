@@ -125,9 +125,20 @@ class Api(private val transport: Transport) {
         call("PATCH", "/tasks/$id", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }
 
-    /** Change the text of a captured note. The computer gives it a new id. */
-    suspend fun editNote(id: String, text: String) {
-        call("PATCH", "/notes/$id", body = buildJsonObject { put("text", JsonPrimitive(text)) }, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    /** Change the text of a captured note. The computer gives it a new id, returned here (null if unreadable). */
+    suspend fun editNote(id: String, text: String): String? {
+        val raw = call("PATCH", "/notes/$id", body = buildJsonObject { put("text", JsonPrimitive(text)) }, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+        return ((raw as? JsonObject)?.get("id") as? JsonPrimitive)?.content
+    }
+
+    /** Move a note to the computer's trash (#184). A note that is not there answers 404. */
+    suspend fun deleteNote(id: String) {
+        call("DELETE", "/notes/$id", timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
+    /** Bring a deleted note back under the same id (the command bar's undo, #185). */
+    suspend fun restoreNote(id: String) {
+        call("POST", "/notes/$id/restore", timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }
 
     suspend fun completeTask(id: String) {

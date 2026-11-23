@@ -89,7 +89,11 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
     var query by rememberSaveable { mutableStateOf("") }
     var search by remember { mutableStateOf<SearchState?>(null) }
     var searchAttempt by remember { mutableIntStateOf(0) }
-    val waiting = if (locked) emptyList() else NoteLists.waiting(outbox)
+    val justDeleted by core.justDeletedNotes.collectAsStateWithLifecycle()
+    val hidden = NoteLists.hidden(outbox, justDeleted)
+    val waiting = if (locked) emptyList() else NoteLists.waiting(outbox, hidden)
+    val showUndo = LocalUndo.current
+    val deletedText = stringResource(R.string.note_deleted)
 
     LaunchedEffect(query, reload, locked, searchAttempt) {
         val needle = query.trim()
@@ -129,7 +133,17 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
                         SectionHeader(title = stringResource(R.string.outbox_waiting_title))
                         waiting.forEachIndexed { index, item ->
                             if (index > 0) RowDivider()
-                            MarkRow(title = item.text, subtitle = relativeTime(item.createdAtMillis)) {
+                            val name = LocalItems.PREFIX + item.id
+                            MarkRow(
+                                title = item.text,
+                                subtitle = relativeTime(item.createdAtMillis),
+                                trailing = {
+                                    // A note that waits here can be deleted too (#184): it never reaches the computer.
+                                    TopBarAction(LifeIcons.Close, stringResource(R.string.note_delete_label, item.text.take(60))) {
+                                        if (core.deleteNote(name)) showUndo(deletedText) { core.undoDeleteNote(name) }
+                                    }
+                                },
+                            ) {
                                 Icon(LifeIcons.Clock, contentDescription = null, tint = colors.muted)
                             }
                         }
@@ -141,10 +155,10 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
                     val server = (state as? UiState.Content<NoteList>)?.data?.notes.orEmpty()
                     val added = LocalItems.notes(server, confirmed, state.listAtMillis)
                     if (state is UiState.Empty && added.isNotEmpty()) {
-                        NoteCard(NoteLists.rows(added, outbox), onOpenNote)
+                        NoteCard(NoteLists.rows(added, outbox, hidden), onOpenNote)
                     } else {
                         StateHost(state, stringResource(R.string.notes_empty), onRetry = model::refresh, onPair = onPair, skeletonRows = 5) { list: NoteList ->
-                            NoteCard(NoteLists.rows(added + list.notes, outbox), onOpenNote)
+                            NoteCard(NoteLists.rows(added + list.notes, outbox, hidden), onOpenNote)
                         }
                     }
                 } else {
@@ -158,7 +172,7 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
                             if (current.notes.isEmpty()) {
                                 EmptyLine(stringResource(R.string.notes_search_empty))
                             } else {
-                                NoteCard(NoteLists.rows(current.notes, outbox), onOpenNote)
+                                NoteCard(NoteLists.rows(current.notes, outbox, hidden), onOpenNote)
                             }
                         }
                     }
@@ -251,6 +265,8 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
     val scope = rememberCoroutineScope()
     val savedText = stringResource(R.string.capture_saved)
     val waitingText = stringResource(R.string.capture_waiting)
+    val deletedText = stringResource(R.string.note_deleted)
+    val showUndo = LocalUndo.current
     var attempt by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<NoteState>(NoteState.Loading) }
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -321,6 +337,20 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                         current.savedAtMillis != null && pending == null -> Text(stringResource(R.string.note_edit_needs_full), style = LifeType.small, color = colors.muted)
                         NoteLists.canEdit(summary, outbox) -> PrimaryButton(text = stringResource(R.string.note_edit), onClick = { editing = true })
                         else -> Text(stringResource(R.string.note_edit_busy), style = LifeType.small, color = colors.muted)
+                    }
+                    // Captures and topic notes alike go to the computer's trash (#184), with a moment to
+                    // undo. Not while an edit is on its way: the line above says so already.
+                    if (NoteLists.canDelete(note.id, outbox)) {
+                        SecondaryButton(
+                            text = stringResource(R.string.note_delete),
+                            danger = true,
+                            onClick = {
+                                if (core.deleteNote(note.id)) {
+                                    showUndo(deletedText) { core.undoDeleteNote(note.id) }
+                                    onBack()
+                                }
+                            },
+                        )
                     }
                     if (editing) {
                         NoteEditSheet(

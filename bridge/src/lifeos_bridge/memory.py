@@ -365,6 +365,122 @@ def update_note(memory: Path, note_id: str, text: object) -> dict:
             "text": updated["text"]}  # fmt: skip
 
 
+# Deleting a note never destroys it (CLAUDE.md rule 8): a capture moves, line for line, from
+# the inbox into DELETED_FILE; a topic note's file moves into TRASH_NOTES. Both keep the note's
+# id (a capture's id is a digest of its time and text), so a restore brings it back unchanged.
+DELETED_FILE = ".trash/inbox-deleted.md"
+DELETED_HEADER = (
+    "# Deleted captures\n\n"
+    "Captures deleted from the phone, in the inbox's own format. Written by the bridge; "
+    "a restore moves an entry back into `inbox.md`.\n\n"
+)
+TRASH_NOTES = ".trash/notes"
+
+
+def _entry_block(lines: list[str], entry: dict) -> list[str]:
+    return lines[entry["start"] : entry["end"]]
+
+
+def _without(text: str, entry: dict) -> str:
+    lines = text.splitlines()
+    del lines[entry["start"] : entry["end"]]
+    return "\n".join(lines) + "\n"
+
+
+def _appended(text: str, block: list[str], header: str) -> str:
+    current = text or header
+    if not current.endswith("\n"):
+        current += "\n"
+    return current + "\n".join(block) + "\n"
+
+
+def delete_note(memory: Path, note_id: str) -> dict:
+    """Move a note to the memory folder's trash, in one commit. 404 when it is not there.
+
+    Returns ``{"deleted": True, "id", "kind"}``. The note can be brought back with
+    :func:`restore_note` under the same id.
+    """
+    if not NOTE_ID.fullmatch(note_id):
+        raise ClaudeError("note_not_found", 404, "unknown note")
+    with LOCK:
+        check_repo(memory)
+        if note_id.startswith("n-"):
+            source = next((p for p in _note_files(memory) if p.stem == note_id[2:]), None)
+            if source is None:
+                raise ClaudeError("note_not_found", 404, "unknown note")
+            folder = memory / TRASH_NOTES
+            folder.mkdir(parents=True, exist_ok=True)
+            target = folder / source.name
+            moved = [f"notes/{source.name}", f"{TRASH_NOTES}/{source.name}"]
+            if target.exists():
+                # An older deletion of a note with this name stays, under a name of its own.
+                stamp = now_local().strftime("%Y%m%d-%H%M%S")
+                older = folder / f"{source.stem}~{stamp}.md"
+                target.replace(older)
+                moved.append(f"{TRASH_NOTES}/{older.name}")
+            source.replace(target)
+            commit(memory, "Delete a note (moved to the trash)", moved)
+            return {"deleted": True, "id": note_id, "kind": "topic"}
+        path = memory / "inbox.md"
+        current = read_text(path)
+        entry = next((e for e in _inbox_entries(current) if e["id"] == note_id), None)
+        if entry is None:
+            raise ClaudeError("note_not_found", 404, "unknown note")
+        block = _entry_block(current.splitlines(), entry)
+        trash = memory / DELETED_FILE
+        write_text(trash, _appended(read_text(trash), block, DELETED_HEADER))
+        write_text(path, _without(current, entry))
+        commit(memory, "Delete a captured note (moved to the trash)", ["inbox.md", DELETED_FILE])
+    return {"deleted": True, "id": note_id, "kind": "inbox"}
+
+
+def restore_note(memory: Path, note_id: str) -> dict:
+    """Bring a deleted note back under its id, in one commit. 404 when the trash has no such note.
+
+    A note that is back already is answered as it is (``repeat``), so an undo sent twice
+    does no harm. A capture returns to its place by time in the inbox.
+    """
+    if not NOTE_ID.fullmatch(note_id):
+        raise ClaudeError("note_not_found", 404, "unknown note")
+    with LOCK:
+        check_repo(memory)
+        if note_id.startswith("n-"):
+            stem = note_id[2:]
+            source = memory / TRASH_NOTES / f"{stem}.md"
+            target = memory / "notes" / f"{stem}.md"
+            if not source.is_file():  # the id's form allows no path separator or dot
+                if target.is_file():
+                    return get_note(memory, note_id) | {"restored": True, "repeat": True}
+                raise ClaudeError("note_not_found", 404, "unknown note")
+            if target.exists():
+                raise ClaudeError("note_exists", 409, "a note with this name exists again")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            source.replace(target)
+            commit(
+                memory, "Restore a deleted note", [f"notes/{stem}.md", f"{TRASH_NOTES}/{stem}.md"]
+            )
+            return get_note(memory, note_id) | {"restored": True, "repeat": False}
+        trash = memory / DELETED_FILE
+        trashed = read_text(trash)
+        found = [e for e in _inbox_entries(trashed) if e["id"] == note_id]
+        path = memory / "inbox.md"
+        current = read_text(path)
+        if not found:
+            if any(e["id"] == note_id for e in _inbox_entries(current)):
+                return get_note(memory, note_id) | {"restored": True, "repeat": True}
+            raise ClaudeError("note_not_found", 404, "unknown note")
+        entry = found[-1]
+        block = _entry_block(trashed.splitlines(), entry)
+        lines = (current or "# Inbox\n\n").splitlines()
+        later = next((e for e in _inbox_entries(current) if e["at"] > entry["at"]), None)
+        at = later["start"] if later is not None else len(lines)
+        lines[at:at] = block
+        write_text(path, "\n".join(lines) + "\n")
+        write_text(trash, _without(trashed, entry))
+        commit(memory, "Restore a deleted note", ["inbox.md", DELETED_FILE])
+    return get_note(memory, note_id) | {"restored": True, "repeat": False}
+
+
 # --------------------------------------------------------------------------- tasks
 
 
