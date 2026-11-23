@@ -726,6 +726,12 @@ var Shared = (function () {
     ];
     var VOICE = [SUGGEST[1].text, SUGGEST[0].text];
 
+    // After a tap, focus goes to the mic button (no soft keyboard pops up);
+    // after a key press, back to the text field.
+    var byKey = false;
+    document.addEventListener("keydown", function () { byKey = true; }, true);
+    document.addEventListener("pointerdown", function () { byKey = false; }, true);
+    function refocus() { (byKey ? input : micBtn).focus({ preventScroll: true }); }
     function init(h) {
       hooks = h;
       form = document.getElementById("cmd");
@@ -811,7 +817,7 @@ var Shared = (function () {
       clearTimeout(bubbleTimer);
       var hadFocus = bubble.contains(document.activeElement);
       bubble.hidden = true; bubble._render = null; bubble._handlers = null; bubble.innerHTML = "";
-      if (hadFocus) input.focus({ preventScroll: true });
+      if (hadFocus) refocus();
       hooks.layout && hooks.layout();
     }
     function confirm(textFn, undoFn, extra) {
@@ -879,7 +885,7 @@ var Shared = (function () {
         if (meetings.length === 1) return moveEvent(meetings[0], tm || "15:00");
         return askWhich(DATA.events.filter(function (e) { return e.meeting; }), tm || "15:00");
       }
-      if (/^(open|show|go to)\b|\b(aç|göster)\b|açar mısın/.test(s)) {
+      if (/^(open|show|go to)\b|(^|\s)(aç|göster)(\s|$)|açar mısın/.test(s)) {
         var f = findFeature(s);
         if (f) { hooks.open(f, "command"); announce(t("opened") + ": " + tx(FEATURES[f].name)); return; }
       }
@@ -926,7 +932,7 @@ var Shared = (function () {
       confirm(function () { return esc(t("sentChat")); }, function () { DATA.chats.splice(DATA.chats.indexOf(item), 1); }, { label: "open", fn: function () { hooks.open("chats", "command"); } });
     }
 
-    return { init: init, render: render, run: run, hideBubble: hideBubble, stopListen: stopListen };
+    return { init: init, render: render, run: run, hideBubble: hideBubble, stopListen: stopListen, refocus: refocus };
   })();
 
   function setLang(l) { lang = l; applyStatic(); Cmd.render(); }
@@ -1324,6 +1330,7 @@ var Shared = (function () {
     if (pageOpen) { pageOpen = id; S.fillPage(page, id); page.querySelector("h1").focus(); return; }
     pageOpen = id;
     var reveal = function () {
+      if (pageOpen !== id) return; // closed again while the globe was turning
       origin = fromEl ? relPoint(fromEl) : relPoint(labels[i].querySelector(".rg-ico"));
       S.fillPage(page, id);
       page.hidden = false;
