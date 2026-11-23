@@ -29,9 +29,9 @@ a.card:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
 </head>
 <body>
 <main>
-  <h1>New home experience: two prototypes</h1>
+  <h1>New home experience: prototypes</h1>
   <p class="muted">Step 1 of the experiment in #186. Open each on the phone (Chrome), try it with one hand, then choose. Placeholder data only; nothing is sent anywhere.<br>
-  <span lang="tr">#186 deneyinin 1. adımı. İkisini de telefonda (Chrome) aç, tek elle dene, sonra seç. Yalnızca örnek veri; hiçbir yere bir şey gönderilmez.</span></p>
+  <span lang="tr">#186 deneyinin 1. adımı. Hepsini telefonda (Chrome) aç, tek elle dene, sonra seç. Yalnızca örnek veri; hiçbir yere bir şey gönderilmez.</span></p>
 
   <a class="card rec" href="a-board.html">
     <h2>A · Home board <span class="tag">recommended</span></h2>
@@ -41,10 +41,31 @@ a.card:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
   </a>
 
   <a class="card" href="b-globe.html">
-    <h2>B · Feature globe</h2>
+    <h2>B · Feature globe <span class="tag">superseded by D</span></h2>
     <p>A 3D globe split into regions, one per feature. Drag to turn it (with inertia), tap a region to open it with a circular reveal. A list button shows every region as a plain list. The same command bar.</p>
     <p class="muted" lang="tr">Her özelliğin bir bölge olduğu 3B küre. Çevirmek için sürükle, açmak için bir bölgeye dokun. Liste düğmesi tüm bölgeleri düz liste olarak gösterir. Aynı komut çubuğu.</p>
     <span class="go">Open prototype B →</span>
+  </a>
+
+  <a class="card" href="c-physics.html">
+    <h2>C · Physics tiles <span class="tag">sci-fi</span></h2>
+    <p>Tiles float on a free field: throw one and it glides, slows down and bounces off the edges; pinch with two fingers to resize; tap to open. "Tidy up" puts them back in a neat grid. Positions are remembered.</p>
+    <p class="muted" lang="tr">Kutucuklar serbest bir alanda yüzer: birini fırlat, kayar, yavaşlar ve kenarlardan seker; iki parmakla büyüt ya da küçült; açmak için dokun. "Topla" hepsini düzenli bir ızgaraya koyar. Yerleri hatırlanır.</p>
+    <span class="go">Open prototype C →</span>
+  </a>
+
+  <a class="card" href="d-holo-globe.html">
+    <h2>D · Holographic globe <span class="tag">sci-fi</span></h2>
+    <p>A see-through wireframe globe with one glowing pin per feature; pins facing you carry a card with a live line. Drag to turn (with inertia, and a slow idle turn); tap a pin to zoom in and open it.</p>
+    <p class="muted" lang="tr">Her özelliğin parlayan bir iğne olduğu, içi görünen tel kafes küre; sana bakan iğnelerin canlı bilgili bir kartı var. Çevirmek için sürükle; açmak için bir iğneye dokun, yakınlaşarak açılır.</p>
+    <span class="go">Open prototype D →</span>
+  </a>
+
+  <a class="card" href="e-orbit.html">
+    <h2>E · Orbital HUD <span class="tag">sci-fi</span></h2>
+    <p>The coach is the core; the other features orbit it on two tilted rings. Drag along a ring to spin it and fling it; tap a node to zoom in and open it.</p>
+    <p class="muted" lang="tr">Koç merkezde; diğer özellikler iki eğik halkada onun etrafında döner. Bir halkayı sürükleyerek çevir ve fırlat; açmak için bir düğüme dokun.</p>
+    <span class="go">Open prototype E →</span>
   </a>
 
   <p class="muted">How each one meets Material Design 3 and accessibility guidance, and where it does not: <a href="README.md" style="color:var(--link)">README.md</a>.</p>
