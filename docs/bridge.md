@@ -111,11 +111,14 @@ documented here as they are built.
 | GET | `/app/update` | yes | Where an approved update from a program-folder chat stands (#180) |
 | POST | `/app/release/offer` | yes | Offers the release APK for `GET /files/{offer}?session_id=app-release` |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
-| GET / POST | `/reminders` | yes | Lists or creates session reminders |
+| GET / POST | `/reminders` | yes | Lists or creates reminders of sessions and of notes |
 | PATCH / DELETE | `/reminders/{id}` | yes | Changes or deletes a reminder |
 | GET / POST | `/notes` | yes | Lists notes, or captures one into the memory's inbox |
 | GET / PATCH / DELETE | `/notes/{id}` | yes | Reads a note in full, changes a captured note, or moves a note to the memory's trash |
 | POST | `/notes/{id}/restore` | yes | Brings a deleted note back from the trash under the same id |
+| POST | `/command` | yes | The command bar: a typed or spoken request turned into actions (one short model run) |
+| POST | `/command/undo` | yes | Takes one action of the command bar back |
+| GET | `/command/actions` | yes | The action registry: every app feature as an action |
 | GET / POST | `/tasks` | yes | Lists open tasks or adds one |
 | PATCH | `/tasks/{id}` | yes | Changes a task's title, due date or note |
 | POST | `/tasks/{id}/complete` | yes | Ticks a task |
@@ -1408,7 +1411,9 @@ the session's pending approvals:
   `coach_chat` (the coach conversation; today the run that files the
   owner's answer to the coach's question) use Opus with high effort;
   `consolidation`, `course_resources`, `summaries` and `context_map` use
-  Sonnet with Opus as **advisor** (Claude Code's documented `--advisor`
+  Sonnet with Opus as **advisor**; `command` (the command bar's interpreter,
+  #185) uses Haiku with low effort and no advisor, and is not a background
+  job (`LIFEOS_BACKGROUND_MODEL` does not change it) (Claude Code's documented `--advisor`
   flag: the run may consult Opus at hard steps; see
   `docs/research/claude-headless.md`, section 8). If the CLI refuses the
   advisor at launch, the run is made once without it. Change any job with
@@ -1504,8 +1509,22 @@ switch for reply notifications.
 
 ### `/reminders`
 
-"Remind me about this session at <time>."
+"Remind me about this session at <time>", and a note's reminder (#185).
 
+- A **note's reminder** names the note instead of a session: `POST /reminders`
+  with `{"note_id": "i-…", "at": …}` (404 for an unknown note), or
+  `remind_at` (+ `timezone`) on `POST /notes`, which saves the note and its
+  reminder together; a repeated create with the same `client_id` adds no
+  second reminder, and a time that passed while the note waited on the phone
+  fires at the next check instead of being refused. Its notification text is
+  fixed ("A reminder for one of your notes is due."); the phone looks the
+  reminder up by its id and opens the note. A note's id changes with its text,
+  so an edit moves the reminder to the new id; deleting the note parks the
+  reminder (`state: "deleted"`, never fired, not listed) and a restore brings
+  it back. `GET /notes/{id}` carries the note's `reminder` (or `null`);
+  `GET /reminders?note_id=` lists them. A capture filed away by the nightly
+  consolidation keeps a reminder that no longer finds its note (the app says
+  the note is gone).
 - `POST /reminders` with `{"session_id": "…", "at":
   "2027-01-15T09:00:00+03:00", "note": "…", "repeat": "none" | "daily" |
   "weekly", "timezone": "Europe/Istanbul"}`. `at` must carry a time-zone
@@ -1674,6 +1693,59 @@ characters). No other conversation gets it: a blank chat reads the memory
 only when the owner asks ("Blank chats"), and a conversation in an allowed
 folder or one started in the memory folder gets no memory text. The text
 goes to the model only; it is never logged.
+
+### Command bar: `/command` (#185)
+
+"+" in the app opens a bar where the owner types or speaks a request ("remind
+me tomorrow at 10 to call the office", "yarın için süt al görevi ekle", "open
+the physics course"). The bridge turns it into **actions of the registry**
+(`actions.py`): every app feature is one action with its parameters, where it
+runs (`bridge`: executed here; `app`: performed by the app, such as opening a
+screen) and its undo. `GET /command/actions` lists them.
+
+- **The interpreter** is one run of the routing job `command` (default
+  `haiku`, low effort; changeable on the Models screen like every job). It is
+  started like the coach's runs (`claude.run`, `persist=False`, so it is never
+  a session in the owner's list) but **with no tool at all** (`--tools ""`),
+  no memory files (Claude Code's switches against instruction files and
+  auto-memory) and in an empty folder of its own
+  (`~/.cache/lifeos/command-runs`), outside the memory, every project and git.
+  It reads only the request, the language, the phone's local date and time and
+  the list of actions, and answers with one JSON object of actions or one
+  question. A run is stopped after 45 seconds.
+- **Checked against the registry:** an unknown action, an unknown or missing
+  parameter or a badly formed date or time refuses the whole answer
+  (`422 not_understood`); nothing half-understood is done. The model names
+  things by words, never by ids; the bridge finds them (notes, open tasks,
+  coming events, chats by title, folders by name, courses, assignments,
+  projects): one match acts, several become a question with options, none
+  is an outcome that is not `ok` (`*_not_found`).
+- **Request:** `{"request_id": "<16 to 64 random characters>", "text": "…",
+  "language": "en" | "tr", "now": "2027-01-15T09:30:00+03:00", "timezone":
+  "Europe/Istanbul", "previous"?: {"request", "question"}}`, or
+  `{"request_id", "choice": "<token>"}` for a picked option. A repeat of a
+  `request_id` (an answer lost on the way) gets the stored answer with
+  `"repeat": true`; nothing is done twice.
+- **Answer:** `{"request_id", "results": [{"action", "ok", "title", "when",
+  "undo": "<token>" | null, "error", "perform"?: {"action": "open_screen",
+  "screen": "notes"}}], "question": null | {…}, "previous"?, "model_ms"}`.
+  A question is the model's (`"kind": "clarify"`, `"text"`, options with
+  `"answer"`, and `previous` to send back with the owner's answer, which
+  runs the model again) or the bridge's (`"kind": "task"`, `"note"`, …,
+  `"text": null`, options with a `"choice"` token that does the resolved
+  action and the rest of the request without a model run; one pick per
+  question).
+- **Undo:** `POST /command/undo` with `{"undo": "<token>"}` takes one action
+  back, once, within 15 minutes: a created note goes to the trash with its
+  reminder, a deleted note is restored, a ticked task is reopened, an added
+  task or event moves to `.trash/removed-lines.md`, edits get their old
+  values, a reminder is removed or set again. Opening screens, folders and
+  the plan refresh have no undo. Tokens, picks and stored answers live in
+  the bridge's memory only; a restart forgets them.
+- **Measured (2026-11-23, Claude Code 2.1.330, Haiku at low effort, 12
+  real runs from Turkish and English requests):** 2.1 s to 3.6 s per
+  interpretation, median 2.5 s, all answers valid against the registry.
+  Through the relay the phone waits that plus the relay's own delay.
 
 ### `/context-map`
 
@@ -2223,7 +2295,7 @@ uv run lifeos-bridge devices revoke <id>     # the first characters of the id ar
   its messages are dropped. It needs no network; the phone's mailbox is
   removed the next time the relay runs.
 - **What a phone may call:** the endpoints of this document under `/ask`,
-  `/sessions`, `/reminders`, `/notes`, `/tasks`,
+  `/sessions`, `/reminders`, `/notes`, `/tasks`, `/command`,
   `/events`, `/agenda`, `/coach`, `/context-map`, `/allowed-paths`,
   `/models`, `/moodle`, `/courses` and `/whoami`. A request is `{"m": method, "path":
   "/…", "q": {query}, "body": {…}}`; the answer is one final message
@@ -2757,6 +2829,11 @@ grep -c 'phone note' ~/brain/inbox.md            # 1
 curl -s -X DELETE -H "$H" $B/notes/<note id>          # {"deleted":true,…}; gone from inbox.md
 grep -c 'test note' ~/brain/.trash/inbox-deleted.md  # 1
 curl -s -X POST -H "$H" $B/notes/<note id>/restore    # back, same id; git -C ~/brain log -2 --oneline
+# command bar (#185): one short model run; the answer lists what was done, with an undo token
+curl -s -H "$H" -H "$J" -d '{"request_id":"manual-check-0001","text":"add a task: test the bar","language":"en","now":"'"$(date -Iseconds)"'"}' $B/command
+curl -s -H "$H" -H "$J" -d '{"undo":"<undo token>"}' $B/command/undo   # the task moves to .trash/removed-lines.md
+# a note with a reminder in two minutes: a notification "A reminder for one of your notes is due."
+curl -s -H "$H" -H "$J" -d '{"text":"reminder test","remind_at":"'"$(date -Iseconds -d '+2 min')"'"}' $B/notes
 curl -s -H "$H" $B/tasks
 # a task note: set, read back on the line, removed
 curl -s -X PATCH -H "$H" -H "$J" -d '{"note":"Bring the (old) notes"}' $B/tasks/<id>   # "note":"Bring the [old] notes"
