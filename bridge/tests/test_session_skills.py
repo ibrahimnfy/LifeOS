@@ -282,7 +282,7 @@ def test_the_skill_probes_catch_each_failure(settings, monkeypatch):
             lambda *a, **k: good_run(tool_uses=[]),
         "skills: a shell line in a skill does not run": shell_ran,
         "skills: tools a skill approves for itself change nothing":
-            lambda *a, **k: good_run(init_tools=["Read", "WebFetch", "Skill"]),
+            lambda *a, **k: good_run(init_tools=["Read", "NotebookEdit", "Skill"]),
     }  # fmt: skip
     for name, capable_run in cases.items():
         suite = suite_with(settings, monkeypatch, capable_run, READ_ONLY_RUN)

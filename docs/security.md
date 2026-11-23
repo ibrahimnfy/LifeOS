@@ -304,6 +304,33 @@ What each party can see and do, with this design in place.
    outside what this project can verify; versions are pinned and updated.
 8. **Prompt content is still seen by the model provider**, as in any Claude
    Code use. End-to-end here means phone to bridge.
+9. **Capable runs have the open network (owner, #182).** Commands of a
+   capable run reach every public host name through Claude Code's sandbox
+   proxy, and the run has WebFetch and WebSearch. Consequences the owner
+   accepted:
+   - Whatever a run can read (the run's folder, the memory folder, the other
+     allowed folders, the read-only course folders) can be sent to any
+     public host. Web content a run reads can try to steer it (prompt
+     injection); the approval cards and the sandbox's file rules are what
+     still hold.
+   - The approval cards for deleting, pushing, `gh` changes and installing
+     are pattern checks of the command text. With the network open they are
+     no longer backed by the sandbox: a command written to avoid the
+     patterns (a script that pushes, `curl` to GitHub's API with the masked
+     token) is not asked about.
+   - The owner's GitHub token is never readable inside the sandbox (masked:
+     commands see a placeholder, the sandbox proxy substitutes it for
+     GitHub's hosts only), but a run can **use** it for anything the token
+     allows on GitHub while it runs (`repo`, `workflow`, `gist`,
+     `read:org` scopes).
+   - What stays closed: the private settings folder (bridge token, pairing
+     and push keys, device secrets), SSH keys and the rest of the home
+     folder (hidden); the computer's own services (bridge port, adb server,
+     databases) and private networks, through the proxy (no IP address is
+     allowed, names that resolve locally are refused) and through WebFetch
+     (refused by the gate); direct connections (no route); `sudo` (refused
+     by the gate, and impossible in the sandbox: "no new privileges"); a
+     push of the memory folder (refused without asking).
 
 ## 8. Comparison with the previous VPN design (dropped)
 

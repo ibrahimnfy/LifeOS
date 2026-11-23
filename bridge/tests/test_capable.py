@@ -149,11 +149,11 @@ def test_approval_required_command_is_refused_with_explanation(
     client, auth, enable, isolated_config
 ):
     enable()
-    response = ask(client, auth, "FAKE_TOOL git push origin main")
+    response = ask(client, auth, "FAKE_TOOL git reset --hard")
     body = response.json()
     assert response.status_code == 200
     assert "approval" in body["answer"]
-    assert body["refused_actions"] == ["push"]
+    assert body["refused_actions"] == ["force"]
     # the gate sent it to the bridge, which could not ask anyone (not streamed): refused
     decisions = [e["decision"] for e in audit_entries(isolated_config)]
     assert decisions == ["asked", "approval_requested", "refused"]

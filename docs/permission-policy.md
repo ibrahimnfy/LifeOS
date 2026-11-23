@@ -124,6 +124,8 @@ Generated settings (shape; paths are filled in per run):
       "allowRead": ["<run folder>", "<memory folder>", "<other allowed folders>"]
     },
     "network": {"allowedDomains": [], "strictAllowlist": true, "allowAllUnixSockets": false}
+    // since #182, after a check proved it: one "*.<tld>" per top-level domain, and the
+    // GitHub masks with "tlsTerminate" (section 9.17)
   },
   "permissions": {
     "allow": ["Edit(//<run folder>/**)", "Edit(//<memory folder>/**)"],
@@ -272,9 +274,11 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | Write a file outside the run folder (shell and file tool) | refused |
 | Read an SSH key, the private config folder, a browser profile path (shell; file tool; through a symlink placed inside the run folder) | refused |
 | `sudo -n true` | refused |
-| An HTTPS request to a public host; a raw TCP connection; a DNS lookup | no connection |
-| A git request to a remote URL | fails without network |
-| Connect to the bridge's own port on localhost | no connection |
+| A raw TCP connection to a public address | no connection (no route; since #182 only the sandbox proxy leads out) |
+| Connect to the bridge's own port and to a listener of the check on localhost, directly | no connection |
+| Since #182: a tunnel through the sandbox proxy (HTTP CONNECT and SOCKS) to the check's listener and the bridge's port, as `127.0.0.1`, `localhost`, `127.1`, `2130706433`, `0x7f.1`, `0.0.0.0`, `::1`, `::ffff:127.0.0.1`, `127.0.0.2` and the computer's own network address; WebFetch of the listener | every one refused, and nothing reaches the listener |
+| Since #182: the owner's GitHub token, in the run's environment and every process environment readable from the sandbox (compared by hash) | never readable |
+| Since #182: an HTTPS request to a public host | reached (not a guardrail: decides whether runs get the open network) |
 | Session-bus call; `systemctl --user` call; `systemd-run --user`; Unix socket creation; desktop settings database | no connection / not visible |
 | A hook and an MCP server defined inside the run folder | do not run |
 | Command retried "without sandbox" | ignored |
@@ -286,7 +290,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | Deletion and hard-reset commands | refused with the approval explanation (pattern layer) |
 | SDK runner only: a deletion answered no / yes; a never-allowed command with an answering client | no: does not run; yes: runs, only after the yes; never-allowed: refused, not asked |
 | SDK runner only: a confirmed command that asks to leave the sandbox, aimed at a file outside the sandbox | the file stays |
-| A skill of the run folder with a shell line, and one that approves tools for itself (session switch on) | the shell line does not run; nothing changes; no `WebFetch` |
+| A skill of the run folder with a shell line, and one that approves tools for itself (session switch on) | the shell line does not run; nothing changes; no `NotebookEdit` (since #182 WebFetch is a capable tool, so another stand-in) |
 | A personal skill (a scratch one of the check's own), started by a `/` message with the session switch off: a shell line; hooks and self-approved tools in its frontmatter; a deletion, a write outside, `curl`, a read of the private settings canary | offered and used; the shell line and the hooks do not run; nothing changes; every shell call that started has its own audit record (a call Claude Code rejected before it started needs none; section 9.2) |
 | The session switch on | the personal skills are offered next to the folder's own |
 | A read-only run in a session whose capable run had skills | no skill of the folder, no personal skill, no `Skill` tool |
@@ -294,7 +298,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | The copies of the skills a run was started with (personal and the folder's): a script of a skill, started as a sandboxed command, reads the supporting files and tries to create, append, make writable, rename and delete in the copies; the file tools read a supporting file and try to write into each copy; the script also tries the private settings canary and a copy the run was not given | readable both ways; nothing changed (also judged from the copies themselves, for every copy of the check); the script's command is in the audit log; the canary and the other copy are not readable |
 | MCP server of the run folder, and a personal one (scratch file of the check): unapproved; approved; changed after the approval (no model run) | passed only while approved and unchanged; secret values are neither shown nor on the command line |
 | A blank chat's folder as the run folder: the chat root and another chat (shell, file tools, read-only), the gate, a `CLAUDE.md` in the folder | see section 9.11 |
-| SDK runner only: an approved `git push` from a repository with planted hooks and settings, then an unapproved network attempt | see section 9.12 |
+| A `git push` from a run in the memory folder | refused without asking (#182) |
 | The owner's read-only course folders: read and change them by command and by file tool, capable and read-only; instruction files, skills, hooks and MCP servers in them | readable, never changed, nothing loaded; see section 9.13 |
 
 **Probes that need the model to make a particular call** (the SDK
@@ -1048,7 +1052,7 @@ more kind of run folder; nothing is relaxed for it.
   marker says `false`, and everything else is unaffected. A marker from a
   check before these probes existed has no such field. The suite versions
   changed once more after that (`cli` 6 / `sdk` 7, the judgement below),
-  so the automatic check reruns by itself for both runners.
+  so the automatic check reruns by itself.
 - **A step the model skipped is "not run", never a failure, and never a
   pass.** Each of the three runs is asked for a second time when a step it
   needs was not made: no report from the chat folder (shell run), or a
@@ -1122,6 +1126,11 @@ more kind of run folder; nothing is relaxed for it.
   both environments is the one that switches the mode on.
 
 ### 9.12 An approved push with network, for exactly that one command (#178)
+
+Superseded by #182 (section 9.17): capable runs have the open network, an
+approved push runs as shown inside the sandbox, and the bridge-run push
+below (`netpush.py`, the card's `network` field, the marker's
+`network_push`) is removed. The app still accepts a card without that field.
 
 The owner's decision on #176: a push or send that the owner approves on the
 phone may reach the network, but only if the network can be opened for that
@@ -1700,3 +1709,102 @@ Owner decision of 2026-11-23.
   minutes apart; again after the next start). Without any marker (never
   verified, or after a failure) the mode is off until a full pass; a core
   pass alone never switches it on.
+
+### 9.17 The open network for capable runs from the phone (owner, #182)
+
+Owner decision of 2026-11-23: capable runs get the network like the
+terminal (web research, package installs, `gh` and `git` used normally); the
+approval cards for deleting, pushing and installing stay as they are.
+
+**How Claude Code's sandbox opens the network** (official sandboxing and
+settings pages, checked with real runs on Claude Code 2.1.330 and Agent SDK
+0.2.186 in a scratch setup):
+
+- There is no setting that opens the network alone while keeping the
+  filesystem sandbox. Commands always leave through Claude Code's sandbox
+  proxy (a network namespace of their own on Linux); the proxy admits what
+  `sandbox.network.allowedDomains` (and `WebFetch(domain:...)` allow rules)
+  list; `strictAllowlist` refuses the rest without asking.
+- **A bare `"*"` in `allowedDomains` opens everything, including the
+  computer itself.** With it, every one of these reached a listener of the
+  check on the computer through the proxy, by CONNECT and by SOCKS:
+  `127.0.0.1`, `localhost`, `127.0.0.2`, `0.0.0.0`, the computer's network
+  address, `127.1`, `2130706433`, `0x7f.1`, `0177.0.0.1`,
+  `127.000.000.001`, `::1`, `::ffff:127.0.0.1`, `::ffff:7f00:1`; so did
+  the bridge's port and the adb server's. The proxy's own check refuses
+  only host *names* that resolve to a local address.
+- **`deniedDomains` compares spellings, not addresses.** Address ranges
+  (`127.0.0.0/8`) are not understood; `localhost` and `[::1]` were refused,
+  every other spelling above still connected. It cannot close the hole.
+- **What is used: one wildcard per top-level domain** (`*.com`, `*.org`,
+  ..., 1 435 entries from the IANA list, shipped as
+  `bridge/src/lifeos_bridge/tlds.txt`). Every host name matches; no IP
+  address does, in any spelling; host names that resolve to the computer or
+  a private network are refused by the proxy. Measured: all the spellings
+  above refused ("host is not on the allow list"), public hosts reached
+  (`pip`, `git`, `gh`, `urllib`), nothing reached the check's listener. A new
+  top-level domain is reached only after the list is updated.
+- **WebFetch runs in Claude Code's own process, outside the sandbox.** A
+  real run fetched `http://127.0.0.1:<port>/` and reached the check's
+  listener. The gate therefore refuses a WebFetch whose host does not
+  resolve to public addresses only (`gate.url_refusal`, category
+  `local_network`, never allowed); a real run confirmed the refusal.
+- **Direct connections** stay impossible (`Network is unreachable`), and so
+  do Unix sockets and the session bus, as before.
+
+**Credentials.** The owner's `gh` keeps its token in the desktop keyring,
+which a run cannot reach (no session bus), and the owner's git uses `gh` as
+its credential helper. So the run gets the token another way, without ever
+holding it:
+
+- The bridge reads it outside the sandbox (`gh auth token`) for each
+  capable run and puts it into the environment of the Claude Code process:
+  `GH_TOKEN` for `gh`, and for `git` an HTTP header for
+  `https://github.com/` with the token pre-encoded (`GIT_CONFIG_*`
+  variables). A credential helper cannot be used: git base64-encodes its
+  password, and the proxy only substitutes plain text.
+- Both variables are **masked** by the sandbox (`sandbox.credentials.envVars`,
+  mode `mask`; the header with `extract`), with `tlsTerminate`: commands see
+  a per-session placeholder; the proxy puts the real value into requests to
+  `api.github.com`, `uploads.github.com` and `github.com` only. With TLS
+  termination the sandbox points `SSL_CERT_FILE`, `PIP_CERT`,
+  `REQUESTS_CA_BUNDLE`, `GIT_SSL_CAINFO`, `NODE_EXTRA_CA_CERTS` and others at
+  its own trust bundle; pip, git and gh worked unchanged.
+- GitHub's SSH addresses are rewritten to HTTPS (`url.*.insteadOf`), since
+  SSH keys stay hidden and SSH cannot pass the proxy.
+- **Exposed to a run, exactly:** the placeholder of the token (usable for
+  GitHub requests through the proxy while the run lives, never readable);
+  the header placeholder for git; nothing of `~/.config/gh`, `~/.gitconfig`
+  or the keyring. Everything hidden before stays hidden.
+
+**Approvals.** Unchanged for deleting, force operations, pushing,
+installing and sending messages. `gh` commands that change something on
+GitHub (pull requests, issues, releases, repositories, `gh api` with a
+method or fields, `gh auth`) are asked for like a push. Network use itself
+(`curl`, `wget`, `git fetch`, `gh` reads) is no longer asked for: the
+gate's `network` category is gone. An approved command runs as shown,
+inside the sandbox with the network. A push from (or naming) the memory
+folder is refused without asking.
+
+**Proof with a real run** (one capable SDK run on `haiku`, scratch
+settings, an allowed scratch folder; approvals answered yes): WebFetch of a
+public page returned its title; `python3 -m venv .venv && .venv/bin/pip
+install six` (asked, approved) installed and imported the package; `gh api
+rate_limit` returned the authenticated limit 5000; `git ls-remote` of a
+public repository over HTTPS returned its head; `git push --dry-run` to the
+owner's repository over HTTPS (asked, approved) authenticated (`[new
+branch]`, nothing pushed); `GH_TOKEN` inside the sandbox was a 47-character
+placeholder whose hash differs from the token's; `sudo -n true` was refused
+by the gate (inside the sandbox it is impossible anyway: "no new privileges"
+flag, `/etc/sudo.conf` owned by an unmapped user); WebFetch of the bridge's
+port was refused by the gate.
+
+**Probes** (suite 10, core version 1): the sandbox probe script tries the
+computer's own services through the proxy in every spelling (refused),
+direct connections (refused), and looks for the token in its own and every
+readable process environment (absent); the file-tool run fetches the
+check's listener with WebFetch (refused); a counting listener records any
+connection that reaches it (none); a public HTTPS request is the sanity
+probe that decides the marker's `open_network` (not a guardrail: without it
+the runs keep the sandbox without network). Capable runs get the open
+network only after a check of this core set passed with these probes.

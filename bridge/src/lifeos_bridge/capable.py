@@ -28,7 +28,7 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
-from . import claude, program
+from . import claude, network, program
 from .claude import ClaudeError, Policy
 from .config import Settings, config_dir
 from .paths import refusal_reason
@@ -52,10 +52,14 @@ KEY_FILE_NAME = "guardrail-key"
 # 8: read-only course folders (#179); the program folder and allowed folders as run
 # folders (#180, marker fields ``program_folder`` and ``scope``).
 # 9: the program-folder file-tool step reads a plainly named file.
-SUITE_VERSION = 9
+# 10 (#181, #182): the SDK runner only; the core set; the open network of capable runs
+# (the computer's own services and private addresses unreachable, GitHub's token never
+# readable, WebFetch to local hosts refused); the bridge-run push of #178 is gone.
+SUITE_VERSION = 10
 # Version of the core set (``verify.CORE``): the probes that run again after an update of
 # Claude Code or the Agent SDK, on the cheapest capable model (#181). A marker of an older
-# core set gets the core check.
+# core set gets the core check. The open network (#182) needs a pass of this core set
+# (``open_network_available``).
 CORE_VERSION = 1
 PROGRAM_SUITE_VERSION = 9
 SKILLS_SUITE_VERSION = 3
@@ -260,14 +264,16 @@ def personal_available() -> bool:
     return _marker_suite() >= PERSONAL_SUITE_VERSION
 
 
-def network_push_probed(runner: str = "sdk") -> bool:
-    """Whether the check included the probes of an approved push with network (#178)."""
+def open_network_available() -> bool:
+    """Whether capable runs get the open network (#182): after a check of this core set
+    (core or full) whose network probes passed. Until then the sandbox has no network."""
     marker = read_marker()
+    core = marker.get("core_version") if marker else None
     return (
-        runner == "sdk"
-        and marker is not None
-        and _marker_suite(marker) >= 8
-        and marker.get("network_push") is True
+        marker is not None
+        and marker.get("open_network") is True
+        and isinstance(core, int)
+        and core >= CORE_VERSION
     )
 
 
@@ -426,8 +432,15 @@ def build_policy(
     course_dirs: list[Path] | None = None,
     listed_dirs: list[Path] | None = None,
     program_folder: Path | None = None,
+    open_network: bool = False,
+    github_token: str | None = None,
 ) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
+
+    ``open_network`` (#182): commands reach every public host name through the sandbox
+    proxy, and the run gets the web tools (``network``); otherwise the sandbox has no
+    network. ``github_token``: the owner's GitHub token for ``gh`` and ``git``, masked
+    by the sandbox, so commands never see it; only with ``open_network``.
 
     ``ask_host``: the run's approval actions go to the bridge's permission
     callback (SDK runner) instead of being refused by the gate.
@@ -526,11 +539,7 @@ def build_policy(
                     {str(p) for p in (*roots, run_dir, memory, *copies, *shared, *readable)}
                 ),
             },
-            "network": {
-                "allowedDomains": [],
-                "strictAllowlist": True,
-                "allowAllUnixSockets": False,
-            },
+            "network": dict(network.CLOSED),
         },
         "permissions": {
             "allow": [f"Edit({_rule_path(folder)}/**)" for folder in writable],
@@ -576,8 +585,17 @@ def build_policy(
         from .skills import SETTINGS as SKILL_SETTINGS  # local: skills imports commands
 
         settings_json |= SKILL_SETTINGS
+    tools, env = claude.CAPABLE_TOOLS, {}
+    if open_network:
+        # Every public host name through the sandbox proxy, the web tools, and GitHub's
+        # credentials masked (``network``). Approvals are unchanged (the gate).
+        settings_json["sandbox"] |= network.sandbox_settings(github=github_token is not None)
+        settings_json["permissions"]["allow"] += list(network.WEB_TOOLS)
+        tools += "," + ",".join(network.WEB_TOOLS)
+        env = network.run_env(github_token)
     return Policy(
-        tools=claude.CAPABLE_TOOLS,
+        tools=tools,
+        env=tuple(sorted(env.items())),
         capable=True,
         settings_json=json.dumps(settings_json),
         # Added folders are what the file tools may read besides the run folder.

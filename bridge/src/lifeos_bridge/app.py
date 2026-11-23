@@ -45,6 +45,7 @@ from . import (
     moodle_sync,
     moodle_watch,
     moves,
+    network,
     program,
     projects,
     push,
@@ -809,9 +810,14 @@ def create_app(settings: Settings) -> FastAPI:
                     used_servers = [(name, scopes[name]) for name in sorted(servers)]
                 # Its course folder only after a check whose course-folder probes passed.
                 readable = course_dirs if capable.course_folders_available() else []
+                # The open network (#182), once a check proved its probes; the owner's
+                # GitHub token is read outside the sandbox and masked inside it.
+                open_network = capable.open_network_available()
+                token = await asyncio.to_thread(network.github_token) if open_network else None
                 policy = capable.build_policy(
                     settings, cwd, ask_host=True, skills_dir=offer.folder_dir,
                     personal_skills_dir=offer.personal_dir, mcp=servers, course_dirs=readable,
+                    open_network=open_network, github_token=token,
                 )  # fmt: skip
                 run_args |= {"policy": policy, "observer": watch}
             elif read_only_policy is not claude.READ_ONLY:

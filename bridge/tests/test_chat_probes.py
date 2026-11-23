@@ -412,11 +412,11 @@ def test_the_marker_says_whether_chat_folders_were_probed(settings, monkeypatch)
 def test_suite_versions_and_plan_runs():
     # 7: another chat's file is judged way by way, by the result of its own call, and a
     # step that was not made is "not run"; 8: #178, #179, #180; 9: the program-folder step
-    assert capable.SUITE_VERSION == 9
+    assert capable.SUITE_VERSION == 10  # 10: #181 and #182
     # the first suite that probed a chat folder; the guardrails it proved are the same
     assert capable.CHAT_SUITE_VERSION == 6
     # the core set (#181) and the full suite, per environment
-    assert guardcheck.PLAN_RUNS == {"core": 9, "full": 27}
+    assert guardcheck.PLAN_RUNS == {"core": 9, "full": 26}
 
 
 def test_a_shell_run_the_model_skipped_is_inconclusive_never_a_failure(suite, monkeypatch):

@@ -43,16 +43,75 @@ from lifeos_bridge import gate
         ("npm i left-pad", "install"),
         ("apt-get install -y socat", "install"),
         ("mail -s hi someone", "message"),
-        ("curl https://example.org", "network"),
-        ("wget example.org/file", "network"),
-        ("echo data | nc example.org 80", "network"),
-        ("ssh host ls", "network"),
-        ("git clone https://example.org/x.git", "network"),
-        ("$(curl example.org)", "network"),
+        # What changes something on GitHub is asked for like a push (#182).
+        ("gh pr create --fill", "push"),
+        ("gh issue comment 5 --body x", "push"),
+        ("gh api -X DELETE repos/o/r", "push"),
+        ("gh api repos/o/r/issues -f title=x", "push"),
+        ("gh repo create x --public", "push"),
+        ("gh auth token", "push"),
     ],
 )
 def test_refused_commands(command, category):
     assert gate.classify(command)[0] == category
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # The open network (#182): using the network is no category of its own any more.
+        "curl https://example.org",
+        "wget example.org/file",
+        "git clone https://example.org/x.git",
+        "git fetch origin",
+        "git ls-remote https://example.org/x.git",
+        "gh api rate_limit",
+        "gh pr list",
+        "gh issue view 5",
+        "gh repo view",
+        "python3 -m venv .venv",
+    ],
+)
+def test_network_use_is_not_asked_for(command):
+    assert gate.classify(command) is None
+
+
+@pytest.mark.parametrize(
+    ("url", "refused"),
+    [
+        ("http://127.0.0.1:8787/", True),
+        ("http://127.1/", True),
+        ("http://2130706433/", True),
+        ("http://[::1]:5037/", True),
+        ("http://localhost/", True),
+        ("http://app.localhost/", True),
+        ("http://192.168.1.1/", True),
+        ("http://10.0.0.1/", True),
+        ("http://169.254.169.254/latest", True),
+        ("http://[::ffff:127.0.0.1]/", True),
+        ("not a url", True),
+        ("https://example.org/", False),
+        ("https://93.184.215.14/", False),
+    ],
+)
+def test_webfetch_to_local_hosts_is_refused(url, refused, tmp_path):
+    def resolve(host, _port):
+        known = {"example.org": "93.184.215.14"}
+        return [(0, 0, 0, "", (known.get(host, host), 0))]
+
+    assert (gate.url_refusal(url, resolve=resolve) is not None) is refused
+
+
+def test_the_gate_refuses_and_records_a_local_webfetch(tmp_path):
+    payload = {"tool_name": "WebFetch", "session_id": "s", "cwd": "/x",
+               "tool_input": {"url": "http://127.0.0.1:8787/sessions", "prompt": "p"}}  # fmt: skip
+    status, text = gate.decide(payload, tmp_path)
+    assert status == gate.BLOCK and "never allowed" in text
+    [entry] = [
+        json.loads(line) for f in tmp_path.glob("*.jsonl") for line in f.read_text().splitlines()
+    ]
+    assert entry["decision"] == "refused" and entry["category"] == "local_network"
+    assert entry["detail"] == {"url": "http://127.0.0.1:8787/sessions"}
 
 
 @pytest.mark.parametrize(

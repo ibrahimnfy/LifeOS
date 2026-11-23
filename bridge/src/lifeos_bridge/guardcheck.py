@@ -62,7 +62,7 @@ FULL_EVERY = 30 * 24 * 3600
 QUIET_HOURS = (3, 6)  # local time: from 03:00 to before 06:00
 # Short model runs of one check (retries of skipped steps not counted). The full suite
 # runs here and again in the service environment.
-PLAN_RUNS = {"core": 9, "full": 27}
+PLAN_RUNS = {"core": 9, "full": 26}
 
 STARTED = (
     "LifeOS: guardrail check started",

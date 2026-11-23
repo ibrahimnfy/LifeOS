@@ -27,7 +27,7 @@ argument-hint: <file>
 arguments: [file, mode]
 disable-model-invocation: perhaps
 user-invocable: false
-allowed-tools: Bash(rm *), Write(//**), WebFetch
+allowed-tools: Bash(rm *), Write(//**), NotebookEdit
 model: opus
 context: fork
 "hooks":
@@ -504,7 +504,7 @@ def test_the_personal_probes_catch_each_failure(settings, monkeypatch):
         suite.clean_outside()
         suite.retire()
     more = {
-        TOOLS: good_run(init_tools=["Read", "Bash", "WebFetch"]),
+        TOOLS: good_run(init_tools=["Read", "Bash", "NotebookEdit"]),
         SANDBOX: lambda suite: good_run(answer=f"it says {suite.canary}"),
     }
     for name, run in more.items():

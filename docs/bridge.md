@@ -247,7 +247,7 @@ only by the check). By hand:
 
 ```
 scripts/verify-guardrails          # the core set (about 9 short runs)
-scripts/verify-guardrails --full   # the full suite (about 54 short runs)
+scripts/verify-guardrails --full   # the full suite (about 52 short runs)
 ```
 
 It runs the probe suite of [`permission-policy.md`](permission-policy.md)
@@ -331,7 +331,7 @@ start and every 15 minutes the bridge decides (`guardcheck.py`):
     The coach's plan and note-filing runs are one-off runs without a stored
     session, like the other jobs.
 - **Plan usage:** the core set takes **about 9 short runs** on the probe
-  model; the full suite about 27 per environment, **about 54 short runs**
+  model; the full suite about 26 per environment, **about 52 short runs**
   in both. The approval probes may add up to 8 more per environment when
   the model does not make the needed call at once, the personal-skill run
   and the skill-copy steps up to 2 more each, each of the three chat-folder
@@ -355,18 +355,43 @@ What a capable run looks like:
 
 - It works in the run's folder and the memory folder; other allowed folders
   are readable. The home folder, the private settings, keys and browser
-  profiles are hidden from it, and its commands have no network. In a blank
-  chat the run's folder is the chat's own folder; the chat root and every
-  other chat are out of its reach.
+  profiles are hidden from it. In a blank chat the run's folder is the
+  chat's own folder; the chat root and every other chat are out of its
+  reach.
+- **It has the open network (#182)**, once a check proved its probes
+  (marker `"open_network": true`; until then its commands have no network):
+  - Commands reach every public host name through Claude Code's sandbox
+    proxy (one allow-list wildcard per top-level domain of the IANA list,
+    `bridge/src/lifeos_bridge/tlds.txt`): web research, package installs,
+    `gh` and `git` over HTTPS. No IP address matches the list, in any
+    spelling, and the proxy refuses a host name that resolves to the
+    computer itself or a private network, so the bridge's port, the adb
+    server and every other local service stay out of reach. Direct
+    connections are impossible (a network namespace of its own).
+  - It gets the `WebFetch` and `WebSearch` tools. WebFetch runs outside the
+    sandbox, so the gate refuses a fetch whose host is not a public address.
+  - **GitHub:** the bridge reads the owner's token (`gh auth token`, outside
+    the sandbox) and passes it to the run as `GH_TOKEN` and as a
+    pre-encoded HTTPS header for `git` on `github.com`. The sandbox **masks**
+    both: commands see a placeholder, and the sandbox proxy (which
+    terminates TLS for this, with a certificate authority of its own for
+    the session) puts the real value into requests to GitHub's hosts only.
+    GitHub's SSH addresses are rewritten to HTTPS (SSH keys stay hidden).
+    Without a token (gh not signed in), the run simply has no GitHub
+    credentials.
 - It requires Claude Code's OS sandbox and refuses to start without it.
 - Every tool call is written to the audit log
   `~/.config/lifeos/audit/YYYY-MM.jsonl` **before** it runs (commands in
   full; for file tools the path, never the content). If the log cannot be
   written, nothing runs.
 - Actions that need the owner's approval (deleting, force operations,
-  pushing, installing packages, network and messaging commands) are refused
-  with an explanation; the response lists them in `refused_actions`, e.g.
-  `["push"]`. `sudo` and system-setting commands are always refused.
+  pushing, changing something on GitHub with `gh`, installing packages,
+  messaging commands) are asked about on the phone (see "Questions and
+  approvals"); without an answering client they are refused with an
+  explanation, and the response lists them in `refused_actions`, e.g.
+  `["push"]`. Using the network is no approval action any more (#182).
+  `sudo` and system-setting commands are always refused, and so is a push
+  of the memory folder (without asking).
 - It is offered the owner's personal skills and commands (#162), as copies
   made by the bridge, and the session folder's own when they are switched
   on for the session; see `GET /sessions/{id}/commands`. It gets the MCP
@@ -1178,31 +1203,18 @@ A run can stop and wait for the owner, in two cases:
   2-4 options each, single or multiple choice.
 - **Approval** (capable runs only, once #106 enables them on this runner).
   A command the gate marks as needing confirmation: obvious deletion, force
-  or history-rewriting git operations, push, package install, sending a
-  message, network action. The gate answers `ask` instead of refusing.
+  or history-rewriting git operations, push (also `gh` commands that change
+  something on GitHub), package install, sending a message. The gate
+  answers `ask` instead of refusing.
   The bridge shows exactly what will run and where, and lets it run only
   after an explicit yes. Commands that are never allowed (`sudo`, system
   settings) are still refused by the gate and are never asked about. Only
   a plain command can be confirmed: a call that asks to run outside the
   sandbox, or carries anything besides the command, is refused.
-  An approved command runs in the sandbox, so it has no network, with one
-  exception (#178, `permission-policy.md` section 9.12):
-  - **An approved push with network.** A plain `git push [remote]
-    [branch]` over HTTPS from the run folder's own repository (never the
-    memory folder) is prepared before the card: branch, address and commit
-    are read without network.
-  - The card then carries `network: {"host", "url", "branch", "commit",
-    "force"}`, and the app says that this command will use the network.
-  - After the yes the bridge pushes exactly that commit to exactly that
-    address itself, from a fresh repository in a confinement of its own.
-    Nothing the run wrote takes part: no hooks, no settings. Credentials
-    come only from the owner's own git configuration, for that address
-    only.
-  - The run gets the result as the answer to its call, and its own command
-    never runs.
-  - This is on only after the SDK runner's check with these probes has
-    passed (marker `"network_push": true`). SSH pushes and every other
-    command keep the sandbox without network.
+  An approved command runs exactly as shown, inside the sandbox, with the
+  run's network (the open network of #182 once the check proved it). A
+  push of the memory folder is refused without a card. The bridge-run push
+  of #178 is gone (`permission-policy.md`, sections 9.12 and 9.17).
 
 How it reaches the owner:
 
@@ -1241,11 +1253,9 @@ How it reaches the owner:
   refused with the usual explanation.
 - **Audit log:** an approval request, then its outcome (`approved`, or
   `refused` with `owner`, `timeout`, `cancelled` or `no_client`), next to
-  the gate's own entry (`asked`). An approved push with network adds
-  `network_started` before it runs and `network_finished` with the exit
-  status afterwards. These records carry the host, the branch and the
-  commit, never an address or a credential. If the log cannot be written, the action
-  is refused. Questions and answers are prompt text and are kept in memory
+  the gate's own entry (`asked`). A refused push of the memory folder is
+  recorded as `refused` with `memory folder`. A WebFetch call is recorded
+  with its address. If the log cannot be written, the action is refused. Questions and answers are prompt text and are kept in memory
   only, never logged.
 
 Manual check (`sdk`, one short run on the plan): send `"stream": true`
@@ -2364,7 +2374,7 @@ session: issues, code, tests, commits. What it must never see or change in
 the folder, and why nothing it changes runs outside the sandbox before the
 owner's yes, is in [`permission-policy.md`](permission-policy.md), section
 9.14. Capable runs there need the guardrail check with the program-folder
-probes and the allowed-folder probes (suite `cli` 7, `sdk` 8; marker
+probes and the allowed-folder probes (a full check of suite 9 or later; marker
 `"program_folder": true` and `"scope": "all_allowed_folders"`).
 
 **The rule the run is given** (only in chats in the program folder): never

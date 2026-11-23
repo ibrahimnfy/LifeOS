@@ -6,7 +6,7 @@
 #
 # Usage: scripts/verify-guardrails [--full] [--no-service]
 #   (default) the core set: about 9 short runs, in this environment
-#   --full    the full suite: about 27 short runs here and as many again in
+#   --full    the full suite: about 26 short runs here and as many again in
 #             the service environment (--no-service skips that; no marker then)
 set -euo pipefail
 bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
