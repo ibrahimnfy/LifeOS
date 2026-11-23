@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>LifeOS: new home experience, prototypes</title>
+<!-- Index of the clickable prototypes for #186. Self-contained, no network. -->
+<style>
+:root { --bg: #f8f8fa; --surface: #eeeef2; --divider: #d9d9e1; --text: #17171c; --muted: #595966; --link: #1852c8; --primary: #1e60e6;
+  --grad: linear-gradient(135deg, #6a5cf2, #d845a4, #e8651e); color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #101218; --surface: #1a1d25; --divider: #303541; --text: #ecedf2; --muted: #a1a5b1; --link: #7dafff; --primary: #2165e8;
+    --grad: linear-gradient(135deg, #8577ff, #ec5fb2, #ff9458); color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 1rem/1.5 system-ui, -apple-system, "Segoe UI", "Roboto", "Noto Sans", sans-serif; }
+main { max-width: 560px; margin: 0 auto; padding: 24px 16px 40px; display: flex; flex-direction: column; gap: 14px; }
+h1 { margin: 0; font-size: 1.5rem; letter-spacing: -0.02em; }
+p { margin: 0; }
+.muted { color: var(--muted); font-size: 0.9rem; }
+a.card { display: block; padding: 16px 18px; border-radius: 20px; border: 1px solid var(--divider); background: var(--surface); color: inherit; text-decoration: none; min-height: 48px; }
+a.card.rec { border: 3px solid transparent; background: linear-gradient(var(--surface), var(--surface)) padding-box, var(--grad) border-box; }
+a.card h2 { margin: 0 0 4px; font-size: 1.125rem; }
+a.card .go { display: inline-block; margin-top: 8px; color: var(--link); font-weight: 600; }
+a.card:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.tag { display: inline-block; margin-left: 6px; padding: 0 8px; border-radius: 10px; font-size: 0.75rem; font-weight: 700; vertical-align: middle; background: var(--bg); }
+</style>
+</head>
+<body>
+<main>
+  <h1>New home experience: two prototypes</h1>
+  <p class="muted">Step 1 of the experiment in #186. Open each on the phone (Chrome), try it with one hand, then choose. Placeholder data only; nothing is sent anywhere.<br>
+  <span lang="tr">#186 deneyinin 1. adımı. İkisini de telefonda (Chrome) aç, tek elle dene, sonra seç. Yalnızca örnek veri; hiçbir yere bir şey gönderilmez.</span></p>
+
+  <a class="card rec" href="a-board.html">
+    <h2>A · Home board <span class="tag">recommended</span></h2>
+    <p>A 2D board of tiles (coach, today's tasks, agenda, courses, sleep and activity, notes, chats; sessions and projects in the tray). Long-press a tile to edit: drag to reorder, resize, hide or show. A tile grows into its page. The command bar at the bottom does the rest.</p>
+    <p class="muted" lang="tr">Kutucuklardan oluşan 2B pano. Düzenlemek için bir kutucuğa uzun bas: sürükleyip sırala, boyutunu değiştir, gizle ya da göster. Kutucuk büyüyerek sayfasına dönüşür. Gerisini alttaki komut çubuğu yapar.</p>
+    <span class="go">Open prototype A →</span>
+  </a>
+
+  <a class="card" href="b-globe.html">
+    <h2>B · Feature globe</h2>
+    <p>A 3D globe split into regions, one per feature. Drag to turn it (with inertia), tap a region to open it with a circular reveal. A list button shows every region as a plain list. The same command bar.</p>
+    <p class="muted" lang="tr">Her özelliğin bir bölge olduğu 3B küre. Çevirmek için sürükle, açmak için bir bölgeye dokun. Liste düğmesi tüm bölgeleri düz liste olarak gösterir. Aynı komut çubuğu.</p>
+    <span class="go">Open prototype B →</span>
+  </a>
+
+  <p class="muted">How each one meets Material Design 3 and accessibility guidance, and where it does not: <a href="README.md" style="color:var(--link)">README.md</a>.</p>
+</main>
+</body>
+</html>
