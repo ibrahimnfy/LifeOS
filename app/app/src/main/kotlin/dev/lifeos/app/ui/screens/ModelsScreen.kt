@@ -52,6 +52,7 @@ private fun ModelJob.title(): String = when (job) {
     "course_resources" -> stringResource(R.string.models_job_course_resources)
     "summaries" -> stringResource(R.string.models_job_summaries)
     "context_map" -> stringResource(R.string.models_job_context_map)
+    "command" -> stringResource(R.string.models_job_command)
     else -> label.ifBlank { job }
 }
 

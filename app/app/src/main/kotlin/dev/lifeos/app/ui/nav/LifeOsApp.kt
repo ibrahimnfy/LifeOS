@@ -60,6 +60,13 @@ import dev.lifeos.app.data.ChatSwitch
 import dev.lifeos.app.data.FolderKinds
 import dev.lifeos.app.data.SwitchStep
 import dev.lifeos.app.data.asFolder
+import dev.lifeos.app.data.BridgeJson
+import dev.lifeos.app.data.CommandAnswer
+import dev.lifeos.app.data.CommandBar
+import dev.lifeos.app.data.CommandOutcome
+import dev.lifeos.app.data.SwitchFolder
+import dev.lifeos.app.ui.components.CommandHooks
+import dev.lifeos.app.ui.components.outcomeLine
 import dev.lifeos.app.data.step
 import dev.lifeos.app.ui.screens.SessionsScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
@@ -111,6 +118,8 @@ fun LifeOsApp(
     val scope = rememberCoroutineScope()
     var captureOpen by rememberSaveable { mutableStateOf(false) }
     var capturePrefill by rememberSaveable { mutableStateOf("") }
+    // A search the command bar asked for (#185): handed to the Notes screen once.
+    var notesQuery by rememberSaveable { mutableStateOf<String?>(null) }
     val savedMessage = stringResource(R.string.capture_saved)
     val waitingMessage = stringResource(R.string.capture_waiting)
     val showMessage: (String) -> Unit = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
@@ -291,8 +300,16 @@ fun LifeOsApp(
                 } catch (_: ApiException) {
                     null
                 }
-                val found = reminder?.let { sessionOf(it.sessionId) }
-                when (found) {
+                val noteId = reminder?.noteId
+                val found = reminder?.sessionId?.takeIf { noteId == null }?.let { sessionOf(it) }
+                when {
+                    // A note's reminder (#185): the note itself.
+                    noteId != null -> {
+                        navController.openTab(Tab.MORE)
+                        navController.navigate(Routes.NOTES) { launchSingleTop = true }
+                        navController.navigate(Routes.note(noteId)) { launchSingleTop = true }
+                    }
+                    else -> when (found) {
                     is SessionLookup.Found.Session -> {
                         core.chat.open(found.session, found.memory)
                         openChat()
@@ -303,6 +320,7 @@ fun LifeOsApp(
                         navController.openTab(Tab.CHAT)
                         navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true }
                         showMessage(reminderLost)
+                    }
                     }
                 }
                 reminder?.note?.takeIf { it.isNotBlank() && found is SessionLookup.Found.Session }?.let { showMessage(reminderNote.format(it.trim().take(200))) }
@@ -327,6 +345,87 @@ fun LifeOsApp(
     }
     // Nothing of a task stays on screen behind the lock.
     LaunchedEffect(locked) { if (locked) taskCard = null }
+
+    // ---- the command bar (#185): what its answers hand over to the app
+    val commandContext = androidx.compose.ui.platform.LocalContext.current
+    val commandLocale = dev.lifeos.app.ui.components.appLocale()
+    val openRoute: (String) -> Unit = { route ->
+        val tab = Tab.forRoute(route)
+        navController.openTab(tab)
+        if (route != tab.route) navController.navigate(route) { launchSingleTop = true }
+    }
+    val performCommand: (CommandOutcome) -> Unit = { outcome ->
+        when (outcome.performs) {
+            "open_screen" -> CommandRoutes.SCREENS[outcome.field("screen")]?.let(openRoute)
+            "search_notes" -> {
+                notesQuery = outcome.field("query")
+                openRoute(Routes.NOTES)
+            }
+            "new_chat" -> newChat(outcome.field("text"))
+            "ask_coach" -> {
+                core.coach.offerDraft(outcome.field("text"))
+                openCoach()
+            }
+            "open_note" -> outcome.field("note_id")?.let { id ->
+                openRoute(Routes.NOTES)
+                navController.navigate(Routes.note(id)) { launchSingleTop = true }
+            }
+            "open_chat" -> outcome.field("session_id")?.let { id ->
+                scope.launch {
+                    when (val found = SessionLookup.find(core.api, id)) {
+                        is SessionLookup.Found.Session -> {
+                            core.chat.open(found.session, found.memory)
+                            openChat()
+                        }
+                        SessionLookup.Found.Coach -> openCoach()
+                        else -> showMessage(sessionLost)
+                    }
+                }
+            }
+            "new_chat_in" -> {
+                val folder = outcome.folder()?.let { runCatching { BridgeJson.decodeFromJsonElement(SwitchFolder.serializer(), it) }.getOrNull() }
+                core.chat.newChat(folder?.asFolder())
+                openChat()
+            }
+            "open_course" -> outcome.number("course_id")?.let { id ->
+                openRoute(Routes.COURSES)
+                navController.navigate(Routes.course(id)) { launchSingleTop = true }
+            }
+            "open_assignment" -> {
+                val course = outcome.number("course_id")
+                val assignment = outcome.number("assignment_id")
+                if (course != null && assignment != null) {
+                    navController.openTab(Tab.MORE)
+                    navController.navigate(Routes.assignment(course, assignment)) { launchSingleTop = true }
+                }
+            }
+            "open_project" -> outcome.field("project_id")?.let { id ->
+                openRoute(Routes.PROJECTS)
+                navController.navigate(Routes.project(id)) { launchSingleTop = true }
+            }
+            // A note was saved or deleted: every list reads again.
+            "note_saved", "note_deleted" -> core.memoryChanged()
+        }
+    }
+    val commandHooks = run {
+        CommandHooks(
+            run = core::runCommand,
+            newRequestId = { core.newItemId() + core.newItemId() },
+            undo = core::undoCommand,
+            perform = { performCommand(it) },
+            leave = { answer: CommandAnswer ->
+                captureOpen = false
+                answer.results.filter { it.ok && it.performs in CommandBar.NAVIGATING }.forEach { performCommand(it) }
+                // One line of what was done, with Undo when the first change can be taken back.
+                val first = answer.results.firstOrNull { it.undo != null && it.ok } ?: answer.results.firstOrNull()
+                if (first != null) {
+                    val line = outcomeLine(commandContext, first, commandLocale)
+                    val token = first.undo
+                    if (token != null) showUndo(line) { scope.launch { core.undoCommand(token) } } else showMessage(line)
+                }
+            },
+        )
+    }
     CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks, LocalOpenTask provides openTask) {
     Scaffold(
         containerColor = LifeTheme.colors.bg,
@@ -427,6 +526,8 @@ fun LifeOsApp(
                     onConnectionClick = openSettings,
                     onPair = openPair,
                     onOpenNote = { navController.navigate(Routes.note(it)) { launchSingleTop = true } },
+                    startQuery = notesQuery,
+                    onQueryTaken = { notesQuery = null },
                 )
             }
             composable(
@@ -603,10 +704,10 @@ fun LifeOsApp(
         CaptureSheet(
             prefill = capturePrefill,
             onDismiss = { captureOpen = false },
-            onSaved = { kind, text, due, taskNote ->
+            onSaved = { kind, text, due, taskNote, remindAt ->
                 captureOpen = false
                 scope.launch {
-                    val sent = core.capture(note = kind == CaptureKind.NOTE, text = text, due = due, taskNote = taskNote)
+                    val sent = core.capture(note = kind == CaptureKind.NOTE, text = text, due = due, taskNote = taskNote, remindAt = remindAt)
                     snackbarHostState.showSnackbar(if (sent) savedMessage else waitingMessage)
                 }
             },
@@ -614,6 +715,7 @@ fun LifeOsApp(
                 captureOpen = false
                 newChat(draft)
             },
+            hooks = commandHooks,
         )
     }
 }

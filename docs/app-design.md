@@ -265,14 +265,44 @@ every section in its own clearly visible card.*
   history, queue, cancel, commands and models as in
   [`chat-design.md`](chat-design.md).
 
-### 3.4 Capture
+### 3.4 Capture and the command bar
 
-- **Purpose:** get a thought out of the head in seconds.
-- **Content:** a bottom sheet over the current screen: one text field,
-  keyboard already open, then **Note** · **Task** · **New chat** (#166); for
-  a task an optional due date. Note and Task are a switch with Save; New
-  chat closes the sheet and opens a blank chat at once, with what was typed
-  in its composer (nothing is sent).
+- **Purpose:** get a thought out of the head in seconds, or ask LifeOS to do
+  something by typing or speaking (#185).
+- **Content:** a bottom sheet over the current screen: one text field with a
+  microphone, keyboard already open, then **Ask** · **Note** · **Task** ·
+  **New chat** (#166, #185). Ask is the default (Note when text was shared
+  from another app). For a note an optional **Remind me** (day, then time);
+  for a task an optional due date and note. Note and Task save with Save;
+  New chat closes the sheet and opens a blank chat at once, with what was
+  typed in its composer (nothing is sent).
+- **Ask (the command bar):** "Do it" sends the text to the computer
+  (`POST /command`, docs/bridge.md), which turns it into actions of the
+  action registry. Each done action gets one line ("Task added: Buy milk",
+  "Note saved, reminder Tue 24 Nov, 10:00: Call the office") with **Undo**
+  where it has one. An answer that opens something (a screen, a note, a
+  chat, a course, a folder's new chat) closes the sheet, opens it, and shows
+  the first line in a snackbar with Undo. An ambiguous request gets **one
+  short question**: its options are buttons, and for the model's question an
+  answer field. When the computer cannot be reached, the bar offers **Save
+  as note** or **Save as task** (the outbox, as before); when an answer got
+  lost on the way, **Ask again** repeats the same request id, so nothing is
+  done twice; a request the computer could not turn into actions offers
+  saving it as a note.
+- **Speech:** the microphone starts the phone's own speech recogniser
+  (`RecognizerIntent.ACTION_RECOGNIZE_SPEECH`) in the app's language
+  (`tr-TR` or `en-US`) with `EXTRA_PREFER_OFFLINE`; the app needs no
+  microphone permission and never receives audio, only the recognised text,
+  which is added to the field for the owner to check before sending.
+  **Where the audio goes:** to the phone's recognition service (on most
+  phones Google's). "Prefer offline" is a hint: when the offline model for
+  the language is installed the audio stays on the phone; otherwise the
+  service may send it to its servers under its own terms. LifeOS sends only
+  the text, through the relay, to the computer. A phone without a
+  recogniser says so and the owner types.
+- **Accessibility:** the microphone and every Undo are named for TalkBack
+  ("Speak", "Undo: Task added: …"); answers and questions are announced
+  (polite live region); every target is at least 48 dp.
 - **Behaviour:** saving closes the sheet and shows a short confirmation.
   The item is saved on the phone and shown on every screen at once (Tasks,
   Today, Notes), marked "waiting to sync" until the bridge confirms it, then
@@ -282,7 +312,12 @@ every section in its own clearly visible card.*
   repeated. No model run is involved in saving.
 - **Also reachable from:** a home-screen shortcut and the share menu of other
   apps (share text or a link into LifeOS).
-- **Endpoints:** `POST /notes`, `POST /tasks` (with `client_id`).
+- **Endpoints:** `POST /notes` (with `client_id`, and `remind_at` for a
+  note's reminder), `POST /tasks` (with `client_id`), `POST /command`,
+  `POST /command/undo`.
+- **A note's reminder (#185):** the computer notifies at that time with a
+  fixed text; tapping the notification opens the note. The note screen shows
+  the reminder ("Reminder: 24 Nov, 10:00").
 
 ### 3.5 Tasks
 
@@ -315,15 +350,30 @@ every section in its own clearly visible card.*
 - **Content:** captured notes, newest first, each with its first lines, date
   and where it was filed (inbox, a project, a course, a topic). Search field
   on top; filter chips for the place.
-- **Actions:** open a note to read it in full; edit its text; move it to a
-  project, course or topic; add a new note (through Capture).
+- **Actions:** open a note to read it in full; edit its text; delete it
+  (#184); move it to a project, course or topic; add a new note (through
+  Capture).
+- **Deleting (#184):** "Delete" on the note screen, for captures and topic
+  notes; a capture still waiting on the phone has a delete button in the
+  waiting list. The note leaves the list at once and a snackbar offers
+  **Undo** for six seconds (as for a tick); only then is the deletion queued
+  in the outbox (kind `NOTE_DELETE`, sent like every other write, also
+  later when the computer was off). On the computer the note goes to the
+  memory folder's trash and can be restored. What waits on the phone: a
+  capture that never left the phone is simply dropped from the outbox; one
+  that may have reached the computer is deleted there right after it, by the
+  id the computer gave it; an edit of the note that never left is dropped
+  and the original note deleted; while an edit is on its way (or may have
+  arrived) "Delete" is not offered, as for a second edit. A deletion that
+  finds nothing (`404`) counts as done.
 - **States:** loading · saved copy · empty ("Nothing captured yet") · no
   search results · error with retry; edits made offline are queued like
   captures and marked "waiting to sync".
-- **Endpoints:** list, search, read and update notes (`GET /notes?query=`,
-  `GET /notes/{id}`, `PATCH /notes/{id}`; only inbox captures can be edited,
-  and a capture's id changes with its text). Built: list with search, open,
-  edit a capture, waiting captures on top. Not built yet: filter chips by
+- **Endpoints:** list, search, read, update and delete notes (`GET
+  /notes?query=`, `GET /notes/{id}`, `PATCH /notes/{id}`, `DELETE
+  /notes/{id}`; only inbox captures can be edited, and a capture's id
+  changes with its text). Built: list with search, open, edit a capture,
+  delete with undo, waiting captures on top. Not built yet: filter chips by
   place, moving a note.
 
 ### 3.7 Projects

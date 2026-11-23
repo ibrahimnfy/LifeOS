@@ -13,6 +13,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -49,7 +50,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.util.Locale
 
-private val NOTE_KINDS = setOf(OutboxItem.Kind.NOTE, OutboxItem.Kind.NOTE_EDIT)
+private val NOTE_KINDS = setOf(OutboxItem.Kind.NOTE, OutboxItem.Kind.NOTE_EDIT, OutboxItem.Kind.NOTE_DELETE)
 
 /** Each search is a round trip through the relay: wait until the owner stops typing. */
 private const val SEARCH_DELAY_MILLIS = 450L
@@ -78,7 +79,15 @@ fun noteMoment(at: String?, locale: Locale): String? {
  * way is shown at once with "Waiting to sync".
  */
 @Composable
-fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> Unit, onPair: () -> Unit, onOpenNote: (String) -> Unit) {
+fun NotesScreen(
+    core: LifeOsCore,
+    onBack: () -> Unit,
+    onConnectionClick: () -> Unit,
+    onPair: () -> Unit,
+    onOpenNote: (String) -> Unit,
+    startQuery: String? = null,
+    onQueryTaken: () -> Unit = {},
+) {
     val colors = LifeTheme.colors
     val model = rememberLoad(core, Endpoints.notes) { list: NoteList -> list.notes.isEmpty() }
     val state by model.state.collectAsStateWithLifecycle()
@@ -89,7 +98,18 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
     var query by rememberSaveable { mutableStateOf("") }
     var search by remember { mutableStateOf<SearchState?>(null) }
     var searchAttempt by remember { mutableIntStateOf(0) }
-    val waiting = if (locked) emptyList() else NoteLists.waiting(outbox)
+    // A search the command bar asked for (#185): it fills the field once.
+    LaunchedEffect(startQuery) {
+        if (!startQuery.isNullOrBlank()) {
+            query = startQuery.take(200)
+            onQueryTaken()
+        }
+    }
+    val justDeleted by core.justDeletedNotes.collectAsStateWithLifecycle()
+    val hidden = NoteLists.hidden(outbox, justDeleted)
+    val waiting = if (locked) emptyList() else NoteLists.waiting(outbox, hidden)
+    val showUndo = LocalUndo.current
+    val deletedText = stringResource(R.string.note_deleted)
 
     LaunchedEffect(query, reload, locked, searchAttempt) {
         val needle = query.trim()
@@ -129,7 +149,17 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
                         SectionHeader(title = stringResource(R.string.outbox_waiting_title))
                         waiting.forEachIndexed { index, item ->
                             if (index > 0) RowDivider()
-                            MarkRow(title = item.text, subtitle = relativeTime(item.createdAtMillis)) {
+                            val name = LocalItems.PREFIX + item.id
+                            MarkRow(
+                                title = item.text,
+                                subtitle = relativeTime(item.createdAtMillis),
+                                trailing = {
+                                    // A note that waits here can be deleted too (#184): it never reaches the computer.
+                                    TopBarAction(LifeIcons.Close, stringResource(R.string.note_delete_label, item.text.take(60))) {
+                                        if (core.deleteNote(name, item.text)) showUndo(deletedText) { core.undoDeleteNote(name) }
+                                    }
+                                },
+                            ) {
                                 Icon(LifeIcons.Clock, contentDescription = null, tint = colors.muted)
                             }
                         }
@@ -141,10 +171,10 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
                     val server = (state as? UiState.Content<NoteList>)?.data?.notes.orEmpty()
                     val added = LocalItems.notes(server, confirmed, state.listAtMillis)
                     if (state is UiState.Empty && added.isNotEmpty()) {
-                        NoteCard(NoteLists.rows(added, outbox), onOpenNote)
+                        NoteCard(NoteLists.rows(added, outbox, hidden), onOpenNote)
                     } else {
                         StateHost(state, stringResource(R.string.notes_empty), onRetry = model::refresh, onPair = onPair, skeletonRows = 5) { list: NoteList ->
-                            NoteCard(NoteLists.rows(added + list.notes, outbox), onOpenNote)
+                            NoteCard(NoteLists.rows(added + list.notes, outbox, hidden), onOpenNote)
                         }
                     }
                 } else {
@@ -158,7 +188,7 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
                             if (current.notes.isEmpty()) {
                                 EmptyLine(stringResource(R.string.notes_search_empty))
                             } else {
-                                NoteCard(NoteLists.rows(current.notes, outbox), onOpenNote)
+                                NoteCard(NoteLists.rows(current.notes, outbox, hidden), onOpenNote)
                             }
                         }
                     }
@@ -251,6 +281,8 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
     val scope = rememberCoroutineScope()
     val savedText = stringResource(R.string.capture_saved)
     val waitingText = stringResource(R.string.capture_waiting)
+    val deletedText = stringResource(R.string.note_deleted)
+    val showUndo = LocalUndo.current
     var attempt by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<NoteState>(NoteState.Loading) }
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -314,6 +346,15 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                                 Text(meta, style = LifeType.small, color = colors.muted, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             }
                             SelectionContainer { Text(pending?.text ?: note.text, style = LifeType.body, color = colors.text) }
+                            // Its reminder (#185): set with the note in "+" or by the command bar.
+                            note.reminder?.let { reminder ->
+                                val moment = reminder.moment?.let { momentLabel(it.epochSecond, locale) } ?: reminder.at
+                                val line = if (reminder.scheduled) R.string.note_reminder else R.string.note_reminder_fired
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(LifeIcons.Bell, contentDescription = null, tint = colors.muted)
+                                    Text(stringResource(line, moment), style = LifeType.small, color = colors.muted)
+                                }
+                            }
                         }
                     }
                     when {
@@ -321,6 +362,20 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                         current.savedAtMillis != null && pending == null -> Text(stringResource(R.string.note_edit_needs_full), style = LifeType.small, color = colors.muted)
                         NoteLists.canEdit(summary, outbox) -> PrimaryButton(text = stringResource(R.string.note_edit), onClick = { editing = true })
                         else -> Text(stringResource(R.string.note_edit_busy), style = LifeType.small, color = colors.muted)
+                    }
+                    // Captures and topic notes alike go to the computer's trash (#184), with a moment to
+                    // undo. Not while an edit is on its way: the line above says so already.
+                    if (NoteLists.canDelete(note.id, outbox)) {
+                        SecondaryButton(
+                            text = stringResource(R.string.note_delete),
+                            danger = true,
+                            onClick = {
+                                if (core.deleteNote(note.id, note.title ?: note.text)) {
+                                    showUndo(deletedText) { core.undoDeleteNote(note.id) }
+                                    onBack()
+                                }
+                            },
+                        )
                     }
                     if (editing) {
                         NoteEditSheet(

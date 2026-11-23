@@ -32,7 +32,7 @@ from .config import Settings
 ALLOWED_PREFIXES = (
     "/ask", "/sessions", "/reminders", "/notes", "/tasks", "/events",
     "/agenda", "/coach", "/context-map", "/allowed-paths", "/models", "/moodle", "/courses", "/whoami",
-    "/folders", "/activity", "/app", "/memory", "/projects",
+    "/folders", "/activity", "/app", "/memory", "/projects", "/command",
 )  # fmt: skip
 ALLOWED_METHODS = ("GET", "POST", "PATCH", "PUT", "DELETE")
 PART_CHARS = 600_000  # a sealed message stays well below the mailbox and message limits

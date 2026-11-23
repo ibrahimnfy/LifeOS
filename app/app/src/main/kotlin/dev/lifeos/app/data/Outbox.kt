@@ -43,9 +43,17 @@ data class OutboxItem(
      * stored before notes existed never touches one).
      */
     val note: String? = null,
+    /** A new note's reminder (#185): the time with its offset, and the phone's zone name ([zone]). */
+    val remindAt: String? = null,
+    val zone: String? = null,
 ) {
     @Serializable
-    enum class Kind { NOTE, TASK, COMPLETE, EVENT_CREATE, EVENT_UPDATE, TASK_EDIT, NOTE_EDIT }
+    enum class Kind {
+        NOTE, TASK, COMPLETE, EVENT_CREATE, EVENT_UPDATE, TASK_EDIT, NOTE_EDIT,
+
+        /** A note to move to the computer's trash (#184); [noteId] names it ("local-…" for one made here). */
+        NOTE_DELETE,
+    }
 
     @Serializable
     enum class State {
@@ -68,12 +76,13 @@ data class OutboxItem(
 
     /**
      * Sending it twice does no harm, so an uncertain attempt is simply repeated: ticks, task
-     * edits, event changes, and new notes and tasks with a [clientId] (the computer answers a
-     * repeat with the item it already stored). A note edit is not: the note's id changes with
-     * its text, so a repeat cannot find it.
+     * edits, event changes, note deletions (a second one finds nothing, which is the same
+     * outcome) and new notes and tasks with a [clientId] (the computer answers a repeat with the
+     * item it already stored). A note edit is not: the note's id changes with its text, so a
+     * repeat cannot find it.
      */
     val repeatable: Boolean
-        get() = kind == Kind.COMPLETE || kind == Kind.EVENT_UPDATE || kind == Kind.TASK_EDIT || clientId != null
+        get() = kind == Kind.COMPLETE || kind == Kind.EVENT_UPDATE || kind == Kind.TASK_EDIT || kind == Kind.NOTE_DELETE || clientId != null
 }
 
 /** The outbox on storage: one JSON file, replaced atomically on every change. */
@@ -192,6 +201,14 @@ class Outbox(
         items.map { if (it.taskId == from && !it.sending) it.copy(taskId = to) else it }
     }
 
+    /**
+     * A note got a new id (#184): an edit gave it one, or a note made on this phone ([from] is
+     * "local-" and its phone id) reached the computer. What still waits for it follows.
+     */
+    fun retargetNote(from: String, to: String): Boolean = update { items ->
+        items.map { if (it.noteId == from && !it.sending && (it.kind == OutboxItem.Kind.NOTE_DELETE || it.kind == OutboxItem.Kind.NOTE_EDIT)) it.copy(noteId = to) else it }
+    }
+
     fun settled(item: OutboxItem): Boolean = nowMillis() - (item.attemptAtMillis ?: 0) > SETTLE_MILLIS
 
     /** Send what is waiting, in order. Returns how many items were completed. */
@@ -225,12 +242,13 @@ class Outbox(
     }
 
     /**
-     * "Not found" can mean an earlier attempt arrived: a ticked task is no longer open, and an
-     * edited note has a new id. For a note edit this holds only after an attempt that left the
+     * "Not found" can mean an earlier attempt arrived: a ticked task is no longer open, a
+     * deleted note is gone (or was never there: either way there is nothing left to delete), and
+     * an edited note has a new id. For a note edit this holds only after an attempt that left the
      * phone without an answer ([OutboxItem.attempts] counts only those).
      */
     private fun alreadyDone(item: OutboxItem, error: ApiException): Boolean = error.status == 404 && when (item.kind) {
-        OutboxItem.Kind.COMPLETE -> true
+        OutboxItem.Kind.COMPLETE, OutboxItem.Kind.NOTE_DELETE -> true
         OutboxItem.Kind.NOTE_EDIT -> item.attempts > 0
         else -> false
     }

@@ -33,6 +33,7 @@ import dev.lifeos.app.data.CoachRotation
 import dev.lifeos.app.data.Confirmed
 import dev.lifeos.app.data.ConfirmedStore
 import dev.lifeos.app.data.CourseList
+import dev.lifeos.app.data.CommandAnswer
 import dev.lifeos.app.data.LocalItems
 import dev.lifeos.app.data.BridgeJson
 import dev.lifeos.app.data.MoodleSignIn
@@ -90,6 +91,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -422,14 +424,19 @@ class LifeOsCore(private val app: Application) {
     /** New notes and tasks the computer confirmed a moment ago, until its lists show them (see [LocalItems]). */
     val confirmed = ConfirmedStore(File(app.filesDir, "outbox/confirmed.json"), System::currentTimeMillis)
 
-    val outbox = Outbox(OutboxStore(File(app.filesDir, "outbox/outbox.json")), System::currentTimeMillis) { item ->
+    val outbox: Outbox = Outbox(OutboxStore(File(app.filesDir, "outbox/outbox.json")), System::currentTimeMillis) { item ->
         when (item.kind) {
             // Kept as confirmed before the item leaves the outbox, so it never disappears in between.
-            OutboxItem.Kind.NOTE -> api.addNote(item.text, item.clientId).let { saved ->
+            OutboxItem.Kind.NOTE -> api.addNote(item.text, item.clientId, item.remindAt, item.zone).let { saved ->
                 val id = saved.id
                 if (id != null && item.clientId != null) {
                     val note = NoteSummary(id, "inbox", null, LocalItems.noteMoment(saved.at), item.text)
                     confirmed.add(Confirmed(item.clientId!!, System.currentTimeMillis(), note = note))
+                }
+                // A deletion that waits for this note (#184) now names the computer's id.
+                if (id != null) {
+                    confirmedNoteIds[LocalItems.PREFIX + item.id] = id
+                    outbox.retargetNote(LocalItems.PREFIX + item.id, id)
                 }
             }
             OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId, item.note).let { saved ->
@@ -441,7 +448,22 @@ class LifeOsCore(private val app: Application) {
             OutboxItem.Kind.EVENT_CREATE -> api.createEvent(checkNotNull(item.event))
             OutboxItem.Kind.EVENT_UPDATE -> api.updateEvent(checkNotNull(item.eventId), checkNotNull(item.event))
             OutboxItem.Kind.TASK_EDIT -> toTask(checkNotNull(item.taskId)) { api.editTask(it, item.text, item.due, item.note) }
-            OutboxItem.Kind.NOTE_EDIT -> api.editNote(checkNotNull(item.noteId), item.text)
+            OutboxItem.Kind.NOTE_EDIT -> {
+                val before = checkNotNull(item.noteId)
+                // The note has a new id now: a deletion queued behind the edit follows it (#184).
+                api.editNote(before, item.text)?.let { after -> if (after != before) outbox.retargetNote(before, after) }
+            }
+            OutboxItem.Kind.NOTE_DELETE -> {
+                val id = checkNotNull(item.noteId)
+                if (!LocalItems.isWaiting(id)) {
+                    api.deleteNote(id)
+                } else {
+                    // A note made here that has not reached the computer: wait behind it while it
+                    // still waits; once it was refused or dropped there is nothing to delete.
+                    val own = outbox.items.value.firstOrNull { it.kind == OutboxItem.Kind.NOTE && LocalItems.PREFIX + it.id == id }
+                    if (own != null && own.state != OutboxItem.State.FAILED) throw ApiException(ApiException.Kind.NOT_SENT)
+                }
+            }
         }
     }
 
@@ -626,8 +648,12 @@ class LifeOsCore(private val app: Application) {
         return true
     }
 
-    /** A new note, or a new task with its date and the owner's note on it ([taskNote], #170). */
-    suspend fun capture(note: Boolean, text: String, due: String?, taskNote: String? = null): Boolean = submit(
+    /**
+     * A new note, or a new task with its date and the owner's note on it ([taskNote], #170). A
+     * note may carry a reminder ([remindAt], #185): the computer notifies at that time, also when
+     * the note reached it late (a time that passed meanwhile fires at once).
+     */
+    suspend fun capture(note: Boolean, text: String, due: String?, taskNote: String? = null, remindAt: java.time.ZonedDateTime? = null): Boolean = submit(
         OutboxItem(
             newItemId(),
             if (note) OutboxItem.Kind.NOTE else OutboxItem.Kind.TASK,
@@ -635,8 +661,30 @@ class LifeOsCore(private val app: Application) {
             text = text,
             due = if (note) null else due,
             note = if (note) null else TaskNote.of(taskNote),
+            remindAt = remindAt?.takeIf { note }?.withNano(0)?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            zone = remindAt?.takeIf { note }?.zone?.id?.takeIf { it.contains('/') },
         ),
     )
+
+    // ---- the command bar (#185)
+
+    /**
+     * Send a request of the command bar. It runs in the app's scope: closing the bar does not
+     * cut it off (what it did on the computer is done either way). Throws [ApiException].
+     */
+    fun runCommand(body: kotlinx.serialization.json.JsonObject): kotlinx.coroutines.Deferred<CommandAnswer> = scope.async {
+        api.command(body).also { answer ->
+            // Something was written: the screens read again.
+            if (answer.results.any { it.ok && it.undo != null }) reloadState.value++
+        }
+    }
+
+    /** Take one action of the bar back. True when the computer did. */
+    suspend fun undoCommand(token: String): Boolean = try {
+        api.commandUndo(token).undone.also { if (it) reloadState.value++ }
+    } catch (_: ApiException) {
+        false
+    }
 
     suspend fun saveEvent(eventId: String?, draft: EventDraft): Boolean = submit(
         OutboxItem(
@@ -675,6 +723,59 @@ class LifeOsCore(private val app: Application) {
         val waiting = NoteLists.pendingEdit(noteId, outbox.items.value)
         if (waiting != null && outbox.revise(waiting.id, text)) return sendWaiting(waiting.id)
         return submit(OutboxItem(newItemId(), OutboxItem.Kind.NOTE_EDIT, System.currentTimeMillis(), text = text, noteId = noteId))
+    }
+
+    /** Notes made on this phone that the computer confirmed in this run of the app: "local-" name → its id. */
+    private val confirmedNoteIds = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private fun noteIdNow(localName: String): String? =
+        confirmedNoteIds[localName] ?: confirmed.items.value.firstOrNull { LocalItems.PREFIX + it.clientId == localName }?.note?.id
+
+    private val deletedNotesState = MutableStateFlow<Set<String>>(emptySet())
+    private val deleteTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
+    /** Notes deleted a moment ago whose deletion can still be undone; the lists hide them already. */
+    val justDeletedNotes: StateFlow<Set<String>> = deletedNotesState
+
+    /**
+     * Delete a note (#184): it disappears at once, and after [UNDO_MILLIS] the deletion is
+     * sent (or queued), as a tick is. [noteId] is the computer's id, or "local-" and the phone
+     * id of a note captured here. See [NoteLists.deletion] for what happens to what waits:
+     * a note that never left the phone is dropped, an edit that never left is dropped and
+     * the original note deleted. False when it cannot be deleted now (an edit is on its way).
+     */
+    fun deleteNote(noteId: String, label: String = ""): Boolean {
+        if (noteId in deletedNotesState.value) return true
+        if (!NoteLists.canDelete(noteId, outbox.items.value)) return false
+        deletedNotesState.value += noteId
+        deleteTimers[noteId] = scope.launch {
+            delay(UNDO_MILLIS)
+            deleteTimers.remove(noteId)
+            val stored = when (val plan = NoteLists.deletion(noteId, outbox.items.value, ::noteIdNow)) {
+                is NoteLists.Deletion.Discard -> {
+                    outbox.discard(plan.itemId)
+                    false
+                }
+                is NoteLists.Deletion.Delete -> {
+                    plan.dropEdit?.let { outbox.discard(it) }
+                    // [label]: the note's start, for the notice when the computer refuses the deletion.
+                    outbox.add(OutboxItem(newItemId(), OutboxItem.Kind.NOTE_DELETE, System.currentTimeMillis(), text = label.take(120), noteId = plan.noteId))
+                }
+                // An edit left meanwhile: the note stays; nothing is sent.
+                NoteLists.Deletion.NotNow -> false
+            }
+            deletedNotesState.value -= noteId
+            if (stored && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
+        }
+        return true
+    }
+
+    /** The owner took the deletion back in time. False if it was already on its way. */
+    fun undoDeleteNote(noteId: String): Boolean {
+        val timer = deleteTimers.remove(noteId) ?: return false
+        timer.cancel()
+        deletedNotesState.value -= noteId
+        return true
     }
 
     /** Send a waiting item now if the computer is connected. True if it was sent. */

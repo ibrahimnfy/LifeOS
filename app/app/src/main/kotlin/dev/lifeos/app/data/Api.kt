@@ -54,6 +54,7 @@ interface Transport {
 class Api(private val transport: Transport) {
     private val oneAtATime = Mutex()
     private val planLane = Mutex()
+    private val commandLane = Mutex()
     private val chatLane = Mutex()
 
     suspend fun call(
@@ -93,10 +94,13 @@ class Api(private val transport: Transport) {
      * A new note. With [clientId] (the phone's own id for it) a repeated send is answered with
      * the note already stored, so sending again after an unclear attempt is safe.
      */
-    suspend fun addNote(text: String, clientId: String? = null): NoteSaved {
+    suspend fun addNote(text: String, clientId: String? = null, remindAt: String? = null, timezone: String? = null): NoteSaved {
         val body = buildJsonObject {
             put("text", JsonPrimitive(text))
             if (clientId != null) put("client_id", JsonPrimitive(clientId))
+            // The note's reminder (#185): a time with its offset, and the zone's name when known.
+            if (remindAt != null) put("remind_at", JsonPrimitive(remindAt))
+            if (remindAt != null && timezone != null) put("timezone", JsonPrimitive(timezone))
         }
         return read(NoteSaved.serializer(), call("POST", "/notes", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS))
     }
@@ -125,9 +129,20 @@ class Api(private val transport: Transport) {
         call("PATCH", "/tasks/$id", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }
 
-    /** Change the text of a captured note. The computer gives it a new id. */
-    suspend fun editNote(id: String, text: String) {
-        call("PATCH", "/notes/$id", body = buildJsonObject { put("text", JsonPrimitive(text)) }, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    /** Change the text of a captured note. The computer gives it a new id, returned here (null if unreadable). */
+    suspend fun editNote(id: String, text: String): String? {
+        val raw = call("PATCH", "/notes/$id", body = buildJsonObject { put("text", JsonPrimitive(text)) }, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+        return ((raw as? JsonObject)?.get("id") as? JsonPrimitive)?.content
+    }
+
+    /** Move a note to the computer's trash (#184). A note that is not there answers 404. */
+    suspend fun deleteNote(id: String) {
+        call("DELETE", "/notes/$id", timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
+    /** Bring a deleted note back under the same id (the command bar's undo, #185). */
+    suspend fun restoreNote(id: String) {
+        call("POST", "/notes/$id/restore", timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }
 
     suspend fun completeTask(id: String) {
@@ -156,6 +171,19 @@ class Api(private val transport: Transport) {
         val raw = exchange("POST", "/coach/plan/refresh", emptyMap(), null, PLAN_TIMEOUT_MILLIS)
         read(CoachPlan.serializer(), raw) to raw
     }
+
+    /**
+     * The command bar (#185): a request turned into actions on the computer (a short model run).
+     * Its own lane, so it never holds up the other requests; a repeat with the same request id
+     * is answered with the stored answer.
+     */
+    suspend fun command(body: JsonObject): CommandAnswer = commandLane.withLock {
+        read(CommandAnswer.serializer(), exchange("POST", "/command", emptyMap(), body, COMMAND_TIMEOUT_MILLIS))
+    }
+
+    /** Take one action of the bar back (its undo token), once. */
+    suspend fun commandUndo(token: String): CommandUndone =
+        read(CommandUndone.serializer(), call("POST", "/command/undo", body = buildJsonObject { put("undo", JsonPrimitive(token)) }, timeoutMillis = WRITE_TIMEOUT_MILLIS))
 
     /** The folder the owner picked on a "choose_folder" card (#179): allowed if needed, then a new chat starts there. */
     suspend fun openFolder(path: String): OpenedFolder =
@@ -364,5 +392,8 @@ class Api(private val transport: Transport) {
         const val READ_TIMEOUT_MILLIS = 20_000L
         const val WRITE_TIMEOUT_MILLIS = 20_000L
         const val PLAN_TIMEOUT_MILLIS = 240_000L
+
+        /** The bridge gives its interpreter 45 seconds; the actions themselves are quick. */
+        const val COMMAND_TIMEOUT_MILLIS = 75_000L
     }
 }

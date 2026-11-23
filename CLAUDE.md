@@ -223,6 +223,10 @@ computer only, through `scripts/notify.sh` (build it in Phase 0):
   enough.
 - Prefer small, boring, well-tested steps over clever ones. Every feature has
   a documented manual check the owner can run.
+- Every app feature is exposed as an action in the action registry
+  (`bridge/src/lifeos_bridge/actions.py`); a feature without its action is
+  not done. `bridge/tests/test_actions.py` fails when a bridge route or an
+  app screen has no action and no recorded exemption with its reason.
 - When several good designs exist and the choice is purely technical and
   cheap to reverse, decide, and log it in `docs/decisions.md`. Otherwise ask.
 
