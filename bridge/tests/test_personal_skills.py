@@ -796,7 +796,9 @@ def test_the_probe_setting_and_the_not_verifiable_state_are_gone(settings, monke
     monkeypatch.setattr(verify, "service_suite", lambda *a: as_dicts)
     assert verify.main([]) == 0
     written = json.loads(capable.marker_path("cli").read_text())
-    assert written["all_passed"] is True and written["suite_version"] == 6
+    assert (
+        written["all_passed"] is True and written["suite_version"] == capable.SUITE_VERSIONS["cli"]
+    )
     for gone in ("skills_verified", "skills_unverified_reason", "personal_skill_probe"):
         assert gone not in written
     assert not hasattr(capable, "skills_recheck_needed")

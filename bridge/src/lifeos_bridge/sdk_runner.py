@@ -41,6 +41,7 @@ import asyncio
 import contextlib
 import json
 import shutil
+import subprocess
 import time
 from collections.abc import AsyncIterator, Callable, Coroutine
 from dataclasses import dataclass
@@ -61,7 +62,7 @@ from claude_agent_sdk import (
 from claude_agent_sdk._errors import MessageParseError
 from claude_agent_sdk.types import PermissionResultAllow, PermissionResultDeny
 
-from . import claude, gate, interactions, push, routing
+from . import claude, gate, interactions, netpush, push, routing
 from .claude import ClaudeError, RunResult
 from .config import Settings
 from .interactions import ANSWERED, APPROVAL, QUESTION, TIMEOUT, Interactions
@@ -128,6 +129,10 @@ APPROVAL_TIMEOUT = (
 
 # Input of a shell call that can be confirmed: exactly what the owner is shown.
 APPROVABLE_KEYS = frozenset({"command", "description", "timeout"})
+NETWORK_HOST_NOTE = (
+    "The owner approved this push, but its address does not lead to a public host right now, "
+    "so it did not run. Do not try another way; tell the owner."
+)
 UNSANDBOXED_NOTE = (
     "Denied: an action that needs the owner's confirmation can only be asked for as a plain "
     "command inside the sandbox."
@@ -363,6 +368,7 @@ class LiveSession:
         capable: bool | None = None,
     ) -> None:
         self.session_id = session_id
+        self.settings = settings
         self.launch = launch
         self.asking = asking or Interactions(settings.interaction_timeout)
         # Capable runs: approval actions may be asked for (only with the gate's ``ask``).
@@ -592,23 +598,64 @@ class LiveSession:
             "category": category,
             "source": "bridge",  # not one of the gate's records (see capable.AuditWatch)
         }
-        if not _audit(record, "approval_requested"):
-            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
-        outcome, answer = await self._ask(
-            APPROVAL,
-            {"tool": "Bash", "command": command, "folder": str(self.launch.cwd),
-             "category": category, "reason": reason},
-        )  # fmt: skip
-        approved = outcome == ANSWERED and bool(answer and answer.get("approve"))
-        why = "owner" if outcome == ANSWERED else outcome
-        if not _audit(record, "approved" if approved else "refused", why):
-            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
-        if approved:
-            return PermissionResultAllow(updated_input=tool_input)  # exactly what was shown
+        # An approved push may get network, run by the bridge itself (#178); any other
+        # command keeps the sandbox without network.
+        plan = await self._network_plan(command)
+        try:
+            if plan is not None:
+                record["network"] = plan.record()
+            if not _audit(record, "approval_requested"):
+                return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+            card = {"tool": "Bash", "command": command, "folder": str(self.launch.cwd),
+                    "category": category, "reason": reason}  # fmt: skip
+            if plan is not None:
+                card["network"] = plan.card()
+            outcome, answer = await self._ask(APPROVAL, card)
+            approved = outcome == ANSWERED and bool(answer and answer.get("approve"))
+            why = "owner" if outcome == ANSWERED else outcome
+            if not _audit(record, "approved" if approved else "refused", why):
+                return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+            if approved and plan is not None:
+                return await self._push(record, plan)
+            if approved:
+                return PermissionResultAllow(updated_input=tool_input)  # exactly what was shown
+        finally:
+            netpush.discard(plan)
         if outcome == "no_client":
             return PermissionResultDeny(message=gate.APPROVAL_NOTE)  # today's refusal
         note = APPROVAL_TIMEOUT if outcome == TIMEOUT else APPROVAL_REFUSED
         return PermissionResultDeny(message=note)
+
+    async def _network_plan(self, command: str) -> netpush.Plan | None:
+        """What an approved push would do with network, or ``None``: today's behaviour."""
+        if netpush.parse(command) is None or not netpush.available():
+            return None
+        try:
+            return await asyncio.to_thread(
+                netpush.prepare, command, self.launch.cwd, self.settings.ask_dir
+            )
+        except (netpush.Refused, OSError, subprocess.SubprocessError):
+            return None
+
+    async def _push(self, record: dict, plan: netpush.Plan):
+        """The approved push, run by the bridge with network; its result goes back to the run.
+
+        The run's own command never runs: the answer is a refusal whose text is the
+        result, so nothing of the run gets network. Recorded before it starts (and
+        not started if that fails) and after it ended.
+        """
+        if not await asyncio.to_thread(netpush.public_host, plan.host):
+            _audit(record, "network_refused", "host is not public")
+            return PermissionResultDeny(message=NETWORK_HOST_NOTE)
+        if not _audit(record, "network_started"):
+            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+        try:
+            login = await asyncio.to_thread(netpush.credentials, plan.url)
+            outcome = await asyncio.to_thread(netpush.run, plan, login)
+        except (OSError, subprocess.SubprocessError):
+            outcome = netpush.Outcome(1, "the push could not be started")
+        _audit({**record, "exit_status": outcome.status}, "network_finished")
+        return PermissionResultDeny(message=netpush.note(plan, outcome))
 
 
 _hints: set[asyncio.Task] = set()

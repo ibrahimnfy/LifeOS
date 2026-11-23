@@ -730,6 +730,10 @@
     <string name="approval_warning_deletion">Warning: deleted files cannot be brought back.</string>
     <string name="approval_command">This will run</string>
     <string name="approval_folder">In this folder</string>
+    <string name="approval_network">This command will use the network: it connects to %1$s. Nothing else of this run gets network.</string>
+    <string name="approval_network_target">It sends to</string>
+    <string name="approval_network_push">commit %1$s → branch %2$s</string>
+    <string name="approval_network_forced">forced: it can overwrite what is on the remote</string>
     <string name="approval_allow">Allow</string>
     <string name="approval_deny">Don’t allow</string>
     <string name="approval_kept_note">Changes already made are kept.</string>
