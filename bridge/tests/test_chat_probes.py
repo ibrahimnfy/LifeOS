@@ -418,8 +418,8 @@ def test_suite_versions_and_plan_runs():
     # the first suites that probed a chat folder; the guardrails they proved are the same
     assert capable.CHAT_SUITE_VERSIONS == {"cli": 5, "sdk": 6}
     # three short runs per runner and environment for the chat-folder probes
-    # 12 and 16 of #162, plus three; plus one for the program folder (#180)
-    assert guardcheck.PLAN_RUNS == {"cli": 16, "sdk": 20}
+    # 12 and 16 of #162, plus three; plus five of #180 (the program folder, an allowed folder)
+    assert guardcheck.PLAN_RUNS == {"cli": 20, "sdk": 24}
 
 
 def test_a_shell_run_the_model_skipped_is_inconclusive_never_a_failure(suite, monkeypatch):

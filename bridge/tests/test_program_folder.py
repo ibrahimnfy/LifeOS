@@ -100,26 +100,36 @@ def marker(config, runner="cli", **extra):
     capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
 
 
-def test_capable_runs_there_need_the_program_folder_probes(allowed, repo, isolated_config):
+def test_capable_runs_there_need_both_scope_blocks(allowed, repo, isolated_config):
     def check(settings, folder):
         asyncio.run(capable.check_available(settings, folder))
 
-    marker(isolated_config)
-    with pytest.raises(ClaudeError) as refused:
-        check(allowed, repo)
-    assert "program folder" in refused.value.message
-    older = capable.PROGRAM_SUITE_VERSIONS["cli"] - 1
-    marker(isolated_config, program_folder=True, suite_version=older)
-    with pytest.raises(ClaudeError):
-        check(allowed, repo)
-    marker(isolated_config, program_folder=True)
-    check(allowed, repo)
-    # other allowed folders stay as they were: memory-folder runs only so far
+    everywhere = "all_allowed_folders"
     other = allowed.ask_dir.parent / "project"
     other.mkdir()
-    with pytest.raises(ClaudeError) as elsewhere:
-        check(dataclasses.replace(allowed, allowed_paths=(repo, other)), other)
-    assert "memory folder only" in elsewhere.value.message
+    both = dataclasses.replace(allowed, allowed_paths=(repo, other))
+    marker(isolated_config)  # memory folder only, no program-folder probes
+    for folder in (repo, other):
+        with pytest.raises(ClaudeError) as refused:
+            check(both, folder)
+    assert "memory folder only" in refused.value.message
+    # the program folder's own probes alone are not enough...
+    marker(isolated_config, program_folder=True)
+    with pytest.raises(ClaudeError) as refused:
+        check(both, repo)
+    assert "program folder" in refused.value.message
+    # ...nor the allowed-folder block alone: other folders work, the program folder not
+    marker(isolated_config, scope=everywhere)
+    check(both, other)
+    with pytest.raises(ClaudeError):
+        check(both, repo)
+    older = capable.PROGRAM_SUITE_VERSIONS["cli"] - 1
+    marker(isolated_config, scope=everywhere, program_folder=True, suite_version=older)
+    with pytest.raises(ClaudeError):
+        check(both, repo)
+    marker(isolated_config, scope=everywhere, program_folder=True)
+    check(both, repo)
+    check(both, other)
 
 
 def test_the_commit_is_read_from_gits_files(tmp_path):
@@ -258,7 +268,8 @@ def test_the_probes_judge_on_disk(settings, monkeypatch, leak):
     assert found["shell: git hooks not written"].passed is not leak
     assert all(p.passed for name, p in found.items() if name != "shell: git hooks not written")
     environments = {"terminal": [dataclasses.asdict(p) for p in suite.probes]}
-    assert verify.program_folder_probed(environments)
+    # a leak withholds the program folder only (the block widens the scope, #180)
+    assert verify.program_folder_probed(environments) is not leak
     suite.retire()
 
 

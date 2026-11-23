@@ -220,19 +220,21 @@ async def check_available(
                 "scripts/verify-guardrails (and with --runner sdk) once the chat folder "
                 "can be used"
             )
-    elif run_dir is not None and marker.get("scope") != "all_allowed_folders":
+    elif run_dir is not None:
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
+        everywhere = marker.get("scope") == "all_allowed_folders"
         if folder == program.program_dir(settings.allowed_roots):
-            # The LifeOS program folder (#180): only after a check whose program-folder
-            # probes passed.
+            # The LifeOS program folder (#180): an allowed folder with rules of its own,
+            # after a check that covered allowed folders and its own probes.
             version = marker.get("suite_version")
             probed = isinstance(version, int) and version >= PROGRAM_SUITE_VERSIONS[runner]
-            if not probed or marker.get("program_folder") is not True:
+            if not everywhere or not probed or marker.get("program_folder") is not True:
                 raise unavailable(
                     "the guardrail check has not covered the LifeOS program folder yet; it "
                     "runs by itself at the next start of the bridge"
                 )
-        elif folder != memory and not folder.is_relative_to(memory):
+        elif not everywhere and folder != memory and not folder.is_relative_to(memory):
+            # Other allowed folders (#180): after a check whose allowed-folder block passed.
             raise unavailable("the guardrail check covers runs in the memory folder only so far")
     if recorded != await claude_version(settings):
         raise unavailable(

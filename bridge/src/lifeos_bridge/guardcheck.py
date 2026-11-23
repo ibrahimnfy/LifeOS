@@ -66,8 +66,10 @@ ORDER = ("cli", "sdk")
 # The chat-folder probes (#163, the same suite versions) add three per runner: a
 # shell run, a file-tool run and a read-only run in a blank chat's folder.
 # cli 6 and sdk 7 changed how the personal-skill run is judged, not how many runs there are.
-# The program-folder probes (#180, cli 7 and sdk 8) add one run per runner.
-PLAN_RUNS = {"cli": 16, "sdk": 20}
+# #180 (cli 7 and sdk 8) adds five per runner: one for the program folder, and four for an
+# allowed folder as the run folder (the probe script, the file tools, the gate, and one
+# for the memory folder and another allowed folder).
+PLAN_RUNS = {"cli": 20, "sdk": 24}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 
@@ -131,7 +133,13 @@ def probe_failed(runner: str, check_id: str) -> bool:
         ]
     except (OSError, ValueError, AttributeError):
         return False
-    return any(name not in INFRASTRUCTURE for name in failed)
+    # The blocks that only widen the scope (#180) never make the check fail: without
+    # them the capable mode simply keeps its narrower scope.
+    from .verify import SCOPE_PREFIXES  # local: verify is large and needs this module
+
+    return any(
+        name not in INFRASTRUCTURE and not name.startswith(SCOPE_PREFIXES) for name in failed
+    )
 
 
 async def run_verify(runner: str, check_id: str) -> int:

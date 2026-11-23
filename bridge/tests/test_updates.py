@@ -33,7 +33,7 @@ def repo(tmp_path, monkeypatch):
 @pytest.fixture
 def allowed(settings, repo, isolated_config):
     data = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
-            "sdk_version": capable.sdk_version(), "scope": "memory_folder",
+            "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
             "suite_version": capable.SUITE_VERSIONS["cli"], "program_folder": True}  # fmt: skip
     capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
     return dataclasses.replace(settings, allowed_paths=(repo,))
