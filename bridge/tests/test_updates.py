@@ -347,7 +347,8 @@ def test_a_run_started_by_a_request_holds_the_update(allowed, auth, monkeypatch)
     monkeypatch.setattr(coach, "refresh", slow_refresh)
     with TestClient(create_app(allowed)) as client:
         applier = client.app.state.applier
-        assert applier.blockers() == []
+        # (the bridge's own jobs may run at start, as the coach's morning plan: not asserted)
+        assert "requests" not in applier.blockers()
         worker = threading.Thread(
             target=lambda: client.post("/coach/plan/refresh", headers=auth), daemon=True
         )
@@ -356,7 +357,7 @@ def test_a_run_started_by_a_request_holds_the_update(allowed, auth, monkeypatch)
         assert "requests" in applier.blockers()
         release.set()
         worker.join(10)
-        assert applier.blockers() == []
+        assert "requests" not in applier.blockers()
 
 
 def test_other_agents_worktree_sessions_never_reach_the_phone(allowed, repo, auth, write_session):

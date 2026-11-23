@@ -6,7 +6,7 @@ Only the folder itself can be allowed, never a folder inside or around it
 (``paths.refusal_reason``). Two kinds of protection come with it:
 
 **What a run must never see or change** (every run that has the folder in
-reach, read-only runs included; docs/permission-policy.md, section 9.13):
+reach, read-only runs included; docs/permission-policy.md, section 9.14):
 
 - hidden from commands and file tools, and never written: ``.tools/`` (the
   build tool caches and the Android user folder with its keys) and

@@ -105,6 +105,7 @@ claude -p --output-format stream-json --verbose
   --plugin-dir <copy> --add-dir <copy>  (per copy of skills, section 9.2; then
                                          without --disable-slash-commands)
   --add-dir <conversation index>       (read-only, section 9.11)
+  --add-dir <course folder>            (read-only, the course's chats; section 9.12)
   --settings '<generated JSON>'
 ```
 
@@ -151,7 +152,7 @@ Other points:
   refused for the same reason until the owner made LifeOS the MVP (#180): now
   the folder itself can be allowed (never a folder inside or around it), with
   its own rules, and the bridge never runs what a run changed there before
-  the owner approved an update (section 9.13).
+  the owner approved an update (section 9.14).
 - Capable runs always use the streaming output internally, because only that
   shows tool calls.
 
@@ -167,7 +168,7 @@ and its children; **CC** = enforced by Claude Code for its own file tools;
 | 1 | Default mode is read-only | bridge: no `mode` → read-only flags | **enforced, tested** |
 | 2 | Work confined to the allowed folders: writes | OS: only the run folder, added folders and the temp folder are writable. CC: restricted mode + `Edit` allow rules | **verified** (probes: writes outside, by shell and by file tool) |
 | 3 | Work confined to the allowed folders: reads | OS: `denyRead` for the home folder, `allowRead` for the allowed folders. CC: restricted mode. Note: system folders outside home (`/usr`, `/etc`) stay readable; they hold no personal files | **verified** (the home folder is invisible to commands except the allowed folders) |
-| 4 | Never read or write the private config folder, SSH keys, credential stores, browser profiles | OS: all are under the home folder → covered by 3 (and never writable). CC: explicit deny rules as a second layer. bridge: such folders can never be added as allowed paths. The LifeOS program folder, when allowed, keeps its build-tool folder (with keys) and other agents' worktrees hidden (section 9.13) | **verified** (canary in the private config folder: shell, file tool, through a symlink; key, settings and browser folders not listable; the program folder's parts by its own probes) |
+| 4 | Never read or write the private config folder, SSH keys, credential stores, browser profiles | OS: all are under the home folder → covered by 3 (and never writable). CC: explicit deny rules as a second layer. bridge: such folders can never be added as allowed paths. The LifeOS program folder, when allowed, keeps its build-tool folder (with keys) and other agents' worktrees hidden (section 9.14) | **verified** (canary in the private config folder: shell, file tool, through a symlink; key, settings and browser folders not listable; the program folder's parts by its own probes) |
 | 5 | `sudo` always denied | OS: commands run in a user namespace without privilege escalation. pattern: refusal message | **verified** (also when started indirectly from a script) |
 | 6 | No change of system settings | OS: system folders are read-only; desktop settings go through the session bus, which needs Unix sockets → blocked by the seccomp filter and by hiding `/run/user`. **Depends on the optional seccomp component being installed** (it is) | **verified** (no Unix sockets, no session bus, settings database invisible, user service manager unreachable) |
 | 7 | Approval needed: any network action that sends data out; pushes; package installs; message or e-mail sending | OS: commands have **no network at all** (empty allow-list, strict). pattern: clear refusal naming the reason. One exception (SDK runner, #178): a plain `git push` over HTTPS that the owner approved is run by the bridge itself, in a confinement of its own, with network for that one push (section 9.12) | **verified** (TCP, DNS, HTTPS, git over HTTPS, localhost including the bridge's own port: no connection; the approved push: section 9.12) |
@@ -246,9 +247,9 @@ Not a setting someone can flip by accident:
    is allowed yet, so this could not be probed). A blank chat's folder is
    probed by its own part of the suite; the marker records that as
    `"chat_folders": true` (section 9.11). So is the LifeOS program folder, on
-   a scratch copy of its layout: `"program_folder": true` (section 9.13).
+   a scratch copy of its layout: `"program_folder": true` (section 9.14).
    Since #180 a block of its own covers an allowed folder as the run folder;
-   only when it passed is the scope `"all_allowed_folders"` (section 9.14).
+   only when it passed is the scope `"all_allowed_folders"` (section 9.15).
 6. Otherwise the request is refused with `503 capable_mode_unavailable` and a
    plain explanation. It is never downgraded silently to a different
    behaviour than the one requested.
@@ -293,6 +294,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | MCP server of the run folder, and a personal one (scratch file of the check): unapproved; approved; changed after the approval (no model run) | passed only while approved and unchanged; secret values are neither shown nor on the command line |
 | A blank chat's folder as the run folder: the chat root and another chat (shell, file tools, read-only), the gate, a `CLAUDE.md` in the folder | see section 9.11 |
 | SDK runner only: an approved `git push` from a repository with planted hooks and settings, then an unapproved network attempt | see section 9.12 |
+| The owner's read-only course folders: read and change them by command and by file tool, capable and read-only; instruction files, skills, hooks and MCP servers in them | readable, never changed, nothing loaded; see section 9.13 |
 
 **Probes that need the model to make a particular call** (the SDK
 approval probes, and since #162 the run that starts the personal skill) are
@@ -1350,7 +1352,81 @@ request through would have looked blocked. The probe now counts an HTTP
 error status as reached (suite versions `cli` 7 and `sdk` 8). The TCP and
 DNS probes next to it were not affected.
 
-### 9.13 The LifeOS program folder as an allowed folder (owner, #180)
+### 9.13 The owner's read-only course folders (#179)
+
+The owner keeps folders of their own for some courses (decision on #161).
+They are listed in the private file `course_folders` (`<Moodle course
+id><TAB><absolute path>`; each line must pass the limits of the allowed
+folders and may neither hold nor lie in the memory folder or the chat
+root) and are **read-only context** for the chats of that course.
+
+- **Readable by the course's runs.** A run whose folder is the course's own
+  folder of the Moodle sync (or a folder in it, found through the sync's
+  records) gets the matching folders with `--add-dir`, so the file tools
+  may read them, and in capable runs `allowRead`, so sandboxed commands may
+  read them too. A capable run gets them only after a check whose
+  course-folder probes passed (`"course_folders": true` in the marker).
+- **Never writable, in any capable run.** Every listed folder, readable by
+  the run or not, is in the sandbox's `denyWrite` and has a deny rule
+  `Edit(//<folder>/**)` (which covers `Edit` and `Write`). This matters:
+  **Claude Code's sandbox lets commands write in every added folder** (seen
+  in the control run below), so the write denial is what keeps a readable
+  course folder unchanged, as for the copies of skills (#171) and the
+  conversation index (#164).
+- **Never a run folder.** A listed folder or one inside it is refused as
+  the folder of a capable run (`folder_not_allowed`) and can never become
+  an allowed folder (`path_not_allowed`), whoever asks.
+- **Nothing in it is loaded.** Checked with Claude Code 2.1.330 (small
+  model, a scratch course folder holding `CLAUDE.md`, `CLAUDE.local.md`,
+  `AGENTS.md`, `.claude/rules/`, a skill, a command, an agent,
+  `.claude/settings.json` and `settings.local.json` with `SessionStart`,
+  `UserPromptSubmit` and `PreToolUse` hooks, and a `.mcp.json` server; no
+  stored session):
+
+  | Run | Offered from the folder | Loaded or ran |
+  |---|---|---|
+  | Read-only flags of the bridge, the folder added | nothing (no skill, command or agent of it) | no instruction word; no hook; no MCP server |
+  | Capable flags, the folder added | nothing | nothing |
+  | Capable flags with a plugin copy of personal skills (slash commands on, `Skill` tool) | only the copy's skill and Claude Code's built-in ones | nothing |
+  | Control: no restricted mode (`--setting-sources project`), Claude Code's switch for added-folder instruction files set | the folder's skill, command and agent | `CLAUDE.md` and `.claude/rules/` loaded; hooks and the MCP server still not |
+
+  The restricted mode is what keeps an added folder's skills, commands and
+  agents out; the bridge starts every run with it. Hooks, settings and MCP
+  servers of an added folder were not loaded in any mode tried.
+- **Probes** (suite `cli` 7 / `sdk` 8, two short runs per environment and
+  runner). Three scratch course folders, named with spaces, Turkish letters
+  and brackets as real folder names may be: one outside every folder of the
+  run (in the chat root, named like the suite's chat folders and removed
+  with them), one inside the run folder, where the run may write everything
+  else, and one of "another course", listed (write-denied) but not given to
+  the run. The owner's own `course_folders` is read as for every capable
+  run (its folders are write-denied in the probe runs too), never written.
+
+  | Probe | Must happen |
+  |---|---|
+  | The policy (no model run) | both given folders in `allowRead`; all three in `denyWrite` and the `Edit` deny rules; the other course's not in `allowRead` |
+  | The inside folder, and a folder in it, as the folder of a capable run (no model run) | refused by the course rule (`folder_not_allowed`) |
+  | A script inside the sandbox reads a file of each given folder | readable |
+  | The same script reads and lists the other course's folder | not readable (the sandbox shows nothing there) |
+  | The script creates, appends, makes writable, renames, deletes, makes a folder, and with `sh`, `mv` and `rm` writes, renames and deletes, in each given folder | every change fails |
+  | File tools: `Read` in each given folder; `Write` a new file and `Edit` a file in each; `Read` in the other course's folder; `Write` in the run folder | reads work; every `Write` and `Edit` there is refused; the other course's file is refused; the run folder stays writable (judged by the result of each call) |
+  | A read-only run: `Read` in the outside folder | works; no shell or write tool |
+  | All three folders, looked at from outside the sandbox after all runs | unchanged (every file's mode and content) |
+  | Instruction files, skills, commands, agents, hooks and an MCP server in the outside folder | none offered (init message), none ran, the instruction word in no reply |
+
+  A step the model did not make is "not run" (inconclusive) and the check
+  is retried, never passed. Run alone against Claude Code 2.1.330 in the
+  terminal environment (2026-11-23, scratch settings, memory folder and
+  chat root): every probe passed on both runners, twice each (before and
+  after the third folder and the unusual names were added); a write-denied
+  folder that the run is not given did not stop the run from starting.
+  **Control** (`claude -p`, twice): with the course rules removed from the
+  capable run's settings (no `denyWrite`, no deny rules), every change by
+  command worked in both given folders (also in the one outside the run
+  folder, which is only an added folder), `Write` worked in the inside
+  folder, and seven probes failed.
+
+### 9.14 The LifeOS program folder as an allowed folder (owner, #180)
 
 LifeOS is the owner's daily MVP: changes are asked for from a chat in the
 program folder (this checkout), as in the terminal. The folder therefore
@@ -1417,7 +1493,7 @@ exactly the bridge's policy for a program folder there:
 
 A capable run in the program folder starts only after a check whose marker
 says `"program_folder": true` at those suite versions and `"scope":
-"all_allowed_folders"` (section 9.14); until then it is refused with `503
+"all_allowed_folders"` (section 9.15); until then it is refused with `503
 capable_mode_unavailable`. Read-only chats there work at once. Like the
 allowed-folder block, this block only widens the scope: when it does not
 pass, the marker says `false` and the rest of the check stands.
@@ -1473,7 +1549,7 @@ the outcome.
 - *Writes into the hidden folders* do not fail visibly in every case: they
   land in an empty stand-in and are gone after the run.
 
-### 9.14 Allowed folders as run folders (#180)
+### 9.15 Allowed folders as run folders (#180)
 
 Until #180 the marker always said `"scope": "memory_folder"`: capable runs
 worked in the memory folder and in blank chats' folders only, and every
@@ -1521,7 +1597,7 @@ failed, nothing was "not run") does the marker say `"scope":
 "all_allowed_folders"`. Otherwise it says `"memory_folder"`, and nothing
 else changes: the rest of the check decides on the capable mode as before,
 and a failure in this block never makes the check "failed". The
-program-folder block (section 9.13) works the same way, and a run in the
+program-folder block (section 9.14) works the same way, and a run in the
 program folder needs both.
 
 **Real runs** (Claude Code 2.1.330, 2026-11-23, `claude -p` runner,
@@ -1549,3 +1625,6 @@ skill, personal-skill, MCP and chat-folder probes are not repeated for an
 allowed folder (they are about what a run is given, not where it works).
 A project's own instruction files (`CLAUDE.md`) are loaded in an allowed
 folder as in any Claude Code session there.
+The owner's read-only course folders (section 9.13) keep their write-deny in
+every capable run, also in one whose folder is an allowed folder: the
+policy is the same `build_policy`; their own probes are not repeated here.

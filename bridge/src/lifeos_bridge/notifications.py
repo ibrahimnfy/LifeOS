@@ -44,18 +44,21 @@ def send(
     ref: str = "",
     opens: str | None = None,
     counts: dict | None = None,
+    sealed_title: str = "",
 ) -> None:
     """Texts passed here must not contain prompts, notes, titles of sessions or paths.
 
     With ``event`` the paired phones are woken too, by a sealed hint without
     readable content (``push.send_hint``); ``ref`` names the item it concerns,
-    ``opens`` the screen a tap opens, ``counts`` what changed (sealed only).
+    ``opens`` the screen a tap opens, ``counts`` what changed (sealed only), and
+    ``sealed_title`` a notice's title, shown only inside the unlocked app.
     """
     if event:
         from . import push  # local import: push needs the device store
 
+        extra = {"t": sealed_title} if sealed_title else {}
         with contextlib.suppress(Exception):
-            push.send_hint(event, ref, opens=opens, counts=counts)
+            push.send_hint(event, ref, opens=opens, counts=counts, **extra)
     script = script or default_script()
     if script is None or not script.is_file():
         return

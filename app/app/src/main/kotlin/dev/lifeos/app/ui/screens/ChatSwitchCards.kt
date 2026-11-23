@@ -60,7 +60,15 @@ internal fun SwitchCard(offer: ChatSwitch, onPick: (ChatSwitch) -> Unit) {
             .padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        CardLabel(stringResource(if (offer.action == ChatSwitch.CHOOSE) R.string.switch_choose_label else R.string.switch_offer_label))
+        CardLabel(
+            stringResource(
+                when (offer.action) {
+                    ChatSwitch.CHOOSE -> R.string.switch_choose_label
+                    ChatSwitch.CHOOSE_FOLDER -> R.string.switch_folder_label
+                    else -> R.string.switch_offer_label
+                },
+            ),
+        )
         offer.sessions.forEachIndexed { index, session ->
             if (index > 0) RowDivider()
             val folder = if (session.kind == FolderKinds.CHAT) stringResource(R.string.chat_folder_chat) else session.folderLabel
@@ -83,8 +91,23 @@ internal fun SwitchCard(offer: ChatSwitch, onPick: (ChatSwitch) -> Unit) {
                 line = null,
             ) { onPick(ChatSwitch.new(folder)) }
         }
+        // Folders found by name (#179): where each lies, and whether it is a working folder already.
+        offer.folders.forEachIndexed { index, choice ->
+            if (index > 0 || offer.sessions.isNotEmpty() || offer.folder != null) RowDivider()
+            val state = stringResource(if (choice.allowed) R.string.switch_folder_allowed else R.string.switch_folder_new)
+            SwitchRow(
+                kind = choice.kind.ifEmpty { FolderKinds.PROJECT },
+                colour = choice.colour,
+                letter = choice.label,
+                title = choice.label,
+                line = listOf(choice.where.ifBlank { choice.path }, state).joinToString(" · "),
+            ) { onPick(ChatSwitch.pick(choice)) }
+        }
         if (offer.sessions.isNotEmpty()) {
             Text(text = stringResource(R.string.switch_choose_note), style = LifeType.small, color = colors.muted, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
+        }
+        if (offer.folders.isNotEmpty()) {
+            Text(text = stringResource(R.string.switch_folder_note), style = LifeType.small, color = colors.muted, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
         }
     }
 }

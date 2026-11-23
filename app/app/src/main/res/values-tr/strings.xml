@@ -610,6 +610,11 @@
     <string name="switch_choose_note">Açmak için birine dokun. Kendi klasöründe, kendi geçmişiyle devam eder.</string>
     <string name="switch_new_in">%1$s içinde yeni sohbet</string>
     <string name="switch_new_blank">Yeni boş sohbet</string>
+    <string name="switch_folder_label">Hangi klasör?</string>
+    <string name="switch_folder_allowed">zaten çalışma klasörü</string>
+    <string name="switch_folder_new">seçilince eklenir</string>
+    <string name="switch_folder_note">Orada yeni bir sohbet başlatmak için birine dokun. Henüz çalışma klasörü olmayan bir klasör önce eklenir ve sana bildirilir.</string>
+    <string name="switch_folder_failed">Bu klasör açılamadı. Nedenini görmek için sohbette tekrar sor.</string>
 
     <!-- Moving a blank chat's files into a project (#163, #168) -->
     <string name="move_label">Dosyaları taşı</string>

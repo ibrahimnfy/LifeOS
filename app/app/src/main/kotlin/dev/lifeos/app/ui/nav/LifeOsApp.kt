@@ -59,6 +59,7 @@ import dev.lifeos.app.data.SessionSummary
 import dev.lifeos.app.data.ChatSwitch
 import dev.lifeos.app.data.FolderKinds
 import dev.lifeos.app.data.SwitchStep
+import dev.lifeos.app.data.asFolder
 import dev.lifeos.app.data.step
 import dev.lifeos.app.ui.screens.SessionsScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
@@ -174,6 +175,7 @@ fun LifeOsApp(
     // Moving between conversations by asking (#164, #168): a switch of an answer, or the owner's
     // pick on its card. A conversation continues in its own folder, the coach's on its own
     // screen; a new one starts empty in the folder named (the blank chats: a blank chat).
+    val folderNotOpened = stringResource(R.string.switch_folder_failed)
     val switchTo: (ChatSwitch) -> Unit = { switch ->
         when (val step = switch.step()) {
             SwitchStep.Coach -> openCoach()
@@ -184,6 +186,17 @@ fun LifeOsApp(
             is SwitchStep.New -> {
                 core.chat.newChat(step.folder)
                 openChat()
+            }
+            // A folder found by name (#179): the computer opens it (it may add it to the allowed
+            // folders, by its own rules), then a new chat starts there.
+            is SwitchStep.Pick -> scope.launch {
+                try {
+                    val opened = core.api.openFolder(step.path)
+                    core.chat.newChat(opened.folder.asFolder())
+                    openChat()
+                } catch (_: ApiException) {
+                    showMessage(folderNotOpened)
+                }
             }
             null -> Unit
         }
