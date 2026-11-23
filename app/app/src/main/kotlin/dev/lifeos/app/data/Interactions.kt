@@ -60,6 +60,11 @@ data class InteractionData(
     // ---- moving a blank chat's files into a project (#163): [target], [files], [totalSize] as above
     /** The target folder as the owner knows it ("project/notes"). */
     @SerialName("target_label") val targetLabel: String = "",
+    // ---- applying an update a chat in the program folder produced (#180)
+    /** The commit the update would apply, as the computer read it when the card was made. */
+    val commit: String = "",
+    /** The commit the computer's side runs now (empty when unknown). */
+    @SerialName("running_commit") val runningCommit: String = "",
 ) {
     /** [server] with the card's own [scope], which decides whose approval this is. */
     val scopedServer: McpServer? get() = server?.let { if (scope.isBlank()) it else it.copy(scope = scope) }
@@ -248,6 +253,80 @@ data class FileMove(
     }
 }
 
+/**
+ * A chat in the LifeOS program folder asks for its committed changes to be applied (#180):
+ * after a yes the computer waits until no run is active, runs the tests, builds the app
+ * update and restarts its own side. It runs code a phone chat changed outside the sandbox,
+ * so only the owner's tap starts it, and only for exactly [commit].
+ */
+data class UpdateRequest(
+    val commit: String,
+    val runningCommit: String = "",
+    /** Why the computer refused the request at once (its `error_code`). */
+    val problem: Problem? = null,
+    /** Why a yes was not acted on (`reason` of the answer). */
+    val notDone: NotDone? = null,
+) {
+    enum class Problem {
+        /** The request came from a chat in another folder. */
+        NOT_PROGRAM_FOLDER,
+
+        /** An update is being applied already. */
+        IN_PROGRESS,
+
+        /** The computer could not read which commit the folder is at. */
+        NO_COMMIT,
+
+        /** The computer could not write its audit log, so it dropped the request. */
+        UNRECORDED,
+        OTHER,
+    }
+
+    enum class NotDone {
+        /** The folder is at another commit than the card shows: that one was never shown. */
+        CHANGED,
+
+        /** Another update is under way. */
+        IN_PROGRESS,
+        OTHER,
+    }
+
+    /** The first twelve characters, as git shows a commit. */
+    val shortCommit: String get() = short(commit)
+    val shortRunning: String get() = short(runningCommit)
+
+    /** What the computer answered to the owner's yes. */
+    fun answered(answer: JsonElement?): UpdateRequest {
+        val body = answer as? JsonObject ?: return this
+        if ((body["approved"] as? JsonPrimitive)?.content != "false") return this
+        val reason = (body["reason"] as? JsonPrimitive)?.content
+        val why = when (reason) {
+            "changed" -> NotDone.CHANGED
+            "update_in_progress" -> NotDone.IN_PROGRESS
+            else -> NotDone.OTHER
+        }
+        return copy(notDone = why)
+    }
+
+    companion object {
+        fun of(data: InteractionData): UpdateRequest = UpdateRequest(
+            commit = data.commit,
+            runningCommit = data.runningCommit,
+            problem = if (data.state == "refused") problemOf(data.errorCode) else null,
+        )
+
+        fun problemOf(code: String?): Problem = when (code) {
+            "not_program_folder" -> Problem.NOT_PROGRAM_FOLDER
+            "update_in_progress" -> Problem.IN_PROGRESS
+            "no_commit" -> Problem.NO_COMMIT
+            "audit_unavailable" -> Problem.UNRECORDED
+            else -> Problem.OTHER
+        }
+
+        private fun short(commit: String): String = commit.filter { it.isLetterOrDigit() }.take(12)
+    }
+}
+
 @Serializable
 data class PendingInteractions(val pending: List<InteractionData> = emptyList())
 
@@ -280,6 +359,8 @@ data class Interaction(
     val refusal: Refusal? = null,
     /** Moving a blank chat's files: which files, where to, and what a yes did (#163). */
     val move: FileMove? = null,
+    /** Applying an update of the program folder: which commit, and why a yes was not acted on (#180). */
+    val update: UpdateRequest? = null,
     /** Approval: the command will use the network, for exactly this push (#178). */
     val network: NetworkPush? = null,
 ) {
@@ -310,7 +391,7 @@ data class Interaction(
         CANNOT_MOVE,
     }
 
-    enum class Kind { APPROVAL, QUESTION, SKILL_INSTALL, MCP_SERVER, MOVE_FILES }
+    enum class Kind { APPROVAL, QUESTION, SKILL_INSTALL, MCP_SERVER, MOVE_FILES, APPLY_UPDATE }
 
     enum class Status {
         /** The computer waits for the owner. */
@@ -345,7 +426,7 @@ data class Interaction(
      * messages and restarts of the computer. Only an answer, its own end time or the
      * computer's list closes it; the end of a run or the next message does not.
      */
-    val crossRun: Boolean get() = kind == Kind.SKILL_INSTALL || kind == Kind.MCP_SERVER || kind == Kind.MOVE_FILES
+    val crossRun: Boolean get() = kind == Kind.SKILL_INSTALL || kind == Kind.MCP_SERVER || kind == Kind.MOVE_FILES || kind == Kind.APPLY_UPDATE
 
     /** A yes is possible: an install only once its contents are listed. */
     val canApprove: Boolean get() = install == null || install.state == SkillInstall.State.READY
@@ -388,6 +469,9 @@ data class Interaction(
                 // Only a usable proposal waits; one without files or a target would be nothing to approve.
                 MOVE_FILES ->
                     if (data.target.isBlank() || data.files.none { it.path.isNotBlank() }) null else Interaction(data.id, Kind.MOVE_FILES, folder = data.folder, deadline = deadline, move = FileMove.of(data.copy(state = "ready")))
+                // Only a request that names its commit: the yes applies exactly that one.
+                APPLY_UPDATE ->
+                    if (data.commit.isBlank()) null else Interaction(data.id, Kind.APPLY_UPDATE, folder = data.folder, deadline = deadline, update = UpdateRequest.of(data.copy(state = "ready")))
                 "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline, network = data.network?.takeIf { it.usable })
                 "question" -> {
                     val questions = data.questions.filter { it.question.isNotBlank() }
@@ -405,7 +489,8 @@ data class Interaction(
         const val SKILL_INSTALL = "skill_install"
         const val MCP_SERVER = "mcp_server"
         const val MOVE_FILES = "move_files"
-        private val CROSS_RUN = setOf(SKILL_INSTALL, MCP_SERVER, MOVE_FILES)
+        const val APPLY_UPDATE = "apply_update"
+        private val CROSS_RUN = setOf(SKILL_INSTALL, MCP_SERVER, MOVE_FILES, APPLY_UPDATE)
 
         /**
          * A proposal the computer refused at once (it is only in the answer's own list and
@@ -425,6 +510,13 @@ data class Interaction(
             if (data.kind != MOVE_FILES) return null
             val move = FileMove.of(data.copy(state = "refused"))
             return Interaction("local-$key", Kind.MOVE_FILES, deadline = now, status = Status.NOT_DONE, move = move)
+        }
+
+        /** A request to apply an update the computer refused at once (#180): a card that says why. */
+        fun refusedUpdate(data: InteractionData, key: Long, now: Long): Interaction? {
+            if (data.kind != APPLY_UPDATE) return null
+            val update = UpdateRequest.of(data.copy(state = "refused"))
+            return Interaction("local-$key", Kind.APPLY_UPDATE, deadline = now, status = Status.NOT_DONE, update = update)
         }
 
         /**

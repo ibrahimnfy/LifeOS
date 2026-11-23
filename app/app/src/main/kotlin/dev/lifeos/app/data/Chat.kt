@@ -146,6 +146,9 @@ enum class ChatProblem {
     /** Too many runs at once on the computer. */
     BUSY,
 
+    /** An approved update is being applied; the computer restarts in a few minutes (#180). */
+    UPDATING,
+
     /** The session's folder no longer exists, or is no longer an allowed folder. */
     FOLDER_GONE,
 
@@ -1514,7 +1517,7 @@ class Chat(
             mark(generation, id) {
                 if (outcome != null) {
                     // A move says which files went and which did not (#163).
-                    it.copy(status = outcome, sendFailed = false, move = it.move?.answered(answered))
+                    it.copy(status = outcome, sendFailed = false, move = it.move?.answered(answered), update = it.update?.answered(answered))
                 } else {
                     it.copy(status = Interaction.Status.WAITING, sendFailed = refusal == null, refusal = refusal)
                 }
@@ -1539,7 +1542,7 @@ class Chat(
      */
     private fun proposals(data: JsonObject?): List<Interaction> {
         val now = uptimeMillis()
-        return listOf("skill_installs", "file_moves").flatMap { field -> (data?.get(field) as? JsonArray).orEmpty() }.mapNotNull { item ->
+        return listOf("skill_installs", "file_moves", "update_requests").flatMap { field -> (data?.get(field) as? JsonArray).orEmpty() }.mapNotNull { item ->
             val card = try {
                 BridgeJson.decodeFromJsonElement(InteractionData.serializer(), item)
             } catch (_: Exception) {
@@ -1548,6 +1551,7 @@ class Chat(
             when {
                 card.state != "refused" && card.id.isNotEmpty() -> Interaction.of(card, now, nowMillis(), fresh = true)
                 card.kind == Interaction.MOVE_FILES -> Interaction.refusedMove(card, keys.incrementAndGet(), now)
+                card.kind == Interaction.APPLY_UPDATE -> Interaction.refusedUpdate(card, keys.incrementAndGet(), now)
                 else -> Interaction.refusedInstall(card, keys.incrementAndGet(), now)
             }
         }
@@ -1804,10 +1808,12 @@ class Chat(
          * The marker lines the computer takes out of a finished answer: file offers, skill
          * installs (#97), switches to another conversation (#164), folders found or removed by
          * asking (#179) and moves of a blank chat's files (#163). The history keeps the move
-         * lines, so they are hidden there too.
+         * lines, so they are hidden there too. A request to apply an update (#180) is a line
+         * without a value: [UPDATE_LINE].
          */
         private val MARKERS = listOf("file", "skill-install", "switch-new", "switch-find", "switch-remove", "switch", "move-files")
-        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[(?:${MARKERS.joinToString("|")}):[^\\n]*]][ \\t]*\\n?")
+        private const val UPDATE_LINE = "[[apply-update]]"
+        private val FILE_LINE = Regex("(?m)^[ \\t]*\\[\\[(?:(?:${MARKERS.joinToString("|")}):[^\\n]*|apply-update)]][ \\t]*\\n?")
         private val FILE_PATH = Regex("(?m)^[ \\t]*\\[\\[file:([^\\n]*?)]][ \\t]*$")
 
         /** Ids are put into request paths: only the characters a session id can have. */
@@ -1824,7 +1830,8 @@ class Chat(
             val shown = FILE_LINE.replace(streamed, "")
             val start = shown.lastIndexOf('\n') + 1
             val tail = shown.substring(start).trimStart(' ', '\t')
-            val unfinished = tail.isNotEmpty() && MARKERS.any { name -> "[[$name:".let { head -> tail.startsWith(head) || head.startsWith(tail) } }
+            val unfinished = tail.isNotEmpty() &&
+                (MARKERS.any { name -> "[[$name:".let { head -> tail.startsWith(head) || head.startsWith(tail) } } || UPDATE_LINE.startsWith(tail))
             return (if (unfinished) shown.substring(0, start) else shown).trimEnd()
         }
 
@@ -1873,6 +1880,7 @@ class Chat(
         fun problemOf(code: String?, status: Int = 0): ChatProblem = when (code) {
             "session_in_use" -> ChatProblem.IN_USE
             "busy", "queue_full" -> ChatProblem.BUSY
+            "update_in_progress" -> ChatProblem.UPDATING
             "folder_missing", "folder_not_allowed" -> ChatProblem.FOLDER_GONE
             "session_not_found" -> ChatProblem.SESSION_GONE
             UiStates.FOLDER_IN_REPOSITORY -> ChatProblem.FOLDER_IN_REPOSITORY

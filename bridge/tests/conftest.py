@@ -98,6 +98,19 @@ def isolated_config(tmp_path, monkeypatch):
     return config
 
 
+@pytest.fixture(autouse=True)
+def no_real_update_steps(monkeypatch):
+    """Tests never run the real steps of an update (#180): the bridge's own tests, the
+    release build, a restart of the service. A test gives the applier its stand-ins."""
+    from lifeos_bridge import updates
+
+    class Forbidden:
+        def __getattr__(self, name):
+            raise AssertionError(f"the real update step {name!r} ran in a test")
+
+    monkeypatch.setattr(updates, "Steps", Forbidden)
+
+
 @pytest.fixture
 def ask_dir(tmp_path):
     folder = tmp_path / "home" / "brain"

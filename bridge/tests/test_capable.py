@@ -115,7 +115,8 @@ def test_capable_run_flags_and_single_settings_json(client, auth, calls, enable,
     assert "Read(~/.config/lifeos/**)" in denied and "Read(~/.ssh/**)" in denied
     assert f"Edit(/{index}/**)" in denied
     hook = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-    assert "lifeos_bridge.gate" in hook and "--audit-dir" in hook
+    # The copy of the gate taken when the bridge started (#180), standard library only.
+    assert " -I -S " in hook and "/pinned/gate.py --audit-dir" in hook
 
     env = call["env"]
     assert "XDG_RUNTIME_DIR" not in env and "DBUS_SESSION_BUS_ADDRESS" not in env
@@ -208,10 +209,12 @@ def test_folders_that_may_never_be_used(settings, tmp_path, monkeypatch):
     hidden.mkdir()
     with pytest.raises(ClaudeError):
         capable.build_policy(dataclasses.replace(settings, ask_dir=hidden), hidden)
-    monkeypatch.setattr(paths, "repo_dir", lambda: settings.ask_dir)
-    with pytest.raises(ClaudeError) as program:
+    inner = settings.ask_dir / "inner"
+    inner.mkdir()
+    monkeypatch.setattr(paths, "repo_dir", lambda: inner)
+    with pytest.raises(ClaudeError) as program:  # around the program folder (#180)
         capable.build_policy(settings, settings.ask_dir)
-    assert "program folder" in program.value.message
+    assert "program folder itself" in program.value.message
 
 
 def test_a_check_that_covered_only_the_memory_folder_keeps_other_folders_refused(

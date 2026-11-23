@@ -45,7 +45,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from . import capable, notifications, store
+from . import capable, notifications, program, store
 from .claude import ClaudeError
 from .config import Settings, config_dir
 
@@ -69,7 +69,10 @@ ORDER = ("cli", "sdk")
 # The approved-push probe (#178, sdk 8) adds one run on the SDK runner.
 # The course-folder probes (#179, cli 7 and sdk 8) add two per runner: a capable run and a
 # read-only run with a read-only course folder.
-PLAN_RUNS = {"cli": 17, "sdk": 22}
+# #180 (cli 7 and sdk 8) adds five per runner: one for the program folder, and four for an
+# allowed folder as the run folder (the probe script, the file tools, the gate, and one
+# for the memory folder and another allowed folder).
+PLAN_RUNS = {"cli": 22, "sdk": 27}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 
@@ -133,7 +136,13 @@ def probe_failed(runner: str, check_id: str) -> bool:
         ]
     except (OSError, ValueError, AttributeError):
         return False
-    return any(name not in INFRASTRUCTURE for name in failed)
+    # The blocks that only widen the scope (#180) never make the check fail: without
+    # them the capable mode simply keeps its narrower scope.
+    from .verify import SCOPE_PREFIXES  # local: verify is large and needs this module
+
+    return any(
+        name not in INFRASTRUCTURE and not name.startswith(SCOPE_PREFIXES) for name in failed
+    )
 
 
 async def run_verify(runner: str, check_id: str) -> int:
@@ -173,6 +182,8 @@ class GuardCheck:
         )
         self.task: asyncio.Task | None = None
         self.recheck_passed: set[str] = set()
+        # True while an approved update is being applied (#180): no check starts then.
+        self.held: Callable[[], bool] = lambda: False
 
     @staticmethod
     def _path() -> Path:
@@ -234,6 +245,11 @@ class GuardCheck:
         now = time.time() if now is None else now
         if os.environ.get(AUTOCHECK_VAR, "").strip().lower() == "off":
             return  # no automatic rerun (the mode still goes off after an update)
+        if program.code_changed() or self.held():
+            # The check runs the bridge's code from the program folder in a process of its
+            # own. A run there may have changed it (#180): the check waits until the bridge
+            # starts again (after an approved update), then runs with that code.
+            return
         if self.task is not None and not self.task.done():
             return  # one check at a time
         due = await self.due(now)

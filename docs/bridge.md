@@ -74,6 +74,9 @@ Notes:
   status). They never contain prompts or answers.
 - The unit template is `bridge/systemd/lifeos-bridge.service.in`; the install
   script fills in the repository location.
+- After an update the owner approved on the phone (#180), the bridge restarts
+  its own service when nothing runs; see "Updates from a chat in the program
+  folder".
 
 Check after installing: `systemctl --user status lifeos-bridge` shows
 `active (running)`, and the manual check below works without starting the
@@ -105,6 +108,7 @@ documented here as they are built.
 | GET | `/models/routing` | yes | Model, effort and advisor of each job, and its plan usage today and this week |
 | PUT | `/models/routing` | yes | Changes one job's model, effort or advisor (audited, no restart) |
 | GET | `/app/release` | yes | The registered release of the app: version, size, SHA-256, certificate |
+| GET | `/app/update` | yes | Where an approved update from a program-folder chat stands (#180) |
 | POST | `/app/release/offer` | yes | Offers the release APK for `GET /files/{offer}?session_id=app-release` |
 | GET | `/files/{offer}` | yes | Downloads a file the assistant offered |
 | GET / POST | `/reminders` | yes | Lists or creates session reminders |
@@ -250,8 +254,15 @@ transient user service, prints one line per probe and switches the mode on
 only if every probe passed in both. It takes a few minutes and about twenty
 short runs of the owner's Claude plan. Results:
 `~/.config/lifeos/guardrail-results.json`. The check covers runs in the
-memory folder and in a blank chat's folder (#163); capable runs in other
-allowed folders stay refused for now.
+memory folder and in a blank chat's folder (#163). Since #180 it also
+covers an allowed folder as the run folder: a block of its own reruns the
+essential probes with a scratch allowed folder (`permission-policy.md`,
+section 9.15). Only when that block passed does the marker say `"scope":
+"all_allowed_folders"`, and capable runs work in every allowed folder;
+otherwise it says `"memory_folder"` and they stay refused there, with the
+rest unchanged. The LifeOS program folder needs that and its own block
+(`"program_folder": true`, on a scratch copy of its layout; see "Updates
+from a chat in the program folder").
 
 **Each runner has its own check (#106).** `scripts/verify-guardrails
 --runner sdk` runs the same suite through the Agent SDK runner. It adds
@@ -320,18 +331,20 @@ Subfolders of the memory folder are fine. Details:
 - **Plan usage of one restart:** a runner needs a check after an update of
   Claude Code or the Agent SDK, after a new version of the probe suite (the
   skill probes of #91 are suite version 2), or when it was never checked.
-  - The `claude -p` suite takes about 17 short runs on the small model per
+  - The `claude -p` suite takes about 22 short runs on the small model per
     environment.
-  - The SDK suite takes about 22 per environment, because it adds the
+  - The SDK suite takes about 27 per environment, because it adds the
     approval probes and the approved push with network (#178, one run).
-  - Both runners in both environments come to **about 78 short runs**. The
+  - Both runners in both environments come to **about 98 short runs**. The
     skill probes of #91 and #92 add 12 of these (3 runs per environment and
     runner), the personal-skill probes of #162 add 4 (1 run per environment
     and runner), the chat-folder probes of #163 add 12 (a shell run, a
     file-tool run and a read-only run in a blank chat's folder, per
-    environment and runner), and the course-folder probes of #179 add 8 (a
+    environment and runner), the course-folder probes of #179 add 8 (a
     capable run and a read-only run with a read-only course folder, per
-    environment and runner); the MCP probes of #108 and #162 need no model
+    environment and runner), and the two blocks of #180 add 20 (per
+    environment and runner: 1 for the program folder, 4 for an allowed
+    folder as the run folder); the MCP probes of #108 and #162 need no model
     run. Probes without a model run (invalid settings, nested folders) are
     not counted.
   - A restart where both markers still match costs nothing.
@@ -344,12 +357,18 @@ Subfolders of the memory folder are fine. Details:
     chat-folder probes (`permission-policy.md`, section 9.11) and of the
     personal-skill run (section 9.2), which add no run (`cli` 6, `sdk` 7).
     The approved push with network (#178, one SDK run) and the corrected
-    HTTPS probe changed both again (`cli` 7, `sdk` 8).
-    The approval probes
+    HTTPS probe changed both again (`cli` 7, `sdk` 8), and so did the
+    course folders of #179 and the program-folder and allowed-folder blocks
+    of #180. The next start checks both once. The approval probes
     may add up to 8 more per environment when the model does not make the
     needed call at once, the personal-skill run and the skill-copy steps
-    (#171, part of an existing run) up to 2 more each, and each of the
-    three chat-folder runs and the two course-folder runs 1 more.
+    (#171, part of an existing run) up to 2 more each, each of the three
+    chat-folder runs and the two course-folder runs 1 more, and the
+    program-folder run 1 more.
+- **While the bridge's code differs from what it started with** (a chat in
+  the program folder changed it, or work in the terminal), the automatic
+  check waits: it would run that code outside the sandbox. It runs at the
+  next start of the bridge, for example after an approved update (#180).
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner
@@ -383,10 +402,12 @@ What a capable run looks like:
   `"mode": "capable"` is read-only again.
 
 Folders that can never be allowed, whatever `allowed_paths` says: the home
-folder itself, anything outside it, hidden folders, the LifeOS program
-folder and the private settings folder. Symbolic links are resolved first.
-The owner's read-only course folders (#179) are never the folder of a
-capable run, and never writable in any run: "Read-only course folders".
+folder itself, anything outside it, hidden folders, a folder inside or
+around the LifeOS program folder, and the private settings folder. The
+program folder itself can be allowed (#180), with its own rules. Symbolic
+links are resolved first. The owner's read-only course folders (#179) are
+never the folder of a capable run, and never writable in any run:
+"Read-only course folders".
 
 ### Choosing the folder of a new conversation
 
@@ -1676,7 +1697,8 @@ The folders Claude may work in besides the memory folder, stored in
 - **Never addable** (`400 path_not_allowed` with the reason): the home
   folder itself; anything outside the home folder, which includes all system
   folders; hidden folders or anything inside one (settings, keys,
-  credentials); the LifeOS program folder; the private settings folder;
+  credentials); a folder inside or around the LifeOS program folder (the
+  program folder itself can be added, #180); the private settings folder;
   one of the owner's read-only course folders or a folder inside one
   (#179); paths that do not exist or are not folders. Symbolic links are
   resolved before checking.
@@ -2359,6 +2381,148 @@ release …; the paired phones were told"; `curl -s -H "$H"
 $B/app/release` shows the same version and hashes; `curl -s -X POST -H
 "$H" $B/app/release/offer` gives a card; `grep AppRelease
 ~/.config/lifeos/audit/*.jsonl | tail -n 1`.
+
+## Updates from a chat in the program folder (#180)
+
+LifeOS is the owner's daily MVP, and changes to it can be asked for from a
+chat on the phone. For that the owner lists the LifeOS program folder (this
+checkout) in `allowed_paths`; only the folder itself can be listed, never a
+folder inside or around it. A capable run there works like a terminal
+session: issues, code, tests, commits. What it must never see or change in
+the folder, and why nothing it changes runs outside the sandbox before the
+owner's yes, is in [`permission-policy.md`](permission-policy.md), section
+9.14. Capable runs there need the guardrail check with the program-folder
+probes and the allowed-folder probes (suite `cli` 7, `sdk` 8; marker
+`"program_folder": true` and `"scope": "all_allowed_folders"`).
+
+**The rule the run is given** (only in chats in the program folder): never
+restart the bridge or its service, never install or reinstall the app,
+never run the release command; when the work is committed, ask with a line
+of its own:
+
+```
+[[apply-update]]
+```
+
+**The card.** The bridge takes the line out of a fresh answer of a capable
+run (never from the history, never from a background job) and offers an
+approval card, kind `apply_update`, in the answer's `update_requests` and in
+`GET /sessions/{id}/interactions`:
+
+```json
+{"id": "a…", "kind": "apply_update", "session_id": "…", "folder": "…",
+ "state": "ready", "commit": "<40 hex>", "running_commit": "<40 hex or empty>",
+ "created_at": "…", "expires_at": "…"}
+```
+
+- `commit` is the commit the program folder is at when the card is made
+  (read from git's files; no git program runs before the yes);
+  `running_commit` the one it was at when the bridge started.
+- One card waits at a time: a newer request replaces it. It waits a day,
+  like the other cards; no answer means no.
+- Refused at once (`"state": "refused"`, `error_code`): `not_program_folder`
+  (the line came from another folder), `update_in_progress`, `no_commit`,
+  `audit_unavailable`.
+- Answer with `POST /sessions/{id}/interactions/{iid}` `{"approve": true|false}`.
+  A yes answers `{"approved": true, "state": "waiting", "commit"}`; when the
+  folder is at another commit by then: `{"approved": false, "reason":
+  "changed"}` (that commit was never shown; the run asks again), and while
+  another update is under way `"reason": "update_in_progress"`.
+
+**After the yes**, in the background:
+
+1. **Wait** until nothing runs: runs of both runners (a live SDK session that
+   is answering counts, an idle one does not), queued messages that are not
+   on hold, background jobs (coach, course sync, course resources,
+   consolidation, context-map runs, skill downloads), the guardrail check,
+   and requests being answered. Never longer than 12 hours (then it fails
+   at `wait`). From the moment nothing runs the bridge starts no run and no
+   job until it has restarted: a message gets `503 update_in_progress`
+   ("send it again in a few minutes"); a paused queue stays a draft.
+2. **Check**: the folder is still at the approved commit and has no
+   uncommitted changes to tracked files (`git status`).
+3. **Tests** and **lint** of the bridge, with the bridge's own interpreter
+   (`bridge/.venv/bin/python -m pytest`, `-m ruff check`, `-m ruff format
+   --check`). Nothing is installed or updated: a change of dependencies
+   fails here and is installed by the owner in the terminal (`uv sync`).
+4. **Build** the app with the release flow of "App releases for the phone"
+   (`./gradlew --no-daemon :app:assembleRelease`), and register it when its
+   version code is newer than the registered release (the version code is
+   the commit count, so any new commit gives a newer one). The phones get the
+   usual `update` push. The service has only `PATH`; the build reads
+   `LIFEOS_JAVA_HOME`, `LIFEOS_ANDROID_HOME`, `LIFEOS_GRADLE_USER_HOME` and
+   `LIFEOS_ANDROID_USER_HOME` from `~/.config/lifeos/env` (see
+   `config/env.example`).
+5. **Check** the commit again, wait again until nothing runs, then
+   **restart**: `systemctl --user --no-block restart lifeos-bridge.service`
+   (`LIFEOS_SERVICE_NAME` names another unit). The restart is a job of the
+   user service manager: it stops this process the normal way and starts
+   the new code, whatever happens to the process that asked. Only when the
+   bridge runs as exactly that unit (read from `/proc/self/cgroup`); started
+   by hand, nothing is restarted and the owner is told to restart it.
+6. At the next start the bridge reads the state and notifies **"LifeOS:
+   update applied"** ("The tested update runs now. An app update is ready to
+   install.").
+
+**What happens when something fails**
+
+| What | Outcome |
+|---|---|
+| A step fails (`wait`, `check`, `tests`, `lint`, `build`, `register`) | Nothing more is done; the bridge keeps running its earlier version and is not restarted. Notification "LifeOS: update not applied" naming the step. When the app was registered already (the second `check` failed), it says so: the app update is offered, the bridge was not restarted |
+| The restart does not happen within 2 minutes (`restart`) | Failed, as above; nothing else changes |
+| The bridge stops while the update waits, tests or builds (crash, stop, reboot) | Nothing restarted it on the update's behalf; at the next start: "LifeOS: update interrupted", state `interrupted`. Ask again in the chat |
+| The bridge stops after the restart was asked | That is the restart: "update applied" at the next start |
+
+- The output of every step is appended to `~/.config/lifeos/update-log.txt`
+  (mode 600, last 20 000 characters per step), for the owner at the computer.
+  Notifications carry fixed texts and the step name only.
+- State: `~/.config/lifeos/update-state.json` (`phase`, `commit`, `step`,
+  `reason`, `app`, `pid`, times).
+- Audit records: `update_requested`, `update_superseded`, `update_approved`,
+  `update_refused` (`why`: owner or changed), `update_expired`,
+  `update_restarting`, `update_applied`, `update_failed` (with the step),
+  `update_interrupted`: the commit and the session, never output.
+- `GET /app/update` → `{"state": "none" | "waiting" | "checking" | "testing" |
+  "building" | "restarting" | "applied" | "failed" | "interrupted", "step",
+  "reason", "commit", "running_commit", "app_version", "restart_needed",
+  "updated_at"}`.
+
+**Before the first use** (once, at the computer):
+
+1. List the program folder: one line with its path in
+   `~/.config/lifeos/allowed_paths` (or `POST /allowed-paths`).
+2. Name the build tools in `~/.config/lifeos/env`: `LIFEOS_JAVA_HOME`,
+   `LIFEOS_ANDROID_HOME`, `LIFEOS_GRADLE_USER_HOME`,
+   `LIFEOS_ANDROID_USER_HOME` (the values the terminal exports for
+   `./gradlew`).
+3. `scripts/install-service.sh` (or restart the service). The next start
+   reruns the guardrail check once (new suite versions; about 98 short
+   runs). Capable chats in the program folder work after it passed with
+   `"scope": "all_allowed_folders"` and `"program_folder": true`.
+
+Manual check (no phone needed; uses a few runs of the owner's plan):
+
+```
+# once: allow the program folder, and let the guardrail check run with it
+curl -s -X POST -H "$H" -H 'Content-Type: application/json' $B/allowed-paths \
+  -d '{"path":"'"$PWD"'"}'                      # from the checkout's root
+# after the next start of the bridge the check has passed (both runners):
+grep -o '"program_folder": [a-z]*' ~/.config/lifeos/capable-mode*.json
+# a capable chat there with a real small request (a wording fix, say): it works,
+# runs the tests it can, commits, and asks for the update
+curl -s -H "$H" -H 'Content-Type: application/json' $B/ask -d '{"prompt":"<the request>; commit it and ask for the update to be applied","mode":"capable","folder":"'"$PWD"'"}'
+# -> "update_requests":[{"kind":"apply_update","state":"ready","commit":"…"}]
+curl -s -H "$H" $B/sessions/<id>/interactions      # the same card
+curl -s -X POST -H "$H" -H 'Content-Type: application/json' \
+  $B/sessions/<id>/interactions/<iid> -d '{"approve":true}'
+curl -s -H "$H" $B/app/update                       # waiting → testing → building → restarting
+# a minute or a few later: "LifeOS: update applied"; `systemctl --user status lifeos-bridge`
+# shows a new start; /app/update says "applied"; grep update_ ~/.config/lifeos/audit/*.jsonl
+```
+
+A failing check: make an uncommitted change to a tracked file before the
+yes; `/app/update` ends at `"state": "failed", "step": "check"`, the bridge
+keeps running, and a notification names the step.
 
 ## Moodle sign-in
 

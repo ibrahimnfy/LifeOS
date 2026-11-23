@@ -312,6 +312,15 @@ with plain HTTPS requests.
     taken in the target, files changed since the card, no audit log) keeps
     the card open with the reason. When blank chats are switched off on the
     computer, a new chat's first message says so, with the computer's reason.
+  - **Applying an update from a chat in the program folder (#180):** when a
+    chat that works on LifeOS itself asks for its committed changes to be
+    applied, a card **Apply an update** says what a yes starts (tests, the
+    app update, a restart of the computer side, once no run is active),
+    shows the commit and the one running now, and warns that it runs code a
+    phone chat changed outside the sandbox (amber border, like an MCP
+    server's card). **Allow** / **Don't allow**; it waits up to a day. The
+    outcome comes as a notification from the computer ("update applied",
+    or which step failed), and the app update as usual.
   - **A silent run and a lost answer (#148):** a run that says nothing for a
     while sends keep-alives, so the app listens only 75 seconds without any
     sign before it asks the computer instead (the run goes on there). A new
@@ -849,6 +858,15 @@ Nothing on these screens is sample content any more. Not paired, they show
     `state: "refused"`) is a card with its `error_code` worded and nothing
     to answer. `[[move-files: …]]` lines are left out while an answer is
     written and in the history, which keeps them.
+  - **Requests to apply an update** (`kind: "apply_update"` in that list and
+    in `update_requests` of an answer's `done`, #180; `data/Interactions.kt`
+    `UpdateRequest`, `ui/screens/UpdateCards.kt`): a card that waits across
+    runs, only with a `commit`. A yes's answer `{"approved": false,
+    "reason": "changed" | "update_in_progress"}` is "not done" with the
+    reason; `503 audit_unavailable` keeps it waiting. A request refused at
+    once has its `error_code` worded and nothing to answer. The bridge's
+    `GET /app/update` says how the update stands; the app does not show it
+    yet (the notifications do).
   - **Switches** (`data/Switch.kt`, #164, #168): `switch` of a `done`
     event is parsed only for an answer that happens now; for the app's own
     message `open` and `new` become a one-time `switchTo` that the
@@ -1663,6 +1681,36 @@ first: `mkdir -p ~/lifeos-find-test/Zebra-notes ~/lifeos-find-test/a/Lynx
    folder and its files are still on the computer.
 6. Settings → Language → **Türkçe**: the card says "Hangi klasör?" and
    "seçilince eklenir".
+
+### Applying an update from a chat in the program folder (#180)
+
+Paired with a bridge that has #180, the LifeOS program folder in the allowed
+folders and the guardrail check passed with its probes (`docs/bridge.md`,
+"Updates from a chat in the program folder"), or on an emulator with the
+`sample_data` test aid (the words in brackets):
+
+1. **The card** ("apply"): in a capable chat in the program folder, ask for
+   a small change, "commit it and ask for the update". The marker line
+   (`[[apply-update]]`) never shows; a card **Apply an update** with an
+   amber border says "Run the tests, build the app update and restart the
+   computer side…", the commit (12 characters) and "Running now: …", the
+   warning about code outside the sandbox, **Allow** / **Don't allow** and
+   the hours it waits. The sample data adds a second card the computer
+   refused at once ("an update is being applied already"), with no buttons.
+2. **Allow**: "Approved. The computer applies it once no run is active…".
+   While a run is still going, nothing happens on the computer; once none
+   is, a message to any chat gets "An update you approved is being applied…".
+   A few minutes later a notification "LifeOS: update applied", then the
+   usual "An app update is ready" on Today; install it there.
+3. **Changed** ("apply changed"): Allow says "Not applied: the code changed
+   after this card was made…". On the computer: commit something else
+   between the card and the tap.
+4. **Don't allow** on another card: "Not applied." Nothing happens.
+5. **A failing step**: on the computer, leave an uncommitted change to a
+   tracked file before the tap: a notification "LifeOS: update not applied"
+   names the step `check`; the computer side keeps running.
+6. Settings → Language → **Türkçe**: the card reads "Güncelleme uygula",
+   "Bu sohbetin değişikliklerini uygula".
 
 ### Session reminders and reply notifications
 

@@ -27,7 +27,7 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
-from . import claude
+from . import claude, program
 from .claude import ClaudeError, Policy
 from .config import Settings, config_dir
 from .paths import refusal_reason
@@ -55,7 +55,12 @@ KEY_FILE_NAME = "guardrail-key"
 # a confinement of its own (#178, SDK runner only; the cli runner has no approvals).
 # Also cli 7 and sdk 8: the owner's read-only course folders (#179): readable by tool
 # and command, never writable, nothing in them loaded.
+# The same versions (#180): the LifeOS program folder as the run folder, with its hidden and
+# protected parts (``program.py``), probed on a scratch copy of its layout; and an allowed
+# folder as the run folder. Both blocks only widen the scope (marker fields
+# ``program_folder`` and ``scope``); each keeps its own constant.
 SUITE_VERSIONS = {"cli": 7, "sdk": 8}
+PROGRAM_SUITE_VERSIONS = {"cli": 7, "sdk": 8}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 # The first suite of each runner whose probes cover an approved push with network (#178).
 NETWORK_SUITE_VERSIONS = {"sdk": 8}
@@ -225,10 +230,26 @@ async def check_available(
                 "scripts/verify-guardrails (and with --runner sdk) once the chat folder "
                 "can be used"
             )
-    elif run_dir is not None and marker.get("scope") != "all_allowed_folders":
+    elif run_dir is not None:
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
-        if folder != memory and not folder.is_relative_to(memory):
-            raise unavailable("the guardrail check covers runs in the memory folder only so far")
+        everywhere = marker.get("scope") == "all_allowed_folders"
+        if folder == program.program_dir(settings.allowed_roots):
+            # The LifeOS program folder (#180): an allowed folder with rules of its own,
+            # after a check that covered allowed folders and its own probes.
+            version = marker.get("suite_version")
+            probed = isinstance(version, int) and version >= PROGRAM_SUITE_VERSIONS[runner]
+            if not everywhere or not probed or marker.get("program_folder") is not True:
+                raise unavailable(
+                    "the guardrail check has not covered the LifeOS program folder; the next "
+                    "check does (it runs by itself after an update of Claude Code or of the "
+                    "probes, or by hand: scripts/verify-guardrails)"
+                )
+        elif not everywhere and folder != memory and not folder.is_relative_to(memory):
+            # Other allowed folders (#180): after a check whose allowed-folder block passed.
+            raise unavailable(
+                "the guardrail check covers runs in the memory folder only so far; the next "
+                "check covers allowed folders (scripts/verify-guardrails)"
+            )
     if recorded != await claude_version(settings):
         raise unavailable(
             "Claude Code was updated since the guardrail check; run scripts/verify-guardrails"
@@ -353,7 +374,10 @@ def _rule_path(folder: Path) -> str:
 
 
 def gate_command(*, ask_host: bool = False) -> str:
-    command = [sys.executable, "-m", "lifeos_bridge.gate", "--audit-dir", str(audit_dir())]
+    # In the bridge: the copy of the gate taken at its start (#180), out of every run's
+    # reach; elsewhere (the guardrail check, tests without an app) the module itself.
+    base = program.gate_base() or [sys.executable, "-m", "lifeos_bridge.gate"]
+    command = [*base, "--audit-dir", str(audit_dir())]
     return shlex.join([*command, "--ask-host"] if ask_host else command)
 
 
@@ -429,6 +453,7 @@ def build_policy(
     mcp: dict[str, dict] | None = None,
     course_dirs: list[Path] | None = None,
     listed_dirs: list[Path] | None = None,
+    program_folder: Path | None = None,
 ) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
 
@@ -451,6 +476,11 @@ def build_policy(
     A blank chat's folder (#163) is accepted like an allowed folder, with the same
     guardrails: the run may write its own chat folder and the memory folder, and
     read the allowed folders; the chat root and every other chat stay out of reach.
+
+    The LifeOS program folder (#180), when it is allowed: its hidden and protected
+    parts (``program.py``) stay out of reach of every capable run.
+    ``program_folder`` names a scratch copy of its layout instead; for the guardrail
+    check only.
 
     ``course_dirs``: the owner's own course folders the run may read (#179); ``None``
     means those of the run folder's course (``course_folders.for_folder``). Read by
@@ -505,6 +535,9 @@ def build_policy(
 
     index = conversations.index_dir(settings)
     shared = [] if index is None else [index]
+    # The LifeOS program folder (#180), when it is allowed: parts of it stay hidden or
+    # unwritable for every capable run, whichever folder the run works in.
+    program_folder = program_folder or program.program_dir(roots)
     settings_json = {
         "sandbox": {
             "enabled": True,
@@ -513,7 +546,10 @@ def build_policy(
             "autoAllowBashIfSandboxed": True,
             "excludedCommands": [],
             "filesystem": {
-                "denyRead": list(SANDBOX_HIDDEN),
+                "denyRead": [
+                    *SANDBOX_HIDDEN,
+                    *(program.hidden_paths(program_folder) if program_folder else ()),
+                ],
                 "allowRead": sorted(
                     {str(p) for p in (*roots, run_dir, memory, *copies, *shared, *readable)}
                 ),
@@ -537,7 +573,9 @@ def build_policy(
             ]
             # The copies of the skills a run was started with (#171): read, never changed.
             # ...and the conversation index (#164), and the owner's course folders (#179).
-            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared, *protected)],
+            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared, *protected)]
+            # The program folder's hidden and protected parts (#180).
+            + (program.deny_rules(program_folder) if program_folder else []),
         },
         "hooks": {
             "PreToolUse": [
@@ -548,12 +586,14 @@ def build_policy(
             ]
         },
     }
-    if copies or shared or protected:
+    unwritable = [str(folder) for folder in (*copies, *shared, *protected)]
+    if program_folder:
+        unwritable += program.unwritable_paths(program_folder)
+    if unwritable:
         # Whatever else would let commands write there (an added folder, an allow
-        # rule): never the copies, the conversation index or a course folder.
-        settings_json["sandbox"]["filesystem"]["denyWrite"] = [
-            str(folder) for folder in (*copies, *shared, *protected)
-        ]
+        # rule): never the copies, the conversation index or a course folder, never the
+        # program folder's protected parts.
+        settings_json["sandbox"]["filesystem"]["denyWrite"] = unwritable
     mcp_config = None
     if mcp:
         from . import mcp_servers  # local: only runs with approved servers need it
