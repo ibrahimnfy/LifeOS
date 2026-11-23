@@ -27,7 +27,7 @@ import sys
 from importlib import metadata
 from pathlib import Path
 
-from . import claude
+from . import claude, program
 from .claude import ClaudeError, Policy
 from .config import Settings, config_dir
 from .paths import refusal_reason
@@ -51,7 +51,11 @@ KEY_FILE_NAME = "guardrail-key"
 # Also in cli 6 and sdk 7: the personal-skill probe judges every shell call by what happened to
 # it, not by counts. A call that Claude Code rejects before it starts has no audit
 # record and needs none; the first real check had failed on such a call (#162).
-SUITE_VERSIONS = {"cli": 6, "sdk": 7}
+SUITE_VERSIONS = {"cli": 7, "sdk": 8}
+# cli 7 and sdk 8 (#180): the LifeOS program folder as the run folder, with its hidden and
+# protected parts (``program.py``), probed on a scratch copy of its layout. (The same
+# numbers carry other changes of that round; each block keeps its own constant.)
+PROGRAM_SUITE_VERSIONS = {"cli": 7, "sdk": 8}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
@@ -218,7 +222,17 @@ async def check_available(
             )
     elif run_dir is not None and marker.get("scope") != "all_allowed_folders":
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
-        if folder != memory and not folder.is_relative_to(memory):
+        if folder == program.program_dir(settings.allowed_roots):
+            # The LifeOS program folder (#180): only after a check whose program-folder
+            # probes passed.
+            version = marker.get("suite_version")
+            probed = isinstance(version, int) and version >= PROGRAM_SUITE_VERSIONS[runner]
+            if not probed or marker.get("program_folder") is not True:
+                raise unavailable(
+                    "the guardrail check has not covered the LifeOS program folder yet; it "
+                    "runs by itself at the next start of the bridge"
+                )
+        elif folder != memory and not folder.is_relative_to(memory):
             raise unavailable("the guardrail check covers runs in the memory folder only so far")
     if recorded != await claude_version(settings):
         raise unavailable(
@@ -311,7 +325,10 @@ def _rule_path(folder: Path) -> str:
 
 
 def gate_command(*, ask_host: bool = False) -> str:
-    command = [sys.executable, "-m", "lifeos_bridge.gate", "--audit-dir", str(audit_dir())]
+    # In the bridge: the copy of the gate taken at its start (#180), out of every run's
+    # reach; elsewhere (the guardrail check, tests without an app) the module itself.
+    base = program.gate_base() or [sys.executable, "-m", "lifeos_bridge.gate"]
+    command = [*base, "--audit-dir", str(audit_dir())]
     return shlex.join([*command, "--ask-host"] if ask_host else command)
 
 
@@ -385,6 +402,7 @@ def build_policy(
     skills_dir: Path | None = None,
     personal_skills_dir: Path | None = None,
     mcp: dict[str, dict] | None = None,
+    program_folder: Path | None = None,
 ) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
 
@@ -407,6 +425,11 @@ def build_policy(
     A blank chat's folder (#163) is accepted like an allowed folder, with the same
     guardrails: the run may write its own chat folder and the memory folder, and
     read the allowed folders; the chat root and every other chat stay out of reach.
+
+    The LifeOS program folder (#180), when it is allowed: its hidden and protected
+    parts (``program.py``) stay out of reach of every capable run.
+    ``program_folder`` names a scratch copy of its layout instead; for the guardrail
+    check only.
     """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
@@ -437,6 +460,9 @@ def build_policy(
 
     index = conversations.index_dir(settings)
     shared = [] if index is None else [index]
+    # The LifeOS program folder (#180), when it is allowed: parts of it stay hidden or
+    # unwritable for every capable run, whichever folder the run works in.
+    program_folder = program_folder or program.program_dir(roots)
     settings_json = {
         "sandbox": {
             "enabled": True,
@@ -445,7 +471,10 @@ def build_policy(
             "autoAllowBashIfSandboxed": True,
             "excludedCommands": [],
             "filesystem": {
-                "denyRead": list(SANDBOX_HIDDEN),
+                "denyRead": [
+                    *SANDBOX_HIDDEN,
+                    *(program.hidden_paths(program_folder) if program_folder else ()),
+                ],
                 "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *copies, *shared)}),
             },
             "network": {
@@ -467,7 +496,9 @@ def build_policy(
             ]
             # The copies of the skills a run was started with (#171): read, never changed.
             # ...and the conversation index (#164).
-            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared)],
+            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared)]
+            # The program folder's hidden and protected parts (#180).
+            + (program.deny_rules(program_folder) if program_folder else []),
         },
         "hooks": {
             "PreToolUse": [
@@ -478,12 +509,14 @@ def build_policy(
             ]
         },
     }
-    if copies or shared:
+    unwritable = [str(folder) for folder in (*copies, *shared)]
+    if program_folder:
+        unwritable += program.unwritable_paths(program_folder)
+    if unwritable:
         # Whatever else would let commands write there (an added folder, an allow
-        # rule): never the copies, and never the conversation index.
-        settings_json["sandbox"]["filesystem"]["denyWrite"] = [
-            str(folder) for folder in (*copies, *shared)
-        ]
+        # rule): never the copies, never the conversation index, never the program
+        # folder's protected parts.
+        settings_json["sandbox"]["filesystem"]["denyWrite"] = unwritable
     mcp_config = None
     if mcp:
         from . import mcp_servers  # local: only runs with approved servers need it

@@ -42,6 +42,7 @@ from . import (
     moodle_sync,
     moodle_watch,
     moves,
+    program,
     projects,
     push,
     relay,
@@ -55,6 +56,7 @@ from . import (
     sessions,
     skill_installs,
     skills,
+    updates,
 )
 from .claude import ClaudeError
 from .config import Settings
@@ -185,6 +187,10 @@ async def with_keepalives(events: AsyncIterator, every: float | None = None) -> 
 
 
 def create_app(settings: Settings) -> FastAPI:
+    # Everything the bridge runs by itself, as it is now (#180): every module imported,
+    # private copies of the gate and of notify.sh, the fingerprint of the code.
+    program.pin()
+
     # No interactive docs or schema endpoints: less surface, nothing to leak.
     @contextlib.asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -194,18 +200,23 @@ def create_app(settings: Settings) -> FastAPI:
                     await asyncio.to_thread(
                         reminders.fire_due, notify_script=settings.notify_script
                     )
+                held = applier.holding  # an approved update is being applied (#180)
                 with contextlib.suppress(Exception):  # the coach never stops the reminders
-                    await coach_tick()
+                    if not held:
+                        await coach_tick()
                 with contextlib.suppress(Exception):  # at most one request to the site per day
                     await asyncio.to_thread(
                         moodle_watch.check, notify_script=settings.notify_script
                     )
                 with contextlib.suppress(Exception):  # the course sync, every six hours
-                    await course_sync_tick()
+                    if not held:
+                        await course_sync_tick()
                 with contextlib.suppress(Exception):  # resources of a new syllabus, one at a time
-                    await resources_tick()
+                    if not held:
+                        await resources_tick()
                 with contextlib.suppress(Exception):  # the nightly consolidation proposal
-                    await consolidation_tick()
+                    if not held:
+                        await consolidation_tick()
                 await asyncio.sleep(reminders.CHECK_INTERVAL_SECONDS)
 
         coach_runs: set[asyncio.Task] = set()
@@ -264,12 +275,22 @@ def create_app(settings: Settings) -> FastAPI:
                 await asyncio.sleep(CHAT_SWEEP_SECONDS)
 
         _app.state.start_consolidation = start_consolidation
+        # Background jobs an update waits for (#180).
+        _app.state.jobs = {
+            "coach": coach_runs, "course sync": course_syncs,
+            "course resources": resource_runs, "consolidation": consolidation_runs,
+        }  # fmt: skip
+        # An update that was under way when the bridge stopped: applied or interrupted.
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(updates.after_start)
         task = asyncio.create_task(watch_reminders())
         sweeping = asyncio.create_task(sweep_chats_forever())
         # SDK runner: live sessions close after a while without messages.
         reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
         # After an update of Claude Code or the Agent SDK the guardrail check reruns by itself.
         guard = guardcheck.GuardCheck(settings)
+        guard.held = lambda: applier.holding
+        _app.state.guard = guard
         guarding = asyncio.create_task(guard.run_forever())
         # Phones reach the bridge through the relay; without the owner's Firebase
         # files the bridge is local only.
@@ -288,7 +309,8 @@ def create_app(settings: Settings) -> FastAPI:
             running = (
                 task, sweeping, *coach_runs, *course_syncs, *resource_runs, *consolidation_runs
             )  # fmt: skip
-            for pending in (*running, *([reaper] if reaper else [])):
+            updating = [applier.task] if applier.task is not None else []
+            for pending in (*running, *updating, *([reaper] if reaper else [])):
                 pending.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await pending
@@ -334,6 +356,18 @@ def create_app(settings: Settings) -> FastAPI:
 
     slots = RunSlots(settings.max_concurrent)
     app.state.slots = slots
+
+    # Requests being answered now; an update waits for them (#180). A streamed answer counts
+    # until its first byte; the run behind it is in ``slots``.
+    in_flight = [0]
+
+    @app.middleware("http")
+    async def count_requests(request: Request, call_next):
+        in_flight[0] += 1
+        try:
+            return await call_next(request)
+        finally:
+            in_flight[0] -= 1
 
     @app.exception_handler(ClaudeError)
     async def claude_error_handler(request: Request, error: ClaudeError) -> JSONResponse:
@@ -429,6 +463,8 @@ def create_app(settings: Settings) -> FastAPI:
                 skill_installs.expire(entry)
             elif entry.get("kind") == moves.KIND:
                 moves.expire(entry)
+            elif entry.get("kind") == updates.KIND:
+                updates.expire(entry)
 
     def with_files(payload: dict, session_id: str, cwd: Path) -> dict:
         """Turn file-offer lines of a finished answer into cards."""
@@ -446,6 +482,19 @@ def create_app(settings: Settings) -> FastAPI:
             return
         payload["answer"] = text
         payload["file_moves"] = cards
+        if any(card.get("state") == "ready" for card in cards):
+            wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", session_id))
+            background.add(wake)
+            wake.add_done_callback(background.discard)
+
+    def with_update(payload: dict, session_id: str, cwd: Path) -> None:
+        """A capable run in the program folder asks for its changes to be applied (#180)."""
+        answer = str(payload.get("answer") or "")
+        if "[[apply-update" not in answer:
+            return
+        text, cards = updates.from_answer(settings, answer, session_id, cwd)
+        payload["answer"] = text
+        payload["update_requests"] = cards
         if any(card.get("state") == "ready" for card in cards):
             wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", session_id))
             background.add(wake)
@@ -642,11 +691,23 @@ def create_app(settings: Settings) -> FastAPI:
             instructions += " " + chats.context(settings)
             # The memory folder is in reach (read on request); no memory file is loaded.
             read_only_policy = chats.read_only_policy(settings)
+        elif cwd.resolve() == program.program_dir(settings.allowed_roots):
+            # A chat in the LifeOS program folder (#180): never a restart or reinstall by
+            # the run itself; it asks for its committed changes to be applied.
+            instructions += " " + updates.INSTRUCTIONS
         run_args["context"] = instructions
         streaming = bool(data.get("stream"))
         use_sdk = sdk_pool is not None
         watch = None
         used_servers: list[tuple[str, str]] = []
+        if applier.holding:
+            # Nothing runs from the moment an approved update found the bridge idle until
+            # it restarts (#180). No await lies between this check and the slot.
+            raise ClaudeError(
+                "update_in_progress", 503,
+                "an approved update is being applied and the bridge restarts in a few "
+                "minutes; send the message again then",
+            )  # fmt: skip
         slots.acquire(session_id)
         control.take_stopped(session_id)  # a stop request for an earlier run is not ours
         if not data.get("_queued"):
@@ -812,6 +873,7 @@ def create_app(settings: Settings) -> FastAPI:
                             payload["refused_actions"] = watch.refused_actions()
                         if is_capable:
                             with_installs(payload, session_id, cwd)
+                            with_update(payload, session_id, cwd)
                         if is_chat:
                             with_moves(payload, session_id, cwd)
                         await asyncio.to_thread(with_switch, payload, session_id)
@@ -912,6 +974,12 @@ def create_app(settings: Settings) -> FastAPI:
         """The registered release of the app (``lifeos-bridge release``); 404 when none."""
         return await asyncio.to_thread(release.view)
 
+    @app.get("/app/update")
+    async def app_update_state():
+        """Where an approved update stands (#180): ``state`` none, waiting, checking,
+        testing, building, restarting, applied, failed or interrupted; the failed step."""
+        return await asyncio.to_thread(updates.public_state)
+
     @app.post("/app/release/offer")
     async def offer_app_release():
         """Offer the release APK, fetched with ``GET /files/{offer}?session_id=app-release``
@@ -962,8 +1030,14 @@ def create_app(settings: Settings) -> FastAPI:
         await asyncio.to_thread(expire_approvals)
         if await asyncio.to_thread(approvals.get, session_id, interaction_id) is not None:
             approve = approvals.read_approve(await read_json_object(request))
+            update_approved = False
 
             def handle(entry: dict) -> dict:
+                nonlocal update_approved
+                if entry["kind"] == updates.KIND:
+                    done = updates.answer(entry, approve)
+                    update_approved = done.get("approved") is True
+                    return done
                 if entry["kind"] == skill_installs.KIND:
                     return skill_installs.answer(entry, approve)
                 if entry["kind"] == mcp_servers.KIND:
@@ -974,6 +1048,8 @@ def create_app(settings: Settings) -> FastAPI:
 
             # A refused answer (409, 503) leaves the card waiting (#157).
             done = await asyncio.to_thread(approvals.settle, session_id, interaction_id, handle)
+            if update_approved:
+                applier.start()  # waits for every run to end, then tests, builds, restarts
             if "moved" in done:
                 with contextlib.suppress(Exception):
                     sweep_chats()  # a chat whose files all moved away leaves no folder
@@ -1271,6 +1347,28 @@ def create_app(settings: Settings) -> FastAPI:
         return await run_prompt(data, session_id=info.id, resume=True, cwd=info.folder)
 
     background: set[asyncio.Task] = set()
+
+    def update_blockers() -> list[str]:
+        """What an approved update waits for (#180); empty when nothing runs."""
+        found = []
+        if slots.active:  # runs of both runners, live SDK sessions answering, compactions
+            found.append("runs")
+        if any(control.queue(sid) and sid not in control.paused for sid in list(control.queues)):
+            found.append("queued messages")  # a paused queue waits for the owner, as a draft
+        for name, tasks in getattr(app.state, "jobs", {}).items():
+            if any(not task.done() for task in tasks):
+                found.append(name)
+        if any(not task.done() for task in (*background, *drains)):
+            found.append("background work")
+        guard = getattr(app.state, "guard", None)
+        if guard is not None and guard.task is not None and not guard.task.done():
+            found.append("guardrail check")
+        if in_flight[0]:
+            found.append("requests")
+        return found
+
+    applier = updates.Applier(settings, update_blockers)
+    app.state.applier = applier
 
     async def map_in_background(folder: Path) -> None:
         with contextlib.suppress(ClaudeError, OSError):
@@ -1799,6 +1897,8 @@ def create_app(settings: Settings) -> FastAPI:
             exchange["mcp_servers"] = [{"name": n, "outside_sandbox": True} for n in names]
             # A switch line of an earlier answer is not shown and never switches (#164).
             exchange["assistant"] = conversations.strip(exchange["assistant"])
+            # Nor does an earlier request to apply an update (#180).
+            exchange["assistant"] = updates.strip(exchange["assistant"])
         return page
 
     @app.get("/sessions/{session_id}/commands")

@@ -45,7 +45,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from . import capable, notifications, store
+from . import capable, notifications, program, store
 from .claude import ClaudeError
 from .config import Settings, config_dir
 
@@ -66,7 +66,8 @@ ORDER = ("cli", "sdk")
 # The chat-folder probes (#163, the same suite versions) add three per runner: a
 # shell run, a file-tool run and a read-only run in a blank chat's folder.
 # cli 6 and sdk 7 changed how the personal-skill run is judged, not how many runs there are.
-PLAN_RUNS = {"cli": 15, "sdk": 19}
+# The program-folder probes (#180, cli 7 and sdk 8) add one run per runner.
+PLAN_RUNS = {"cli": 16, "sdk": 20}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 
@@ -170,6 +171,8 @@ class GuardCheck:
         )
         self.task: asyncio.Task | None = None
         self.recheck_passed: set[str] = set()
+        # True while an approved update is being applied (#180): no check starts then.
+        self.held: Callable[[], bool] = lambda: False
 
     @staticmethod
     def _path() -> Path:
@@ -231,6 +234,11 @@ class GuardCheck:
         now = time.time() if now is None else now
         if os.environ.get(AUTOCHECK_VAR, "").strip().lower() == "off":
             return  # no automatic rerun (the mode still goes off after an update)
+        if program.code_changed() or self.held():
+            # The check runs the bridge's code from the program folder in a process of its
+            # own. A run there may have changed it (#180): the check waits until the bridge
+            # starts again (after an approved update), then runs with that code.
+            return
         if self.task is not None and not self.task.done():
             return  # one check at a time
         due = await self.due(now)

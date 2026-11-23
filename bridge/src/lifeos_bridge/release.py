@@ -111,14 +111,21 @@ def build_output() -> Path:
     return root / "app" / "app" / "build" / "outputs" / "apk" / "release"
 
 
-def build(timeout: int = BUILD_TIMEOUT) -> None:
-    """``./gradlew :app:assembleRelease``; Gradle reads the signing key itself."""
+def build(
+    timeout: int = BUILD_TIMEOUT, *, env: dict[str, str] | None = None, args: tuple[str, ...] = ()
+) -> None:
+    """``./gradlew :app:assembleRelease``; Gradle reads the signing key itself.
+
+    ``env`` and ``args``: the environment and extra Gradle arguments of an update the
+    bridge applies itself (``updates.py``); the command line uses its own environment.
+    """
     root = repo_dir()
     if root is None:
         raise ReleaseError("the repository folder was not found")
     done = subprocess.run(  # noqa: S603
-        [str(root / "app" / "gradlew"), ":app:assembleRelease"],
+        [str(root / "app" / "gradlew"), *args, ":app:assembleRelease"],
         cwd=root / "app", timeout=timeout, check=False, capture_output=True, text=True,
+        env=env,
     )  # fmt: skip
     if done.returncode != 0:
         raise ReleaseError(

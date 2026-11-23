@@ -17,6 +17,14 @@ def repo_dir() -> Path | None:
     return candidate if (candidate / "bridge" / "pyproject.toml").is_file() else None
 
 
+def program_dir(allowed_roots) -> Path | None:
+    """The LifeOS program folder when the owner listed it as an allowed folder (#180)."""
+    repo = repo_dir()
+    if repo is None:
+        return None
+    return repo if any(Path(root).resolve() == repo for root in allowed_roots) else None
+
+
 def config_dir_path() -> Path:
     override = os.environ.get("LIFEOS_CONFIG_DIR")
     return (Path(override) if override else Path.home() / ".config" / "lifeos").resolve()
@@ -45,8 +53,13 @@ def refusal_reason(path: Path) -> str | None:
     if any(part.startswith(".") for part in resolved.relative_to(home).parts):
         return "hidden folders (settings, keys, credentials) cannot be allowed"
     repo = repo_dir()
-    if repo is not None and _overlaps(resolved, repo):
-        return "the LifeOS program folder cannot be allowed"
+    if repo is not None and resolved != repo and _overlaps(resolved, repo):
+        # The program folder itself may be allowed (#180); its own rules then hide and
+        # protect parts of it (``program.py``). A folder inside it or around it would bring
+        # it into reach without those rules.
+        return (
+            "only the LifeOS program folder itself can be allowed, not a folder inside or around it"
+        )
     if _overlaps(resolved, config_dir_path()):
         return "the private settings folder cannot be allowed"
     return None

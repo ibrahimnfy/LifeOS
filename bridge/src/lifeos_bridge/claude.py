@@ -20,7 +20,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import routing
+from . import program, routing
 from .config import Settings
 
 # Temporary policy until the owner decides the permission policy: file
@@ -259,6 +259,12 @@ def run_flags(
         if not policy.settings_json:
             raise ClaudeError("capable_mode_unavailable", 503, "capable run without settings")
         command += ["--settings", policy.settings_json]
+    else:
+        # The LifeOS program folder is allowed (#180): what is hidden in it stays out of
+        # reach of the file tools of read-only runs as well.
+        hidden = program.read_only_settings(settings.allowed_roots)
+        if hidden is not None:
+            command += ["--settings", json.dumps(hidden)]
     # More folders in reach of the file tools: the memory folder of a capable run (its
     # write permission comes from the settings above) and of a blank chat (a read-only
     # run has no write tool).

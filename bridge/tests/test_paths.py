@@ -52,16 +52,21 @@ def test_symlinks_are_resolved_before_checking(home, tmp_path):
     assert "home folder itself" in refusal_reason(home / "up")
 
 
-def test_program_and_settings_folders_are_refused(home, monkeypatch, isolated_config):
+def test_the_program_folder_itself_only_and_the_settings_folder_never(
+    home, monkeypatch, isolated_config
+):
     repo = home / "lifeos"
     (repo / "bridge").mkdir(parents=True)
     monkeypatch.setattr(paths, "repo_dir", lambda: repo)
-    assert "program folder" in refusal_reason(repo)
-    assert "program folder" in refusal_reason(repo / "bridge")
+    # #180: the program folder itself may be allowed; its own rules come with it.
+    assert refusal_reason(repo) is None
+    assert "program folder itself" in refusal_reason(repo / "bridge")
+    assert paths.program_dir([home / "other", repo]) == repo
+    assert paths.program_dir([repo / "bridge"]) is None
     parent = home / "code"
     (parent / "lifeos").mkdir(parents=True)
     monkeypatch.setattr(paths, "repo_dir", lambda: parent / "lifeos")
-    assert "program folder" in refusal_reason(parent)
+    assert "program folder itself" in refusal_reason(parent)
     visible_config = home / "settings"
     visible_config.mkdir()
     monkeypatch.setenv("LIFEOS_CONFIG_DIR", str(visible_config))

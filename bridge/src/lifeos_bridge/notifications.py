@@ -13,6 +13,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from . import program
 from .paths import repo_dir
 
 SCRIPT_VAR = "LIFEOS_NOTIFY_SCRIPT"
@@ -24,6 +25,11 @@ def default_script() -> Path | None:
         return None
     if configured:
         return Path(configured)
+    # The copy taken when the bridge started (#180): a run in the program folder may
+    # change scripts/notify.sh, and the bridge must not run that before an approved update.
+    pinned = program.notify_script()
+    if pinned is not None:
+        return pinned
     repo = repo_dir()
     return repo / "scripts" / "notify.sh" if repo else None
 
