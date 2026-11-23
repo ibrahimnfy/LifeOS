@@ -469,6 +469,21 @@ How the app uses sections 3, 6 and 7.1 to 7.3 (details and manual checks:
   (the owner had left the conversation) becomes the card too. A
   conversation opened by a switch learns its folder's path from
   `GET /sessions/{id}`.
+- **The request goes along (#187).** A `new` switch, or a `choose_folder`
+  card, may carry `forward`: the owner's request, rewritten by the run as
+  one self-contained line. Done by itself or from the owner's tap on the
+  card, the switch starts the new chat in that folder and sends the request
+  at once as its first message (the owner's own bubble), with
+  `"continued_from": <old session id>`. If it cannot leave the phone (the
+  computer is not reachable), it waits in the new chat's composer with the
+  usual "not reached" notice. The card shows the request it will start
+  with. A followed answer's card carries none, and the answer to a request
+  the app sent by itself never switches by itself (it is a card without a
+  request), so chats never chain without the owner. `open` never carries a
+  request: the owner writes into an existing conversation. The new chat
+  says "Started from …" above its first message and the old answer
+  "Continued in …" below it (from the history's `continued_from` and
+  `continued_in`); a tap on either opens the other chat.
 - **Marker lines.** `[[file:…]]`, `[[skill-install:…]]`, `[[switch…]]`,
   `[[switch-new:…]]` and `[[move-files:…]]` lines are never shown: while an
   answer is written, a last line that is becoming one is held back until it

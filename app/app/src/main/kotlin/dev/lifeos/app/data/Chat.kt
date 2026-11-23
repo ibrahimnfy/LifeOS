@@ -82,6 +82,8 @@ data class ChatMessage(
     val files: List<OfferedFile> = emptyList(),
     /** The MCP servers this answer used (#153): they ran outside the sandbox. */
     val servers: List<String> = emptyList(),
+    /** This answer's switch started that chat (#187): the thread says "Continued in …" below it. */
+    val continuedIn: SwitchSession? = null,
 )
 
 /**
@@ -336,6 +338,16 @@ data class ChatState(
     val switchAt: Long = 0,
     /** Conversations (or a folder) the last answer offers on a card; the owner picks. Gone with the next message. */
     val choices: ChatSwitch? = null,
+    /**
+     * The conversation whose switch started this one (#187): the thread names it above the first
+     * message, and the first message tells the computer (`continued_from`).
+     */
+    val origin: SwitchSession? = null,
+    /**
+     * The owner's request a switch carried here was sent as this message (its bubble's key) by
+     * the app itself: its answer never switches by itself and carries no request further (#187).
+     */
+    val forwardedKey: Long? = null,
 ) {
     val canSend: Boolean get() = phase == ChatPhase.IDLE && !loading && loadProblem == null && loaded && !compacting
 
@@ -459,15 +471,30 @@ class Chat(
      * is a blank chat (#166): its first message is sent without a folder, so the computer gives
      * it a folder of its own. With one ("Ask about this project", or a switch to a folder,
      * #164) it runs there, the memory folder included. [draft] goes into the composer. The
-     * previous conversation stays on the computer (Sessions).
+     * previous conversation stays on the computer (Sessions). [origin]: the conversation whose
+     * switch started this one (#187).
      */
-    fun newChat(folder: Folder? = null, draft: String? = null) {
+    fun newChat(folder: Folder? = null, draft: String? = null, origin: SwitchSession? = null) {
         if (coach) return
         stopWork()
         startingPrompt = null
         val where = ChatFolder.of(folder)
-        mutable.update { ChatState(generation = it.generation + 1, folder = where, draft = draft?.takeIf { text -> text.isNotBlank() }) }
+        val from = origin?.takeIf { validId(it.id) }
+        mutable.update { ChatState(generation = it.generation + 1, folder = where, draft = draft?.takeIf { text -> text.isNotBlank() }, origin = from) }
         store.save(null)
+    }
+
+    /**
+     * A switch started a new chat in [folder] (#187): with the owner's [request] it is sent at
+     * once as the first message, the owner's own, so the work begins without retyping. If it
+     * cannot leave the phone (offline) it waits in the composer instead, as any message that was
+     * not sent. Its answer never switches by itself again ([ChatState.forwardedKey]).
+     */
+    fun startFrom(folder: Folder?, request: String?, origin: SwitchSession?) {
+        if (coach) return
+        newChat(folder, origin = origin)
+        val text = ChatSwitch.forwardOf(request) ?: return
+        if (!send(text, forwarded = true)) offerDraft(text)
     }
 
     /**
@@ -523,6 +550,7 @@ class Chat(
                 // A first message was on its way: after the unlock its chosen id tells whether it arrived.
                 startingId = it.startingId.takeIf { lostFirst },
                 folder = it.folder,
+                origin = it.origin,
                 choice = it.choice,
                 choiceKnown = it.choiceKnown,
                 loaded = it.sessionId == null && !(lostFirst && it.startingId != null),
@@ -716,6 +744,8 @@ class Chat(
             olderCursor = page.older,
             loadingOlder = false,
             unreachable = false,
+            // Where a chat a switch started came from (#187); an older computer does not say.
+            origin = page.continuedFrom?.takeIf { validId(it.id) } ?: state.origin,
         )
         if (busy) return base.copy(phase = ChatPhase.ELSEWHERE, sinceMillis = since(state))
         val arrived = arrived(page, sent)
@@ -850,8 +880,27 @@ class Chat(
             val text = visible(exchange.assistant)
             val files = offeredNames(exchange.assistant).map { OfferedFile(it) }
             val servers = exchange.mcpServers.map { it.name }.filter { it.isNotBlank() }
-            if (text.isNotBlank() || files.isNotEmpty()) add(ChatMessage(keys.incrementAndGet(), false, text, incomplete = !exchange.complete, files = files, servers = servers))
+            // The chat this answer's switch started (#187): named below it, a tap opens it.
+            val moved = exchange.continuedIn?.takeIf { validId(it.id) }
+            if (text.isNotBlank() || files.isNotEmpty() || moved != null) {
+                add(ChatMessage(keys.incrementAndGet(), false, text, incomplete = !exchange.complete, files = files, servers = servers, continuedIn = moved))
+            }
         }
+    }
+
+    /** This conversation as a switch's origin (#187): its session and folder, as a card names a conversation. */
+    private fun originOf(state: ChatState, id: String?): SwitchSession? {
+        val session = (id ?: state.sessionId)?.takeIf(::validId) ?: return null
+        val folder = state.folder
+        val kind = when {
+            coach -> FolderKinds.COACH
+            folder == null -> ""
+            folder.memory -> FolderKinds.MEMORY
+            folder.blank -> FolderKinds.CHAT
+            else -> folder.kind.ifEmpty { FolderKinds.PROJECT }
+        }
+        val colour = folder?.colour?.takeIf { it != ChatFolder.NO_COLOUR } ?: 0
+        return SwitchSession(session, folderLabel = folder?.label.orEmpty(), kind = kind, colour = colour)
     }
 
     /** The file cards of a finished answer: offers with the session they belong to, and refusals. */
@@ -1057,8 +1106,9 @@ class Chat(
     /**
      * Send [prompt] in this conversation; while an answer is awaited it is put in line on the
      * computer instead and sent when that run has ended. False if nothing was started.
+     * [forwarded]: the app sends the request a switch carried here ([startFrom], #187).
      */
-    fun send(prompt: String): Boolean {
+    fun send(prompt: String, forwarded: Boolean = false): Boolean {
         val text = prompt.trim()
         val current = mutable.value
         if (text.isEmpty()) return false
@@ -1092,6 +1142,7 @@ class Chat(
                 // The card of the last answer belonged to it (#168).
                 switchTo = null,
                 choices = null,
+                forwardedKey = key.takeIf { forwarded },
                 // What the computer said last: the next message is tidied up first. Its stream confirms it.
                 tidying = coach && it.coach?.dueForCompaction == true,
                 // As on the computer: the hold a stop put on the queue ends with the owner's next message.
@@ -1432,6 +1483,8 @@ class Chat(
             state.choice.model?.let { put("model", JsonPrimitive(it)) }
             state.choice.effort?.let { put("effort", JsonPrimitive(it)) }
             state.startingId?.let { put("new_session_id", JsonPrimitive(it)) }
+            // A chat a switch started (#187): the computer ties it to the answer that asked for it.
+            if (state.startingId != null) state.origin?.id?.takeIf(::isSessionUuid)?.let { put("continued_from", JsonPrimitive(it)) }
         }
     }
 
@@ -1667,9 +1720,13 @@ class Chat(
                 // Another conversation to go to (#164): only the answer of a run that happens now
                 // carries one. Received here, "open" and "new" are done at once; "choose", or any
                 // switch of an answer that was followed, is a card for the owner.
-                val switch = if (fresh) ChatSwitch.of(data?.get("switch")) else null
-                val direct = switch?.takeIf { own && !it.isChoice }
+                val item = if (fresh) ChatSwitch.of(data?.get("switch")) else null
                 change(generation) { state ->
+                    // #187: the answer to a request the app sent by itself never switches by itself
+                    // (no chain of chats without the owner), and a followed answer carries no request.
+                    val forwarded = state.forwardedKey != null
+                    val switch = item?.let { if (own && !forwarded) it else it.copy(forward = null) }?.copy(origin = originOf(state, id))
+                    val direct = switch?.takeIf { own && !forwarded && !it.isChoice }
                     val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files, servers = servers))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(it.pointer(id)) }
                     state.copy(
@@ -1823,6 +1880,11 @@ class Chat(
 
         /** Ids are put into request paths: only the characters a session id can have. */
         fun validId(id: String): Boolean = ID.matches(id)
+
+        private val SESSION_UUID = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+        /** A Claude Code session id as the computer accepts it in `continued_from` (anything else would refuse the message). */
+        fun isSessionUuid(id: String): Boolean = SESSION_UUID.matches(id)
 
         /** The text without the marker lines the computer turns into cards and switches at the end. */
         fun visible(streamed: CharSequence): String = FILE_LINE.replace(streamed, "").trimEnd()

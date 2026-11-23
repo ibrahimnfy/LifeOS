@@ -136,6 +136,8 @@ data class Exchange(
     val truncated: Boolean = false,
     /** The MCP servers this answer used (#157); they ran outside the sandbox. */
     @SerialName("mcp_servers") val mcpServers: List<UsedServer> = emptyList(),
+    /** A chat started from this answer's switch (#187): "Continued in …". */
+    @SerialName("continued_in") val continuedIn: SwitchSession? = null,
 )
 
 /** `POST /sessions/{id}/cancel`. */
@@ -166,9 +168,13 @@ data class LiveOffer(
 @Serializable
 data class LiveOffers(val files: List<LiveOffer> = emptyList())
 
-/** [older] is set when the computer has earlier exchanges than these. */
+/** [older] is set when the computer has earlier exchanges than these. [continuedFrom]: the chat whose switch started this one (#187). */
 @Serializable
-data class HistoryPage(val exchanges: List<Exchange> = emptyList(), val older: String? = null)
+data class HistoryPage(
+    val exchanges: List<Exchange> = emptyList(),
+    val older: String? = null,
+    @SerialName("continued_from") val continuedFrom: SwitchSession? = null,
+)
 
 /** A message that waits on the computer for the session's current run to end. */
 @Serializable

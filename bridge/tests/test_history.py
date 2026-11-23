@@ -97,10 +97,12 @@ def test_one_exchange_has_the_documented_shape(client, auth, ask_dir, write_sess
                 "complete": True,
                 "truncated": False,
                 "mcp_servers": [],  # the MCP servers that answer had (#157)
+                "continued_in": None,  # a chat started from this answer's switch (#187)
             }
         ],
         "older": None,
         "total_exchanges_known": None,
+        "continued_from": None,  # the chat whose switch started this one (#187)
     }
 
 

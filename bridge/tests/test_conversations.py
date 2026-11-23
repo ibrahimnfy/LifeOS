@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import added_dirs, index_dir, user_line
-from lifeos_bridge import conversations
+from lifeos_bridge import conversations, session_links
 from lifeos_bridge.app import create_app
 from test_ask import option, parse_sse
 from test_history import assistant, owner, text
@@ -88,8 +88,10 @@ def test_the_index_is_written_before_every_run_and_given_to_the_run(
     instructions = option(call["args"], "--append-system-prompt")
     assert str(folder / "conversations.md") in instructions
     assert "[[switch: <id>]]" in instructions and "[[switch-new: <folder label>]]" in instructions
+    # #187: the request goes with a new-chat line, and a folder is never called missing
+    assert "' | <request>'" in instructions and "never call a folder missing" in instructions
     words = conversations.instructions(world.app.state.settings).split()
-    assert len(words) < 110  # paid on every message: kept short
+    assert len(words) < 160  # paid on every message: kept short
 
 
 def test_the_index_is_rewritten_and_never_read_back(world, auth, known, home):
@@ -245,3 +247,100 @@ def test_text_that_only_mentions_the_marker_is_left_alone(world, auth, known, ho
     say(home, f"Write [[switch: {known['chat']}]] on a line of its own to switch.")
     reply = ask(world, auth).json()
     assert "switch" not in reply and "[[switch:" in reply["answer"]
+
+
+# ------------------------------------------------------------- the request carried along (#187)
+
+REQUEST = "Summarise week 3 as a notes file, from the course materials"
+
+
+def test_a_new_chat_line_carries_the_owners_request(world, auth, known, home, project):
+    say(home, f"Starting there.\n[[switch-new: project | {REQUEST}]]")
+    reply = ask(world, auth).json()
+    assert reply["answer"] == "Starting there."
+    switch = reply["switch"]
+    assert switch["action"] == "new" and switch["folder"]["path"] == str(project)
+    assert switch["forward"] == REQUEST
+    # only what follows the first "|": a bar inside the request stays
+    say(home, "[[switch-new: project | compare a | b]]")
+    assert ask(world, auth).json()["switch"]["forward"] == "compare a | b"
+    # without a request, or with an empty one, there is nothing to forward
+    for line in ("[[switch-new: project]]", "[[switch-new: project |   ]]"):
+        say(home, line)
+        switch = ask(world, auth).json()["switch"]
+        assert switch["action"] == "new" and "forward" not in switch, line
+
+
+def test_a_carried_request_is_cleaned_and_bounded(world, auth, known, home):
+    # a bell, a right-to-left override, a zero-width space, a delete; a joiner stays
+    hidden = {name: chr(code) for name, code in
+              (("rlo", 0x202E), ("zwsp", 0x200B), ("zwj", 0x200D))}  # fmt: skip
+    say(home, "[[switch-new: project | fix\x07 the{rlo} parser{zwsp}  now\x7f]]".format(**hidden))
+    assert ask(world, auth).json()["switch"]["forward"] == "fix the parser now"
+    say(home, "[[switch-new: project | a{zwj}b]]".format(**hidden))
+    assert ask(world, auth).json()["switch"]["forward"] == "a{zwj}b".format(**hidden)
+    exact = "x" * conversations.MAX_FORWARD
+    say(home, f"[[switch-new: project | {exact}]]")
+    assert ask(world, auth).json()["switch"]["forward"] == exact
+    # longer: never cut (a cut request could ask for something else), dropped with a note
+    say(home, f"Starting there.\n[[switch-new: project | {exact}y]]")
+    reply = ask(world, auth).json()
+    assert reply["switch"]["action"] == "new" and "forward" not in reply["switch"]
+    assert reply["answer"] == "Starting there.\n\n" + conversations.TOO_LONG
+
+
+def test_only_the_owners_fresh_answer_carries_a_request(world, known, home):
+    settings = world.app.state.settings
+    answer = f"Ok.\n[[switch-new: project | {REQUEST}]]"
+    text, switch = conversations.from_answer(settings, answer, "s", [], owner=False)
+    assert text == "Ok." and switch["action"] == "new" and "forward" not in switch
+    _, switch = conversations.from_answer(settings, answer, "s", [], owner=True)
+    assert switch["forward"] == REQUEST
+    # the history never shows the line, request and all
+    assert conversations.strip(answer) == "Ok."
+
+
+def test_a_request_is_never_sent_into_an_existing_conversation(world, auth, known, home):
+    say(home, f"Opening it.\n[[switch: {known['project']} | {REQUEST}]]")
+    switch = ask(world, auth).json()["switch"]
+    assert switch["action"] == "open" and "forward" not in switch
+    assert [s["id"] for s in switch["sessions"]] == [known["project"]]
+
+
+def test_a_chat_started_by_a_switch_and_its_origin_name_each_other(
+    world, auth, known, home, project, ask_dir, write_session
+):
+    # the old chat: its last answer asked for the switch (as Claude Code stores it)
+    earlier = owner(ask_dir, "hello")
+    last = owner(ask_dir, "go to the project and fix the parser there")
+    old = write_session(ask_dir, [
+        earlier, assistant(text("Hi.")),
+        last, assistant(text(f"Starting there.\n[[switch-new: project | {REQUEST}]]")),
+    ])  # fmt: skip
+    new = "11111111-1111-4111-8111-111111111111"
+    started = ask(world, auth, REQUEST, folder=str(project), new_session_id=new, continued_from=old)
+    assert started.status_code == 200 and started.json()["session_id"] == new
+    page = world.get(f"/sessions/{old}/history", headers=auth).json()
+    first, latest = page["exchanges"]
+    assert first["continued_in"] is None and latest["id"] == last["uuid"]
+    assert latest["assistant"] == "Starting there."  # the line is never shown
+    moved = latest["continued_in"]
+    assert moved["id"] == new and moved["folder_label"] == "project" and moved["kind"] == "project"
+    assert page["continued_from"] is None
+    page = world.get(f"/sessions/{new}/history", headers=auth).json()
+    assert page["continued_from"]["id"] == old
+    assert [e["continued_in"] for e in page["exchanges"]] == [None]
+    # ids only in the record, never a message or a folder
+    stored = (session_links.config_dir() / session_links.FILE_NAME).read_text()
+    assert REQUEST not in stored and str(project) not in stored and "hello" not in stored
+
+
+def test_a_wrong_or_unknown_origin_links_nothing(world, auth, known, home, project):
+    bad = ask(world, auth, "x", new_session_id="22222222-2222-4222-8222-222222222222",
+              continued_from="../etc")  # fmt: skip
+    assert bad.status_code == 400
+    unknown = "33333333-3333-4333-8333-333333333333"
+    new = "44444444-4444-4444-8444-444444444444"
+    assert ask(world, auth, "x", new_session_id=new, continued_from=unknown).status_code == 200
+    assert world.get(f"/sessions/{new}/history", headers=auth).json()["continued_from"] is None
+    assert session_links.continued_from(new) is None

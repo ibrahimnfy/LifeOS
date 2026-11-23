@@ -10,6 +10,8 @@ ends its answer with one line of its own, and the bridge does the rest:
   answer's ``switch`` item starts a new chat there (``action: "new"``). Several
   matches give a pick card (``action: "choose_folder"``, at most five folders);
   the app sends the pick to ``POST /folders/open``, which applies the same rules.
+  ``[[switch-find: <name> | <request>]]`` carries the owner's request to the new
+  chat (``"forward"`` on the item, the card's included; #187, see ``conversations``).
 - ``[[switch-remove: <folder label or path>]]``: the folder's line is removed from
   ``allowed_paths`` (nothing else changes, no file is touched), with an audit record.
 
@@ -41,7 +43,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import allowed, capable, chats, course_folders, folders
+from . import allowed, capable, chats, conversations, course_folders, folders
 from .claude import ClaudeError
 from .config import Settings, config_dir
 from .paths import refusal_reason, repo_dir
@@ -299,8 +301,10 @@ def find(settings: Settings, value: str, home: Path | None = None) -> Outcome:
             except ClaudeError as error:
                 return Outcome(note=f"The folder “{target.label}” cannot be used: {error.message}.")
             target.kind = "project"
+        # The run wrote its answer before the search: the note names what was found (#187).
         return Outcome(
-            switch={"action": "new", "sessions": [], "folder": _folder_item(settings, target)}
+            switch={"action": "new", "sessions": [], "folder": _folder_item(settings, target)},
+            note=f"A new chat opens in “{target.label}”.",
         )
     choices = [
         {**_folder_item(settings, target), "allowed": target.allowed, "where": _where(target.path)}
@@ -365,9 +369,17 @@ def from_answer(
             notes.append(remove(settings, value))
         elif kind == FIND and switch is None and finds == 0:
             finds += 1
-            outcome = find(settings, value, home)
+            # The owner's request may follow a "|" (#187): it goes with the switch, also
+            # with a pick card, so the new chat starts with it.
+            name, raw = conversations.split_forward(value)
+            outcome = find(settings, name, home)
             switch = outcome.switch
             notes.append(outcome.note)
+            if switch is not None:
+                forward, note = conversations.forward_of(raw)
+                if forward is not None:
+                    switch["forward"] = forward
+                notes.append(note)
     notes = [note for note in notes if note]
     if notes:
         text = (text + "\n\n" if text else "") + " ".join(notes)

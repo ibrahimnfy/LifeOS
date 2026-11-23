@@ -148,7 +148,11 @@ every section in its own clearly visible card.*
   a switch not acted on within a minute (the owner had left) becomes the
   card too.
   The marker lines behind it never show, not even while the answer is
-  written.
+  written. When the owner asked for work in that folder too, the new chat
+  starts with that request as its first message, sent at once (offline it
+  waits in the composer); the new chat says where it was started from and
+  the old answer says "Continued in <folder>", each a tap to the other chat
+  (#187).
 - **Moving a blank chat's files (#163):** the assistant can propose to move
   the chat's files into a project; an approval card like the skill and MCP
   cards lists the files with their sizes and the target, with **Allow** /
