@@ -412,6 +412,7 @@ fun LifeOsApp(
             run = core::runCommand,
             newRequestId = { core.newItemId() + core.newItemId() },
             undo = core::undoCommand,
+            systemScreen = core::openingSystemScreen,
             perform = { performCommand(it) },
             leave = { answer: CommandAnswer ->
                 captureOpen = false

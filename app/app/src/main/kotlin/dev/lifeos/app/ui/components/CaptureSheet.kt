@@ -94,6 +94,8 @@ class CommandHooks(
     val perform: (CommandOutcome) -> Unit,
     /** The answer moves the owner elsewhere: the sheet closes, the app opens it and confirms. */
     val leave: (CommandAnswer) -> Unit,
+    /** Speech recognition is about to cover the app: it may come back without a lock. */
+    val systemScreen: () -> Unit = {},
 )
 
 /** The bar's state while a request is on its way and after. */
@@ -166,6 +168,7 @@ fun CaptureSheet(
             putExtra(RecognizerIntent.EXTRA_PROMPT, speechPrompt)
         }
         try {
+            hooks.systemScreen()
             listen.launch(intent)
         } catch (_: ActivityNotFoundException) {
             showMessage(noSpeech)

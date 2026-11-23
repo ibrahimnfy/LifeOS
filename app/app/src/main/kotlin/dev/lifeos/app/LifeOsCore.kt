@@ -960,6 +960,8 @@ class LifeOsCore(private val app: Application) {
     private var session: Session? = null
     private var pairJob: Job? = null
     private var hiddenAt: Long? = null
+    private var systemScreenNext = false
+    private var hiddenForSystemScreen = false
     private var lockTimer: Job? = null
     private var lastContactWrite = 0L
 
@@ -985,15 +987,27 @@ class LifeOsCore(private val app: Application) {
 
     // ------------------------------------------------------------------ app lock
 
+    /**
+     * The owner opens a system screen from inside the app (speech recognition, a file picker):
+     * the next time the app goes out of sight, it may stay unlocked for
+     * [LockTimeout.SYSTEM_SCREEN_GRACE_MILLIS], so the answer of that screen is not lost to the lock.
+     */
+    fun openingSystemScreen() {
+        systemScreenNext = true
+    }
+
     /** The app went out of sight. */
     fun onHidden() {
+        val grace = systemScreenNext
+        systemScreenNext = false
         val current = record ?: return
         if (!needsLock(current) || lockedState.value) return
         hiddenAt = SystemClock.elapsedRealtime()
+        hiddenForSystemScreen = grace
         lockTimer?.cancel()
         lockTimer = scope.launch {
             val timeout = settings.lockTimeout.first()
-            delay(timeout.millis)
+            delay(if (grace) maxOf(timeout.millis, LockTimeout.SYSTEM_SCREEN_GRACE_MILLIS) else timeout.millis)
             lockNow()
         }
     }
@@ -1003,11 +1017,14 @@ class LifeOsCore(private val app: Application) {
         lockTimer?.cancel()
         checkUpdate() // opening the app asks for a newer release, also when the connection stayed up
         val away = hiddenAt
+        val grace = if (hiddenForSystemScreen) LockTimeout.SYSTEM_SCREEN_GRACE_MILLIS else 0L
         hiddenAt = null
+        hiddenForSystemScreen = false
+        systemScreenNext = false
         val current = record ?: return
         if (!needsLock(current) || lockedState.value) return
         val timeout: LockTimeout = settings.lockTimeout.first()
-        if (timeout.shouldLock(away, SystemClock.elapsedRealtime())) lockNow()
+        if (timeout.shouldLock(away, SystemClock.elapsedRealtime(), grace)) lockNow()
     }
 
     /** Forget the secret and stop talking to the relay until the owner confirms again. */

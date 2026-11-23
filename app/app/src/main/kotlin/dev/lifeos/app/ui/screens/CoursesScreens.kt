@@ -552,7 +552,7 @@ internal fun FileRow(core: LifeOsCore, courseId: Long, file: CourseFile) {
         if (uri != null) core.downloads.start(courseId, file, uri)
     }
     val start = {
-        if (core.downloads.needsPicker) picker.launch(dev.lifeos.app.data.DownloadRules.safeName(file.name)) else core.downloads.start(courseId, file)
+        if (core.downloads.needsPicker) { core.openingSystemScreen(); picker.launch(dev.lifeos.app.data.DownloadRules.safeName(file.name)) } else core.downloads.start(courseId, file)
     }
     val snackbar = LocalSnackbar.current
     val noApp = stringResource(R.string.download_open_no_app)

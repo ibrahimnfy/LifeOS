@@ -113,7 +113,7 @@ internal fun FileCard(core: LifeOsCore, file: OfferedFile) {
                     modifier = Modifier.padding(end = 8.dp),
                 )
                 else -> TopBarAction(LifeIcons.Download, stringResource(R.string.download_start, file.name)) {
-                    if (core.downloads.needsPicker) picker.launch(DownloadRules.safeName(file.name)) else core.downloads.startOffer(offer)
+                    if (core.downloads.needsPicker) { core.openingSystemScreen(); picker.launch(DownloadRules.safeName(file.name)) } else core.downloads.startOffer(offer)
                 }
             }
         }

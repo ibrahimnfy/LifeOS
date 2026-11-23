@@ -21,6 +21,16 @@ class LockTimeoutTest {
     }
 
     @Test
+    fun `a system screen the owner opened from the app may cover it for the grace time`() {
+        val grace = LockTimeout.SYSTEM_SCREEN_GRACE_MILLIS
+        assertFalse(LockTimeout.IMMEDIATELY.shouldLock(0, grace - 1, grace))
+        assertTrue(LockTimeout.IMMEDIATELY.shouldLock(0, grace, grace))
+        // A longer chosen time stays the longer one.
+        assertFalse(LockTimeout.FIVE_MINUTES.shouldLock(0, grace, grace))
+        assertTrue(LockTimeout.IMMEDIATELY.shouldLock(hiddenAtMillis = 5000, nowMillis = 4000, graceMillis = grace))
+    }
+
+    @Test
     fun `a clock that went backwards locks`() {
         assertTrue(LockTimeout.FIVE_MINUTES.shouldLock(hiddenAtMillis = 5000, nowMillis = 4000))
     }
