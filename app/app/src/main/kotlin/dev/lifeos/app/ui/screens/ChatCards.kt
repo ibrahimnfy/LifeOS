@@ -76,7 +76,8 @@ internal fun InteractionCard(
 
     val warning = interaction.kind == Interaction.Kind.APPROVAL && interaction.isDeletion
     // Approving an MCP server lets a program run outside the sandbox: the card stands out in amber.
-    val outside = interaction.kind == Interaction.Kind.MCP_SERVER
+    // So does applying an update: it runs code a phone chat changed outside the sandbox (#180).
+    val outside = interaction.kind == Interaction.Kind.MCP_SERVER || interaction.kind == Interaction.Kind.APPLY_UPDATE
     val shape = RoundedCornerShape(20.dp)
     Column(
         modifier = Modifier
@@ -93,6 +94,7 @@ internal fun InteractionCard(
             Interaction.Kind.SKILL_INSTALL -> SkillInstallCard(interaction, open, onApprove)
             Interaction.Kind.MCP_SERVER -> McpApprovalCard(interaction, open, onApprove)
             Interaction.Kind.MOVE_FILES -> MoveFilesCard(interaction, open, onApprove)
+            Interaction.Kind.APPLY_UPDATE -> ApplyUpdateCard(interaction, open, onApprove)
         }
         if (open) {
             val left = interaction.remainingMillis(now) / 1000
@@ -106,6 +108,7 @@ internal fun InteractionCard(
                         Interaction.Kind.SKILL_INSTALL -> R.string.install_time_left
                         Interaction.Kind.MCP_SERVER -> R.string.mcp_time_left
                         Interaction.Kind.MOVE_FILES -> R.string.move_time_left
+                        Interaction.Kind.APPLY_UPDATE -> R.string.apply_update_time_left
                         Interaction.Kind.APPROVAL -> R.string.interaction_time_left
                     },
                     time,
@@ -126,6 +129,7 @@ private fun Interaction.Status.resultRes(kind: Interaction.Kind, personal: Boole
     val install = kind == Interaction.Kind.SKILL_INSTALL
     if (kind == Interaction.Kind.MCP_SERVER) return mcpResultRes(personal)
     if (kind == Interaction.Kind.MOVE_FILES) return moveResultRes()
+    if (kind == Interaction.Kind.APPLY_UPDATE) return updateResultRes()
     return when (this) {
         Interaction.Status.WAITING -> null
         Interaction.Status.SENDING -> R.string.interaction_sending
@@ -136,7 +140,7 @@ private fun Interaction.Status.resultRes(kind: Interaction.Kind, personal: Boole
         Interaction.Status.EXPIRED -> when (kind) {
             Interaction.Kind.QUESTION -> R.string.question_expired
             Interaction.Kind.SKILL_INSTALL -> R.string.install_expired
-            Interaction.Kind.APPROVAL, Interaction.Kind.MCP_SERVER, Interaction.Kind.MOVE_FILES -> R.string.interaction_expired
+            Interaction.Kind.APPROVAL, Interaction.Kind.MCP_SERVER, Interaction.Kind.MOVE_FILES, Interaction.Kind.APPLY_UPDATE -> R.string.interaction_expired
         }
         Interaction.Status.GONE -> R.string.interaction_gone
         Interaction.Status.NOT_DONE -> R.string.install_not_done
@@ -150,6 +154,7 @@ internal fun Interaction.Refusal.textRes(kind: Interaction.Kind): Int = when (th
     Interaction.Refusal.UNRECORDED -> when (kind) {
         Interaction.Kind.MCP_SERVER -> R.string.mcp_refusal_unrecorded
         Interaction.Kind.MOVE_FILES -> R.string.move_refusal_unrecorded
+        Interaction.Kind.APPLY_UPDATE -> R.string.apply_update_refusal_unrecorded
         else -> R.string.install_refusal_unrecorded
     }
     Interaction.Refusal.WRITE_FAILED -> R.string.install_refusal_write

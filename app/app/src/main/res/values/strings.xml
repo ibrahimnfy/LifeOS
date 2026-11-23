@@ -645,6 +645,27 @@
     <string name="move_problem_not_chat">Cannot be moved: only a blank chat’s files are moved this way.</string>
     <string name="move_problem_unrecorded">The computer could not write its audit log, so it dropped the proposal.</string>
     <string name="move_problem_other">Cannot be moved: the computer did not accept the proposal.</string>
+    <!-- Applying an update a chat in the program folder produced (#180) -->
+    <string name="apply_update_label">Apply an update</string>
+    <string name="apply_update_title">Apply the changes of this chat</string>
+    <string name="apply_update_steps">Run the tests, build the app update and restart the computer side. It starts once no run is active.</string>
+    <string name="apply_update_commit">Commit</string>
+    <string name="apply_update_running">Running now: %1$s</string>
+    <string name="apply_update_warning">This runs code that a phone chat changed outside the sandbox.</string>
+    <string name="apply_update_note">Nothing is applied without your tap. A notification tells you when it is done, or which step failed.</string>
+    <string name="apply_update_time_left">Without an answer nothing is applied. It waits %1$s more.</string>
+    <string name="apply_update_allowed">Approved. The computer applies it once no run is active and tells you how it went.</string>
+    <string name="apply_update_refused">Not applied.</string>
+    <string name="apply_update_expired">Not answered in time: nothing was applied.</string>
+    <string name="apply_update_not_done_changed">Not applied: the code changed after this card was made. Ask the chat again for a new card.</string>
+    <string name="apply_update_not_done_in_progress">Not applied: another update is being applied right now.</string>
+    <string name="apply_update_not_done_other">Not applied: the computer did not start it.</string>
+    <string name="apply_update_refusal_unrecorded">Not started: the computer could not write its audit log, so it did nothing. You can try again.</string>
+    <string name="apply_update_problem_not_program_folder">Cannot be applied: only a chat in the LifeOS program folder can ask for an update.</string>
+    <string name="apply_update_problem_in_progress">Cannot be asked for now: an update is being applied already.</string>
+    <string name="apply_update_problem_no_commit">Cannot be applied: the computer could not read which commit the program folder is at.</string>
+    <string name="apply_update_problem_unrecorded">The computer could not write its audit log, so it dropped the request.</string>
+    <string name="apply_update_problem_other">Cannot be applied: the computer did not accept the request.</string>
 
     <!-- Chat: keep-alives, the phone's own session id, notifications that open the conversation (#148) -->
     <string name="chat_fail_first_lost">Your first message did not arrive: the app was locked before the computer had answered. Please send it again.</string>

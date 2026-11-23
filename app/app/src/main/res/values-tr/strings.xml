@@ -643,6 +643,27 @@
     <string name="move_problem_not_chat">Taşınamaz: yalnızca boş bir sohbetin dosyaları bu yolla taşınır.</string>
     <string name="move_problem_unrecorded">Bilgisayar denetim kaydını yazamadığı için öneriyi bıraktı.</string>
     <string name="move_problem_other">Taşınamaz: bilgisayar öneriyi kabul etmedi.</string>
+    <!-- Program klasöründeki bir sohbetin ürettiği güncellemeyi uygulamak (#180) -->
+    <string name="apply_update_label">Güncelleme uygula</string>
+    <string name="apply_update_title">Bu sohbetin değişikliklerini uygula</string>
+    <string name="apply_update_steps">Testleri çalıştırır, uygulama güncellemesini derler ve bilgisayar tarafını yeniden başlatır. Çalışan hiçbir iş kalmayınca başlar.</string>
+    <string name="apply_update_commit">Commit</string>
+    <string name="apply_update_running">Şu an çalışan: %1$s</string>
+    <string name="apply_update_warning">Bu, telefondaki bir sohbetin değiştirdiği kodu korumalı alanın (sandbox) dışında çalıştırır.</string>
+    <string name="apply_update_note">Senin dokunuşun olmadan hiçbir şey uygulanmaz. Bittiğinde ya da hangi adım başarısız olduğunda bir bildirim alırsın.</string>
+    <string name="apply_update_time_left">Cevap verilmezse hiçbir şey uygulanmaz. %1$s daha bekler.</string>
+    <string name="apply_update_allowed">Onaylandı. Bilgisayar, çalışan iş kalmayınca uygular ve nasıl gittiğini sana bildirir.</string>
+    <string name="apply_update_refused">Uygulanmadı.</string>
+    <string name="apply_update_expired">Zamanında cevaplanmadı: hiçbir şey uygulanmadı.</string>
+    <string name="apply_update_not_done_changed">Uygulanmadı: bu kart oluşturulduktan sonra kod değişti. Yeni bir kart için sohbete tekrar sor.</string>
+    <string name="apply_update_not_done_in_progress">Uygulanmadı: şu anda başka bir güncelleme uygulanıyor.</string>
+    <string name="apply_update_not_done_other">Uygulanmadı: bilgisayar başlatmadı.</string>
+    <string name="apply_update_refusal_unrecorded">Başlatılmadı: bilgisayar denetim kaydını yazamadığı için hiçbir şey yapmadı. Yeniden deneyebilirsin.</string>
+    <string name="apply_update_problem_not_program_folder">Uygulanamaz: güncellemeyi yalnızca LifeOS program klasöründeki bir sohbet isteyebilir.</string>
+    <string name="apply_update_problem_in_progress">Şu an istenemez: zaten bir güncelleme uygulanıyor.</string>
+    <string name="apply_update_problem_no_commit">Uygulanamaz: bilgisayar program klasörünün hangi commit\'te olduğunu okuyamadı.</string>
+    <string name="apply_update_problem_unrecorded">Bilgisayar denetim kaydını yazamadığı için isteği bıraktı.</string>
+    <string name="apply_update_problem_other">Uygulanamaz: bilgisayar isteği kabul etmedi.</string>
 
     <!-- Chat: keep-alives, the phone's own session id, notifications that open the conversation (#148) -->
     <string name="chat_fail_first_lost">İlk mesajın ulaşmadı: bilgisayar yanıt vermeden uygulama kilitlendi. Lütfen yeniden gönder.</string>

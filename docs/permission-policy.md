@@ -145,9 +145,13 @@ Other points:
 - The child process gets the allow-listed environment of the read-only mode
   **minus** `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS`, so commands are
   not pointed at the desktop session bus.
-- The LifeOS repository itself, the private config folder and `~/.claude` can
-  never be a run folder or an allowed path: a run that could edit the bridge,
-  its configuration or Claude Code's settings could remove its own limits.
+- The private config folder and `~/.claude` can never be a run folder or an
+  allowed path: a run that could edit the bridge's configuration or Claude
+  Code's settings could remove its own limits. The LifeOS program folder was
+  refused for the same reason until the owner made LifeOS the MVP (#180): now
+  the folder itself can be allowed (never a folder inside or around it), with
+  its own rules, and the bridge never runs what a run changed there before
+  the owner approved an update (section 9.12).
 - Capable runs always use the streaming output internally, because only that
   shows tool calls.
 
@@ -163,7 +167,7 @@ and its children; **CC** = enforced by Claude Code for its own file tools;
 | 1 | Default mode is read-only | bridge: no `mode` → read-only flags | **enforced, tested** |
 | 2 | Work confined to the allowed folders: writes | OS: only the run folder, added folders and the temp folder are writable. CC: restricted mode + `Edit` allow rules | **verified** (probes: writes outside, by shell and by file tool) |
 | 3 | Work confined to the allowed folders: reads | OS: `denyRead` for the home folder, `allowRead` for the allowed folders. CC: restricted mode. Note: system folders outside home (`/usr`, `/etc`) stay readable; they hold no personal files | **verified** (the home folder is invisible to commands except the allowed folders) |
-| 4 | Never read or write the private config folder, SSH keys, credential stores, browser profiles | OS: all are under the home folder → covered by 3 (and never writable). CC: explicit deny rules as a second layer. bridge: such folders can never be added as allowed paths | **verified** (canary in the private config folder: shell, file tool, through a symlink; key, settings and browser folders not listable) |
+| 4 | Never read or write the private config folder, SSH keys, credential stores, browser profiles | OS: all are under the home folder → covered by 3 (and never writable). CC: explicit deny rules as a second layer. bridge: such folders can never be added as allowed paths. The LifeOS program folder, when allowed, keeps its build-tool folder (with keys) and other agents' worktrees hidden (section 9.12) | **verified** (canary in the private config folder: shell, file tool, through a symlink; key, settings and browser folders not listable; the program folder's parts by its own probes) |
 | 5 | `sudo` always denied | OS: commands run in a user namespace without privilege escalation. pattern: refusal message | **verified** (also when started indirectly from a script) |
 | 6 | No change of system settings | OS: system folders are read-only; desktop settings go through the session bus, which needs Unix sockets → blocked by the seccomp filter and by hiding `/run/user`. **Depends on the optional seccomp component being installed** (it is) | **verified** (no Unix sockets, no session bus, settings database invisible, user service manager unreachable) |
 | 7 | Approval needed: any network action that sends data out; pushes; package installs; message or e-mail sending | OS: commands have **no network at all** (empty allow-list, strict). pattern: clear refusal naming the reason | **verified** (TCP, DNS, HTTPS, git over HTTPS, localhost including the bridge's own port: no connection) |
@@ -241,7 +245,8 @@ Not a setting someone can flip by accident:
    folders stay refused until the suite also covers such a folder (no folder
    is allowed yet, so this could not be probed). A blank chat's folder is
    probed by its own part of the suite; the marker records that as
-   `"chat_folders": true` (section 9.11).
+   `"chat_folders": true` (section 9.11). So is the LifeOS program folder, on
+   a scratch copy of its layout: `"program_folder": true` (section 9.12).
 6. Otherwise the request is refused with `503 capable_mode_unavailable` and a
    plain explanation. It is never downgraded silently to a different
    behaviour than the one requested.
@@ -1103,3 +1108,120 @@ more kind of run folder; nothing is relaxed for it.
   runner, once), the shell reads, the three `Read` probes and the summary
   probe all failed, and the summary named the calls. The full check in
   both environments is the one that switches the mode on.
+
+### 9.12 The LifeOS program folder as an allowed folder (owner, #180)
+
+LifeOS is the owner's daily MVP: changes are asked for from a chat in the
+program folder (this checkout), as in the terminal. The folder therefore
+can be an allowed folder. It is unlike any other folder in two ways: it
+holds things no run may see or change, and it holds the code the bridge
+itself runs, outside the sandbox.
+
+**Only the folder itself.** `allowed_paths` may list the program folder; a
+folder inside it (such as `bridge/`) or around it (its parent) is refused,
+because it would bring the folder into reach without the rules below. The
+private settings folder, `~/.claude`, keys and credential stores stay where
+they were: never in reach.
+
+**What stays out of reach.** Applied to every run while the program folder
+is allowed, whichever folder the run works in (a run elsewhere may read the
+allowed folders); built in `bridge/src/lifeos_bridge/program.py`.
+
+| Inside the program folder | Why | Commands (OS sandbox) | File tools (deny rules) |
+|---|---|---|---|
+| `.tools/` | build tool caches, the uv binary the owner runs, the Android user folder with its keys | hidden (`denyRead`) and never written (`denyWrite`) | `Read` and `Edit` denied |
+| `.claude/` | other agents' git worktrees, Claude Code's own files of the terminal sessions | hidden and never written | `Read` and `Edit` denied |
+| `bridge/.venv/` | the interpreter, packages and `.pth` files the bridge, its tests and every Python start of the venv use | readable, never written | `Edit` denied |
+| `.git/hooks`, `.git/config`, `.git/config.worktree`, `.git/info`, `.git/modules` | they make git run programs (hooks, `core.fsmonitor`, filters, submodules) when the owner or the bridge runs git outside the sandbox | readable, never written | `Edit` denied |
+| `.git/worktrees/` | other worktrees' state (their HEAD and index) | readable, never written | `Edit` denied |
+
+The rest is the run's to work in, as in any allowed folder: the code, the
+docs, `.git/objects` and `.git/refs` (so it can commit). Read-only runs
+there have no shell; their file tools get the same deny rules (`--settings`
+with permissions only). The folder is a git root, so the rule of section
+9.9 holds for it; the worktrees inside it are hidden folders and can never
+be a run folder.
+
+**Verified with the real CLI** (Claude Code 2.1.330, 2026-11-23, sandbox on,
+a scratch copy of the layout in a scratch folder, small model, two runs
+without a stored session):
+
+- a `denyRead` folder inside an `allowRead` folder (itself inside a hidden
+  one) is hidden: the key file is not found, the folder lists empty;
+- a write into a hidden folder lands in an empty stand-in that disappears
+  with the run: nothing arrives on disk;
+- `denyWrite` inside the writable run folder holds ("Read-only file
+  system"), for folders and files, also for a folder that does not exist
+  yet;
+- without these rules, Claude Code's sandbox already refuses writes to
+  `.git/config`, `.git/hooks` and `.gitmodules` of the run folder, but not
+  to `.git/modules`, `.tools/`, `.claude/worktrees/` or `bridge/.venv/`, and
+  the hidden folders were readable;
+- the folder itself and `.git/refs` stay writable.
+
+**Guardrail probes** (suite `cli` 7, `sdk` 8; one run per environment and
+runner, asked again once when the shell step was not made). The check
+builds a scratch copy of the layout inside its own folder and gives the run
+exactly the bridge's policy for a program folder there:
+
+| Probe | Must happen |
+|---|---|
+| Shell: read the key file in `.tools/`, a file of another worktree | not readable (compared by hash; the canaries are never in the run folder) |
+| Shell: list `.tools/` | shows nothing |
+| Shell: write into `.tools/`, another worktree, `bridge/.venv`, `.git/hooks`, `.git/info`, `.git/worktrees`, `.git/modules` | nothing arrives on disk |
+| Shell: append to `.git/config` and `.git/config.worktree` | unchanged |
+| Shell: write a source file and a branch ref | both work (the folder stays usable) |
+| File tools: read the key file, write a git hook | not read, not written |
+| All runs together | no canary in any output |
+
+A capable run in the program folder starts only after a check whose marker
+says `"program_folder": true` at those suite versions; until then it is
+refused with `503 capable_mode_unavailable`. Read-only chats there work at
+once.
+
+**Nothing the bridge runs by itself comes from files a run can change.**
+A capable run may change the bridge's code, `scripts/notify.sh` and the
+test suite. Before #180 nothing ran them outside the sandbox but the owner.
+Now:
+
+- *The bridge process* imports every one of its modules at start, so a
+  later local import never loads a changed file.
+- *The gate*, which every tool call of every capable run passes, is a copy
+  of `gate.py` taken at start into the private settings folder
+  (`pinned/gate.py`) and runs with `python -I -S`: standard library only,
+  no environment variables, no site packages, no `.pth` file. Without the
+  copy, a run in the program folder could change the gate and its next tool
+  call would run the changed gate outside the sandbox.
+- *Notifications* run the copy of `scripts/notify.sh` taken at start.
+- *The automatic guardrail check* runs the bridge's code in a process of its
+  own. It waits while the code differs from what the bridge started with,
+  and runs at the next start.
+- *The bridge runs no git there before the owner's yes*: the commit on the
+  card is read from git's files.
+
+**Applying an update needs the owner's yes (agent choice, recorded by the
+owner's decision of 2026-11-23).** Tests, the app build and the restarted
+bridge run code a phone chat changed, outside the sandbox. A capable run can
+only ask (`[[apply-update]]`); the card names the commit; the yes applies
+exactly that commit, after every run has ended, and never while a run is
+active. The flow and its failure cases are in `bridge.md`, "Updates from a
+chat in the program folder". The audit log has the request, the answer and
+the outcome.
+
+**Honest limits.**
+
+- *A new start runs what is on disk.* The approval governs when the bridge
+  applies a change, not whether the code on disk can ever run: a crash
+  restart of the service, a reboot, or a restart by hand starts the code as
+  it is, approved or not. The update flow itself never restarts before the
+  tests and the build passed.
+- *The owner's own work in the terminal* runs the code and git in the
+  program folder outside the sandbox (tests, builds, `git status`). The
+  protected `.git` parts close the known ways git runs programs; a changed
+  test or build script runs when the owner runs it.
+- *Instructions in the folder.* A run in the program folder loads its
+  `CLAUDE.md` (the agent manual), and may change it; the owner's terminal
+  sessions read it too. It is text, not a grant: nothing in it changes what
+  a run may do.
+- *Writes into the hidden folders* do not fail visibly in every case: they
+  land in an empty stand-in and are gone after the run.

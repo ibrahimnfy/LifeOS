@@ -291,9 +291,14 @@ def test_an_interrupted_update_is_reported_at_the_next_start(repo, notices, isol
 # ---- the real steps, without running anything ----------------------------------------------
 
 
-def test_the_restart_is_left_to_the_owner_outside_the_service(monkeypatch):
+def test_the_restart_is_left_to_the_owner_outside_the_service(monkeypatch, isolated_config):
     monkeypatch.setattr(updates, "own_unit", lambda: "session-2.scope")
     assert RealSteps().restart() == "manual"
+    monkeypatch.setattr(updates, "own_unit", lambda: "lifeos-bridge.service")
+    (isolated_config / "env").write_text("LIFEOS_SERVICE_NAME=lifeos-other.service\n")
+    (isolated_config / "env").chmod(0o600)
+    assert updates.service_name() == "lifeos-other.service"
+    assert RealSteps().restart() == "manual"  # not the unit it was told to restart
 
 
 def test_the_check_refuses_another_commit_before_running_git(repo):

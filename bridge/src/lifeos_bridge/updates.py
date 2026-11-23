@@ -84,7 +84,9 @@ INSTRUCTIONS = (
     "committed and the owner wants them applied, write a line of its own: [[apply-update]]. "
     "The owner gets an approval card; after a yes the bridge waits until no run is active, "
     "runs the bridge's tests and lint, builds the app update, restarts itself and tells the "
-    "owner the outcome."
+    "owner the outcome. Here you can run the bridge's tests with "
+    "bridge/.venv/bin/python -m pytest -q -p no:cacheprovider; nothing can be installed, "
+    "and the app is built only by the bridge."
 )
 
 REASONS = {
@@ -270,11 +272,25 @@ def own_unit(cgroup: Path = Path("/proc/self/cgroup")) -> str | None:
     return None
 
 
+def _settings(environ: dict[str, str]) -> dict[str, str]:
+    """``LIFEOS_*`` values of ``~/.config/lifeos/env``; real variables win, as everywhere."""
+    values = read_env_file(config_dir() / ENV_FILE_NAME)
+    values.update({k: v for k, v in environ.items() if k.startswith("LIFEOS_")})
+    return values
+
+
+def service_name(environ: dict[str, str] | None = None) -> str:
+    try:
+        values = _settings(dict(os.environ if environ is None else environ))
+    except ConfigError:
+        values = {}
+    return values.get(SERVICE_VAR, "").strip() or DEFAULT_SERVICE
+
+
 def build_environment(environ: dict[str, str] | None = None) -> dict[str, str]:
     """The bridge's environment plus the build settings of ``~/.config/lifeos/env``."""
     environ = dict(os.environ if environ is None else environ)
-    values = read_env_file(config_dir() / ENV_FILE_NAME)
-    values.update({k: v for k, v in environ.items() if k.startswith("LIFEOS_")})
+    values = _settings(environ)
     for name, target in BUILD_VARS.items():
         if values.get(name):
             environ[target] = values[name]
@@ -357,7 +373,7 @@ class Steps:
     def restart(self) -> str:
         """``"restarting"`` once the service manager has the job; ``"manual"`` when this
         process is not the bridge's user service (then nothing is restarted)."""
-        wanted = os.environ.get(SERVICE_VAR, "").strip() or DEFAULT_SERVICE
+        wanted = service_name()
         if own_unit() != wanted:
             return "manual"
         try:

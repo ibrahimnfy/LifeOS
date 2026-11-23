@@ -248,6 +248,28 @@ internal class SampleChat(private val context: Context) {
 
     private fun moveCards(session: String) = moves.filter { it.value.session == session }.toSortedMap().map { (id, move) -> moveCard(id, move) }
 
+    /**
+     * A chat in the program folder asks for its changes to be applied (#180). [changed]: the
+     * first yes finds the folder at another commit (the computer answers "not done").
+     */
+    private class UpdateAsk(val session: String, val changed: Boolean, val madeAt: Instant = Instant.now())
+
+    private val updateAsks = ConcurrentHashMap<String, UpdateAsk>()
+
+    private fun updateCard(id: String, ask: UpdateAsk) = buildJsonObject {
+        put("id", JsonPrimitive(id))
+        put("kind", JsonPrimitive("apply_update"))
+        put("session_id", JsonPrimitive(ask.session))
+        put("folder", JsonPrimitive("/home/owner/lifeos"))
+        put("state", JsonPrimitive("ready"))
+        put("commit", JsonPrimitive("4f2a9c1e7b3d5a6c8e0f1a2b3c4d5e6f7a8b9c0d"))
+        put("running_commit", JsonPrimitive("9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d"))
+        put("created_at", JsonPrimitive(ask.madeAt.toString()))
+        put("expires_at", JsonPrimitive(ask.madeAt.plusSeconds(24 * 3600).toString()))
+    }
+
+    private fun updateCards(session: String) = updateAsks.filter { it.value.session == session }.toSortedMap().map { (id, ask) -> updateCard(id, ask) }
+
     /** A conversation a switch names, as the bridge describes it (#164): never its messages. */
     private fun switchSession(id: String): JsonObject {
         val item = listedSessions().firstOrNull { it["id"]?.jsonPrimitive?.content == id } ?: JsonObject(emptyMap())
@@ -437,13 +459,26 @@ internal class SampleChat(private val context: Context) {
                             }
                         }
                     }
+                    // Applying an update (#180): a yes starts it, unless the commit changed since the card.
+                    method == "POST" && rest.startsWith("interactions/") && updateAsks[rest.removePrefix("interactions/")]?.session == parts[1] -> {
+                        val id = rest.removePrefix("interactions/")
+                        val ask = updateAsks.remove(id) ?: return@synchronized error(404, "not_pending")
+                        val yes = ((body as? JsonObject)?.get("approve") as? JsonPrimitive)?.content == "true"
+                        ok {
+                            put("answered", JsonPrimitive(true))
+                            put("id", JsonPrimitive(id))
+                            put("approved", JsonPrimitive(yes && !ask.changed))
+                            if (yes && ask.changed) put("reason", JsonPrimitive("changed"))
+                            if (yes && !ask.changed) put("state", JsonPrimitive("waiting"))
+                        }
+                    }
                     method == "POST" && rest.startsWith("interactions/") -> {
                         val run = waiting.remove(rest.removePrefix("interactions/")) ?: return@synchronized error(404, "not_pending")
                         run.complete(body as? JsonObject ?: JsonObject(emptyMap()))
                         ok { put("answered", JsonPrimitive(true)) }
                     }
                     method == "GET" && rest == "interactions" ->
-                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]) + mcpCards(parts[1]) + moveCards(parts[1]))) }
+                        ok { put("pending", JsonArray((if (parts[1] == PARKED && parked) listOf(parkedCard()) else emptyList()) + proposalCards(parts[1]) + mcpCards(parts[1]) + moveCards(parts[1]) + updateCards(parts[1]))) }
                     // The coach conversation has no thread to read before its first message.
                     method == "GET" && rest == "history" && parts[1].startsWith(COACH) && session.exchanges.isEmpty() -> error(404, "session_not_found")
                     method == "GET" && rest == "history" -> history(session, query["before"])
@@ -1042,6 +1077,15 @@ internal class SampleChat(private val context: Context) {
                             moves[cardId] = move
                             val refused = Json.parseToJsonElement("""{"kind":"move_files","state":"refused","target":"brain","error":"the memory folder is not a target","error_code":"target_not_allowed"}""")
                             put("file_moves", JsonArray(listOf(moveCard(cardId, move), refused)))
+                        }
+                        // "apply": a request to apply the chat's changes (#180), and one refused at once;
+                        // with "changed" the first yes finds the folder at another commit.
+                        if ("apply" in prompt) {
+                            val cardId = "sampleupd%03d".format(++asked)
+                            val ask = UpdateAsk(id, changed = "changed" in prompt)
+                            updateAsks[cardId] = ask
+                            val refused = Json.parseToJsonElement("""{"kind":"apply_update","state":"refused","error":"an update is being applied already","error_code":"update_in_progress"}""")
+                            put("update_requests", JsonArray(listOf(updateCard(cardId, ask), refused)))
                         }
                     },
                 ),
