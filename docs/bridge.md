@@ -1712,14 +1712,23 @@ screen) and its undo. `GET /command/actions` lists them.
   (`~/.cache/lifeos/command-runs`), outside the memory, every project and git.
   It reads only the request, the language, the phone's local date and time and
   the list of actions, and answers with one JSON object of actions or one
-  question. A run is stopped after 45 seconds.
+  question. A run is stopped after 45 seconds (`504 timeout`, nothing
+  done). The bar does not take a chat's run slot; at most two
+  interpretations run at once.
 - **Checked against the registry:** an unknown action, an unknown or missing
   parameter or a badly formed date or time refuses the whole answer
   (`422 not_understood`); nothing half-understood is done. The model names
   things by words, never by ids; the bridge finds them (notes, open tasks,
   coming events, chats by title, folders by name, courses, assignments,
-  projects): one match acts, several become a question with options, none
-  is an outcome that is not `ok` (`*_not_found`).
+  projects): one item with the whole phrase or every word (of three letters
+  or more) acts; several, or one that has only some of the words, become a
+  question with options (so "delete the plumber note" never deletes the
+  dentist note unasked); none is an outcome that is not `ok`
+  (`*_not_found`). A reminder time from the bar must lie ahead
+  (`time_in_past`, nothing saved). Memory items are stamped by the
+  computer's clock; the phone's time only gives "tomorrow" its meaning.
+  One failing action is a failed outcome and never loses what the others
+  did.
 - **Request:** `{"request_id": "<16 to 64 random characters>", "text": "…",
   "language": "en" | "tr", "now": "2027-01-15T09:30:00+03:00", "timezone":
   "Europe/Istanbul", "previous"?: {"request", "question"}}`, or

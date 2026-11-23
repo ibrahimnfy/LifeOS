@@ -95,6 +95,16 @@ def test_a_topic_note_moves_to_the_trash_folder_and_back(client, auth, brain):
     assert (brain / ".trash" / "notes" / "example-topic.md").read_text() == "Body two.\n"
 
 
+def test_a_topic_note_never_committed_is_deleted_too(client, auth, brain):
+    (brain / "notes").mkdir()
+    (brain / "notes" / "fresh-topic.md").write_text("Written by hand, not committed yet.\n")
+    assert client.delete("/notes/n-fresh-topic", headers=auth).status_code == 200
+    assert (brain / ".trash" / "notes" / "fresh-topic.md").is_file()
+    assert git(brain, "status", "--short") == ""
+    assert client.post("/notes/n-fresh-topic/restore", headers=auth).status_code == 200
+    assert (brain / "notes" / "fresh-topic.md").is_file() and git(brain, "status", "-s") == ""
+
+
 def test_bad_note_ids_are_not_deleted(client, auth, brain):
     for bad_id in ["i-unknown", "n-missing", "x", "n-..", "CLAUDE"]:
         assert client.delete(f"/notes/{bad_id}", headers=auth).status_code == 404

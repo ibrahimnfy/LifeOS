@@ -508,7 +508,12 @@ fun outcomeLine(context: Context, outcome: CommandOutcome, locale: Locale): Stri
     val title = outcome.title.orEmpty()
     val moment = whenLabel(outcome.moment, locale)
     if (!outcome.ok) {
-        return context.getString(if (outcome.error.orEmpty().endsWith("_not_found")) R.string.command_result_not_found else R.string.command_result_failed)
+        val reason = when {
+            outcome.error == "time_in_past" -> R.string.command_result_past
+            outcome.error.orEmpty().endsWith("_not_found") -> R.string.command_result_not_found
+            else -> R.string.command_result_failed
+        }
+        return context.getString(reason)
     }
     return when (outcome.action) {
         "create_note" -> if (moment != null) context.getString(R.string.command_result_create_note_reminder, title, moment) else context.getString(R.string.command_result_create_note, title)

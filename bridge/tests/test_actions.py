@@ -262,6 +262,43 @@ def test_reminders_on_notes_are_set_and_cancelled(ctx, brain):
     assert not missing.ok
 
 
+def test_words_that_match_only_partly_are_asked_about_even_once(ctx, brain):
+    actions.execute(ctx, "add_task", {"title": "Call the dentist"})
+    # One task, but "plumber" is not in it: a destructive action asks instead of guessing.
+    with pytest.raises(actions.Ask) as asked:
+        actions.execute(ctx, "complete_task", {"task": "call the plumber"})
+    assert [o.label for o in asked.value.options] == ["Call the dentist"]
+    assert [t.title for t in memory.list_tasks(brain)] == ["Call the dentist"]
+    # Every word there (in any order, any case): it acts.
+    assert actions.execute(ctx, "complete_task", {"task": "Dentist call"}).ok
+
+
+def test_a_reminder_time_of_the_bar_must_lie_ahead(ctx, brain):
+    past = actions.execute(ctx, "create_note", {"text": "late", "remind_at": "2001-01-16T10:00"})
+    assert not past.ok and past.error == "time_in_past"
+    assert memory.list_notes(brain) == [] and reminders.load() == []
+    memory.add_note(brain, "existing note")
+    again = actions.execute(ctx, "set_reminder", {"note": "existing", "at": "2001-01-16T10:00"})
+    assert not again.ok and again.error == "time_in_past"
+
+
+def test_one_failing_action_does_not_lose_the_others(client, auth, brain, interpreted, monkeypatch):
+    def broken(ctx, params):
+        raise RuntimeError("synthetic")
+
+    monkeypatch.setitem(actions.EXECUTORS, "complete_task", broken)
+    interpreted["answer"] = {"actions": [
+        {"name": "add_task", "params": {"title": "First"}},
+        {"name": "complete_task", "params": {"task": "First"}},
+    ]}  # fmt: skip
+    answer = client.post("/command", headers=auth, json=body("f" * 16, text="x")).json()
+    assert [(r["action"], r["ok"]) for r in answer["results"]] == [
+        ("add_task", True), ("complete_task", False)
+    ]  # fmt: skip
+    again = client.post("/command", headers=auth, json=body("f" * 16, text="x")).json()
+    assert again["repeat"] is True and (brain / "tasks.md").read_text().count("First") == 1
+
+
 def test_app_actions_are_handed_over():
     done = actions.execute(None, "open_screen", {"screen": "calendar"})
     assert done.perform == {"action": "open_screen", "screen": "calendar"} and done.undo is None

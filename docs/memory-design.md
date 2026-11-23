@@ -324,7 +324,13 @@ Embedding-based search is a separate open decision.
 - Nothing from it is written to the project repository, an issue, a log or a
   notification.
 - No secrets in memory files.
-- Deleting means moving to `.trash/` and committing.
+- Deleting means moving to `.trash/` and committing. What the bridge moves
+  there itself: captures filed by the consolidation (`.trash/inbox-filed.md`),
+  captures deleted from the phone (`.trash/inbox-deleted.md`, in the inbox's
+  format, restored from there under the same id, #184), deleted topic notes
+  (`.trash/notes/<name>.md`; an older one of the same name is kept as
+  `<name>~<time>.md`) and tasks or events taken back with the command bar's
+  undo (`.trash/removed-lines.md`, #185).
 
 ## 9. The owner's answers (2026-11-20)
 

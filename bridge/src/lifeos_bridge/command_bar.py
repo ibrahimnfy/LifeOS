@@ -99,6 +99,20 @@ async def interpret(
     settings: Settings, text: str, language: str, now: datetime, previous: dict | None
 ) -> dict:
     """One model run without tools; its JSON answer (not yet checked)."""
+    async with _RUNS:
+        try:
+            return await _interpret(settings, text, language, now, previous)
+        except TimeoutError as exc:
+            raise ClaudeError("timeout", 504, "the request took too long") from exc
+
+
+# At most two interpretations at once: the bar never takes a chat's run slot.
+_RUNS = asyncio.Semaphore(2)
+
+
+async def _interpret(
+    settings: Settings, text: str, language: str, now: datetime, previous: dict | None
+) -> dict:
     result = await asyncio.wait_for(
         claude.run(
             settings,
@@ -271,5 +285,7 @@ async def _run(ctx: actions.Context, steps: list[tuple[str, dict]], start_plan) 
                 options.append({"label": option.label, "detail": option.detail, "choice": token})
             question = {"kind": ask.kind, "action": name, "text": None, "options": options}
             return {"results": results, "question": question}
+        except Exception:
+            outcome = actions.Outcome(name, ok=False, error="failed")
         results.append(outcome.as_json())
     return {"results": results, "question": None}

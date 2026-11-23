@@ -1088,6 +1088,7 @@
     <string name="command_result_open">Opening %1$s</string>
     <string name="command_result_opening">Opening</string>
     <string name="command_result_not_found">Nothing matched, so nothing was done.</string>
+    <string name="command_result_past">That time has already passed, so nothing was saved.</string>
     <string name="command_result_failed">This could not be done.</string>
     <string name="capture_remind">Remind me</string>
     <string name="capture_remind_at">Reminder: %1$s</string>

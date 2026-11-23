@@ -2071,14 +2071,10 @@ def create_app(settings: Settings) -> FastAPI:
         """Body: ``{"request_id", "text" | "choice", "language"?, "now"?, "timezone"?,
         "previous"?}``. Done actions with undo tokens, app actions, or one question."""
         body = await read_json_object(request)
-        slot = f"command-{uuid.uuid4().hex}"
-        slots.acquire(slot)
-        try:
-            return await command_bar.handle(
-                settings, body, context=command_context, start_plan=start_plan
-            )
-        finally:
-            slots.release(slot)
+        # No chat run slot: the bar's short runs have their own limit (command_bar._RUNS).
+        return await command_bar.handle(
+            settings, body, context=command_context, start_plan=start_plan
+        )
 
     @app.post("/command/undo")
     async def command_undo(request: Request):

@@ -424,7 +424,11 @@ def delete_note(memory: Path, note_id: str) -> dict:
             folder = memory / TRASH_NOTES
             folder.mkdir(parents=True, exist_ok=True)
             target = folder / source.name
-            moved = [f"notes/{source.name}", f"{TRASH_NOTES}/{source.name}"]
+            # A file never committed has no removal to record (git would refuse its path).
+            tracked = _git(memory, "ls-files", "--error-unmatch", "--", f"notes/{source.name}")
+            moved = [f"{TRASH_NOTES}/{source.name}"]
+            if tracked.returncode == 0:
+                moved.append(f"notes/{source.name}")
             if target.exists():
                 # An older deletion of a note with this name stays, under a name of its own.
                 stamp = now_local().strftime("%Y%m%d-%H%M%S")

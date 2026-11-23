@@ -24,7 +24,7 @@ import time
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -560,8 +560,13 @@ def fold(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
+class Partial(list):
+    """Items that match only some of the words: never acted on without asking."""
+
+
 def best(items: list, words: str, text_of: Callable[[object], str]) -> list:
-    """The items that match ``words`` best: the whole phrase, else the most of its words."""
+    """The items ``words`` name: those with the whole phrase, else those with every word
+    (of three letters or more); else, as :class:`Partial`, those with the most words."""
     phrase = " ".join(fold(words).split())
     if not phrase:
         return []
@@ -569,18 +574,30 @@ def best(items: list, words: str, text_of: Callable[[object], str]) -> list:
     whole = [item for item, text in texts if phrase in text]
     if whole:
         return whole
-    parts = [w for w in phrase.split() if len(w) >= 2]
+    parts = [w for w in phrase.split() if len(w) >= 3] or phrase.split()
+    every = [item for item, text in texts if all(w in text for w in parts)]
+    if every:
+        return every
     scored = [(sum(w in text for w in parts), item) for item, text in texts]
     top = max((score for score, _ in scored), default=0)
-    return [item for score, item in scored if score == top] if top else []
+    return Partial(item for score, item in scored if score == top) if top else []
 
 
 def _one(found: list, kind: str, option: Callable[[object], Option], missing: str) -> object:
+    """The one item meant; several, or one that only partly matches, become a question."""
     if not found:
         raise ClaudeError(missing, 404, f"nothing matches ({kind})")
-    if len(found) > 1:
+    if len(found) > 1 or isinstance(found, Partial):
         raise Ask(kind, [option(item) for item in found[:MAX_OPTIONS]])
     return found[0]
+
+
+def _ahead(moment: datetime) -> datetime:
+    """A reminder time from the bar must lie ahead (a note delayed in the phone's outbox may
+    fire late; a request of the bar is never meant for the past)."""
+    if moment < datetime.now(UTC) - reminders.PAST_TOLERANCE:
+        raise ClaudeError("time_in_past", 400, "that time has passed")
+    return moment
 
 
 def _snippet(text: str, limit: int = 80) -> str:
@@ -596,7 +613,7 @@ def _note(ctx: Context, params: dict, action: str) -> dict:
         return memory.get_note(ctx.brain, params["note_id"])
     notes = memory.list_notes(ctx.brain, "", 500)
     found = best(notes, params["note"], lambda n: f"{n['title'] or ''} {n['preview']}")
-    if len(found) == 1:
+    if len(found) == 1 and not isinstance(found, Partial):
         return memory.get_note(ctx.brain, found[0]["id"])  # in full
     return _one(
         found, "note",
@@ -699,9 +716,10 @@ def undo(token: object) -> dict:
 def _create_note(ctx: Context, p: dict) -> Outcome:
     remind = None
     if "remind_at" in p:
-        moment = ctx.moment(p["remind_at"])
+        moment = _ahead(ctx.moment(p["remind_at"]))
         remind = {"at": moment.isoformat(), **({"timezone": ctx.zone} if ctx.zone else {})}
-    saved = memory.add_note(ctx.brain, p["text"], ctx.now, None, remind)
+    # Stamped by the computer's clock, as every capture; the phone's time is only for meaning.
+    saved = memory.add_note(ctx.brain, p["text"], None, None, remind)
     note_id = saved["id"]
 
     def back() -> None:
@@ -756,7 +774,9 @@ def _reminder_target(ctx: Context, p: dict, action: str) -> tuple[dict, str]:
 
 def _set_reminder(ctx: Context, p: dict) -> Outcome:
     target, title = _reminder_target(ctx, p, "set_reminder")
-    body = {"at": ctx.moment(p["at"]).isoformat(), "repeat": p.get("repeat", "none")}
+    at = ctx.moment(p["at"])
+    body = {"at": (_ahead(at) if p.get("repeat", "none") == "none" else at).isoformat(),
+            "repeat": p.get("repeat", "none")}  # fmt: skip
     if ctx.zone:
         body["timezone"] = ctx.zone
     made = reminders.create(target.get("session_id"), body, note_id=target.get("note_id"))
@@ -788,7 +808,7 @@ def _cancel_reminder(ctx: Context, p: dict) -> Outcome:
 
 
 def _add_task(ctx: Context, p: dict) -> Outcome:
-    task = memory.add_task(ctx.brain, p, ctx.now)
+    task = memory.add_task(ctx.brain, p)
 
     def back() -> None:
         memory.trash_task(ctx.brain, task.id)
@@ -799,7 +819,7 @@ def _add_task(ctx: Context, p: dict) -> Outcome:
 
 def _complete_task(ctx: Context, p: dict) -> Outcome:
     task = _task(ctx, p, "complete_task")
-    memory.complete_task(ctx.brain, task.id, ctx.now)
+    memory.complete_task(ctx.brain, task.id)
 
     def back() -> None:
         memory.reopen_task(ctx.brain, task.id)
@@ -830,7 +850,7 @@ def _edit_task(ctx: Context, p: dict) -> Outcome:
 
 
 def _add_event(ctx: Context, p: dict) -> Outcome:
-    event = memory.create_event(ctx.brain, p, ctx.now)
+    event = memory.create_event(ctx.brain, p)
 
     def back() -> None:
         memory.trash_event(ctx.brain, event.id)

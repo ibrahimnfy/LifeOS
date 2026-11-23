@@ -744,7 +744,7 @@ class LifeOsCore(private val app: Application) {
      * a note that never left the phone is dropped, an edit that never left is dropped and
      * the original note deleted. False when it cannot be deleted now (an edit is on its way).
      */
-    fun deleteNote(noteId: String): Boolean {
+    fun deleteNote(noteId: String, label: String = ""): Boolean {
         if (noteId in deletedNotesState.value) return true
         if (!NoteLists.canDelete(noteId, outbox.items.value)) return false
         deletedNotesState.value += noteId
@@ -758,7 +758,8 @@ class LifeOsCore(private val app: Application) {
                 }
                 is NoteLists.Deletion.Delete -> {
                     plan.dropEdit?.let { outbox.discard(it) }
-                    outbox.add(OutboxItem(newItemId(), OutboxItem.Kind.NOTE_DELETE, System.currentTimeMillis(), noteId = plan.noteId))
+                    // [label]: the note's start, for the notice when the computer refuses the deletion.
+                    outbox.add(OutboxItem(newItemId(), OutboxItem.Kind.NOTE_DELETE, System.currentTimeMillis(), text = label.take(120), noteId = plan.noteId))
                 }
                 // An edit left meanwhile: the note stays; nothing is sent.
                 NoteLists.Deletion.NotNow -> false

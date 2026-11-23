@@ -50,7 +50,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.util.Locale
 
-private val NOTE_KINDS = setOf(OutboxItem.Kind.NOTE, OutboxItem.Kind.NOTE_EDIT)
+private val NOTE_KINDS = setOf(OutboxItem.Kind.NOTE, OutboxItem.Kind.NOTE_EDIT, OutboxItem.Kind.NOTE_DELETE)
 
 /** Each search is a round trip through the relay: wait until the owner stops typing. */
 private const val SEARCH_DELAY_MILLIS = 450L
@@ -156,7 +156,7 @@ fun NotesScreen(
                                 trailing = {
                                     // A note that waits here can be deleted too (#184): it never reaches the computer.
                                     TopBarAction(LifeIcons.Close, stringResource(R.string.note_delete_label, item.text.take(60))) {
-                                        if (core.deleteNote(name)) showUndo(deletedText) { core.undoDeleteNote(name) }
+                                        if (core.deleteNote(name, item.text)) showUndo(deletedText) { core.undoDeleteNote(name) }
                                     }
                                 },
                             ) {
@@ -370,7 +370,7 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                             text = stringResource(R.string.note_delete),
                             danger = true,
                             onClick = {
-                                if (core.deleteNote(note.id)) {
+                                if (core.deleteNote(note.id, note.title ?: note.text)) {
                                     showUndo(deletedText) { core.undoDeleteNote(note.id) }
                                     onBack()
                                 }

@@ -1086,6 +1086,7 @@
     <string name="command_result_open">%1$s açılıyor</string>
     <string name="command_result_opening">Açılıyor</string>
     <string name="command_result_not_found">Eşleşen bir şey yok, bu yüzden hiçbir şey yapılmadı.</string>
+    <string name="command_result_past">O saat geçti, bu yüzden hiçbir şey kaydedilmedi.</string>
     <string name="command_result_failed">Bu yapılamadı.</string>
     <string name="capture_remind">Hatırlat</string>
     <string name="capture_remind_at">Hatırlatma: %1$s</string>
