@@ -411,13 +411,15 @@ def test_the_marker_says_whether_chat_folders_were_probed(settings, monkeypatch)
 
 
 def test_suite_versions_and_plan_runs():
-    # cli 7 and sdk 8: the read-only course folders (#179; #178 raised the same versions)
+    # cli 7 and sdk 8: the approved push with network (#178) and the read-only course
+    # folders (#179)
     assert capable.SUITE_VERSIONS == {"cli": 7, "sdk": 8}
     # the first suites that probed a chat folder; the guardrails they proved are the same
     assert capable.CHAT_SUITE_VERSIONS == {"cli": 5, "sdk": 6}
     # three short runs per runner and environment for the chat-folder probes
-    # and two for the course-folder probes of #179 (a capable and a read-only run)
-    assert guardcheck.PLAN_RUNS == {"cli": 17, "sdk": 21}  # 12 and 16 of #162, plus five
+    # 12 and 16 of #162, plus three; plus one SDK run for the approved push (#178);
+    # plus two per runner for the course-folder probes of #179 (capable and read-only)
+    assert guardcheck.PLAN_RUNS == {"cli": 17, "sdk": 22}
 
 
 def test_a_shell_run_the_model_skipped_is_inconclusive_never_a_failure(suite, monkeypatch):

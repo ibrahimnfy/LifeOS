@@ -13,7 +13,7 @@ folder the owner already keeps for that course. Rules (owner's decision on #161)
   matching local folders as added folders: the file tools may read them, and so may
   sandboxed commands (``allowRead``). Nothing in them is loaded as instructions,
   settings, skills, hooks or MCP servers (checked with the real CLI; see
-  docs/permission-policy.md, section 9.12).
+  docs/permission-policy.md, section 9.13).
 - **Never in the app's course materials**, which stay what Moodle provides. They only
   help the resource download to skip what the owner already has (``resources``).
 

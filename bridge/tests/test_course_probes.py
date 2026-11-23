@@ -1,7 +1,7 @@
 """The course-folder probes of the guardrail suite (#179), judged on stand-in runs.
 
 The real runs (both runners, and one control run without the course rules) are in
-docs/permission-policy.md, section 9.12.
+docs/permission-policy.md, section 9.13.
 """
 
 import json

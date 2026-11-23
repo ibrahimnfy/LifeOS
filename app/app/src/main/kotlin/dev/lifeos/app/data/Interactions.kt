@@ -37,6 +37,8 @@ data class InteractionData(
     val folder: String = "",
     val category: String = "",
     val questions: List<AskQuestion> = emptyList(),
+    /** Approval of a push that will use the network (#178). */
+    val network: NetworkPush? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("expires_at") val expiresAt: String? = null,
     // ---- a skill install that waits for the owner (#97); see [SkillInstall]
@@ -61,6 +63,22 @@ data class InteractionData(
 ) {
     /** [server] with the card's own [scope], which decides whose approval this is. */
     val scopedServer: McpServer? get() = server?.let { if (scope.isBlank()) it else it.copy(scope = scope) }
+}
+
+/**
+ * An approved push that the computer runs with network for this one command (#178): exactly
+ * this commit, to exactly this address and branch. Without it, an approved command keeps the
+ * sandbox and has no network.
+ */
+@Serializable
+data class NetworkPush(
+    val host: String = "",
+    val url: String = "",
+    val branch: String = "",
+    val commit: String = "",
+    val force: Boolean = false,
+) {
+    val usable: Boolean get() = host.isNotBlank() && url.isNotBlank() && commit.isNotBlank()
 }
 
 /** One file of a skill that waits in the computer's quarantine. */
@@ -262,6 +280,8 @@ data class Interaction(
     val refusal: Refusal? = null,
     /** Moving a blank chat's files: which files, where to, and what a yes did (#163). */
     val move: FileMove? = null,
+    /** Approval: the command will use the network, for exactly this push (#178). */
+    val network: NetworkPush? = null,
 ) {
     /**
      * Why a yes was not acted on. The card stays on the computer with everything it had, so the
@@ -368,7 +388,7 @@ data class Interaction(
                 // Only a usable proposal waits; one without files or a target would be nothing to approve.
                 MOVE_FILES ->
                     if (data.target.isBlank() || data.files.none { it.path.isNotBlank() }) null else Interaction(data.id, Kind.MOVE_FILES, folder = data.folder, deadline = deadline, move = FileMove.of(data.copy(state = "ready")))
-                "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline)
+                "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline, network = data.network?.takeIf { it.usable })
                 "question" -> {
                     val questions = data.questions.filter { it.question.isNotBlank() }
                     if (questions.isEmpty()) null else Interaction(data.id, Kind.QUESTION, questions = questions, deadline = deadline)

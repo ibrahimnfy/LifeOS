@@ -1,7 +1,7 @@
 """The owner's read-only course folders (#179): the list, the policy, the runs, resources.
 
 Stand-in claude only; the real CLI was checked by the course-folder probes of the
-guardrail suite (verify.probe_course_folders) and by hand (docs/permission-policy.md 9.12).
+guardrail suite (verify.probe_course_folders) and by hand (docs/permission-policy.md 9.13).
 """
 
 import dataclasses

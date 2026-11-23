@@ -733,6 +733,10 @@
     <string name="approval_warning_deletion">Uyarı: silinen dosyalar geri getirilemez.</string>
     <string name="approval_command">Çalışacak komut</string>
     <string name="approval_folder">Bu klasörde</string>
+    <string name="approval_network">Bu komut ağı kullanacak: %1$s adresine bağlanır. Bu çalıştırmanın başka hiçbir komutu ağa çıkmaz.</string>
+    <string name="approval_network_target">Gönderileceği yer</string>
+    <string name="approval_network_push">commit %1$s → dal %2$s</string>
+    <string name="approval_network_forced">zorla: uzaktaki içeriğin üzerine yazabilir</string>
     <string name="approval_allow">İzin ver</string>
     <string name="approval_deny">İzin verme</string>
     <string name="approval_kept_note">Yapılmış değişiklikler kalır.</string>

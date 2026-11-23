@@ -217,6 +217,13 @@ private fun ColumnScope.Approval(interaction: Interaction, open: Boolean, onAppr
     }
     Exact(stringResource(R.string.approval_command), interaction.command)
     if (interaction.folder.isNotBlank()) Exact(stringResource(R.string.approval_folder), interaction.folder)
+    interaction.network?.let { push ->
+        // #178: this one command will use the network; nothing else of the run does.
+        Text(text = stringResource(R.string.approval_network, push.host), style = LifeType.label, color = colors.badge)
+        val pushed = stringResource(R.string.approval_network_push, push.commit, push.branch) +
+            (if (push.force) "\n" + stringResource(R.string.approval_network_forced) else "")
+        Exact(stringResource(R.string.approval_network_target), push.url + "\n" + pushed)
+    }
     if (open) {
         Row(Modifier.padding(top = 2.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryButton(text = stringResource(R.string.approval_allow), onClick = { onApprove(true) }, modifier = Modifier.weight(1f))

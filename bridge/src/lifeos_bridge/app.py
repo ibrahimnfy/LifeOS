@@ -1212,7 +1212,8 @@ def create_app(settings: Settings) -> FastAPI:
         Body: ``{"prompt": str, "session_id": str?, "folder": str?, "stream": bool?}``.
         A new conversation without ``folder`` is a blank chat: it runs in its own
         new, empty folder under the chat root, with no personal context (#163).
-        ``folder`` names the memory folder or an allowed folder instead.
+        ``folder`` names the memory folder or an allowed folder instead (or a
+        course's own folder of the Moodle sync, #179).
         ``session_id`` continues an earlier conversation in
         the folder it was started in. ``new_session_id`` (a UUID the phone chose)
         names a new conversation, so its first message can be sent again safely:
