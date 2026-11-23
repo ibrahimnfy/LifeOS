@@ -68,6 +68,12 @@ def test_a_push_carries_only_a_sealed_hint(phone, fcm):
 
 def test_every_kind_has_a_channel_and_a_screen():
     assert set(push.CHANNELS.values()) == {"chat", "courses", "coach", "reminders"}
+    assert push.hint_for("cleared", "s1") == {
+        "e": "cleared",
+        "c": "chat",
+        "o": "session",
+        "r": "s1",
+    }
     assert set(push.CHANNELS) == set(push.OPENS) == push.EVENTS
     hint = push.hint_for("courses", "5", "course", {"files": 2, "grades": 0, "x": True})
     assert hint == {"e": "courses", "c": "courses", "o": "course", "r": "5", "n": {"files": 2}}

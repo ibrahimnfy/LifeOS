@@ -554,6 +554,8 @@ class LiveSession:
             turn.waited += time.monotonic() - started
             reason = CLOSED_REASONS.get(outcome, outcome)
             turn.queue.put_nowait(("interaction_closed", {"id": interaction.id, "reason": reason}))
+            # Answered, expired, refused or the run ended: the notification goes away.
+            _wake_phones("cleared", self.session_id)
 
     async def _question(self, tool_input: dict):
         data = interactions.question_data(tool_input)
@@ -613,7 +615,10 @@ _hints: set[asyncio.Task] = set()
 
 
 def _wake_phones(kind: str, session_id: str) -> None:
-    """A sealed push hint that a question or approval waits (never blocks the run)."""
+    """A sealed push hint that a question or approval waits, or no longer waits ("cleared").
+
+    One hint when it opens, one when it closes; nothing is ever sent again for it. Never
+    blocks the run."""
     task = asyncio.create_task(asyncio.to_thread(push.send_hint, kind, session_id))
     _hints.add(task)
     task.add_done_callback(_hints.discard)

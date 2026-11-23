@@ -89,6 +89,11 @@ def isolated_config(tmp_path, monkeypatch):
     from lifeos_bridge import verify
 
     monkeypatch.setattr(verify, "stop_leftover_service", lambda: None)
+    # verify.main() silences pushes for its whole process; a test calling it must not
+    # silence the tests after it.
+    from lifeos_bridge import push
+
+    monkeypatch.setattr(push, "_silenced", False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     return config
 

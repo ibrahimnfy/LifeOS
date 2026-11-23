@@ -117,6 +117,11 @@ object PushNotifier {
     fun show(context: Context, hint: Hint) {
         createChannels(context)
         val key = PushHints.notificationKey(hint)
+        if (PushHints.clears(hint)) {
+            // Answered, expired or its run ended: the notification goes away, nothing is shown.
+            NotificationManagerCompat.from(context).cancel(key.hashCode())
+            return
+        }
         val open = Intent(context, MainActivity::class.java)
             .setAction(ACTION_OPEN)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)

@@ -34,6 +34,9 @@ CHANNELS = {
     "reminder": "reminders",
     "notice": "reminders",
     "update": "reminders",  # a new app release is ready
+    # A question or approval was answered, expired or its run ended: the phone removes
+    # the notification it showed for it (never shown itself).
+    "cleared": "chat",
 }
 EVENTS = frozenset(CHANNELS)
 # Event kind → the screen a tap opens; with ``r`` it names the item.
@@ -47,11 +50,24 @@ OPENS = {
     "reminder": "reminder",
     "notice": "notice",
     "update": "app_update",
+    "cleared": "session",
 }
 MAX_TOKEN = 4096
 MAX_REF = 300
 MAX_COUNT = 9999
 TIMEOUT = 15
+
+
+# True in a process that must never wake the owner's phone: the guardrail check, whose
+# approval probes open real approval requests (each pushed "a session waits for your
+# approval" to the phone before this switch existed).
+_silenced = False
+
+
+def silence() -> None:
+    """No push leaves this process from now on."""
+    global _silenced
+    _silenced = True
 
 
 def hint_for(event: str, ref: str = "", opens: str | None = None,
@@ -128,7 +144,7 @@ def send_hint(
     Never raises and never blocks for long: a push that cannot be sent is not
     retried; the phone sees everything when it next connects.
     """
-    if event not in EVENTS:
+    if event not in EVENTS or _silenced:
         return 0
     targets = [d for d in devices.list_devices() if not d.revoked and d.push_token]
     if not targets:

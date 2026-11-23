@@ -95,6 +95,7 @@ class PushHintsTest {
             "reminder" to (PushChannel.REMINDERS to Destination.Reminder("s1")),
             "notice" to (PushChannel.REMINDERS to Destination.Notice),
             "update" to (PushChannel.REMINDERS to Destination.AppUpdate),
+            "cleared" to (PushChannel.CHAT to Destination.Chat("s1")),
         )
         assertEquals(PushHints.EVENTS, expected.keys)
         for ((event, pair) in expected) {
@@ -131,8 +132,14 @@ class PushHintsTest {
     }
 
     @Test
-    fun `replies of one session, and all course changes, share one notification`() {
-        assertEquals(PushHints.notificationKey(Hint("answer", "s1")), PushHints.notificationKey(Hint("question", "s1")))
+    fun `one notification per session reply, per waiting question or approval, and for all course changes`() {
+        // A question or approval has its own notification, and "cleared" removes exactly that one.
+        assertEquals(PushHints.notificationKey(Hint("approval", "s1")), PushHints.notificationKey(Hint("question", "s1")))
+        assertEquals(PushHints.notificationKey(Hint("approval", "s1")), PushHints.notificationKey(Hint("cleared", "s1")))
+        assertEquals(false, PushHints.notificationKey(Hint("answer", "s1")) == PushHints.notificationKey(Hint("cleared", "s1")))
+        assertEquals(false, PushHints.notificationKey(Hint("approval", "s1")) == PushHints.notificationKey(Hint("cleared", "s2")))
+        assertEquals(true, PushHints.clears(Hint("cleared", "s1")))
+        assertEquals(false, PushHints.clears(Hint("approval", "s1")))
         assertEquals(false, PushHints.notificationKey(Hint("answer", "s1")) == PushHints.notificationKey(Hint("answer", "s2")))
         assertEquals(PushHints.notificationKey(Hint("courses", "1")), PushHints.notificationKey(Hint("courses", "2")))
         assertEquals(PushHints.notificationKey(Hint("courses")), PushHints.notificationKey(Hint("signin")))

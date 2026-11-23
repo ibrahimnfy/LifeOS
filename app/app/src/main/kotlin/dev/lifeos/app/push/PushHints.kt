@@ -103,7 +103,10 @@ data class PushOpen(val destination: Destination, val noticeTitle: String? = nul
 object PushHints {
     private const val MAX_FIELD = 300
     private const val MAX_COUNT = 9999
-    val EVENTS = setOf("answer", "reminder", "coach", "courses", "signin", "notice", "approval", "question", "update")
+    val EVENTS = setOf("answer", "reminder", "coach", "courses", "signin", "notice", "approval", "question", "update", "cleared")
+
+    /** Events that only remove a notification: a question or approval no longer waits. */
+    fun clears(hint: Hint): Boolean = hint.event == "cleared"
 
     /**
      * Open the `h` field of a push with the push key (sub-key 3 of the pairing), or null.
@@ -153,7 +156,7 @@ object PushHints {
 
     /** The channel of a hint: the one it names, else the one of its event. */
     fun channelOf(hint: Hint): PushChannel = PushChannel.of(hint.channel) ?: when (hint.event) {
-        "answer", "question", "approval" -> PushChannel.CHAT
+        "answer", "question", "approval", "cleared" -> PushChannel.CHAT
         "courses", "signin" -> PushChannel.COURSES
         "coach" -> PushChannel.COACH
         else -> PushChannel.REMINDERS
@@ -162,7 +165,7 @@ object PushHints {
     /** The screen a tap opens: from the hint's `o` (and `r`), else from its event. */
     fun destinationOf(hint: Hint): Destination {
         val opens = hint.opens ?: when (hint.event) {
-            "answer", "question", "approval" -> "session"
+            "answer", "question", "approval", "cleared" -> "session"
             "courses" -> "courses"
             "signin" -> "moodle_signin"
             "coach" -> "coach"
@@ -184,12 +187,16 @@ object PushHints {
         }
     }
 
+    private val ASKING = setOf("question", "approval", "cleared")
+
     /**
      * One notification per item: a later push about the same thing replaces the earlier one
      * (a session's replies, a reminder), and all course changes share one notification.
      */
     fun notificationKey(hint: Hint): String = when (channelOf(hint)) {
-        PushChannel.CHAT -> "chat:${hint.ref}"
+        // A question or approval has its own notification, removed when it no longer waits
+        // ("cleared"); a ready reply never shares it, so clearing never removes a reply.
+        PushChannel.CHAT -> if (hint.event in ASKING) "ask:${hint.ref}" else "chat:${hint.ref}"
         PushChannel.COURSES -> "courses"
         PushChannel.COACH -> "coach"
         // A newer release replaces the notice of an older one.

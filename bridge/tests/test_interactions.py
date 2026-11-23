@@ -405,3 +405,38 @@ def test_api_question_round_trip(sdk_settings, auth):
 def test_api_without_the_sdk_runner_has_no_interactions(client, auth):
     assert client.get("/sessions/x/interactions", headers=auth).json() == {"pending": []}
     assert client.post("/sessions/x/interactions/y", headers=auth, json={}).status_code == 404
+
+
+# ------------------------------------------------- approval notifications (owner's bug)
+
+
+@pytest.mark.parametrize(
+    ("answer", "quick"), [({"approve": True}, False), ({"approve": False}, False), (None, True)]
+)
+def test_one_notification_per_approval_and_it_is_cleared(
+    sdk_settings, isolated_config, monkeypatch, answer, quick
+):
+    from lifeos_bridge import push
+
+    sent = []
+    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: sent.append((event, ref)))
+    settings = dataclasses.replace(sdk_settings, interaction_timeout=1) if quick else sdk_settings
+    session_id, shown, _ = asyncio.run(capable_turn(settings, "rm old.txt", answer))
+    assert len(shown) == 1
+    # Answered, refused or expired: one "waits" and one "cleared", never a second "waits".
+    assert sent == [("approval", session_id), ("cleared", session_id)]
+
+
+def test_the_guardrail_check_never_wakes_the_phone(monkeypatch):
+    from lifeos_bridge import push, verify
+    from lifeos_bridge.config import ConfigError
+
+    monkeypatch.setattr(push, "_silenced", False)
+    monkeypatch.setattr(push, "_post", lambda *a: pytest.fail("a push left the check"))
+
+    def no_settings():
+        raise ConfigError("stand-in")
+
+    monkeypatch.setattr(verify, "load_settings", no_settings)
+    assert verify.main([]) == 2
+    assert push._silenced and push.send_hint("approval", "s") == 0

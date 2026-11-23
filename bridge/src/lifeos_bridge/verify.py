@@ -2339,6 +2339,9 @@ def main(argv: list[str] | None = None) -> int:
         help="skip the run in the service environment (no marker is written)",
     )
     args = parser.parse_args(argv)
+    from . import push
+
+    push.silence()  # its approval probes are not the owner's: they never wake the phone
     try:
         settings = load_settings()
     except ConfigError as error:
