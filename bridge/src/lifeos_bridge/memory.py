@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from . import reminders
 from .claude import ClaudeError
 
 # One writer at a time: reads and rewrites of the small files must not interleave.
@@ -211,17 +212,25 @@ def _renamed(memory: Path, old_id: str, new_id: str) -> bool:
 
 
 def add_note(
-    memory: Path, text: object, now: datetime | None = None, client_id: object = None
+    memory: Path,
+    text: object,
+    now: datetime | None = None,
+    client_id: object = None,
+    remind: dict | None = None,
 ) -> dict:
     """Append a quick capture to the inbox; a repeat of a known ``client_id`` writes nothing.
 
-    Returns ``{"saved", "repeat", "id", "at", "client_id"}``. The note's id
-    follows its text (as for every inbox note); ``client_id`` is the phone's.
+    Returns ``{"saved", "repeat", "id", "at", "client_id", "reminder"}``. The note's id
+    follows its text (as for every inbox note); ``client_id`` is the phone's. ``remind``
+    (``{"at", "timezone"?}``, #185) gives the note a reminder; a repeat does not add a
+    second one, and a time that passed while the note waited on the phone fires at once.
     """
     if not isinstance(text, str) or not text.strip():
         raise bad("`text` must be non-empty text")
     if len(text) > MAX_TEXT:
         raise bad(f"`text` is longer than {MAX_TEXT} characters")
+    if remind is not None:
+        reminders.check(remind)
     phone_id = read_client_id(client_id)
     now = now or now_local()
     lines = [line.rstrip() for line in text.strip().splitlines() if line.strip()]
@@ -240,8 +249,10 @@ def add_note(
                 if entry_now
                 else None
             )
+            reminder = reminders.for_note(stored_id, remind) if remind and entry_now else None
             return {"saved": True, "repeat": True, "id": stored_id, "client_id": phone_id,
-                    "at": at.isoformat(timespec="minutes") if at else None}  # fmt: skip
+                    "at": at.isoformat(timespec="minutes") if at else None,
+                    "reminder": reminder}  # fmt: skip
         current = read_text(path) or "# Inbox\n\n"
         if not current.endswith("\n"):
             current += "\n"
@@ -252,8 +263,9 @@ def add_note(
             _remember(memory, phone_id, "note", note_id, fingerprint)
             paths.append(IDS_FILE)
         commit(memory, "Capture a note from the phone", paths)
+        reminder = reminders.for_note(note_id, remind) if remind else None
     return {"saved": True, "repeat": False, "id": note_id, "client_id": phone_id,
-            "at": now.isoformat(timespec="minutes")}  # fmt: skip
+            "at": now.isoformat(timespec="minutes"), "reminder": reminder}  # fmt: skip
 
 
 INBOX_ENTRY = re.compile(r"^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (.*)$")
@@ -361,6 +373,7 @@ def update_note(memory: Path, note_id: str, text: object) -> dict:
         updated = next(e for e in _inbox_entries(read_text(path)) if e["start"] == entry["start"])
         renamed = updated["id"] != note_id and _renamed(memory, note_id, updated["id"])
         commit(memory, "Edit a captured note", ["inbox.md", *([IDS_FILE] if renamed else [])])
+        reminders.note_renamed(note_id, updated["id"])  # a reminder of the note keeps it (#185)
     return {"id": updated["id"], "kind": "inbox", "title": None, "at": updated["at"],
             "text": updated["text"]}  # fmt: skip
 
@@ -420,6 +433,7 @@ def delete_note(memory: Path, note_id: str) -> dict:
                 moved.append(f"{TRASH_NOTES}/{older.name}")
             source.replace(target)
             commit(memory, "Delete a note (moved to the trash)", moved)
+            reminders.note_deleted(note_id)
             return {"deleted": True, "id": note_id, "kind": "topic"}
         path = memory / "inbox.md"
         current = read_text(path)
@@ -431,6 +445,7 @@ def delete_note(memory: Path, note_id: str) -> dict:
         write_text(trash, _appended(read_text(trash), block, DELETED_HEADER))
         write_text(path, _without(current, entry))
         commit(memory, "Delete a captured note (moved to the trash)", ["inbox.md", DELETED_FILE])
+        reminders.note_deleted(note_id)  # its reminder never fires while it is in the trash
     return {"deleted": True, "id": note_id, "kind": "inbox"}
 
 
@@ -459,6 +474,7 @@ def restore_note(memory: Path, note_id: str) -> dict:
             commit(
                 memory, "Restore a deleted note", [f"notes/{stem}.md", f"{TRASH_NOTES}/{stem}.md"]
             )
+            reminders.note_restored(note_id)
             return get_note(memory, note_id) | {"restored": True, "repeat": False}
         trash = memory / DELETED_FILE
         trashed = read_text(trash)
@@ -478,6 +494,7 @@ def restore_note(memory: Path, note_id: str) -> dict:
         write_text(path, "\n".join(lines) + "\n")
         write_text(trash, _without(trashed, entry))
         commit(memory, "Restore a deleted note", ["inbox.md", DELETED_FILE])
+        reminders.note_restored(note_id)
     return get_note(memory, note_id) | {"restored": True, "repeat": False}
 
 
@@ -899,6 +916,86 @@ def update_event(memory: Path, event_id: str, data: dict, *, commit_now: bool = 
             raise ClaudeError("event_not_found", 404, "no event has this id")
         _apply_event_fields(event, data)
         _write_events(memory, events, "Change a calendar event", commit_now)
+    return event
+
+
+# --------------------------------------------------------------------------- undo (#185)
+#
+# The command bar's undo of an added task or event: the line moves into the trash (rule 8),
+# and a finished task returns to the open ones.
+
+TRASHED_LINES = ".trash/removed-lines.md"
+TRASHED_HEADER = (
+    "# Removed lines\n\n"
+    "Tasks and events taken back with the command bar's undo, as they were. "
+    "Written by the bridge.\n\n"
+)
+
+
+def _to_trash(memory: Path, line: str) -> None:
+    trash = memory / TRASHED_LINES
+    write_text(trash, _appended(read_text(trash), [line], TRASHED_HEADER))
+
+
+def _task_line(lines: list[str], task_id: str) -> int | None:
+    for index, line in enumerate(lines):
+        task = parse_task(line)
+        if task is not None and task.id == task_id:
+            return index
+    return None
+
+
+def trash_task(memory: Path, task_id: str) -> Task:
+    """An open task taken back: its line moves to the trash, in one commit."""
+    with LOCK:
+        check_repo(memory)
+        path = memory / "tasks.md"
+        lines = read_text(path).splitlines()
+        index = _task_line(lines, task_id)
+        if index is None:
+            raise ClaudeError("task_not_found", 404, "no open task has this id")
+        task = parse_task(lines[index])
+        _to_trash(memory, lines.pop(index))
+        write_text(path, "\n".join(lines) + "\n")
+        commit(memory, "Take back an added task (moved to the trash)", ["tasks.md", TRASHED_LINES])
+    return task
+
+
+def reopen_task(memory: Path, task_id: str) -> Task:
+    """A finished task back among the open ones (without its ``done`` mark), in one commit."""
+    with LOCK:
+        check_repo(memory)
+        archive = memory / "tasks-done.md"
+        lines = read_text(archive).splitlines()
+        index = _task_line(lines, task_id)
+        if index is None:
+            raise ClaudeError("task_not_found", 404, "no finished task has this id")
+        task = parse_task(lines.pop(index))
+        task.done = False
+        task.fields.pop("done", None)
+        path = memory / "tasks.md"
+        current = read_text(path) or "# Tasks\n\n## Open\n"
+        if not current.endswith("\n"):
+            current += "\n"
+        write_text(path, current + task.line() + "\n")
+        write_text(archive, "\n".join(lines) + "\n")
+        commit(memory, "Reopen a task", ["tasks.md", "tasks-done.md"])
+    return task
+
+
+def trash_event(memory: Path, event_id: str) -> Event:
+    """An event taken back: its line moves to the trash, in one commit."""
+    with LOCK:
+        check_repo(memory)
+        events = all_events(memory)
+        event = next((e for e in events if e.id == event_id), None)
+        if event is None:
+            raise ClaudeError("event_not_found", 404, "no event has this id")
+        _to_trash(memory, event.line())
+        _write_events(memory, [e for e in events if e.id != event_id], "", commit_now=False)
+        commit(
+            memory, "Take back an added event (moved to the trash)", [EVENTS_FILE, TRASHED_LINES]
+        )
     return event
 
 

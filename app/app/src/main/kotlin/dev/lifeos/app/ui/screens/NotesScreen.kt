@@ -13,6 +13,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -78,7 +79,15 @@ fun noteMoment(at: String?, locale: Locale): String? {
  * way is shown at once with "Waiting to sync".
  */
 @Composable
-fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> Unit, onPair: () -> Unit, onOpenNote: (String) -> Unit) {
+fun NotesScreen(
+    core: LifeOsCore,
+    onBack: () -> Unit,
+    onConnectionClick: () -> Unit,
+    onPair: () -> Unit,
+    onOpenNote: (String) -> Unit,
+    startQuery: String? = null,
+    onQueryTaken: () -> Unit = {},
+) {
     val colors = LifeTheme.colors
     val model = rememberLoad(core, Endpoints.notes) { list: NoteList -> list.notes.isEmpty() }
     val state by model.state.collectAsStateWithLifecycle()
@@ -89,6 +98,13 @@ fun NotesScreen(core: LifeOsCore, onBack: () -> Unit, onConnectionClick: () -> U
     var query by rememberSaveable { mutableStateOf("") }
     var search by remember { mutableStateOf<SearchState?>(null) }
     var searchAttempt by remember { mutableIntStateOf(0) }
+    // A search the command bar asked for (#185): it fills the field once.
+    LaunchedEffect(startQuery) {
+        if (!startQuery.isNullOrBlank()) {
+            query = startQuery.take(200)
+            onQueryTaken()
+        }
+    }
     val justDeleted by core.justDeletedNotes.collectAsStateWithLifecycle()
     val hidden = NoteLists.hidden(outbox, justDeleted)
     val waiting = if (locked) emptyList() else NoteLists.waiting(outbox, hidden)
@@ -330,6 +346,15 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                                 Text(meta, style = LifeType.small, color = colors.muted, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             }
                             SelectionContainer { Text(pending?.text ?: note.text, style = LifeType.body, color = colors.text) }
+                            // Its reminder (#185): set with the note in "+" or by the command bar.
+                            note.reminder?.let { reminder ->
+                                val moment = reminder.moment?.let { momentLabel(it.epochSecond, locale) } ?: reminder.at
+                                val line = if (reminder.scheduled) R.string.note_reminder else R.string.note_reminder_fired
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Icon(LifeIcons.Bell, contentDescription = null, tint = colors.muted)
+                                    Text(stringResource(line, moment), style = LifeType.small, color = colors.muted)
+                                }
+                            }
                         }
                     }
                     when {

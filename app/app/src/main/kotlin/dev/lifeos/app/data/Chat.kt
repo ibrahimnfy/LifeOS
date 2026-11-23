@@ -1279,6 +1279,11 @@ class Chat(
     /** The composer took the text that was handed back. */
     fun takeDraft() = mutable.update { it.copy(draft = null) }
 
+    /** Put [text] into the composer (the command bar's "tell the coach …", #185); nothing is sent. */
+    fun offerDraft(text: String?) {
+        if (!text.isNullOrBlank()) mutable.update { it.copy(draft = text.trim()) }
+    }
+
     /**
      * One message to the computer and what comes back: the answer as events, or one result
      * that says the message was refused or put in line. [queued]: it is meant for the line

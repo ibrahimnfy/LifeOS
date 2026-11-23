@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from . import (
     __version__,
+    actions,
     activity,
     allowed,
     approvals,
@@ -28,6 +29,7 @@ from . import (
     claude,
     coach,
     coach_chat,
+    command_bar,
     commands,
     consolidation,
     contextmap,
@@ -1560,15 +1562,24 @@ def create_app(settings: Settings) -> FastAPI:
         return item | (await asyncio.to_thread(folders.Folders, settings)).describe(info)
 
     @app.get("/reminders")
-    async def list_reminders(session_id: str | None = None, state: str | None = None):
+    async def list_reminders(
+        session_id: str | None = None, state: str | None = None, note_id: str | None = None
+    ):
         """Reminders, soonest first. ``state``: ``scheduled`` or ``fired``."""
-        return {"reminders": reminders.listing(session_id, state)}
+        return {"reminders": reminders.listing(session_id, state, note_id)}
 
     @app.post("/reminders", status_code=201)
     async def create_reminder(request: Request):
-        """Body: ``{"session_id", "at", "note"?, "repeat"?: none|daily|weekly, "timezone"?}``."""
+        """Body: ``{"session_id" | "note_id", "at", "note"?, "repeat"?, "timezone"?}``.
+
+        ``repeat``: none, daily or weekly. A note's reminder (#185) names the note by its id.
+        """
         data = await read_json_object(request)
         session_id = data.pop("session_id", None)
+        note_id = data.pop("note_id", None)
+        if isinstance(note_id, str) and session_id is None:
+            await asyncio.to_thread(memory.get_note, brain, note_id)  # 404 for an unknown note
+            return reminders.create(None, data, note_id=note_id)
         info = known_session(session_id) if isinstance(session_id, str) else None
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
@@ -1611,14 +1622,21 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/notes", status_code=201)
     async def add_note(request: Request):
-        """Quick capture into the inbox. Body: ``{"text": str, "client_id"?: str}``.
+        """Quick capture into the inbox.
 
+        Body: ``{"text": str, "client_id"?: str, "remind_at"?: str, "timezone"?: str}``.
         A repeat with a known ``client_id`` answers 200 with the stored note and
         writes nothing; the same ``client_id`` with other text answers 409.
+        ``remind_at`` (a time with its offset) gives the note a reminder (#185).
         """
         data = await read_json_object(request)
+        remind = None
+        if data.get("remind_at") is not None:
+            remind = {"at": data["remind_at"]}
+            if data.get("timezone") is not None:
+                remind["timezone"] = data["timezone"]
         saved = await asyncio.to_thread(
-            memory.add_note, brain, data.get("text"), None, data.get("client_id")
+            memory.add_note, brain, data.get("text"), None, data.get("client_id"), remind
         )
         return JSONResponse(saved, status_code=200 if saved["repeat"] else 201)
 
@@ -1629,7 +1647,10 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/notes/{note_id}")
     async def get_note(note_id: str):
-        return await asyncio.to_thread(memory.get_note, brain, note_id)
+        """One note in full, with its reminder (#185) or ``null``."""
+        note = await asyncio.to_thread(memory.get_note, brain, note_id)
+        found = reminders.listing(note_id=note_id)
+        return note | {"reminder": found[0] if found else None}
 
     @app.patch("/notes/{note_id}")
     async def update_note(note_id: str, request: Request):
@@ -2028,6 +2049,47 @@ def create_app(settings: Settings) -> FastAPI:
             "commands": [entry | {"source": skills.PLUGIN} for entry in found]
             + [entry | {"source": skills.PERSONAL} for entry in own],
         }
+
+    # ---- the command bar (#185): a request turned into actions of the registry ----
+
+    def command_context(now: datetime, zone: str | None) -> actions.Context:
+        return actions.Context(settings, now, zone, known_sessions)
+
+    def start_plan() -> None:
+        """ "Prepare today's plan again" from the bar: a run of its own, not waited for."""
+
+        async def plan() -> None:
+            with contextlib.suppress(Exception):  # busy or too soon: the coach says so itself
+                await coach.refresh(settings)
+
+        run = asyncio.create_task(plan())
+        background.add(run)
+        run.add_done_callback(background.discard)
+
+    @app.post("/command")
+    async def command(request: Request):
+        """Body: ``{"request_id", "text" | "choice", "language"?, "now"?, "timezone"?,
+        "previous"?}``. Done actions with undo tokens, app actions, or one question."""
+        body = await read_json_object(request)
+        slot = f"command-{uuid.uuid4().hex}"
+        slots.acquire(slot)
+        try:
+            return await command_bar.handle(
+                settings, body, context=command_context, start_plan=start_plan
+            )
+        finally:
+            slots.release(slot)
+
+    @app.post("/command/undo")
+    async def command_undo(request: Request):
+        """Body: ``{"undo": "<token>"}``: takes one action of the bar back, once."""
+        body = await read_json_object(request)
+        return await asyncio.to_thread(actions.undo, body.get("undo"))
+
+    @app.get("/command/actions")
+    async def command_actions():
+        """The action registry: every feature of the app as an action."""
+        return {"actions": actions.catalogue()}
 
     # ---- the university Moodle: status, courses, assignments, deadlines ----
     app.include_router(moodle_api.router())

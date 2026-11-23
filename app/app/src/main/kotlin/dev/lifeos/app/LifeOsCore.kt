@@ -33,6 +33,7 @@ import dev.lifeos.app.data.CoachRotation
 import dev.lifeos.app.data.Confirmed
 import dev.lifeos.app.data.ConfirmedStore
 import dev.lifeos.app.data.CourseList
+import dev.lifeos.app.data.CommandAnswer
 import dev.lifeos.app.data.LocalItems
 import dev.lifeos.app.data.BridgeJson
 import dev.lifeos.app.data.MoodleSignIn
@@ -90,6 +91,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -425,7 +427,7 @@ class LifeOsCore(private val app: Application) {
     val outbox: Outbox = Outbox(OutboxStore(File(app.filesDir, "outbox/outbox.json")), System::currentTimeMillis) { item ->
         when (item.kind) {
             // Kept as confirmed before the item leaves the outbox, so it never disappears in between.
-            OutboxItem.Kind.NOTE -> api.addNote(item.text, item.clientId).let { saved ->
+            OutboxItem.Kind.NOTE -> api.addNote(item.text, item.clientId, item.remindAt, item.zone).let { saved ->
                 val id = saved.id
                 if (id != null && item.clientId != null) {
                     val note = NoteSummary(id, "inbox", null, LocalItems.noteMoment(saved.at), item.text)
@@ -646,8 +648,12 @@ class LifeOsCore(private val app: Application) {
         return true
     }
 
-    /** A new note, or a new task with its date and the owner's note on it ([taskNote], #170). */
-    suspend fun capture(note: Boolean, text: String, due: String?, taskNote: String? = null): Boolean = submit(
+    /**
+     * A new note, or a new task with its date and the owner's note on it ([taskNote], #170). A
+     * note may carry a reminder ([remindAt], #185): the computer notifies at that time, also when
+     * the note reached it late (a time that passed meanwhile fires at once).
+     */
+    suspend fun capture(note: Boolean, text: String, due: String?, taskNote: String? = null, remindAt: java.time.ZonedDateTime? = null): Boolean = submit(
         OutboxItem(
             newItemId(),
             if (note) OutboxItem.Kind.NOTE else OutboxItem.Kind.TASK,
@@ -655,8 +661,30 @@ class LifeOsCore(private val app: Application) {
             text = text,
             due = if (note) null else due,
             note = if (note) null else TaskNote.of(taskNote),
+            remindAt = remindAt?.takeIf { note }?.withNano(0)?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+            zone = remindAt?.takeIf { note }?.zone?.id?.takeIf { it.contains('/') },
         ),
     )
+
+    // ---- the command bar (#185)
+
+    /**
+     * Send a request of the command bar. It runs in the app's scope: closing the bar does not
+     * cut it off (what it did on the computer is done either way). Throws [ApiException].
+     */
+    fun runCommand(body: kotlinx.serialization.json.JsonObject): kotlinx.coroutines.Deferred<CommandAnswer> = scope.async {
+        api.command(body).also { answer ->
+            // Something was written: the screens read again.
+            if (answer.results.any { it.ok && it.undo != null }) reloadState.value++
+        }
+    }
+
+    /** Take one action of the bar back. True when the computer did. */
+    suspend fun undoCommand(token: String): Boolean = try {
+        api.commandUndo(token).undone.also { if (it) reloadState.value++ }
+    } catch (_: ApiException) {
+        false
+    }
 
     suspend fun saveEvent(eventId: String?, draft: EventDraft): Boolean = submit(
         OutboxItem(

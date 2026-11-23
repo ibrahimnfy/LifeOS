@@ -116,7 +116,7 @@ class RemindersTest {
         transport.answer("GET /folders", 200, """{"folders":[{"path":"/home/owner/brain","label":"brain","kind":"memory","default":true}]}""")
         val reminder = checkNotNull(SessionLookup.reminder(api, "r-1"))
         assertEquals("Call back", reminder.note)
-        val found = SessionLookup.find(api, reminder.sessionId) as SessionLookup.Found.Session
+        val found = SessionLookup.find(api, checkNotNull(reminder.sessionId)) as SessionLookup.Found.Session
         assertEquals("s-1", found.session.id)
         assertTrue(found.memory)
         assertFalse((SessionLookup.find(api, "s-2") as SessionLookup.Found.Session).memory)

@@ -43,6 +43,9 @@ data class OutboxItem(
      * stored before notes existed never touches one).
      */
     val note: String? = null,
+    /** A new note's reminder (#185): the time with its offset, and the phone's zone name ([zone]). */
+    val remindAt: String? = null,
+    val zone: String? = null,
 ) {
     @Serializable
     enum class Kind {

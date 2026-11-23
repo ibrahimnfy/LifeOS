@@ -23,12 +23,14 @@ import java.time.format.DateTimeFormatter
 @Serializable
 data class Reminder(
     val id: String = "",
-    @SerialName("session_id") val sessionId: String = "",
+    @SerialName("session_id") val sessionId: String? = null,
     val at: String = "",
     val note: String? = null,
     val repeat: String = "none",
     val timezone: String? = null,
     val state: String = "scheduled",
+    /** A note's reminder (#185) names the note instead of a session. */
+    @SerialName("note_id") val noteId: String? = null,
 ) {
     val scheduled: Boolean get() = state == "scheduled"
 
@@ -89,7 +91,7 @@ object Reminders {
         reminders.filter { it.sessionId == sessionId && it.scheduled }.sortedBy { it.moment ?: Instant.MAX }
 
     /** The sessions that have a reminder to come (their rows show a bell). */
-    fun sessionsWithOne(reminders: List<Reminder>): Set<String> = reminders.filter { it.scheduled }.map { it.sessionId }.toSet()
+    fun sessionsWithOne(reminders: List<Reminder>): Set<String> = reminders.filter { it.scheduled }.mapNotNull { it.sessionId }.toSet()
 }
 
 /** `PATCH /sessions/{id}`: whether a finished answer of this session is announced with a notification (#75). */

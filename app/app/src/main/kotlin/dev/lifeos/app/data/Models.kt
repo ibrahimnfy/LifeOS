@@ -113,6 +113,8 @@ data class Note(
     val title: String? = null,
     val at: String? = null,
     val text: String = "",
+    /** Its reminder (#185), scheduled or fired; null when it has none. */
+    val reminder: Reminder? = null,
 ) {
     val editable: Boolean get() = kind == "inbox"
 }

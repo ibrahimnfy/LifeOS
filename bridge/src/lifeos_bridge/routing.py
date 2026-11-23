@@ -60,6 +60,9 @@ JOBS: Mapping[str, Job] = {
     "course_resources": Job("Course resource research from syllabi", "sonnet", None, "opus"),
     "summaries": Job("Summaries", "sonnet", None, "opus"),
     "context_map": Job("Context map of the allowed folders", "sonnet", None, "opus"),
+    # Interactive and short: the background model setting does not apply (#185).
+    "command": Job("Command bar: a typed or spoken request turned into app actions", "haiku",
+                   "low", background=False),
 }  # fmt: skip
 
 
