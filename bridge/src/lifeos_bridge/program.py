@@ -87,6 +87,16 @@ def deny_rules(program: Path) -> list[str]:
     return rules
 
 
+def out_of_reach(folder: Path, roots: Iterable[Path]) -> bool:
+    """A session folder inside a hidden part of the program folder (another agent's
+    worktree in ``.claude/worktrees/``): never listed or resumed from the phone."""
+    program = program_dir(roots)
+    if program is None:
+        return False
+    folder = folder.resolve()
+    return any(folder.is_relative_to(program / name) for name in HIDDEN)
+
+
 def read_only_settings(roots: Iterable[Path]) -> dict | None:
     """Settings for a run without the capable mode while the program folder is allowed.
 

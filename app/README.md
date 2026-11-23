@@ -1668,7 +1668,7 @@ folders and the guardrail check passed with its probes (`docs/bridge.md`,
    refused at once ("an update is being applied already"), with no buttons.
 2. **Allow**: "Approved. The computer applies it once no run is active…".
    While a run is still going, nothing happens on the computer; once none
-   is, a message to any chat gets "an approved update is being applied…".
+   is, a message to any chat gets "An update you approved is being applied…".
    A few minutes later a notification "LifeOS: update applied", then the
    usual "An app update is ready" on Today; install it there.
 3. **Changed** ("apply changed"): Allow says "Not applied: the code changed

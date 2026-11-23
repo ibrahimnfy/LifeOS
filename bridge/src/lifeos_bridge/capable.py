@@ -235,12 +235,16 @@ async def check_available(
             probed = isinstance(version, int) and version >= PROGRAM_SUITE_VERSIONS[runner]
             if not everywhere or not probed or marker.get("program_folder") is not True:
                 raise unavailable(
-                    "the guardrail check has not covered the LifeOS program folder yet; it "
-                    "runs by itself at the next start of the bridge"
+                    "the guardrail check has not covered the LifeOS program folder; the next "
+                    "check does (it runs by itself after an update of Claude Code or of the "
+                    "probes, or by hand: scripts/verify-guardrails)"
                 )
         elif not everywhere and folder != memory and not folder.is_relative_to(memory):
             # Other allowed folders (#180): after a check whose allowed-folder block passed.
-            raise unavailable("the guardrail check covers runs in the memory folder only so far")
+            raise unavailable(
+                "the guardrail check covers runs in the memory folder only so far; the next "
+                "check covers allowed folders (scripts/verify-guardrails)"
+            )
     if recorded != await claude_version(settings):
         raise unavailable(
             "Claude Code was updated since the guardrail check; run scripts/verify-guardrails"

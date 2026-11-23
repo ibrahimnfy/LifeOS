@@ -640,6 +640,7 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.NOT_DELIVERED -> R.string.chat_fail_not_delivered
     ChatProblem.IN_USE -> R.string.chat_fail_in_use
     ChatProblem.BUSY -> R.string.chat_fail_busy
+    ChatProblem.UPDATING -> R.string.chat_fail_updating
     ChatProblem.FOLDER_GONE -> R.string.chat_fail_folder_gone
     ChatProblem.SESSION_GONE -> R.string.chat_fail_session_gone
     ChatProblem.FOLDER_IN_REPOSITORY -> R.string.error_folder_in_repository

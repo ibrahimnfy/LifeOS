@@ -329,3 +329,45 @@ def test_the_running_commit_is_pinned_at_start(repo):
     program.pin()
     assert program.running_commit() == COMMIT
     assert updates.public_state()["running_commit"] == COMMIT
+
+
+def test_a_run_started_by_a_request_holds_the_update(allowed, auth, monkeypatch):
+    """A coach refresh runs inside its request, outside the run slots: it still counts."""
+    import threading
+
+    from lifeos_bridge import coach
+
+    entered, release = threading.Event(), threading.Event()
+
+    async def slow_refresh(_settings, clock=None):
+        entered.set()
+        await asyncio.to_thread(release.wait, 10)
+        return {"ok": True}
+
+    monkeypatch.setattr(coach, "refresh", slow_refresh)
+    with TestClient(create_app(allowed)) as client:
+        applier = client.app.state.applier
+        assert applier.blockers() == []
+        worker = threading.Thread(
+            target=lambda: client.post("/coach/plan/refresh", headers=auth), daemon=True
+        )
+        worker.start()
+        assert entered.wait(10)
+        assert "requests" in applier.blockers()
+        release.set()
+        worker.join(10)
+        assert applier.blockers() == []
+
+
+def test_other_agents_worktree_sessions_never_reach_the_phone(allowed, repo, auth, write_session):
+    from conftest import user_line
+
+    tree = repo / ".claude" / "worktrees" / "agent-1"
+    tree.mkdir(parents=True)
+    own = write_session(repo, [user_line(repo, "Work on LifeOS")])
+    hidden = write_session(tree, [user_line(tree, "An agent's own work")])
+    with TestClient(create_app(allowed)) as client:
+        listed = {s["id"] for s in client.get("/sessions", headers=auth).json()["sessions"]}
+        assert own in listed and hidden not in listed
+        gone = client.get(f"/sessions/{hidden}/history", headers=auth)
+        assert gone.status_code == 404

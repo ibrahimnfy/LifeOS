@@ -559,6 +559,7 @@
     <string name="chat_fail_not_delivered">Bu mesaj bilgisayardaki konuşmada yok: büyük olasılıkla ulaşmadı. Cevabı yukarıda yoksa yeniden gönder.</string>
     <string name="chat_fail_in_use">Bu oturum şu an bilgisayarda açık, bu yüzden telefondan devam ettirilemiyor. Orada kapat, sonra yeniden gönder.</string>
     <string name="chat_fail_busy">Bilgisayar başka çalışmalarla meşgul. Birazdan yeniden dene.</string>
+    <string name="chat_fail_updating">Onayladığın bir güncelleme uygulanıyor; bilgisayar tarafı birkaç dakika içinde yeniden başlayacak. Mesajı o zaman yeniden gönder.</string>
     <string name="chat_fail_folder_gone">Bu klasör kullanılamıyor: artık yok ya da bilgisayarda izin verilen bir klasör değil.</string>
     <string name="chat_fail_session_gone">Bu konuşma artık bilgisayarda yok. Bir sonraki mesajın aynı klasörde yeni bir konuşma başlatır.</string>
     <string name="chat_fail_capable_off">Değişiklik yapma şu an bilgisayarda kapalı: güvenlik denetimi kurulu sürüm için geçmedi. Değişiklik istemeden sor ya da daha sonra yeniden dene.</string>

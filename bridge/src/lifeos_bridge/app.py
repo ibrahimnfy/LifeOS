@@ -392,13 +392,23 @@ def create_app(settings: Settings) -> FastAPI:
     def known_sessions() -> list[sessions.SessionInfo]:
         """The sessions the bridge lists: in the allowed folders, and the blank chats."""
         found = sessions.list_sessions(settings.session_roots)
-        return [info for info in found if chats.session_ok(settings, info.folder)]
+        roots = settings.allowed_roots
+
+        def shown(info: sessions.SessionInfo) -> bool:
+            # Never the sessions of other agents' worktrees in the program folder (#180).
+            return chats.session_ok(settings, info.folder) and not program.out_of_reach(
+                info.folder, roots
+            )
+
+        return [info for info in found if shown(info)]
 
     def known_session(session_id: object) -> sessions.SessionInfo | None:
         if not isinstance(session_id, str):
             return None
         info = sessions.find_session(session_id, settings.session_roots)
-        return info if info is not None and chats.session_ok(settings, info.folder) else None
+        if info is None or program.out_of_reach(info.folder, settings.allowed_roots):
+            return None
+        return info if chats.session_ok(settings, info.folder) else None
 
     # Moving between conversations by asking (#164): where the index is, and the answer.
     phone_instructions += " " + conversations.instructions(settings)

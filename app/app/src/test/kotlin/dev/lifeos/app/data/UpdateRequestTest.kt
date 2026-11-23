@@ -92,6 +92,15 @@ class UpdateRequestTest {
     }
 
     @Test
+    fun `the request line never shows, not even while it is written`() {
+        assertEquals("Committed.", Chat.visible("Committed.\n[[apply-update]]\n"))
+        assertEquals("Committed.", Chat.streaming("Committed.\n[[apply-upd"))
+        assertEquals("Committed.", Chat.streaming("Committed.\n[[apply-update]]"))
+        assertEquals("See [[apply-update]] inline", Chat.visible("See [[apply-update]] inline"))
+        assertEquals(ChatProblem.UPDATING, Chat.problemOf("update_in_progress", 503))
+    }
+
+    @Test
     fun `a request without its commit is nothing to approve`() {
         val data = BridgeJson.decodeFromString(InteractionData.serializer(), """{"id":"a1b2c3d4e5f6","kind":"apply_update","state":"ready"}""")
         assertNull(Interaction.of(data, 0, wall, fresh = true))

@@ -305,6 +305,9 @@ class Steps:
             done = subprocess.run(  # noqa: S603
                 command, cwd=cwd, env=env, capture_output=True, text=True,
                 timeout=STEP_TIMEOUT, check=False, stdin=subprocess.DEVNULL,
+                # The service runs with umask 077; the tests expect a terminal's 022
+                # (some check the modes of files they create in their own scratch folders).
+                umask=0o022,
             )  # fmt: skip
         except (OSError, subprocess.SubprocessError) as exc:
             _log(step, repr(exc))
