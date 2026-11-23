@@ -57,6 +57,7 @@ from . import (
     routing,
     runcontrol,
     sdk_runner,
+    session_links,
     session_meta,
     sessions,
     skill_installs,
@@ -430,10 +431,30 @@ def create_app(settings: Settings) -> FastAPI:
             return
         answer, folder_switch = folder_requests.from_answer(settings, answer, owner=owner)
         found = known_sessions()
-        text, switch = conversations.from_answer(settings, answer, session_id, found)
+        # A request carried to a new chat (#187) only for the owner's message, like a find.
+        text, switch = conversations.from_answer(settings, answer, session_id, found, owner=owner)
         payload["answer"] = text
         if folder_switch is not None or switch is not None:
             payload["switch"] = folder_switch or switch
+
+    def described(session_id: str | None) -> dict | None:
+        """A conversation as a ``switch`` item names it, read fresh; ``None`` when not listed."""
+        info = known_session(session_id) if session_id else None
+        if info is None:
+            return None
+        return conversations.session_item(info, folders.Folders(settings), session_meta.load())
+
+    def link_origin(origin: str, new_id: str) -> None:
+        """A new chat started from a switch (#187): tie it to the old chat's last answer,
+        the one that asked for the switch. Ids only; best effort."""
+        info = known_session(origin)
+        path = history.transcript_path(info, settings.session_roots) if info else None
+        if path is None or origin == new_id:
+            return
+        exchanges = history.read_page(path, 1)["exchanges"]
+        if exchanges:
+            with contextlib.suppress(OSError):
+                session_links.record(origin, exchanges[-1]["id"], new_id)
 
     def with_installs(payload: dict, session_id: str, cwd: Path) -> None:
         """Skill-install proposals of a capable run: cards, then a download into quarantine."""
@@ -1321,6 +1342,8 @@ def create_app(settings: Settings) -> FastAPI:
         names a new conversation, so its first message can be sent again safely:
         a repeat answers ``{"repeat": true, "session_id", "running"}`` and runs
         nothing; the same id with another message or folder answers 409.
+        ``continued_from`` (with ``new_session_id``) names the chat whose switch
+        started this one (#187): both histories then say so.
         """
         data = await read_json_object(request)
         prompt = read_prompt(data)
@@ -1331,6 +1354,11 @@ def create_app(settings: Settings) -> FastAPI:
                 raise ClaudeError("bad_request", 400, "give `session_id` or `new_session_id`")
             if not isinstance(chosen_id, str) or not claude.is_session_id(chosen_id):
                 raise ClaudeError("bad_request", 400, "`new_session_id` must be a lowercase UUID")
+            origin = data.get("continued_from")
+            if origin is not None and not (
+                isinstance(origin, str) and claude.is_session_id(origin)
+            ):
+                raise ClaudeError("bad_request", 400, "`continued_from` must be a session id")
             chosen = chosen_folder(data)
             # A blank chat has no folder yet: a repeat must not look like another start
             # (and must not make a second folder), so its fingerprint names no path.
@@ -1354,6 +1382,8 @@ def create_app(settings: Settings) -> FastAPI:
             if claimed == "repeat":
                 return {"repeat": True, "session_id": chosen_id,
                         "running": chosen_id in slots.active}  # fmt: skip
+            if origin is not None:
+                await asyncio.to_thread(link_origin, origin, chosen_id)
             admitted: dict = {}
             cwd = chosen
             try:
@@ -1998,9 +2028,15 @@ def create_app(settings: Settings) -> FastAPI:
             raise ClaudeError("session_not_found", 404, "unknown session")
         page = history.read_page(path, limit, before or None)
         used = mcp_servers.used_in(info.id)  # the servers an answer had (#157)
+        # A chat started from an answer's switch (#187), and the chat this one came from:
+        # described afresh, so one that is gone or out of reach is not named.
+        moved = session_links.continued_in(info.id)
+        page["continued_from"] = described(session_links.continued_from(info.id))
         for exchange in page["exchanges"]:
             names = used.get(exchange["id"], [])
             exchange["mcp_servers"] = [{"name": n, "outside_sandbox": True} for n in names]
+            targets = [described(target) for target in moved.get(exchange["id"], [])]
+            exchange["continued_in"] = next((t for t in reversed(targets) if t), None)
             # A switch line of an earlier answer is not shown and never switches (#164).
             exchange["assistant"] = conversations.strip(exchange["assistant"])
             # Nor does an earlier request to apply an update (#180).

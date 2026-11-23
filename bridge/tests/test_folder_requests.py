@@ -145,7 +145,7 @@ def test_one_clear_match_is_added_and_opened(
     (wanted / "chapter.md").write_text("never read")
     say(home, "Opening it.\n[[switch-find: Thesis]]")
     reply = ask(client, auth).json()
-    assert reply["answer"] == "Opening it."
+    assert reply["answer"] == "Opening it.\n\nA new chat opens in “Thesis”."  # named (#187)
     switch = reply["switch"]
     assert switch["action"] == "new" and switch["sessions"] == []
     assert switch["folder"] == {"path": str(wanted), "label": "Thesis", "kind": "project",
@@ -311,7 +311,42 @@ def test_a_streamed_answer_carries_the_folder_switch(client, auth, home):
     say(home, "[[switch-find: Thesis]]")
     reply = ask(client, auth, stream=True)
     done = next(data for event, data in parse_sse(reply.text) if event == "done")
-    assert done["switch"]["action"] == "new" and done["answer"] == ""
+    assert done["switch"]["action"] == "new" and done["answer"] == "A new chat opens in “Thesis”."
+
+
+def test_a_find_carries_the_owners_request_also_on_a_card(client, auth, home, allowed_file):
+    """#187: the owner asked to go to a folder and work there; the work starts at once."""
+    wanted = folder(home / "Desktop" / "Thesis")
+    request = "Write the introduction as an HTML file, from the notes in this folder"
+    say(home, f"Opening it.\n[[switch-find: Thesis | {request}]]")
+    reply = ask(client, auth).json()
+    switch = reply["switch"]
+    assert switch["action"] == "new" and switch["folder"]["path"] == str(wanted)
+    assert switch["forward"] == request
+    assert reply["answer"] == "Opening it.\n\nA new chat opens in “Thesis”."
+    # several matches: the request stays with the card, so a pick still forwards it
+    for n in range(2):
+        folder(home / f"place{n}" / "Notes")
+    say(home, f"[[switch-find: notes | {request}]]")
+    switch = ask(client, auth).json()["switch"]
+    assert switch["action"] == "choose_folder" and switch["forward"] == request
+    # nothing found: nothing to forward, and the note says so
+    say(home, f"[[switch-find: nowhere-to-be-found | {request}]]")
+    reply = ask(client, auth).json()
+    assert "switch" not in reply and "No folder named “nowhere-to-be-found”" in reply["answer"]
+    # too long: the switch stays, the request is not carried, and the answer says so
+    say(home, "[[switch-find: Thesis | " + "y" * (conversations.MAX_FORWARD + 1) + "]]")
+    reply = ask(client, auth).json()
+    assert reply["switch"]["action"] == "new" and "forward" not in reply["switch"]
+    assert reply["answer"].endswith(conversations.TOO_LONG)
+
+
+def test_a_find_for_another_turn_carries_nothing(world, home, allowed_file):
+    folder(home / "Thesis")
+    answer = "Ok.\n[[switch-find: Thesis | write the introduction]]"
+    assert folder_requests.from_answer(world, answer, owner=False) == ("Ok.", None)
+    _, switch = folder_requests.from_answer(world, answer, owner=True, home=home)
+    assert switch["forward"] == "write the introduction"
 
 
 def test_a_folder_switch_wins_over_a_conversation_line(world, auth, home, write_session, ask_dir):
