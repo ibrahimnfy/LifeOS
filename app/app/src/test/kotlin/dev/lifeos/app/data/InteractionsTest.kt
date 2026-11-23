@@ -372,6 +372,22 @@ class InteractionsTest {
         assertEquals(uptime + 600_000, plain.deadline)
         assertFalse(plain.isDeletion)
         assertEquals("", plain.folder)
+        assertNull(plain.network)
+    }
+
+    @Test
+    fun `an approved push that will use the network says so, with exactly where it goes`() {
+        fun of(text: String) = Interaction.of(BridgeJson.decodeFromString(InteractionData.serializer(), text), uptime, wall, fresh = true)
+        val push = checkNotNull(
+            of(
+                """{"id":"n1","kind":"approval","command":"git push origin main","category":"push",""" +
+                    """"network":{"host":"example.org","url":"https://example.org/x.git","branch":"main","commit":"0123456789ab","force":false}}""",
+            ),
+        )
+        assertEquals(NetworkPush("example.org", "https://example.org/x.git", "main", "0123456789ab", false), push.network)
+        // Half a description is no network line: the card then says nothing about the network.
+        val half = checkNotNull(of("""{"id":"n2","kind":"approval","command":"git push","network":{"host":"example.org"}}"""))
+        assertNull(half.network)
     }
 
     @Test

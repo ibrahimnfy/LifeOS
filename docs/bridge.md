@@ -321,9 +321,9 @@ Subfolders of the memory folder are fine. Details:
   skill probes of #91 are suite version 2), or when it was never checked.
   - The `claude -p` suite takes about 15 short runs on the small model per
     environment.
-  - The SDK suite takes about 19 per environment, because it adds the
-    approval probes.
-  - Both runners in both environments come to **about 68 short runs**. The
+  - The SDK suite takes about 20 per environment, because it adds the
+    approval probes and the approved push with network (#178, one run).
+  - Both runners in both environments come to **about 70 short runs**. The
     skill probes of #91 and #92 add 12 of these (3 runs per environment and
     runner), the personal-skill probes of #162 add 4 (1 run per environment
     and runner), and the chat-folder probes of #163 add 12 (a shell run, a
@@ -338,6 +338,8 @@ Subfolders of the memory folder are fine. Details:
     changed both (`cli` 5, `sdk` 6). So did the corrected judgements of the
     chat-folder probes (`permission-policy.md`, section 9.11) and of the
     personal-skill run (section 9.2), which add no run (`cli` 6, `sdk` 7).
+    The approved push with network (#178, one SDK run) and the corrected
+    HTTPS probe changed both again (`cli` 7, `sdk` 8).
     The next start checks both once. The approval probes
     may add up to 8 more per environment when the model does not make the
     needed call at once, the personal-skill run and the skill-copy steps
@@ -1033,6 +1035,24 @@ A run can stop and wait for the owner, in two cases:
   settings) are still refused by the gate and are never asked about. Only
   a plain command can be confirmed: a call that asks to run outside the
   sandbox, or carries anything besides the command, is refused.
+  An approved command runs in the sandbox, so it has no network, with one
+  exception (#178, `permission-policy.md` section 9.12):
+  - **An approved push with network.** A plain `git push [remote]
+    [branch]` over HTTPS from the run folder's own repository (never the
+    memory folder) is prepared before the card: branch, address and commit
+    are read without network.
+  - The card then carries `network: {"host", "url", "branch", "commit",
+    "force"}`, and the app says that this command will use the network.
+  - After the yes the bridge pushes exactly that commit to exactly that
+    address itself, from a fresh repository in a confinement of its own.
+    Nothing the run wrote takes part: no hooks, no settings. Credentials
+    come only from the owner's own git configuration, for that address
+    only.
+  - The run gets the result as the answer to its call, and its own command
+    never runs.
+  - This is on only after the SDK runner's check with these probes has
+    passed (marker `"network_push": true`). SSH pushes and every other
+    command keep the sandbox without network.
 
 How it reaches the owner:
 
@@ -1071,7 +1091,10 @@ How it reaches the owner:
   refused with the usual explanation.
 - **Audit log:** an approval request, then its outcome (`approved`, or
   `refused` with `owner`, `timeout`, `cancelled` or `no_client`), next to
-  the gate's own entry (`asked`). If the log cannot be written, the action
+  the gate's own entry (`asked`). An approved push with network adds
+  `network_started` before it runs and `network_finished` with the exit
+  status afterwards. These records carry the host, the branch and the
+  commit, never an address or a credential. If the log cannot be written, the action
   is refused. Questions and answers are prompt text and are kept in memory
   only, never logged.
 
