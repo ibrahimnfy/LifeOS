@@ -239,7 +239,7 @@ def fake_run(suite, folder, *, leak_hook=False, script=True, read_tools=True):
             (folder / "program-report.json").write_text(json.dumps(report))
         uses, results = [], []
         if read_tools:
-            target = folder / verify.PROGRAM_READ_TARGETS["build tools"]
+            target = folder / verify.PROGRAM_READ_TARGETS["build tool notes"]
             hook = str(folder / ".git" / "hooks" / "post-commit")
             uses = [{"name": "Read", "input": {"file_path": str(target)}, "id": "r1"},
                     {"name": "Write", "input": {"file_path": hook}, "id": "w1"}]  # fmt: skip
@@ -296,4 +296,29 @@ def test_the_copy_is_built_like_the_bridge_builds_a_program_folder_run(settings)
     data = sandbox_of(capable.build_policy(with_copy, folder, program_folder=folder))
     assert str(folder / ".tools") in data["sandbox"]["filesystem"]["denyRead"]
     assert str(folder / ".git/hooks") in data["sandbox"]["filesystem"]["denyWrite"]
+    suite.retire()
+
+
+def test_a_skipped_file_tool_step_is_asked_for_once_more(settings, monkeypatch):
+    """Real checks of 2026-11-23: the SDK model never made the file-tool read step."""
+    suite = verify.Suite(settings)
+    suite.run_dir.mkdir()
+    folder = suite.run_dir / verify.PROGRAM_COPY
+    full = fake_run(suite, folder, leak_hook=False)
+    asked = []
+
+    def first_without_tools(the_suite, the_folder, steps):
+        asked.append(steps)
+        run = full(the_suite, the_folder, steps)
+        if len(asked) == 1:
+            run = dataclasses.replace(
+                run, tool_uses=[u for u in run.tool_uses if u["name"] == "Bash"]
+            )
+        return run
+
+    monkeypatch.setattr(verify, "program_run", first_without_tools)
+    verify.probe_program_folder(suite)
+    found = probes_named(suite)
+    assert len(asked) == 2 and asked[1].startswith("1. With the Read tool")
+    assert found["file tools: hidden file not read, git hook not written"].passed
     suite.retire()

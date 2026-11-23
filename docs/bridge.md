@@ -348,7 +348,7 @@ Subfolders of the memory folder are fine. Details:
     run. Probes without a model run (invalid settings, nested folders) are
     not counted.
   - A restart where both markers still match costs nothing.
-  - Each runner has its own suite version (`cli` 7, `sdk` 8), and only a
+  - Each runner has its own suite version (`cli` 7, `sdk` 9), and only a
     runner whose suite changed is checked again. The read-only course
     folders of #179 raised both (`cli` 7, `sdk` 8); the next start checks
     both once. The probes for personal

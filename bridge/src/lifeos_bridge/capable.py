@@ -59,8 +59,8 @@ KEY_FILE_NAME = "guardrail-key"
 # protected parts (``program.py``), probed on a scratch copy of its layout; and an allowed
 # folder as the run folder. Both blocks only widen the scope (marker fields
 # ``program_folder`` and ``scope``); each keeps its own constant.
-SUITE_VERSIONS = {"cli": 7, "sdk": 8}
-PROGRAM_SUITE_VERSIONS = {"cli": 7, "sdk": 8}
+SUITE_VERSIONS = {"cli": 7, "sdk": 9}
+PROGRAM_SUITE_VERSIONS = {"cli": 7, "sdk": 9}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 # The first suite of each runner whose probes cover an approved push with network (#178).
 NETWORK_SUITE_VERSIONS = {"sdk": 8}

@@ -1571,6 +1571,11 @@ folder. Both are added to the allowed folders of the check's own settings
 only, and removed afterwards with the check's conversations there. With
 `run/` as the run folder it reruns the suite's own probes, unchanged:
 
+Suite `sdk` 9 (2026-11-23): the file-tool step reads a plainly named file in the
+same hidden build-tool folder, because on the SDK runner the model never read a
+file named like a key and the probe stayed "not run" twice in real checks; a
+skipped file-tool step is asked for once more. The shell still tries the key file.
+
 | Probe (reused) | Must happen |
 |---|---|
 | The in-sandbox script (section 7) | no write outside the run folder and the memory folder, no private settings, no key or browser folders, no network, no local sockets, no session bus, no `sudo` |

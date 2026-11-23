@@ -415,7 +415,7 @@ def test_suite_versions_and_plan_runs():
     # call, and a step that was not made is "not run" (the block changed for both runners)
     # cli 7 and sdk 8: the approved push with network (#178), the read-only course
     # folders (#179), the program folder and allowed folders as run folders (#180)
-    assert capable.SUITE_VERSIONS == {"cli": 7, "sdk": 8}
+    assert capable.SUITE_VERSIONS == {"cli": 7, "sdk": 9}
     # the first suites that probed a chat folder; the guardrails they proved are the same
     assert capable.CHAT_SUITE_VERSIONS == {"cli": 5, "sdk": 6}
     # three short runs per runner and environment for the chat-folder probes
