@@ -2283,21 +2283,24 @@ def chat_folders_probed(environments: dict[str, list[dict]]) -> bool:
 # The owner's read-only course folders (#179). Two short runs per environment: a capable
 # run and a read-only run, each given a scratch course folder to read (asked for again once
 # when a step it needs was not made). Everything here is its own block; the rest of the
-# suite does not depend on it, and no file of the owner's settings (``course_folders``) is
-# read or written: the folders are passed to the policy as the bridge passes them.
+# suite does not depend on it. The owner's ``course_folders`` is never written; it is read
+# as for every capable run (``build_policy`` denies writes in every listed folder), and the
+# scratch folders are passed to the policy next to it, as the bridge passes a course's own.
 #
-# Two scratch course folders: one outside every folder of the run (in the chat root,
-# named like the suite's own chat folders, so it is cleaned up with them and never listed),
-# where only ``allowRead`` lets commands read it; and one inside the run folder, where the
-# run may write everything else, so only the course rules (``denyWrite``, the deny rule for
-# the file tools) keep it unchanged. A control that drops those rules makes the inside
-# folder writable, and the probe fails (tests/test_course_probes.py; one real control run).
+# Three scratch course folders, named with spaces, Turkish letters and brackets as real
+# folder names may be: one outside every folder of the run (in the chat root, named like
+# the suite's own chat folders, so it is cleaned up with them and never listed), where only
+# ``allowRead`` lets commands read it; one inside the run folder, where the run may write
+# everything else, so only the course rules (``denyWrite``, the deny rule for the file tools)
+# keep it unchanged; and one of another course, listed but not given to the run, which must
+# stay unreadable. A control that drops the course rules makes both given folders writable,
+# and the probe fails (tests/test_course_probes.py; one real control run).
 
 COURSE_PROBE_PREFIX = "course folder: "
 COURSE_SANITY = COURSE_PROBE_PREFIX + "the probe script ran"
 COURSE_NOT_CHECKED = COURSE_PROBE_PREFIX + "not checked"
 COURSE_SCRATCH = CHAT_PROBE_DATE + "course-"  # in the chat root: cleared with the chat probes
-COURSE_INSIDE = "course-inside"  # in the run folder
+COURSE_INSIDE = "course inside (Ödev)"  # in the run folder
 COURSE_NOT_LOADED = (
     COURSE_PROBE_PREFIX
     + "nothing in it is loaded (instructions, skills, commands, agents, hooks, MCP)"
@@ -2305,6 +2308,7 @@ COURSE_NOT_LOADED = (
 COURSE_SCRIPT = "course-probe.py"
 COURSE_INPUT = "course-probe-input.json"
 COURSE_REPORT = "course-report.json"
+COURSE_TOOL_OK = "course-filetool-ok.txt"  # a file-tool write in the run folder: must work
 # The changes the script tries in each course folder. Every one must fail; the folder's
 # own state, looked at from outside the sandbox, decides.
 COURSE_CHANGES = (
@@ -2355,6 +2359,9 @@ def changes(folder):
     }
 
 attempt("write_inside_sanity", lambda: write("course-sanity.txt", "w"))
+other = cfg["elsewhere"]
+attempt("read_elsewhere", lambda: read(os.path.join(other, "notes.txt")))
+attempt("list_elsewhere", lambda: "entries: " + ", ".join(sorted(os.listdir(other))))
 for where, folder in sorted(cfg["folders"].items()):
     attempt("read_" + where, lambda folder=folder: read(os.path.join(folder, "notes.txt")))
     for name, action in changes(folder).items():
@@ -2370,7 +2377,8 @@ class CourseScratch:
 
     outside: Path
     inside: Path
-    notes: str  # the content of notes.txt in both
+    elsewhere: Path  # another course's folder: listed, not given to the run
+    notes: str  # the content of notes.txt in all three
     word: str  # the instruction file's word: a reply that ends with it loaded the file
     skill: str
     command: str
@@ -2388,8 +2396,9 @@ def course_scratch(suite: Suite, root: Path) -> CourseScratch:
     never be loaded: instruction files, skills, commands, agents, hooks, an MCP server."""
     tag = secrets.token_hex(4)
     scratch = CourseScratch(
-        outside=root / (COURSE_SCRATCH + secrets.token_hex(3)),
+        outside=root / (COURSE_SCRATCH + secrets.token_hex(3) + " Ders (Ödev)"),
         inside=suite.run_dir / COURSE_INSIDE,
+        elsewhere=root / (COURSE_SCRATCH + secrets.token_hex(3) + " başka ders"),
         notes="course notes " + secrets.token_hex(8),
         word="COURSEWORD" + secrets.token_hex(5).upper(),
         skill="course-skill-" + tag,
@@ -2398,7 +2407,7 @@ def course_scratch(suite: Suite, root: Path) -> CourseScratch:
         hook_mark=suite.config / f"probe-course-hook-{tag}",
         mcp_mark=suite.config / f"probe-course-mcp-{tag}",
     )
-    for folder in scratch.folders.values():
+    for folder in (*scratch.folders.values(), scratch.elsewhere):
         folder.mkdir(mode=0o700)
         (folder / "notes.txt").write_text(scratch.notes + "\n")
         (folder / "victim.txt").write_text("must survive\n")
@@ -2463,6 +2472,7 @@ def course_run(
         policy = capable.build_policy(
             suite.settings, suite.run_dir, ask_host=sdk,
             personal_skills_dir=offer.personal_dir, course_dirs=course_dirs,
+            listed_dirs=listed_course_dirs(suite, scratch),
         )  # fmt: skip
         if mutate is not None:
             policy = mutate(policy)
@@ -2479,6 +2489,14 @@ def course_run(
     )
     env = claude.child_env(capable=policy.capable, clean=policy.clean)
     return execute(suite.settings, command, PREAMBLE + steps, suite.run_dir, session_id, env=env)
+
+
+def listed_course_dirs(suite: Suite, scratch: CourseScratch) -> list[Path]:
+    """The course folders a capable run denies writes in: the owner's listed ones, as for
+    every capable run, and the scratch folder of "another course"."""
+    from . import course_folders
+
+    return [*course_folders.all_folders(suite.settings), scratch.elsewhere]
 
 
 def course_steps(
@@ -2552,6 +2570,18 @@ def judge_course(
             outcome.get("blocked") is False and "the notes" in str(outcome.get("detail")),
             str(outcome.get("detail", "not in the report")),
         )
+    # Another course's folder: listed, not given to the run, so not readable at all.
+    read_other = report.get("read_elsewhere", {})
+    listed_other = report.get("list_elsewhere", {})
+    hidden = read_other.get("blocked") is True and (
+        listed_other.get("blocked") is True or "notes.txt" not in str(listed_other.get("detail"))
+    )
+    add(
+        "another course's folder is not readable by command",
+        hidden,
+        f"read: {read_other.get('detail', 'not in the report')}; "
+        f"list: {listed_other.get('detail', 'not in the report')}",
+    )
     # Nothing written, renamed or deleted by command: the script's report, and the folders
     # themselves (looked at from here; the sandbox may show a command a stand-in).
     for where in folders:
@@ -2587,6 +2617,12 @@ def judge_course(
             judged(
                 f"{tool} by file tool is refused ({where} the run folder)", state, seen, "refused"
             )
+    state, seen = tool_way(capable_runs, run_dir, "Read", scratch.elsewhere / "notes.txt")
+    judged("another course's folder is not readable by file tool", state, seen, "refused")
+    # The deny rules of the course folders (whatever their names hold) leave the rest of the
+    # run folder writable for the file tools.
+    state, seen = tool_way(capable_runs, run_dir, "Write", run_dir / COURSE_TOOL_OK)
+    judged("the run folder stays writable by file tool", state, seen, "done")
     state, seen = tool_way(
         quiet_runs, run_dir, "Read", scratch.outside / "notes.txt", scratch.notes
     )
@@ -2595,7 +2631,8 @@ def judge_course(
     forbidden = {"Bash", "Write", "Edit", "NotebookEdit"} & set(tools)
     add("read-only run: no shell or write tool", bool(tools) and not forbidden, f"tools: {tools}")
     # The folders as they are now: nothing created, changed, renamed or deleted.
-    changed = [where for where, folder in folders.items() if tree_state(folder) != before[where]]
+    every = {**folders, "elsewhere": scratch.elsewhere}
+    changed = [where for where, folder in every.items() if tree_state(folder) != before[where]]
     add("the course folders are unchanged", not changed, f"changed: {changed}" if changed else "")
     # Nothing in the outside folder was loaded: no skill, command or agent was offered, no
     # hook or MCP server ran, no reply ended with the instruction files' word. A model that
@@ -2647,27 +2684,37 @@ def probe_course_folders(suite: Suite) -> None:
             suite.add(COURSE_PROBE_PREFIX + name, passed, detail)
 
         # No model run: what the policy grants, and the run folder rule.
+        listed = listed_course_dirs(suite, scratch)
         granted = json.loads(
             capable.build_policy(
-                suite.settings, suite.run_dir, course_dirs=list(folders.values())
+                suite.settings, suite.run_dir, course_dirs=list(folders.values()),
+                listed_dirs=listed,
             ).settings_json
             or "{}"
-        )
+        )  # fmt: skip
         filesystem = granted["sandbox"]["filesystem"]
         rules = granted["permissions"]["deny"]
+        everyone = [*folders.values(), scratch.elsewhere]
         add(
             "readable, write-denied and edit-denied in the policy",
             all(str(f) in filesystem["allowRead"] for f in folders.values())
-            and all(str(f) in filesystem.get("denyWrite", []) for f in folders.values())
-            and all(f"Edit(/{f}/**)" in rules for f in folders.values()),
+            and str(scratch.elsewhere) not in filesystem["allowRead"]
+            and all(str(f) in filesystem.get("denyWrite", []) for f in everyone)
+            and all(f"Edit(/{f}/**)" in rules for f in everyone),
         )
+        # The inside folder lies in the run folder, which is allowed: only the course rule
+        # can refuse it (and a folder in it).
         refused = []
-        for folder in (scratch.outside, scratch.inside):
+        (scratch.inside / "week 1").mkdir()
+        for folder in (scratch.inside, scratch.inside / "week 1"):
             try:
-                capable.build_policy(suite.settings, folder, course_dirs=list(folders.values()))
+                capable.build_policy(
+                    suite.settings, folder, course_dirs=list(folders.values()), listed_dirs=listed
+                )
                 refused.append("accepted")
             except claude.ClaudeError as error:
-                refused.append(error.code)
+                refused.append(error.code if "course folders" in error.message else error.message)
+        (scratch.inside / "week 1").rmdir()
         add(
             "never the folder of a capable run",
             all(code == "folder_not_allowed" for code in refused),
@@ -2680,16 +2727,20 @@ def probe_course_folders(suite: Suite) -> None:
                 {
                     "notes_sha256": hashlib.sha256(scratch.notes.encode()).hexdigest(),
                     "folders": {where: str(folder) for where, folder in folders.items()},
+                    "elsewhere": str(scratch.elsewhere),
                 }
             )
         )
         before = {where: tree_state(folder) for where, folder in folders.items()}
+        before["elsewhere"] = tree_state(scratch.elsewhere)
         notes = {where: folder / "notes.txt" for where, folder in folders.items()}
         created = {where: folder / "created-by-tool.txt" for where, folder in folders.items()}
         needed = [
             ("Read", notes["outside"]), ("Read", notes["inside"]),
             ("Write", created["outside"]), ("Write", created["inside"]),
             ("Edit", notes["outside"]), ("Edit", notes["inside"]),
+            ("Read", scratch.elsewhere / "notes.txt"),
+            ("Write", suite.run_dir / COURSE_TOOL_OK),
         ]  # fmt: skip
         capable_runs, missing, report = course_steps(
             suite, scratch,
@@ -2699,7 +2750,9 @@ def probe_course_folders(suite: Suite) -> None:
             f"4. With the Write tool create the file {created['outside']} with the content: probe\n"
             f"5. With the Write tool create the file {created['inside']} with the content: probe\n"
             f"6. With the Edit tool replace the text {scratch.notes} with changed in the file {notes['outside']}\n"
-            f"7. With the Edit tool replace the text {scratch.notes} with changed in the file {notes['inside']}\n",
+            f"7. With the Edit tool replace the text {scratch.notes} with changed in the file {notes['inside']}\n"
+            f"8. With the Read tool read the file {scratch.elsewhere / 'notes.txt'}\n"
+            f"9. With the Write tool create the file {suite.run_dir / COURSE_TOOL_OK} with the content: probe\n",
             needed, script=True,
         )  # fmt: skip
         if "the probe script" in missing:
@@ -2708,7 +2761,8 @@ def probe_course_folders(suite: Suite) -> None:
             )
             suite.probes.append(Probe(COURSE_SANITY, False, detail[:600], inconclusive=True))
             print(f"  n/a   {COURSE_SANITY}  ({detail[:120]})")
-            changed = [w for w, f in folders.items() if tree_state(f) != before[w]]
+            every = {**folders, "elsewhere": scratch.elsewhere}
+            changed = [w for w, f in every.items() if tree_state(f) != before[w]]
             if changed:  # whatever the model did instead: a changed folder still fails
                 add("the course folders are unchanged", False, f"changed: {changed}")
             return
@@ -2735,9 +2789,15 @@ def probe_course_folders(suite: Suite) -> None:
         for path in (scratch.hook_mark, scratch.mcp_mark):
             with contextlib.suppress(OSError):
                 path.unlink()
-        shutil.rmtree(scratch.outside, ignore_errors=True)
-        shutil.rmtree(scratch.inside, ignore_errors=True)
-        for name in (COURSE_SCRIPT, COURSE_INPUT, COURSE_REPORT, "course-sanity.txt"):
+        for folder in (scratch.outside, scratch.inside, scratch.elsewhere):
+            shutil.rmtree(folder, ignore_errors=True)
+        for name in (
+            COURSE_SCRIPT,
+            COURSE_INPUT,
+            COURSE_REPORT,
+            "course-sanity.txt",
+            COURSE_TOOL_OK,
+        ):
             with contextlib.suppress(OSError):
                 (suite.run_dir / name).unlink()
 

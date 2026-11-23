@@ -38,7 +38,12 @@ def scripted(monkeypatch, *, writable=False, script=True, loaded=False):
             run.init_commands.append(scratch.skill)
         folders = scratch.folders
         if capable_mode and script:
-            report = {verify.SANITY: {"blocked": False, "detail": "written"}}
+            report = {
+                verify.SANITY: {"blocked": False, "detail": "written"},
+                # another course's folder: hidden (the sandbox shows an empty stand-in)
+                "read_elsewhere": {"blocked": True, "detail": "FileNotFoundError"},
+                "list_elsewhere": {"blocked": False, "detail": "entries: "},
+            }
             for where, folder in folders.items():
                 report[f"read_{where}"] = {
                     "blocked": False,
@@ -59,6 +64,11 @@ def scripted(monkeypatch, *, writable=False, script=True, loaded=False):
                      "File created" if worked else refused, error=not worked)  # fmt: skip
                 call(run, "Edit", {"file_path": str(folder / "notes.txt")},
                      "Edited" if worked else refused, error=not worked)  # fmt: skip
+        if capable_mode:
+            other = scratch.elsewhere / "notes.txt"
+            call(run, "Read", {"file_path": str(other)}, "denied", error=True)
+            ok = suite.run_dir / verify.COURSE_TOOL_OK
+            call(run, "Write", {"file_path": str(ok)}, "File created")
         return run
 
     monkeypatch.setattr(verify, "course_run", course_run)
@@ -79,6 +89,8 @@ def test_every_probe_passes_when_the_rules_hold(suite, monkeypatch):
     root = suite.settings.chat_root
     assert not any(p.name.startswith(verify.COURSE_SCRATCH) for p in root.iterdir())
     assert not (suite.run_dir / verify.COURSE_INSIDE).exists()
+    assert names["another course's folder is not readable by command"].passed
+    assert names["another course's folder is not readable by file tool"].passed
     results = {"terminal": [p.__dict__ for p in suite.probes]}
     assert verify.course_folders_probed(results) is True
 

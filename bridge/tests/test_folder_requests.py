@@ -38,7 +38,11 @@ def client(world):
 @pytest.fixture
 def pushes(monkeypatch):
     sent = []
-    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: sent.append((event, kw)))
+
+    def spy(event, ref="", **kw):
+        sent.append((event, {key: value for key, value in kw.items() if value is not None}))
+
+    monkeypatch.setattr(push, "send_hint", spy)
     return sent  # notices only below: a finished answer wakes the phones too ("answer")
 
 
@@ -253,9 +257,9 @@ def test_markers_act_only_for_a_message_the_owner_sent(world, home, allowed_file
     assert conversations.strip(answer) == "Ok."
 
 
-def test_a_bridge_turn_never_acts_on_them(world, auth, home, allowed_file, monkeypatch):
-    """The coach compaction is the bridge's own turn: no ``_owner``, so no folder changes."""
-    folder(home / "Thesis")
+@pytest.fixture
+def spied(monkeypatch):
+    """Whether each answer the bridge read for folder lines was the owner's."""
     seen = []
     plain = folder_requests.from_answer
 
@@ -264,13 +268,40 @@ def test_a_bridge_turn_never_acts_on_them(world, auth, home, allowed_file, monke
         return plain(settings, answer, owner=owner, home=home)
 
     monkeypatch.setattr(folder_requests, "from_answer", spy)
+    return seen
+
+
+def test_a_message_from_the_phone_is_the_owners(world, auth, home, spied):
+    folder(home / "Thesis")
     client = TestClient(create_app(world))
     say(home, "[[switch-find: Thesis]]")
     ask(client, auth)
-    assert seen == [True]  # a message from the phone is the owner's
-    # the client cannot claim to be the owner of a bridge turn either: "_" keys are dropped
+    assert spied == [True]
+    # a client cannot say otherwise about a turn: "_" keys of a request are dropped
     ask(client, auth, _owner=False)
-    assert seen == [True, True]
+    assert spied == [True, True]
+    session = ask(client, auth).json()["session_id"]
+    client.post(f"/sessions/{session}/messages", headers=auth, json={"prompt": "again"})
+    assert spied == [True, True, True, True]
+
+
+def test_the_coach_compaction_never_acts_on_them(world, auth, home, ask_dir, allowed_file, spied):
+    """The coach compaction is the bridge's own turn: no ``_owner``, so no folder changes."""
+    from test_coach_chat import git
+
+    git(ask_dir, "init", "-q")
+    (ask_dir / "CLAUDE.md").write_text("# How to use this memory\n")
+    git(ask_dir, "add", "-A")
+    git(ask_dir, "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-q", "-m", "init")
+    folder(home / "Thesis")
+    client = TestClient(create_app(world))
+    client.post("/coach/chat/messages", headers=auth, json={"prompt": "first"})
+    assert spied == [] and not allowed_file.exists()  # "echo: first": no folder line
+    say(home, "[[switch-find: Thesis]]")
+    assert client.post("/coach/chat/compact", headers=auth).status_code == 200
+    assert spied == [False] and not allowed_file.exists()
+    reply = client.post("/coach/chat/messages", headers=auth, json={"prompt": "work in Thesis"})
+    assert spied == [False, True] and reply.json()["switch"]["action"] == "new"
 
 
 def test_a_streamed_answer_carries_the_folder_switch(client, auth, home):

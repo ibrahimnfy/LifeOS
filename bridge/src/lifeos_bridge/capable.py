@@ -409,6 +409,7 @@ def build_policy(
     personal_skills_dir: Path | None = None,
     mcp: dict[str, dict] | None = None,
     course_dirs: list[Path] | None = None,
+    listed_dirs: list[Path] | None = None,
 ) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
 
@@ -437,7 +438,8 @@ def build_policy(
     the file tools (added folders) and by commands (``allowRead``), never written:
     every folder of ``course_folders``, readable or not, gets ``denyWrite`` and a
     deny rule for the file tools, and none of them (or a folder inside one) is ever
-    the run's folder.
+    the run's folder. ``listed_dirs``: those folders; ``None`` means the folders of
+    ``course_folders`` (the guardrail probes add a scratch one).
     """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
@@ -461,7 +463,8 @@ def build_policy(
         course_folders.for_folder(settings, run_dir) if course_dirs is None else course_dirs
     )]  # fmt: skip
     protected = [*readable]
-    protected += [f for f in course_folders.all_folders(settings) if f not in protected]
+    listed = course_folders.all_folders(settings) if listed_dirs is None else listed_dirs
+    protected += [Path(f).resolve() for f in listed if Path(f).resolve() not in protected]
     for folder in protected:
         if run_dir == folder or run_dir.is_relative_to(folder):
             raise ClaudeError(

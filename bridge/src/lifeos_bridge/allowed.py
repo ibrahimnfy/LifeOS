@@ -7,7 +7,6 @@ notification never contains the path.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 from datetime import UTC, datetime
@@ -68,14 +67,14 @@ def notify(action: str, count: int, script: Path | None = None, name: str = "") 
     The computer's text is fixed and never names the folder. The phones get a
     sealed notice whose title names the folder (only its name, never the path);
     the app shows it after it was opened and unlocked, on the Chat tab (#179).
+    One push only: with ``event`` the script does not wake the phones a second time.
     """
     message = f"A folder was {action}; {count} allowed now. If this was not you, check the bridge."
-    notifications.send("LifeOS: allowed folders changed", message, "", script)
-    from . import push  # local import: push needs the device store
-
     title = f"Folder {action}: {name}" if name else f"A folder was {action}"
-    with contextlib.suppress(Exception):
-        push.send_hint("notice", "", opens="session", t=title)
+    notifications.send(
+        "LifeOS: allowed folders changed", message, "", script,
+        event="notice", opens="session", sealed_title=title,
+    )  # fmt: skip
 
 
 def course_refusal(path: Path) -> str | None:
