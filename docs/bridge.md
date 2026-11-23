@@ -766,8 +766,14 @@ them, and the history removes the lines like the switch lines. A client
 cannot claim a turn is the owner's: keys starting with `_` are dropped from
 every request.
 
-Checked with the real CLI (2026-11-23, small model, a scratch home tree of
-folders, through the bridge's own handling): see the manual check below.
+Checked with the real Claude Code 2.1.330 through the bridge's own handling
+(2026-11-23, small model, a blank chat, scratch settings, memory folder and
+chat root, the search pointed at a scratch tree of folders): "find my zebra
+notes folder and let's work there" wrote `[[switch-find: …]]`, the folder
+was added (one line, audit record) and the answer carried `new` with it;
+"find my Lynx folder" with two such folders gave `choose_folder` with both;
+"stop using the Zebra-notes folder" removed only its line, its file stayed,
+and the answer said so.
 
 ### Read-only course folders (#179)
 

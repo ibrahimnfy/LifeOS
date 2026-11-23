@@ -157,6 +157,10 @@ class Api(private val transport: Transport) {
         read(CoachPlan.serializer(), raw) to raw
     }
 
+    /** The folder the owner picked on a "choose_folder" card (#179): allowed if needed, then a new chat starts there. */
+    suspend fun openFolder(path: String): OpenedFolder =
+        read(OpenedFolder.serializer(), call("POST", "/folders/open", body = buildJsonObject { put("path", JsonPrimitive(path)) }))
+
     suspend fun markSeen(courseId: Long) {
         call("POST", "/courses/$courseId/seen")
     }

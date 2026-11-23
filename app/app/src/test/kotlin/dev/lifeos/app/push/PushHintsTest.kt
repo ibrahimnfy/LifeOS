@@ -165,6 +165,15 @@ class PushHintsTest {
     }
 
     @Test
+    fun `a folder added or removed by asking opens the Chat tab and names the folder only inside the app`() {
+        // The bridge's hint (#179): event notice, screen "session" without an item, the sealed title.
+        val hint = Hint("notice", "", title = "Folder added: Thesis", channel = "reminders", opens = "session")
+        assertEquals(Destination.Sessions, PushHints.destinationOf(hint))
+        assertEquals("Folder added: Thesis", PushHints.noticeTitle(hint))
+        assertEquals(PushChannel.REMINDERS, PushHints.channelOf(hint))
+    }
+
+    @Test
     fun `destinations survive the way through a notification`() {
         val all = listOf(
             Destination.Chat("session-1"), Destination.Course(12), Destination.Reminder("r-1"), Destination.Coach(), Destination.Coach("m-2"), Destination.Consolidation(), Destination.Consolidation("c-1"), Destination.Courses,

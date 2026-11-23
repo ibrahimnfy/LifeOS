@@ -417,4 +417,56 @@ class ChatSwitchTest {
         assertEquals("/p", ChatFolder.of(Folder("/p", "p")).requested)
         assertNull(ChatFolder.of(Folder("/c", "Chats", FolderKinds.CHAT)).requested)
     }
+
+    private val findFolder = """{"action":"choose_folder","sessions":[],"folder":null,"folders":[""" +
+        """{"path":"/home/owner/Documents/Notes","label":"Notes","kind":"project","colour":0,"allowed":false,"where":"~/Documents"},""" +
+        """{"path":"/home/owner/work/Notes","label":"Notes","kind":"project","colour":3,"allowed":true,"where":"~/work"}]}"""
+
+    @Test
+    fun `folders found by name are a card, and a pick asks the computer to open one first`() = runTest {
+        val chat = chat()
+        chat.newChat()
+        answerWithSwitch(findFolder, line = "[[switch-find: notes]]")
+        chat.send("Find my notes folder and let's work there")
+        advanceUntilIdle()
+        // Never done by itself, also in the answer to this phone's own message.
+        assertNull(chat.state.value.switchTo)
+        val card = checkNotNull(chat.state.value.choices)
+        assertTrue(card.isChoice)
+        assertEquals(listOf("~/Documents", "~/work"), card.folders.map { it.where })
+        assertEquals(listOf(false, true), card.folders.map { it.allowed })
+        assertNull(card.step())
+        val pick = ChatSwitch.pick(card.folders[0])
+        assertEquals(SwitchStep.Pick("/home/owner/Documents/Notes"), pick.step())
+
+        // The computer opens it (it may add it first); the new chat starts in the folder it answers.
+        transport.answer("POST /folders/open", 200, """{"added":true,"folder":{"path":"/home/owner/Documents/Notes","label":"Notes","kind":"project","colour":4}}""")
+        val opened = api.openFolder("/home/owner/Documents/Notes")
+        assertEquals(JsonPrimitive("/home/owner/Documents/Notes"), (transport.calls.last().body as kotlinx.serialization.json.JsonObject)["path"])
+        assertTrue(opened.added)
+        val folder = checkNotNull(opened.folder.asFolder())
+        assertEquals(4, folder.colour)
+        chat.newChat(folder)
+        answers(event("done", """{"answer":"Hi","session_id":"s-2"}"""), done())
+        chat.send("Hello")
+        advanceUntilIdle()
+        assertEquals(JsonPrimitive("/home/owner/Documents/Notes"), (transport.calls.last().body as kotlinx.serialization.json.JsonObject)["folder"])
+    }
+
+    @Test
+    fun `a folder card the app cannot use is none, and at most five folders are offered`() {
+        assertNull(ChatSwitch.of(json("""{"action":"choose_folder","sessions":[],"folders":[]}""")))
+        assertNull(ChatSwitch.of(json("""{"action":"choose_folder","folders":[{"path":"relative","label":"x"}]}""")))
+        val many = (1..7).joinToString(",") { """{"path":"/home/owner/f$it/Notes","label":"Notes"},{"path":"/home/owner/f$it/Notes","label":"Notes"}""" }
+        assertEquals(5, ChatSwitch.of(json("""{"action":"choose_folder","folders":[$many]}"""))?.folders?.size)
+        // A pick is only ever made on the phone: an answer cannot ask for one.
+        assertNull(ChatSwitch.of(json("""{"action":"pick_folder","folders":[{"path":"/home/owner/x","label":"x"}]}""")))
+    }
+
+    @Test
+    fun `find and remove lines never show`() {
+        assertEquals("Here.\nEnd", Chat.visible("Here.\n[[switch-find: thesis]]\n[[switch-remove: old-site]]\nEnd"))
+        assertEquals("Here.", Chat.streaming("Here.\n[[switch-fi"))
+        assertEquals("Here.", Chat.streaming("Here.\n[[switch-remove: old"))
+    }
 }
