@@ -1221,9 +1221,12 @@ var Hud = (function () {
   function colours() { col.hud = css("--hud"); col.g1 = css("--grad-1"); col.g2 = css("--grad-2"); col.g3 = css("--grad-3"); col.dark = S.isDark(); }
   function ringR(i) { return i === 0 ? Math.min(W * 0.22, 120) : Math.min(W * 0.42, 210); }
 
+  var lastDh = -1;
   function layout() {
     if (field.hidden || !field.clientWidth) return;
     var dh = parseFloat(getComputedStyle(app).getPropertyValue("--dock-h")) || 120;
+    if (field.clientWidth === W && field.clientHeight === H && dh === lastDh) { draw(); return; } // nothing changed (e.g. typing)
+    lastDh = dh;
     W = field.clientWidth; H = field.clientHeight;
     DPR = Math.min(window.devicePixelRatio || 1, 1.5);
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);

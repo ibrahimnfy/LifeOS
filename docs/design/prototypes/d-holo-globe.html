@@ -1240,9 +1240,12 @@ var Hud = (function () {
   }
 
   /* ---------- size ---------- */
+  var lastDh = -1;
   function layout() {
     if (field.hidden || !field.clientWidth) return;
     var dh = parseFloat(getComputedStyle(app).getPropertyValue("--dock-h")) || 120;
+    if (field.clientWidth === W && field.clientHeight === H && dh === lastDh) { draw(); return; } // nothing changed (e.g. typing)
+    lastDh = dh;
     W = field.clientWidth; H = field.clientHeight;
     DPR = Math.min(window.devicePixelRatio || 1, 1.5);
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);

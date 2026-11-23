@@ -229,8 +229,10 @@ header, **the system back gesture** (a history entry is pushed), or Escape.
 | Smoothness | ✅ | About 0.1 ms of script per frame with 4× CPU throttling; the canvas holds only two ellipses and their ticks. |
 | Motion pattern | ◐ | Custom; easing follows M3's emphasized tokens. |
 
-**Recommendation: A, then E.** It keeps every feature one tap away in a place the
-owner chose, works fully without gestures, and maps to standard Compose
+**Ranking on these guidelines only: A, then E.** This is not a verdict on
+taste: the owner asked for C and D, and the choice is the owner's. A keeps
+every feature one tap away in a place the owner chose, works fully without
+gestures, and maps to standard Compose
 building blocks (lazy grid, drag and drop, shared-element transition). Of the
 sci-fi designs, **E** keeps every feature visible at once, puts the coach in
 the centre as the app's concept already does, and is cheap to draw. **C** is

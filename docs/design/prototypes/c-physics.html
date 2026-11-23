@@ -308,6 +308,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .tb-btn.txt::before { inset: 6px 2px; border-radius: 18px; }
 .tb-btn.txt .lbl { font-family: var(--font-hud); text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.75rem; }
 /* ===== Prototype C: physics tiles on a free field ===== */
+.field { isolation: isolate; } /* tile z-indexes stay inside the field */
 .tiles { position: absolute; inset: 0; margin: 0; padding: 0; }
 .tiles > li { position: absolute; left: 0; top: 0; will-change: transform; }
 .ptile {
@@ -337,7 +338,7 @@ button:disabled { cursor: default; opacity: 0.45; }
 .dragging .ptile { box-shadow: 0 0 0 2px var(--ink, var(--grad-2)), 0 14px 36px rgba(0, 0, 0, 0.35); }
 
 .tidy-btn {
-  position: absolute; z-index: 25; right: 12px; bottom: calc(var(--dock-h, 120px) + 4px);
+  position: absolute; z-index: 15; right: 12px; bottom: calc(var(--dock-h, 120px) + 4px);
   display: inline-flex; align-items: center; gap: 6px; height: 48px; padding: 0 16px 0 12px; border-radius: 24px;
   background: var(--glass); color: var(--hud); border: 1px solid color-mix(in srgb, var(--hud) 50%, transparent);
   font: 700 0.75rem var(--font-hud); letter-spacing: 0.08em; text-transform: uppercase;
@@ -1220,11 +1221,16 @@ var Hud = (function () {
   var W = 0, H = 0, PAD = 8, tiles = {}, ids = S.ORDER.slice(), zTop = 10;
   var MIN = 76, MAX = 210;
 
-  function bounds() { // the free area: below the top bar, above the command bar
-    var dh = parseFloat(getComputedStyle(app).getPropertyValue("--dock-h")) || 120;
+  function bounds() { // the free area: below the top bar, above the command bar itself
+    // (not above its chips or confirmations, so typing does not move the tiles)
+    var dh = ($("cmd").offsetHeight || 62) + 18;
     W = field.clientWidth; H = Math.max(200, field.clientHeight - dh - 8);
   }
   function hOf(s) { return Math.round(s * 0.78); }
+  // A tile's place is kept as a fraction of the field (fx, fy), updated only
+  // when the tile is moved; a smaller field (soft keyboard) only clamps the
+  // display, so the tiles return when the field grows again.
+  function mark(tl) { tl.fx = tl.x / W; tl.fy = tl.y / H; }
 
   /* ---------- layouts ---------- */
   function cell() { return Math.floor((W - 2 * 16 - 2 * 10) / 3); }
@@ -1256,7 +1262,7 @@ var Hud = (function () {
   function save() {
     try {
       var o = { v: 1, tiles: {} };
-      ids.forEach(function (id) { var tl = tiles[id]; o.tiles[id] = { fx: tl.x / W, fy: tl.y / H, fs: tl.s / W }; });
+      ids.forEach(function (id) { var tl = tiles[id]; o.tiles[id] = { fx: tl.fx != null ? tl.fx : tl.x / W, fy: tl.fy != null ? tl.fy : tl.y / H, fs: tl.s / W }; });
       localStorage.setItem(KEY, JSON.stringify(o));
     } catch (e) { /* storage may be off */ }
   }
@@ -1316,7 +1322,7 @@ var Hud = (function () {
     var moving = !!g;
     if (tween) {
       var k = Math.min(1, (now - tween.t0) / tween.dur), e = 1 - Math.pow(1 - k, 3);
-      ids.forEach(function (id) { var a = tween.from[id], b = tween.to[id], tl = tiles[id]; tl.x = a.x + (b.x - a.x) * e; tl.y = a.y + (b.y - a.y) * e; tl.s = Math.round(a.s + (b.s - a.s) * e); });
+      ids.forEach(function (id) { var a = tween.from[id], b = tween.to[id], tl = tiles[id]; tl.x = a.x + (b.x - a.x) * e; tl.y = a.y + (b.y - a.y) * e; tl.s = Math.round(a.s + (b.s - a.s) * e); mark(tl); });
       if (k >= 1) { tween = null; save(); } else moving = true;
     } else {
       var decay = Math.exp(-dt / FRICTION);
@@ -1330,7 +1336,7 @@ var Hud = (function () {
         else if (tl.x > W - w2) { tl.x = W - w2; tl.vx = -Math.abs(tl.vx) * REST; flash(tl); }
         if (tl.y < h2 + PAD) { tl.y = h2 + PAD; tl.vy = Math.abs(tl.vy) * REST; flash(tl); }
         else if (tl.y > H - h2) { tl.y = H - h2; tl.vy = -Math.abs(tl.vy) * REST; flash(tl); }
-        tl.vx *= decay; tl.vy *= decay;
+        tl.vx *= decay; tl.vy *= decay; mark(tl);
         if (Math.abs(tl.vx) + Math.abs(tl.vy) < 0.006) { tl.vx = tl.vy = 0; } else moving = true;
       });
       collide();
@@ -1358,7 +1364,7 @@ var Hud = (function () {
   function tidy(animated) {
     var to = tidyTargets(), from = {};
     ids.forEach(function (id) { var tl = tiles[id]; tl.vx = tl.vy = 0; from[id] = { x: tl.x, y: tl.y, s: tl.s }; });
-    if (!animated || S.reducedMotion()) { ids.forEach(function (id) { var tl = tiles[id]; tl.x = to[id].x; tl.y = to[id].y; tl.s = to[id].s; place(tl); }); save(); return; }
+    if (!animated || S.reducedMotion()) { ids.forEach(function (id) { var tl = tiles[id]; tl.x = to[id].x; tl.y = to[id].y; tl.s = to[id].s; mark(tl); place(tl); }); save(); return; }
     tween = { t0: performance.now(), dur: 520, from: from, to: to };
     kick();
   }
@@ -1396,11 +1402,11 @@ var Hud = (function () {
       var pi = pinchInfo(), k = pi.d / g.d0;
       tl.s = Math.round(Math.max(MIN, Math.min(MAX, g.s0 * k)));
       var sk = tl.s / g.s0;
-      tl.x = pi.mx + g.cx * sk; tl.y = pi.my + g.cy * sk; clampIn(tl);
+      tl.x = pi.mx + g.cx * sk; tl.y = pi.my + g.cy * sk; clampIn(tl); mark(tl);
     } else if (e.pointerId === g.p1) {
       if (!g.moved && Math.hypot(p.x - g.x0, p.y - g.y0) < 8) return;
       g.moved = true;
-      tl.x = p.x - g.ox; tl.y = p.y - g.oy; clampIn(tl);
+      tl.x = p.x - g.ox; tl.y = p.y - g.oy; clampIn(tl); mark(tl);
       var now = performance.now();
       g.samples.push({ t: now, x: tl.x, y: tl.y });
       while (g.samples.length > 2 && now - g.samples[0].t > 90) g.samples.shift();
@@ -1445,7 +1451,7 @@ var Hud = (function () {
     if (k === "ArrowLeft") tl.x -= st; else if (k === "ArrowRight") tl.x += st; else if (k === "ArrowUp") tl.y -= st; else if (k === "ArrowDown") tl.y += st;
     else if (k === "+" || k === "=") tl.s = Math.min(MAX, tl.s + 16); else if (k === "-" || k === "_") tl.s = Math.max(MIN, tl.s - 16);
     else return;
-    e.preventDefault(); tl.vx = tl.vy = 0; clampIn(tl); front(tl); place(tl); save();
+    e.preventDefault(); tl.vx = tl.vy = 0; clampIn(tl); mark(tl); front(tl); place(tl); save();
   });
   $("btn-tidy").addEventListener("click", function () { tidy(true); S.announce(t("tidied")); });
 
@@ -1453,7 +1459,8 @@ var Hud = (function () {
   Hud.init({
     origin: function (id) { var tl = tiles[id]; return { rect: Hud.relRect(tl.b, 18) }; },
     focusTarget: function (id) { return tiles[id].b; },
-    beforeOpen: function (id, go) { var tl = tiles[id]; tl.vx = tl.vy = 0; go(); },
+    beforeOpen: function (id, go) { var tl = tiles[id]; tl.vx = tl.vy = 0; $("btn-tidy").setAttribute("inert", ""); go(); },
+    closed: function () { $("btn-tidy").removeAttribute("inert"); },
     opened: function (id) { tiles[id].b.style.visibility = ""; },
     refresh: function () { if (ul.children.length) fill(); },
     onList: function (on) { app.classList.toggle("listing", on); if (!on) { resize(); } },
@@ -1465,12 +1472,12 @@ var Hud = (function () {
     var oW = W, oH = H;
     bounds();
     if (!oW || !oH || (oW === W && oH === H)) return;
-    ids.forEach(function (id) { var tl = tiles[id]; tl.x *= W / oW; tl.y *= H / oH; clampIn(tl); place(tl); });
+    ids.forEach(function (id) { var tl = tiles[id]; if (tl.fx == null) mark(tl); tl.x = tl.fx * W; tl.y = tl.fy * H; clampIn(tl); place(tl); });
   }
   build();
   bounds();
   var start = load() || (S.reducedMotion() ? tidyTargets() : scatterTargets());
-  ids.forEach(function (id) { var tl = tiles[id]; tl.x = start[id].x; tl.y = start[id].y; tl.s = start[id].s; clampIn(tl); place(tl); });
+  ids.forEach(function (id) { var tl = tiles[id]; tl.x = start[id].x; tl.y = start[id].y; tl.s = start[id].s; mark(tl); clampIn(tl); place(tl); });
   window.addEventListener("resize", resize);
   // Test hooks for the prototype (not part of any design).
   window.__proto = { tiles: function () { var o = {}; ids.forEach(function (id) { var tl = tiles[id]; o[id] = { x: Math.round(tl.x), y: Math.round(tl.y), s: tl.s, vx: tl.vx, vy: tl.vy }; }); return o; }, moving: function () { return !!raf; }, KEY: KEY, bounds: function () { return { W: W, H: H }; } };
