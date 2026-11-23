@@ -475,14 +475,27 @@ def create_app(settings: Settings) -> FastAPI:
         except Exception:  # noqa: S110 - a missing note in the history only
             pass
 
+    def clear_notification(session_id: str) -> None:
+        """No card of the session waits any more: the phone removes its approval notification
+        (#177). Called after an answer or an expiry of a stored card (installs, MCP servers,
+        file moves, updates); the questions and approvals of a run clear their own."""
+        if approvals.pending(session_id):
+            return
+        if sdk_pool is not None and sdk_pool.asking.pending(session_id):
+            return
+        push.send_hint("cleared", session_id)
+
     def expire_approvals() -> None:
-        for entry in approvals.take_expired():
+        expired = approvals.take_expired()
+        for entry in expired:
             if entry.get("kind") == skill_installs.KIND:
                 skill_installs.expire(entry)
             elif entry.get("kind") == moves.KIND:
                 moves.expire(entry)
             elif entry.get("kind") == updates.KIND:
                 updates.expire(entry)
+        for session_id in {str(entry.get("session_id") or "") for entry in expired} - {""}:
+            clear_notification(session_id)
 
     def with_files(payload: dict, session_id: str, cwd: Path) -> dict:
         """Turn file-offer lines of a finished answer into cards."""
@@ -1082,6 +1095,7 @@ def create_app(settings: Settings) -> FastAPI:
 
             # A refused answer (409, 503) leaves the card waiting (#157).
             done = await asyncio.to_thread(approvals.settle, session_id, interaction_id, handle)
+            await asyncio.to_thread(clear_notification, session_id)
             if update_approved:
                 applier.start()  # waits for every run to end, then tests, builds, restarts
             if "moved" in done:

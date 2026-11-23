@@ -372,3 +372,24 @@ def test_other_agents_worktree_sessions_never_reach_the_phone(allowed, repo, aut
         assert own in listed and hidden not in listed
         gone = client.get(f"/sessions/{hidden}/history", headers=auth)
         assert gone.status_code == 404
+
+
+def test_a_refused_card_removes_its_notification(
+    allowed, repo, auth, isolated_config, ask_dir, monkeypatch
+):
+    """Owner's phone check: the approval notification stayed after "Don't allow" (#177)."""
+    from lifeos_bridge import push
+
+    sent = []
+    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: sent.append((event, ref)))
+    (ask_dir.parent / ".fake-claude-answer").write_text("Committed.\n[[apply-update]]\n")
+    with TestClient(create_app(allowed)) as client:
+        body = {"prompt": "x", "mode": "capable", "folder": str(repo)}
+        reply = client.post("/ask", headers=auth, json=body).json()
+        [card] = reply["update_requests"]
+        session_id = reply["session_id"]
+        url = f"/sessions/{session_id}/interactions/{card['id']}"
+        assert client.post(url, headers=auth, json={"approve": False}).json()["answered"]
+    asks = [ref for event, ref in sent if event == "approval"]
+    cleared = [ref for event, ref in sent if event == "cleared"]
+    assert asks == [session_id] and cleared == [session_id]
