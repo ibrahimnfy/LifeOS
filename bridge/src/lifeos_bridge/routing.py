@@ -63,6 +63,10 @@ JOBS: Mapping[str, Job] = {
     # Interactive and short: the background model setting does not apply (#185).
     "command": Job("Command bar: a typed or spoken request turned into app actions", "haiku",
                    "low", background=False),
+    # #181: the cheapest capable model; never moved by LIFEOS_BACKGROUND_MODEL, so a
+    # change of the probe model is always a choice made for this job.
+    "guardrail_check": Job("Guardrail check (core set after updates, monthly full suite)",
+                           "haiku", None, background=False),
 }  # fmt: skip
 
 

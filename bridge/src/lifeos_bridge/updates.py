@@ -1,16 +1,18 @@
-"""Applying an update that a chat in the LifeOS program folder produced (#180).
+"""Applying an update that a chat in the LifeOS program folder produced (#180, #183).
 
 A capable run in the program folder changes the bridge's and the app's code
 inside the sandbox. Running that code is outside the sandbox: the tests, the
 app build and the restarted bridge. So the run can only *ask*, with a line
-of its own in a fresh answer to the owner's message::
+of its own in a fresh answer to a message the owner sent::
 
     [[apply-update]]
 
-The bridge takes the line out and turns it into an approval card (kind
-``apply_update``, ``approvals``) naming the commit the program folder is at.
-Only the owner's yes starts the update, and only for that commit; a later
-request replaces a waiting card. After the yes the bridge:
+The bridge takes the line out and, since #183 (owner decision of
+2026-11-23), applies the commit the program folder is at **without an
+approval card**: it records the request, tells the owner that the update
+started and starts the applier. A request in an answer to anything else
+than the owner's own message (a queued bridge turn, a replay) is refused.
+The applier:
 
 1. waits until no run is active (both runners, live SDK sessions with a run
    in progress, queued messages, background jobs, requests in progress);
@@ -48,7 +50,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import approvals, audit, notifications, program, release, store
+from . import audit, notifications, program, release, store
 from .claude import ClaudeError
 from .config import ENV_FILE_NAME, ConfigError, Settings, config_dir, read_env_file
 
@@ -82,11 +84,13 @@ INSTRUCTIONS = (
     "you and of the phone app. Never restart the bridge or its service, never install or "
     "reinstall the app, and never run the release command yourself. When your changes are "
     "committed and the owner wants them applied, write a line of its own: [[apply-update]]. "
-    "The owner gets an approval card; after a yes the bridge waits until no run is active, "
-    "runs the bridge's tests and lint, builds the app update, restarts itself and tells the "
-    "owner the outcome. Here you can run the bridge's tests with "
-    "bridge/.venv/bin/python -m pytest -q -p no:cacheprovider; nothing can be installed, "
-    "and the app is built only by the bridge."
+    "There is no approval card: the bridge applies the committed state by itself once this "
+    "run has ended and no run is active. It runs the bridge's tests and lint, builds the app "
+    "update, restarts itself and tells the owner the outcome; a failing step applies "
+    "nothing. So write the line only when everything is committed and the owner asked for "
+    "it. Here you can run the bridge's tests with "
+    "bridge/.venv/bin/python -m pytest -q -p no:cacheprovider; the bridge's own environment "
+    "cannot be changed, and the app is built only by the bridge."
 )
 
 REASONS = {
@@ -160,56 +164,80 @@ def _notify(title: str, message: str) -> None:
     notifications.send(title, message, event="notice")
 
 
-# ---- the request, as a card ----------------------------------------------------------------
+# ---- the request -----------------------------------------------------------------------------
 
 
 def _refused(code: str, message: str) -> dict:
     return {"kind": KIND, "state": "refused", "error": message, "error_code": code}
 
 
+STARTED = (
+    "LifeOS: update started",
+    "A chat asked for its changes to be applied. The bridge waits until nothing runs, then "
+    "runs the tests and lint, builds the app and restarts itself; you get the outcome.",
+)
+
+
 def from_answer(
-    settings: Settings, answer: str, session_id: str, cwd: Path
-) -> tuple[str, list[dict]]:
-    """Take the request line out of a fresh answer of a capable run; at most one card."""
+    settings: Settings, answer: str, session_id: str, cwd: Path, *, owner: bool = True
+) -> tuple[str, list[dict], bool]:
+    """Take the request line out of a fresh answer of a capable run.
+
+    Returns the answer without the line, the refusals to show (cards of state
+    ``refused``), and whether the update was scheduled: then the caller starts the
+    :class:`Applier`. No approval card (#183).
+    """
     if not MARKER.search(answer):
-        return answer, []
+        return answer, [], False
     text = MARKER.sub("", answer).strip("\n")
+    if not owner:
+        return (
+            text,
+            [_refused("not_owner", "an update is applied only for a message the owner sent")],
+            False,
+        )
     folder = program.program_dir(settings.allowed_roots)
     if folder is None or cwd.resolve() != folder:
-        return text, [
-            _refused(
-                "not_program_folder",
-                "an update is applied only from a chat in the LifeOS program folder",
-            )
-        ]
+        return (
+            text,
+            [
+                _refused(
+                    "not_program_folder",
+                    "an update is applied only from a chat in the LifeOS program folder",
+                )
+            ],
+            False,
+        )
     if in_progress():
-        return text, [_refused("update_in_progress", "an update is being applied already")]
+        return text, [_refused("update_in_progress", "an update is being applied already")], False
     commit = program.head_commit(folder)
     if commit is None:
-        return text, [_refused("no_commit", "the program folder's commit could not be read")]
-    with approvals.LOCK:
-        # One request waits at a time: a newer one replaces it.
-        for earlier in list(approvals.load().values()):
-            if earlier.get("kind") == KIND:
-                with contextlib.suppress(ClaudeError):
-                    approvals.take(str(earlier.get("session_id")), str(earlier.get("id")))
-                with contextlib.suppress(audit.AuditUnavailable):
-                    _record("update_superseded", earlier)
-        entry = approvals.add(
-            KIND, session_id, str(folder),
-            {"state": "ready", "commit": commit, "running_commit": program.running_commit() or ""},
-        )  # fmt: skip
-        try:
-            _record("update_requested", entry)
-        except audit.AuditUnavailable:
-            approvals.take(session_id, entry["id"])
-            return text, [_refused("audit_unavailable", "the audit log could not be written")]
-    return text, [approvals.public(entry)]
+        return text, [_refused("no_commit", "the program folder's commit could not be read")], False
+    data = {"session_id": session_id, "commit": commit}
+    try:
+        _record("update_requested", data)  # before anything starts
+    except audit.AuditUnavailable:
+        return text, [_refused("audit_unavailable", "the audit log could not be written")], False
+    # Exactly this commit: the applier checks it again before and after the build.
+    store.write_json(
+        state_path(),
+        {
+            "phase": WAITING,
+            "commit": commit,
+            "session_id": session_id,
+            "folder": str(folder),
+            "requested_at": _now(),
+            "updated_at": _now(),
+        },
+    )
+    _notify(*STARTED)
+    return text, [], True
 
 
 def answer(entry: dict, approve: bool) -> dict:
-    """The owner's answer (``approvals.settle``). A yes starts nothing here: the caller
-    starts the :class:`Applier` when the answer says ``"approved": true``."""
+    """The owner's answer to a card of a bridge before #183 that still waits
+    (``approvals.settle``). A yes starts nothing here: the caller starts the
+    :class:`Applier` when the answer says ``"approved": true``."""
     if not approve:
         with contextlib.suppress(audit.AuditUnavailable):
             _record("update_refused", entry, why="owner")

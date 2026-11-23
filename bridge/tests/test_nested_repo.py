@@ -29,7 +29,7 @@ def projects(tmp_path):
 def marker(runner):
     data = {"runner": runner, "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders"}  # fmt: skip
-    capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
 
 def test_repository_root_is_found_as_git_finds_it(tmp_path, projects):
@@ -69,7 +69,7 @@ def test_the_memory_folder_inside_another_repository_is_refused(settings, tmp_pa
     assert caught.value.code == "folder_inside_repository"
 
 
-@pytest.mark.parametrize("runner", ["cli", "sdk"])
+@pytest.mark.parametrize("runner", ["sdk"])  # capable runs exist on the SDK runner only
 def test_both_runners_refuse_before_the_run(settings, projects, auth, monkeypatch, runner):
     monkeypatch.setattr(sdk_runner, "GRACE", 0.3)
     monkeypatch.setattr(runcontrol, "GRACE", 0.3)

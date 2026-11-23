@@ -176,10 +176,10 @@ def test_copies_in_a_wrong_place_are_refused(settings, tmp_path, place):
 def test_a_capable_run_through_the_api_is_given_its_copies_to_read(
     settings, ask_dir, auth, write_session
 ):
-    data = {"runner": "cli", "claude_version": VERSION, "sdk_version": capable.sdk_version(),
+    data = {"runner": "sdk", "claude_version": VERSION, "sdk_version": capable.sdk_version(),
             "all_passed": True, "scope": "all_allowed_folders",
-            "suite_version": capable.suite_version("cli")}  # fmt: skip
-    capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
+            "suite_version": capable.SUITE_VERSION}  # fmt: skip
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
     personal(settings)
     folder_skill(ask_dir)
     session = write_session(ask_dir, [user_line(ask_dir, "first")])
@@ -192,7 +192,8 @@ def test_a_capable_run_through_the_api_is_given_its_copies_to_read(
         )
         assert client.post(url, headers=auth, json={"prompt": "y"}).status_code == 200
     log = ask_dir / ".fake-claude-calls.jsonl"
-    capable_call, read_only = [json.loads(line) for line in log.read_text().splitlines()][-2:]
+    launched = [json.loads(line) for line in log.read_text().splitlines()]
+    capable_call, read_only = [entry for entry in launched if "args" in entry][-2:]
     copies = options(capable_call["args"], "--plugin-dir")
     # besides the copies, every run is given the conversation index to read (#164)
     index = str(ask_dir.parent / "LifeOS-Chats" / ".bridge")
@@ -416,3 +417,11 @@ def test_the_state_of_a_copy_notices_content_modes_and_new_entries(tmp_path):
     (copy / "skills" / "a.txt").write_text("a")
     (copy / "skills" / "new").mkdir()
     assert verify.tree_state(copy) != before
+
+
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
+
+    return dataclasses.replace(settings, runner="sdk")

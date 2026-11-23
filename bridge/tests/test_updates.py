@@ -32,10 +32,10 @@ def repo(tmp_path, monkeypatch):
 
 @pytest.fixture
 def allowed(settings, repo, isolated_config):
-    data = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
+    data = {"runner": "sdk", "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
-            "suite_version": capable.SUITE_VERSIONS["cli"], "program_folder": True}  # fmt: skip
-    capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
+            "suite_version": capable.SUITE_VERSION, "program_folder": True}  # fmt: skip
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
     return dataclasses.replace(settings, allowed_paths=(repo,))
 
 
@@ -98,9 +98,10 @@ def wait_for(client, auth, state, limit=10):
 # ---- the whole way, through the bridge ----------------------------------------------------
 
 
-def test_request_card_yes_wait_steps_restart_and_applied(
+def test_a_request_applies_without_a_card_waits_steps_restart_and_applied(
     allowed, repo, auth, isolated_config, notices, ask_dir
 ):
+    """#183: no approval card; the owner is told it started, and of the outcome."""
     (ask_dir.parent / ".fake-claude-answer").write_text("Committed.\n[[apply-update]]\n")
     with TestClient(create_app(allowed)) as client:
         steps = FakeSteps()
@@ -109,25 +110,21 @@ def test_request_card_yes_wait_steps_restart_and_applied(
         body = {"prompt": "x", "mode": "capable", "folder": str(repo)}
         reply = client.post("/ask", headers=auth, json=body).json()
         assert reply["answer"] == "Committed."
-        [card] = reply["update_requests"]
-        assert card["kind"] == "apply_update" and card["state"] == "ready"
-        assert card["commit"] == COMMIT
+        assert "update_requests" not in reply  # no card
         session_id = reply["session_id"]
-        [item] = client.get(f"/sessions/{session_id}/interactions", headers=auth).json()["pending"]
-        assert item["id"] == card["id"]
-        assert client.get("/app/update", headers=auth).json()["state"] == "none"
-        url = f"/sessions/{session_id}/interactions/{card['id']}"
-        done = client.post(url, headers=auth, json={"approve": True}).json()
-        assert done["answered"] is True and done["approved"] is True
+        assert client.get(f"/sessions/{session_id}/interactions", headers=auth).json() == {
+            "pending": []
+        }
         seen = wait_for(client, auth, "restarting")
         assert seen["commit"] == COMMIT and seen["step"] == "restart"
         assert steps.done == ["check", "tests", "lint", "build", "check", "restart"]
         # From the moment nothing ran until the restart: no run begins.
         again = client.post("/ask", headers=auth, json=body)
         assert again.status_code == 503 and again.json()["error"] == "update_in_progress"
-        assert client.post(url, headers=auth, json={"approve": True}).status_code == 404
+    assert approvals.load() == {}
     actions = [r["tool"] for r in records(isolated_config)]
-    assert actions == ["update_requested", "update_approved", "update_restarting"]
+    assert actions == ["update_requested", "update_restarting"]
+    assert notices[0] == updates.STARTED
     # The new process: the update runs now.
     state = json.loads(updates.state_path().read_text())
     state["pid"] = os.getpid() + 1
@@ -135,8 +132,24 @@ def test_request_card_yes_wait_steps_restart_and_applied(
     updates.after_start()
     assert updates.public_state()["state"] == "applied"
     ready = "The tested update runs now. An app update is ready to install."
-    assert notices == [("LifeOS: update applied", ready)]
+    assert notices[-1] == ("LifeOS: update applied", ready)
     assert records(isolated_config)[-1]["tool"] == "update_applied"
+
+
+def test_a_failed_check_is_reported_and_nothing_applied(
+    allowed, repo, auth, isolated_config, notices, ask_dir
+):
+    (ask_dir.parent / ".fake-claude-answer").write_text("Committed.\n[[apply-update]]\n")
+    with TestClient(create_app(allowed)) as client:
+        steps = FakeSteps(fail="tests")
+        applier = client.app.state.applier
+        applier.steps, applier.poll = steps, 0.01
+        body = {"prompt": "x", "mode": "capable", "folder": str(repo)}
+        client.post("/ask", headers=auth, json=body)
+        seen = wait_for(client, auth, "failed")
+        assert seen["step"] == "tests" and steps.done == ["check", "tests"]
+    assert notices[0] == updates.STARTED
+    assert notices[-1][0] == "LifeOS: update not applied"
 
 
 def test_only_program_folder_chats_are_told_the_rule(allowed, repo, auth, ask_dir):
@@ -149,7 +162,7 @@ def test_only_program_folder_chats_are_told_the_rule(allowed, repo, auth, ask_di
     assert "[[apply-update]]" not in option(elsewhere["args"], "--append-system-prompt")
 
 
-def test_no_card_from_a_read_only_run_or_another_folder(allowed, repo, auth, ask_dir):
+def test_nothing_from_a_read_only_run_or_another_folder(allowed, repo, auth, ask_dir):
     (ask_dir.parent / ".fake-claude-answer").write_text("Done.\n[[apply-update]]\n")
     with TestClient(create_app(allowed)) as client:
         plain = client.post("/ask", headers=auth, json={"prompt": "x", "folder": str(repo)})
@@ -158,7 +171,7 @@ def test_no_card_from_a_read_only_run_or_another_folder(allowed, repo, auth, ask
         [card] = elsewhere.json()["update_requests"]
         assert card["state"] == "refused" and card["error_code"] == "not_program_folder"
         assert elsewhere.json()["answer"] == "Done."
-    assert approvals.load() == {}
+    assert approvals.load() == {} and updates.read_state() == {}
 
 
 def test_history_never_shows_or_turns_the_line_into_a_card():
@@ -168,46 +181,57 @@ def test_history_never_shows_or_turns_the_line_into_a_card():
     assert updates.strip(inline) == inline
 
 
-# ---- the card ------------------------------------------------------------------------------
+# ---- the request ---------------------------------------------------------------------------
 
 
-def propose(allowed, repo, session_id="s1"):
-    return updates.from_answer(allowed, "Ready.\n[[apply-update]]", session_id, repo)
+def propose(allowed, repo, session_id="s1", owner=True):
+    return updates.from_answer(allowed, "Ready.\n[[apply-update]]", session_id, repo, owner=owner)
 
 
-def test_a_newer_request_replaces_the_waiting_card(allowed, repo, isolated_config):
-    propose(allowed, repo, "s1")
-    commit(repo, "b" * 40)
-    _, [second] = propose(allowed, repo, "s2")
-    waiting = list(approvals.load().values())
-    assert [e["id"] for e in waiting] == [second["id"]] and waiting[0]["commit"] == "b" * 40
-    assert "update_superseded" in [r["tool"] for r in records(isolated_config)]
+def test_a_request_schedules_exactly_the_commit_the_folder_is_at(allowed, repo, notices):
+    text, refused, scheduled = propose(allowed, repo)
+    assert (text, refused, scheduled) == ("Ready.", [], True)
+    state = updates.read_state()
+    assert state["phase"] == "waiting" and state["commit"] == COMMIT
+    assert state["folder"] == str(repo) and state["session_id"] == "s1"
+    assert notices == [updates.STARTED]
+    assert approvals.load() == {}
 
 
-def test_no_says_no_and_a_changed_commit_is_never_applied(allowed, repo, isolated_config):
-    _, [card] = propose(allowed, repo)
-    entry = approvals.load()[card["id"]]
-    assert updates.answer(entry, False) == {"approved": False}
+def test_only_an_answer_to_the_owners_message_counts(allowed, repo, notices):
+    text, [card], scheduled = propose(allowed, repo, owner=False)
+    assert text == "Ready." and not scheduled
+    assert card["state"] == "refused" and card["error_code"] == "not_owner"
+    assert updates.read_state() == {} and notices == []
+
+
+def test_while_one_is_under_way_nothing_else_is_requested(allowed, repo, notices):
+    assert propose(allowed, repo)[2] is True
     commit(repo, "c" * 40)
-    assert updates.answer(entry, True) == {"approved": False, "reason": "changed"}
-    assert updates.read_state() == {}
-    commit(repo, COMMIT)
-    assert updates.answer(entry, True)["approved"] is True
-    assert updates.read_state()["phase"] == "waiting"
-    # while one is under way, nothing else is requested or approved
-    _, [refused] = propose(allowed, repo)
-    assert refused["error_code"] == "update_in_progress"
-    assert updates.answer(entry, True) == {"approved": False, "reason": "update_in_progress"}
+    _, [refused], scheduled = propose(allowed, repo, "s2")
+    assert refused["error_code"] == "update_in_progress" and not scheduled
+    assert updates.read_state()["commit"] == COMMIT
 
 
-def test_a_card_that_cannot_be_recorded_is_not_offered(allowed, repo, monkeypatch):
+def test_a_request_that_cannot_be_recorded_starts_nothing(allowed, repo, monkeypatch, notices):
     def broken(*_a, **_k):
         raise updates.audit.AuditUnavailable("no")
 
     monkeypatch.setattr(updates.audit, "record", broken)
-    _, [card] = propose(allowed, repo)
+    _, [card], scheduled = propose(allowed, repo)
     assert card["state"] == "refused" and card["error_code"] == "audit_unavailable"
-    assert approvals.load() == {}
+    assert not scheduled and updates.read_state() == {} and notices == []
+
+
+def test_a_card_left_by_an_earlier_bridge_can_still_be_answered(allowed, repo):
+    """Cards of a bridge before #183 that still wait: a no is a no; a yes for a changed
+    commit is never applied."""
+    entry = approvals.add(updates.KIND, "s1", str(repo), {"state": "ready", "commit": COMMIT})
+    assert updates.answer(entry, False) == {"approved": False}
+    commit(repo, "c" * 40)
+    assert updates.answer(entry, True) == {"approved": False, "reason": "changed"}
+    commit(repo, COMMIT)
+    assert updates.answer(entry, True)["approved"] is True
 
 
 # ---- the flow ------------------------------------------------------------------------------
@@ -374,22 +398,9 @@ def test_other_agents_worktree_sessions_never_reach_the_phone(allowed, repo, aut
         assert gone.status_code == 404
 
 
-def test_a_refused_card_removes_its_notification(
-    allowed, repo, auth, isolated_config, ask_dir, monkeypatch
-):
-    """Owner's phone check: the approval notification stayed after "Don't allow" (#177)."""
-    from lifeos_bridge import push
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
 
-    sent = []
-    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: sent.append((event, ref)))
-    (ask_dir.parent / ".fake-claude-answer").write_text("Committed.\n[[apply-update]]\n")
-    with TestClient(create_app(allowed)) as client:
-        body = {"prompt": "x", "mode": "capable", "folder": str(repo)}
-        reply = client.post("/ask", headers=auth, json=body).json()
-        [card] = reply["update_requests"]
-        session_id = reply["session_id"]
-        url = f"/sessions/{session_id}/interactions/{card['id']}"
-        assert client.post(url, headers=auth, json={"approve": False}).json()["answered"]
-    asks = [ref for event, ref in sent if event == "approval"]
-    cleared = [ref for event, ref in sent if event == "cleared"]
-    assert asks == [session_id] and cleared == [session_id]
+    return dataclasses.replace(settings, runner="sdk")

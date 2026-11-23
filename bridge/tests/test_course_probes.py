@@ -14,7 +14,7 @@ from test_chat_probes import call
 
 @pytest.fixture
 def suite(settings):
-    made = verify.Suite(settings, "cli")
+    made = verify.Suite(settings)
     made.run_dir.mkdir(parents=True)
     made.config.mkdir(exist_ok=True)
     return made
@@ -132,12 +132,12 @@ def test_the_marker_records_the_course_folder_probes(settings, monkeypatch, isol
     monkeypatch.setattr(verify, "load_settings", lambda: settings)
 
     def check(probes):
-        monkeypatch.setattr(verify.Suite, "run_all", lambda self: probes)
+        monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: probes)
         monkeypatch.setattr(verify, "service_suite", lambda *a: [p.__dict__ for p in probes])
-        assert verify.main(["--runner", "cli", "--check-id", "c1"]) == 0
-        return json.loads(capable.marker_path("cli").read_text())
+        assert verify.main(["--full", "--check-id", "c1"]) == 0
+        return json.loads(capable.marker_path().read_text())
 
     marker = check([verify.Probe("a", True), verify.Probe(verify.COURSE_SANITY, True)])
-    assert marker["course_folders"] is True and capable.course_folders_available("cli")
+    assert marker["course_folders"] is True and capable.course_folders_available()
     marker = check([verify.Probe("a", True), verify.Probe(verify.COURSE_NOT_CHECKED, True, "why")])
-    assert marker["course_folders"] is False and not capable.course_folders_available("cli")
+    assert marker["course_folders"] is False and not capable.course_folders_available()

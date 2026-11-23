@@ -17,16 +17,27 @@ error is shown to the model. Anything unexpected blocks (fail closed).
 
 The command patterns below recognise the *obvious* cases only. They are an
 explanation layer; real enforcement is the OS sandbox the commands run in
-(see docs/permission-policy.md).
+(see docs/permission-policy.md). Since the open network of #182 the sandbox no
+longer backs the approvals for pushing and installing: an approval card is
+what stands between a run and a push, an install or a GitHub change.
+
+WebFetch runs in Claude Code's own process, outside the sandbox: a fetch whose
+host is not a public address (the computer's own services, a private network)
+is refused here (``url_refusal``).
+
+Standard library only: the bridge runs a copy of this file (``program.pin``).
 """
 
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
+import socket
 import sys
+import urllib.parse
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -145,6 +156,25 @@ RULES: list[tuple[str, str, str, re.Pattern[str]]] = [
         re.compile(r"\bgit\b[^;&|]*\spush(?=\s|$)"),
     ),
     (
+        # The open network (#182): gh works with the owner's GitHub account, so what
+        # publishes or changes something there is asked for like a push.
+        "push",
+        "changing something on GitHub (a pull request, issue, release, repository, ...)",
+        APPROVAL_NOTE,
+        re.compile(
+            r"\bgh\b[^;&|]*\s(?:"
+            r"pr\s+(?:create|merge|close|reopen|comment|review|edit|ready|lock|unlock)"
+            r"|issue\s+(?:create|close|reopen|comment|edit|delete|transfer|lock|unlock|pin|unpin)"
+            r"|release\s+(?:create|delete|edit|upload)"
+            r"|repo\s+(?:create|delete|edit|fork|rename|archive|unarchive|sync|deploy-key)"
+            r"|gist\s+(?:create|delete|edit)|secret|variable|ssh-key|gpg-key|auth"
+            r"|workflow\s+(?:run|enable|disable)|run\s+(?:cancel|rerun|delete)"
+            r"|label\s+(?:create|delete|edit|clone)|cache\s+delete"
+            r"|api\b[^;&|]*\s(?:-X\S*|--method\S*|-[fF]\S*|--field\S*|--raw-field\S*|--input\S*)"
+            r"|api\s+graphql)(?=\s|$)"
+        ),
+    ),
+    (
         "install",
         "installing packages",
         APPROVAL_NOTE,
@@ -171,35 +201,46 @@ RULES: list[tuple[str, str, str, re.Pattern[str]]] = [
             "write",
         ),
     ),
-    (
-        "network",
-        "a network action (it could send data out)",
-        APPROVAL_NOTE,
-        _commands(
-            "curl",
-            "wget",
-            "nc",
-            "ncat",
-            "netcat",
-            "socat",
-            "ssh",
-            "scp",
-            "sftp",
-            "rsync",
-            "ftp",
-            "telnet",
-            "http",
-            "https",
-            "aria2c",
-            "gh",
-            "git fetch",
-            "git pull",
-            "git clone",
-            "git ls-remote",
-            "git remote",
-        ),
-    ),
 ]
+
+# The open network of #182: commands that use the network (curl, wget, gh, git fetch, ...)
+# are no longer a category of their own. Messages and pushes still are.
+LOCAL_FETCH = ("local_network", "fetching the computer's own services or a private network")
+
+
+def _public(address: str) -> bool:
+    try:
+        parsed = ipaddress.ip_address(address.split("%")[0])
+    except ValueError:
+        return False
+    if isinstance(parsed, ipaddress.IPv6Address) and parsed.ipv4_mapped is not None:
+        parsed = parsed.ipv4_mapped
+    return parsed.is_global
+
+
+def url_refusal(url: str, resolve=socket.getaddrinfo) -> str | None:
+    """Why WebFetch must not fetch ``url`` (its host is not a public address), or ``None``.
+
+    Found with a real run (#182): without it WebFetch reached a listener on 127.0.0.1.
+    Every address the host resolves to must be public; ``127.1``, ``2130706433`` and
+    names that resolve to the computer itself resolve to loopback and are refused.
+    """
+    try:
+        host = urllib.parse.urlsplit(str(url).strip()).hostname
+    except ValueError:
+        host = None
+    if not host:
+        return "the address names no host"
+    host = host.rstrip(".")
+    if host == "localhost" or host.endswith(".localhost"):
+        return "the computer's own services are never fetched"
+    try:
+        found = {item[4][0] for item in resolve(host, None)}
+    except (OSError, UnicodeError):
+        return "the host could not be resolved"
+    if not found or not all(_public(str(address)) for address in found):
+        return "the host is the computer itself or a private network"
+    return None
 
 
 def classify(command: str) -> tuple[str, str, str] | None:
@@ -215,6 +256,7 @@ def _detail(tool: str, tool_input: object) -> dict:
     if tool == "Bash":
         return {"command": str(data.get("command", ""))}
     keys = {
+        "WebFetch": ("url",),
         "Read": ("file_path",),
         "Edit": ("file_path",),
         "Write": ("file_path",),
@@ -263,6 +305,10 @@ def decide(payload: dict, audit_dir: Path, *, ask_host: bool = False) -> tuple[i
         return BLOCK, "Blocked: the tool call could not be identified."
     detail = _detail(tool, payload.get("tool_input"))
     refusal = classify(detail["command"]) if tool == "Bash" else None
+    if tool == "WebFetch":
+        why = url_refusal(detail.get("url", ""))
+        if why is not None:
+            refusal = (LOCAL_FETCH[0], f"{LOCAL_FETCH[1]}: {why}", NEVER_NOTE)
     entry = {
         "ts": datetime.now(UTC).isoformat(timespec="milliseconds"),
         "session_id": str(payload.get("session_id", "")),

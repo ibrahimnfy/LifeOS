@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from lifeos_bridge import capable, chats, claude, guardcheck, verify
+from lifeos_bridge import capable, chats, guardcheck, verify
 
 LEAK = verify.CHAT_LEAK.removeprefix(verify.CHAT_PROBE_PREFIX)
 MEMORY_FILE = verify.CHAT_MEMORY_FILE.removeprefix(verify.CHAT_PROBE_PREFIX)
@@ -23,7 +23,7 @@ STEP = re.compile(r"With the (Read|Write) tool (?:read|create) the file (\S+)")
 
 @pytest.fixture
 def suite(settings):
-    made = verify.Suite(settings, "cli")
+    made = verify.Suite(settings)
     made.run_dir.mkdir(parents=True)
     made.config.mkdir(exist_ok=True)
     return made
@@ -123,8 +123,8 @@ def not_passed(suite):
 def counts_as_not_run(suite) -> bool:
     """``guardcheck.probe_failed`` on these results: an inconclusive probe is no failure."""
     report = {"check_id": "c1", "probes": {"terminal": [p.__dict__ for p in suite.probes]}}
-    guardcheck.results_path("cli").write_text(json.dumps(report))
-    return guardcheck.probe_failed("cli", "c1") is False
+    guardcheck.results_path().write_text(json.dumps(report))
+    return guardcheck.probe_failed("c1") is False
 
 
 def test_all_probes_pass_when_every_guardrail_holds(suite, monkeypatch):
@@ -327,17 +327,16 @@ def test_the_script_compares_a_hash_and_reports_what_it_could_read(tmp_path, mon
 
 def test_a_run_keeps_the_id_of_every_call_and_result(settings, ask_dir):
     """What lets a probe say which call returned what."""
+    import uuid
+
     policy = capable.build_policy(settings, ask_dir)
-    command = claude.build_command(
-        settings, session_id="s", resume=False, stream=True, policy=policy
-    )
-    run = verify.execute(settings, command, "FAKE_TOOL rm a.txt", ask_dir, "s")
+    run = verify.sdk_execute(settings, policy, "FAKE_TOOL rm a.txt", ask_dir, str(uuid.uuid4()))
     [use] = run.tool_uses
     assert (use["name"], use["id"]) == ("Bash", "t1")
     [result] = run.results
     assert result["id"] == "t1" and result["error"] is True
     assert run.tool_results == [result["text"]]
-    allowed = verify.execute(settings, command, "FAKE_TOOL ls", ask_dir, "s")
+    allowed = verify.sdk_execute(settings, policy, "FAKE_TOOL ls", ask_dir, str(uuid.uuid4()))
     assert [r["error"] for r in allowed.results] == [False]
 
 
@@ -397,32 +396,27 @@ def test_left_over_probe_folders_are_cleared_first(suite, monkeypatch):
 def test_the_marker_says_whether_chat_folders_were_probed(settings, monkeypatch):
     def check(probes):
         monkeypatch.setattr(verify, "load_settings", lambda: settings)
-        monkeypatch.setattr(verify.Suite, "run_all", lambda self: probes)
+        monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: probes)
         monkeypatch.setattr(verify, "service_suite", lambda *a: [p.__dict__ for p in probes])
-        assert verify.main(["--runner", "cli", "--check-id", "c1"]) == 0
-        return json.loads(capable.marker_path("cli").read_text())
+        assert verify.main(["--full", "--check-id", "c1"]) == 0
+        return json.loads(capable.marker_path().read_text())
 
     settings.ask_dir.mkdir(exist_ok=True)
     marker = check([verify.Probe("a", True), verify.Probe(verify.CHAT_SANITY, True)])
     assert marker["chat_folders"] is True
-    assert marker["suite_version"] == capable.SUITE_VERSIONS["cli"]
+    assert marker["suite_version"] == capable.SUITE_VERSION
     marker = check([verify.Probe("a", True), verify.Probe(verify.CHAT_NOT_CHECKED, True, "why")])
     assert marker["chat_folders"] is False and marker["all_passed"] is True
 
 
 def test_suite_versions_and_plan_runs():
-    # cli 6 and sdk 7: another chat's file is judged way by way, by the result of its own
-    # call, and a step that was not made is "not run" (the block changed for both runners)
-    # cli 7 and sdk 8: the approved push with network (#178), the read-only course
-    # folders (#179), the program folder and allowed folders as run folders (#180)
-    assert capable.SUITE_VERSIONS == {"cli": 7, "sdk": 9}
-    # the first suites that probed a chat folder; the guardrails they proved are the same
-    assert capable.CHAT_SUITE_VERSIONS == {"cli": 5, "sdk": 6}
-    # three short runs per runner and environment for the chat-folder probes
-    # 12 and 16 of #162, plus three; plus one SDK run for the approved push (#178);
-    # plus two per runner for the course-folder probes of #179 (capable and read-only);
-    # plus five per runner of #180 (the program folder, an allowed folder)
-    assert guardcheck.PLAN_RUNS == {"cli": 22, "sdk": 27}
+    # 7: another chat's file is judged way by way, by the result of its own call, and a
+    # step that was not made is "not run"; 8: #178, #179, #180; 9: the program-folder step
+    assert capable.SUITE_VERSION == 10  # 10: #181 and #182
+    # the first suite that probed a chat folder; the guardrails it proved are the same
+    assert capable.CHAT_SUITE_VERSION == 6
+    # the core set (#181) and the full suite, per environment
+    assert guardcheck.PLAN_RUNS == {"core": 9, "full": 26}
 
 
 def test_a_shell_run_the_model_skipped_is_inconclusive_never_a_failure(suite, monkeypatch):

@@ -154,15 +154,16 @@ def test_a_course_folder_is_never_the_folder_of_a_capable_run(own, home, setting
 
 def test_the_marker_must_have_proved_course_folders(isolated_config):
     def marker(**fields):
-        capable.marker_path("cli").write_text(json.dumps(fields))
+        data = {"runner": "sdk", "claude_version": "x", "all_passed": True} | fields
+        capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
-    assert not capable.course_folders_available("cli")
+    assert not capable.course_folders_available()
     marker(suite_version=7, course_folders=False)
-    assert not capable.course_folders_available("cli")
-    marker(suite_version=6, course_folders=True)
-    assert not capable.course_folders_available("cli")
+    assert not capable.course_folders_available()
     marker(suite_version=7, course_folders=True)
-    assert capable.course_folders_available("cli")
+    assert not capable.course_folders_available()
+    marker(suite_version=8, course_folders=True)
+    assert capable.course_folders_available()
 
 
 def test_a_course_folder_cannot_become_an_allowed_folder(own, settings, isolated_config):
@@ -258,21 +259,23 @@ def test_the_course_materials_never_list_the_course_folders(course_client, auth,
 
 @pytest.mark.parametrize("proved", [True, False])
 def test_a_capable_course_chat_reads_its_folder_once_the_check_proved_it(
-    course_client, auth, sync_root, own, write_session, isolated_config, proved
+    settings, auth, sync_root, own, write_session, isolated_config, proved
 ):
     from conftest import user_line
 
-    marker = {"claude_version": "fake-claude 1.0", "all_passed": True,
+    marker = {"runner": "sdk", "claude_version": "fake-claude 1.0", "all_passed": True,
               "scope": "all_allowed_folders", "sdk_version": capable.sdk_version(),
-              "suite_version": capable.SUITE_VERSIONS["cli"], "course_folders": proved}  # fmt: skip
-    capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(marker)))
+              "suite_version": capable.SUITE_VERSION, "course_folders": proved}  # fmt: skip
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(marker)))
     course = sync_root / "ex-101-5"
     session = write_session(course, [user_line(course, "what is due")])
-    reply = course_client.post(
-        "/ask", headers=auth, json={"prompt": "hi", "session_id": session, "mode": "capable"}
-    )
+    sdk = dataclasses.replace(settings, runner="sdk", allowed_paths=(sync_root,))
+    with TestClient(create_app(sdk)) as course_client:
+        reply = course_client.post(
+            "/ask", headers=auth, json={"prompt": "hi", "session_id": session, "mode": "capable"}
+        )
     assert reply.status_code == 200, reply.text
-    args = logged(course)[-1]["args"]
+    args = [entry for entry in logged(course) if "args" in entry][-1]["args"]
     granted = json.loads(args[args.index("--settings") + 1])
     assert (str(own["5"]) in added_dirs(args)) is proved
     assert (str(own["5"]) in granted["sandbox"]["filesystem"]["allowRead"]) is proved

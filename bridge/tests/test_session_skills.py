@@ -16,12 +16,13 @@ from lifeos_bridge.claude import ClaudeError
 VERSION = "fake-claude 1.0"
 
 
-def marker(runner="cli", suite=capable.SUITE_VERSION):
+def marker(runner="sdk", suite=capable.SUITE_VERSION):
     data = {"runner": runner, "claude_version": VERSION, "sdk_version": capable.sdk_version(),
-            "all_passed": True, "scope": "all_allowed_folders"}  # fmt: skip
+            "all_passed": True, "scope": "all_allowed_folders",
+            "core_version": capable.CORE_VERSION, "date": "2099-01-01T00:00:00+00:00"}  # fmt: skip
     if suite is not None:
         data["suite_version"] = suite
-    capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
 
 def folder_with_skills(folder):
@@ -131,33 +132,33 @@ def test_skills_need_the_check_with_the_skill_probes(settings):
     with pytest.raises(ClaudeError) as caught:
         asyncio.run(capable.skills_available(settings))
     assert caught.value.code == "skills_unavailable"
-    assert capable.suite_outdated("cli")
+    assert capable.suite_outdated()
     marker()
     asyncio.run(capable.skills_available(settings))
-    assert not capable.suite_outdated("cli")
+    assert not capable.suite_outdated()
 
 
 def test_the_start_up_check_reruns_an_older_suite_by_itself(settings, monkeypatch):
     monkeypatch.delenv("LIFEOS_GUARD_AUTOCHECK", raising=False)
-    marker("cli", suite=1)
     marker("sdk", suite=1)
     launched = []
 
-    async def launcher(runner, check_id):
-        launched.append(runner)
-        marker(runner)
+    async def launcher(kind, check_id):
+        launched.append(kind)
+        marker("sdk")
         return 0
 
     guard = guardcheck.GuardCheck(settings, launcher=launcher, notify=lambda *a: None)
+    guard.hour = lambda now: 4  # a quiet time: an older full suite runs then
 
     async def go():
         await guard.tick()
         await guard.task
 
     asyncio.run(go())
-    assert launched == ["cli", "sdk"]
+    assert launched == ["full"]
     asyncio.run(guard.tick())
-    assert guard.task.done() and launched == ["cli", "sdk"]  # nothing more to do
+    assert guard.task.done() and launched == ["full"]  # nothing more to do
 
 
 # ------------------------------------------------------------------- through the API
@@ -174,10 +175,11 @@ def world(settings, ask_dir, write_session, monkeypatch):
 
 def calls(ask_dir):
     path = ask_dir / ".fake-claude-calls.jsonl"
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    entries = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    return [entry for entry in entries if "args" in entry]  # launches, not SDK messages
 
 
-@pytest.mark.parametrize("runner", ["cli", "sdk"])
+@pytest.mark.parametrize("runner", ["sdk"])  # capable runs exist on the SDK runner only
 def test_a_capable_session_with_skills_on(settings, ask_dir, auth, world, runner):
     marker(runner)
     session_id = world
@@ -214,7 +216,7 @@ def test_a_capable_session_with_skills_on(settings, ask_dir, auth, world, runner
 def test_skills_switched_on_but_not_verified_refuse_instead_of_running_without(
     settings, auth, world
 ):
-    marker("cli", suite=None)
+    marker("sdk", suite=None)
     session_id = world
     with TestClient(create_app(settings)) as client:
         client.patch(f"/sessions/{session_id}", headers=auth, json={"skills": True})
@@ -246,7 +248,6 @@ def suite_with(settings, monkeypatch, capable_run, read_only_run):
     suite.run_dir.mkdir()
     suite.prepare_skills()
     monkeypatch.setattr(suite, "capable_run", capable_run)
-    monkeypatch.setattr(verify, "execute", lambda *a, **k: read_only_run)
     monkeypatch.setattr(verify, "sdk_execute", lambda *a, **k: read_only_run)
     return suite
 
@@ -281,7 +282,7 @@ def test_the_skill_probes_catch_each_failure(settings, monkeypatch):
             lambda *a, **k: good_run(tool_uses=[]),
         "skills: a shell line in a skill does not run": shell_ran,
         "skills: tools a skill approves for itself change nothing":
-            lambda *a, **k: good_run(init_tools=["Read", "WebFetch", "Skill"]),
+            lambda *a, **k: good_run(init_tools=["Read", "NotebookEdit", "Skill"]),
     }  # fmt: skip
     for name, capable_run in cases.items():
         suite = suite_with(settings, monkeypatch, capable_run, READ_ONLY_RUN)
@@ -293,3 +294,11 @@ def test_the_skill_probes_catch_each_failure(settings, monkeypatch):
     suite = suite_with(settings, monkeypatch, lambda *a, **k: good_run(), leaky)
     suite.probe_skills()
     assert results(suite)["skills: a read-only run in the same session has no skills"] is False
+
+
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
+
+    return dataclasses.replace(settings, runner="sdk")

@@ -50,6 +50,17 @@ if args[:2] == ["agents", "--json"]:
     sys.exit(0)
 
 
+def _tool_json(prompt):
+    """True for ``FAKE_TOOL <tool> <json input>`` (the host path of SDK mode)."""
+    parts = prompt.split(" ", 2)
+    if len(parts) < 3:
+        return False
+    try:
+        return isinstance(json.loads(parts[2]), dict)
+    except ValueError:
+        return False
+
+
 def sdk_mode():
     """The Agent SDK's protocol (``--input-format stream-json``): a live process per session.
 
@@ -91,17 +102,36 @@ def sdk_mode():
     # FAKE_TOOL <tool> <json input>: the "CLI" asks the host (can_use_tool) and
     # answers with the host's decision as JSON. FAKE_TOOL Bash with "rm" first
     # runs the gate's ask path, as the gate hook would.
+    # FAKE_TOOL <command> (no JSON) and FAKE_SKIPHOOK <command>: one Bash call through
+    # the PreToolUse hook of --settings, as the real CLI makes it (FAKE_SKIPHOOK: without
+    # the hook); an "ask" of the hook goes to the host.
     asks = {}
     working = False
+
+    def tool_result(text, error):
+        emit(
+            {
+                "type": "user", "session_id": session_id, "parent_tool_use_id": None,
+                "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "t1", "content": text,
+                     "is_error": error}]},
+            }
+        )  # fmt: skip
+        result(f"blocked: {text}" if error else "ran the command")
+
     for raw in sys.stdin:
         message = json.loads(raw)
         if message.get("type") == "control_response":
             response = message["response"]
             if response.get("request_id") in asks:
-                del asks[response["request_id"]]
+                asked = asks.pop(response["request_id"])
                 decision = response.get("response") or {"error": response.get("error")}
                 log({"host_decision": decision})
-                result(json.dumps(decision))
+                if isinstance(asked, tuple):  # the hook path: the call runs or not
+                    denied = decision.get("behavior") != "allow"
+                    tool_result(decision.get("message", "denied") if denied else "ran", denied)
+                else:
+                    result(json.dumps(decision))
                 working = False
             continue
         if message.get("type") == "control_request":
@@ -144,6 +174,48 @@ def sdk_mode():
         if prompt.startswith("FAKE_EXIT"):
             print("something broke", file=sys.stderr, flush=True)
             sys.exit(1)
+        if prompt.startswith(("FAKE_TOOL ", "FAKE_SKIPHOOK ")) and not _tool_json(prompt):
+            import subprocess
+
+            command = prompt.split(" ", 1)[1]
+            emit({"type": "system", "subtype": "init", "session_id": session_id})
+            emit(
+                {
+                    "type": "assistant", "session_id": session_id, "parent_tool_use_id": None,
+                    "message": {"role": "assistant", "model": "fake", "content": [
+                        {"type": "tool_use", "id": "t1", "name": "Bash",
+                         "input": {"command": command}}]},
+                }
+            )  # fmt: skip
+            if prompt.startswith("FAKE_SKIPHOOK "):
+                tool_result("ran", False)
+                continue
+            hook = json.loads(opt("--settings"))["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+            payload = {"session_id": session_id, "cwd": os.getcwd(),
+                       "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                       "tool_input": {"command": command}}  # fmt: skip
+            done = subprocess.run(  # noqa: S602
+                hook, shell=True, input=json.dumps(payload), text=True, capture_output=True
+            )
+            if done.returncode == 2:
+                tool_result(done.stderr.strip(), True)
+            elif '"ask"' in done.stdout:
+                request_id = f"perm_{len(asks)}_{os.getpid()}"
+                asks[request_id] = ("hook", command)
+                working = "ask"
+                emit(
+                    {
+                        "type": "control_request",
+                        "request_id": request_id,
+                        "request": {
+                            "subtype": "can_use_tool", "tool_name": "Bash",
+                            "input": {"command": command}, "tool_use_id": "t1",
+                        },
+                    }
+                )  # fmt: skip
+            else:
+                tool_result("ran", False)
+            continue
         if prompt.startswith("FAKE_TOOL "):
             _, tool, tool_input = prompt.split(" ", 2)
             request_id = f"perm_{len(asks)}_{os.getpid()}"
@@ -187,7 +259,8 @@ def sdk_mode():
         elif prompt.startswith("FAKE_DENIED"):
             result("done", permission_denials=[{"tool_name": "Write", "tool_use_id": "x"}])
         else:
-            result(f"echo: {prompt}")
+            canned = Path.home() / ".fake-claude-answer"  # as in -p mode
+            result(canned.read_text() if canned.exists() else f"echo: {prompt}")
     if working == "hang":
         time.sleep(60)
     sys.exit(0)

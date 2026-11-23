@@ -81,6 +81,10 @@ class Policy:
     # A blank chat (#163): Claude Code is told to load no memory file at all (no
     # CLAUDE.md of any level, no auto-memory), on top of the restricted mode.
     clean: bool = False
+    # Variables of the Claude Code process of an open-network run (#182): the owner's
+    # GitHub token for gh and git, which the sandbox masks (``network.run_env``). Kept
+    # out of the representation, so it never appears in a log or an error.
+    env: tuple[tuple[str, str], ...] = field(default=(), repr=False)
 
     @property
     def plugin_dirs(self) -> tuple[Path, ...]:
