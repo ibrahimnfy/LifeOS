@@ -51,12 +51,17 @@ KEY_FILE_NAME = "guardrail-key"
 # Also in cli 6 and sdk 7: the personal-skill probe judges every shell call by what happened to
 # it, not by counts. A call that Claude Code rejects before it starts has no audit
 # record and needs none; the first real check had failed on such a call (#162).
+# cli 7 and sdk 8: an approved push gets network for that one command, run by the bridge in
+# a confinement of its own (#178, SDK runner only; the cli runner has no approvals).
+# The same versions (#180): the LifeOS program folder as the run folder, with its hidden and
+# protected parts (``program.py``), probed on a scratch copy of its layout; and an allowed
+# folder as the run folder. Both blocks only widen the scope (marker fields
+# ``program_folder`` and ``scope``); each keeps its own constant.
 SUITE_VERSIONS = {"cli": 7, "sdk": 8}
-# cli 7 and sdk 8 (#180): the LifeOS program folder as the run folder, with its hidden and
-# protected parts (``program.py``), probed on a scratch copy of its layout. (The same
-# numbers carry other changes of that round; each block keeps its own constant.)
 PROGRAM_SUITE_VERSIONS = {"cli": 7, "sdk": 8}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
+# The first suite of each runner whose probes cover an approved push with network (#178).
+NETWORK_SUITE_VERSIONS = {"sdk": 8}
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
 # The first suite of each runner that probes a chat folder as the run folder (#163).
@@ -268,6 +273,22 @@ def personal_available(runner: str) -> bool:
     gets no personal skill and no personal MCP server, as before #162.
     """
     return _marker_suite(runner) >= PERSONAL_SUITE_VERSIONS.get(runner, SUITE_VERSION)
+
+
+def network_push_probed(runner: str) -> bool:
+    """Whether the runner's check included the probes of an approved push with network (#178).
+
+    Asked when an approval is about to be shown. Without them an approved push runs
+    as before: inside the sandbox, without network.
+    """
+    needed = NETWORK_SUITE_VERSIONS.get(runner)
+    if needed is None or _marker_suite(runner) < needed:
+        return False
+    try:  # the probes may have been skipped (no usable chat root, no bubblewrap)
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(marker, dict) and marker.get("network_push") is True
 
 
 PERSONAL_UNAVAILABLE_REASON = (

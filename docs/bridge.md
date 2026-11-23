@@ -253,10 +253,15 @@ transient user service, prints one line per probe and switches the mode on
 only if every probe passed in both. It takes a few minutes and about twenty
 short runs of the owner's Claude plan. Results:
 `~/.config/lifeos/guardrail-results.json`. The check covers runs in the
-memory folder, in a blank chat's folder (#163) and in the LifeOS program
-folder (#180, on a scratch copy of its layout; see "Updates from a chat in
-the program folder"); capable runs in other allowed folders stay refused
-for now.
+memory folder and in a blank chat's folder (#163). Since #180 it also
+covers an allowed folder as the run folder: a block of its own reruns the
+essential probes with a scratch allowed folder (`permission-policy.md`,
+section 9.14). Only when that block passed does the marker say `"scope":
+"all_allowed_folders"`, and capable runs work in every allowed folder;
+otherwise it says `"memory_folder"` and they stay refused there, with the
+rest unchanged. The LifeOS program folder needs that and its own block
+(`"program_folder": true`, on a scratch copy of its layout; see "Updates
+from a chat in the program folder").
 
 **Each runner has its own check (#106).** `scripts/verify-guardrails
 --runner sdk` runs the same suite through the Agent SDK runner. It adds
@@ -325,18 +330,19 @@ Subfolders of the memory folder are fine. Details:
 - **Plan usage of one restart:** a runner needs a check after an update of
   Claude Code or the Agent SDK, after a new version of the probe suite (the
   skill probes of #91 are suite version 2), or when it was never checked.
-  - The `claude -p` suite takes about 15 short runs on the small model per
+  - The `claude -p` suite takes about 20 short runs on the small model per
     environment.
-  - The SDK suite takes about 19 per environment, because it adds the
-    approval probes.
-  - Both runners in both environments come to **about 72 short runs**. The
+  - The SDK suite takes about 25 per environment, because it adds the
+    approval probes and the approved push with network (#178, one run).
+  - Both runners in both environments come to **about 90 short runs**. The
     skill probes of #91 and #92 add 12 of these (3 runs per environment and
     runner), the personal-skill probes of #162 add 4 (1 run per environment
     and runner), and the chat-folder probes of #163 add 12 (a shell run, a
     file-tool run and a read-only run in a blank chat's folder, per
-    environment and runner), and the program-folder probes of #180 add 4
-    (1 run per environment and runner); the MCP probes of #108 and #162 need
-    no model run. Probes without a model run (invalid settings, nested
+    environment and runner), and the two blocks of #180 add 20 (per
+    environment and runner: 1 for the program folder, 4 for an allowed
+    folder as the run folder); the MCP probes of #108 and #162 need no model
+    run. Probes without a model run (invalid settings, nested
     folders) are not counted.
   - A restart where both markers still match costs nothing.
   - Each runner has its own suite version (`cli` 6, `sdk` 7), and only a
@@ -345,7 +351,9 @@ Subfolders of the memory folder are fine. Details:
     changed both (`cli` 5, `sdk` 6). So did the corrected judgements of the
     chat-folder probes (`permission-policy.md`, section 9.11) and of the
     personal-skill run (section 9.2), which add no run (`cli` 6, `sdk` 7).
-    The program-folder probes (#180) changed both again (`cli` 7, `sdk` 8).
+    The approved push with network (#178, one SDK run) and the corrected
+    HTTPS probe changed both again (`cli` 7, `sdk` 8), and so did the
+    program-folder and allowed-folder blocks of #180.
     The next start checks both once. The approval probes
     may add up to 8 more per environment when the model does not make the
     needed call at once, the personal-skill run and the skill-copy steps
@@ -1047,6 +1055,24 @@ A run can stop and wait for the owner, in two cases:
   settings) are still refused by the gate and are never asked about. Only
   a plain command can be confirmed: a call that asks to run outside the
   sandbox, or carries anything besides the command, is refused.
+  An approved command runs in the sandbox, so it has no network, with one
+  exception (#178, `permission-policy.md` section 9.12):
+  - **An approved push with network.** A plain `git push [remote]
+    [branch]` over HTTPS from the run folder's own repository (never the
+    memory folder) is prepared before the card: branch, address and commit
+    are read without network.
+  - The card then carries `network: {"host", "url", "branch", "commit",
+    "force"}`, and the app says that this command will use the network.
+  - After the yes the bridge pushes exactly that commit to exactly that
+    address itself, from a fresh repository in a confinement of its own.
+    Nothing the run wrote takes part: no hooks, no settings. Credentials
+    come only from the owner's own git configuration, for that address
+    only.
+  - The run gets the result as the answer to its call, and its own command
+    never runs.
+  - This is on only after the SDK runner's check with these probes has
+    passed (marker `"network_push": true`). SSH pushes and every other
+    command keep the sandbox without network.
 
 How it reaches the owner:
 
@@ -1085,7 +1111,10 @@ How it reaches the owner:
   refused with the usual explanation.
 - **Audit log:** an approval request, then its outcome (`approved`, or
   `refused` with `owner`, `timeout`, `cancelled` or `no_client`), next to
-  the gate's own entry (`asked`). If the log cannot be written, the action
+  the gate's own entry (`asked`). An approved push with network adds
+  `network_started` before it runs and `network_finished` with the exit
+  status afterwards. These records carry the host, the branch and the
+  commit, never an address or a credential. If the log cannot be written, the action
   is refused. Questions and answers are prompt text and are kept in memory
   only, never logged.
 
@@ -2197,8 +2226,9 @@ folder inside or around it. A capable run there works like a terminal
 session: issues, code, tests, commits. What it must never see or change in
 the folder, and why nothing it changes runs outside the sandbox before the
 owner's yes, is in [`permission-policy.md`](permission-policy.md), section
-9.12. Capable runs there need the guardrail check with the program-folder
-probes (suite `cli` 7, `sdk` 8).
+9.13. Capable runs there need the guardrail check with the program-folder
+probes and the allowed-folder probes (suite `cli` 7, `sdk` 8; marker
+`"program_folder": true` and `"scope": "all_allowed_folders"`).
 
 **The rule the run is given** (only in chats in the program folder): never
 restart the bridge or its service, never install or reinstall the app,

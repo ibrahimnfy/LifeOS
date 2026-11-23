@@ -37,6 +37,8 @@ data class InteractionData(
     val folder: String = "",
     val category: String = "",
     val questions: List<AskQuestion> = emptyList(),
+    /** Approval of a push that will use the network (#178). */
+    val network: NetworkPush? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("expires_at") val expiresAt: String? = null,
     // ---- a skill install that waits for the owner (#97); see [SkillInstall]
@@ -66,6 +68,22 @@ data class InteractionData(
 ) {
     /** [server] with the card's own [scope], which decides whose approval this is. */
     val scopedServer: McpServer? get() = server?.let { if (scope.isBlank()) it else it.copy(scope = scope) }
+}
+
+/**
+ * An approved push that the computer runs with network for this one command (#178): exactly
+ * this commit, to exactly this address and branch. Without it, an approved command keeps the
+ * sandbox and has no network.
+ */
+@Serializable
+data class NetworkPush(
+    val host: String = "",
+    val url: String = "",
+    val branch: String = "",
+    val commit: String = "",
+    val force: Boolean = false,
+) {
+    val usable: Boolean get() = host.isNotBlank() && url.isNotBlank() && commit.isNotBlank()
 }
 
 /** One file of a skill that waits in the computer's quarantine. */
@@ -343,6 +361,8 @@ data class Interaction(
     val move: FileMove? = null,
     /** Applying an update of the program folder: which commit, and why a yes was not acted on (#180). */
     val update: UpdateRequest? = null,
+    /** Approval: the command will use the network, for exactly this push (#178). */
+    val network: NetworkPush? = null,
 ) {
     /**
      * Why a yes was not acted on. The card stays on the computer with everything it had, so the
@@ -452,7 +472,7 @@ data class Interaction(
                 // Only a request that names its commit: the yes applies exactly that one.
                 APPLY_UPDATE ->
                     if (data.commit.isBlank()) null else Interaction(data.id, Kind.APPLY_UPDATE, folder = data.folder, deadline = deadline, update = UpdateRequest.of(data.copy(state = "ready")))
-                "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline)
+                "approval" -> if (data.command.isBlank()) null else Interaction(data.id, Kind.APPROVAL, data.command, data.folder, data.category, deadline = deadline, network = data.network?.takeIf { it.usable })
                 "question" -> {
                     val questions = data.questions.filter { it.question.isNotBlank() }
                     if (questions.isEmpty()) null else Interaction(data.id, Kind.QUESTION, questions = questions, deadline = deadline)

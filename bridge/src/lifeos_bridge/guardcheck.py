@@ -66,10 +66,11 @@ ORDER = ("cli", "sdk")
 # The chat-folder probes (#163, the same suite versions) add three per runner: a
 # shell run, a file-tool run and a read-only run in a blank chat's folder.
 # cli 6 and sdk 7 changed how the personal-skill run is judged, not how many runs there are.
+# The approved-push probe (#178, sdk 8) adds one run on the SDK runner.
 # #180 (cli 7 and sdk 8) adds five per runner: one for the program folder, and four for an
 # allowed folder as the run folder (the probe script, the file tools, the gate, and one
 # for the memory folder and another allowed folder).
-PLAN_RUNS = {"cli": 20, "sdk": 24}
+PLAN_RUNS = {"cli": 20, "sdk": 25}
 # Failures that say the check could not run, not that a guardrail failed.
 INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
 
