@@ -183,7 +183,8 @@ fun LifeOsApp(
 
     // Moving between conversations by asking (#164, #168): a switch of an answer, or the owner's
     // pick on its card. A conversation continues in its own folder, the coach's on its own
-    // screen; a new one starts empty in the folder named (the blank chats: a blank chat).
+    // screen; a new one starts in the folder named (the blank chats: a blank chat), with the
+    // owner's request as its first message when the switch carried one (#187).
     val folderNotOpened = stringResource(R.string.switch_folder_failed)
     val switchTo: (ChatSwitch) -> Unit = { switch ->
         when (val step = switch.step()) {
@@ -193,7 +194,7 @@ fun LifeOsApp(
                 openChat()
             }
             is SwitchStep.New -> {
-                core.chat.newChat(step.folder)
+                core.chat.startFrom(step.folder, step.forward, step.origin)
                 openChat()
             }
             // A folder found by name (#179): the computer opens it (it may add it to the allowed
@@ -201,7 +202,7 @@ fun LifeOsApp(
             is SwitchStep.Pick -> scope.launch {
                 try {
                     val opened = core.api.openFolder(step.path)
-                    core.chat.newChat(opened.folder.asFolder())
+                    core.chat.startFrom(opened.folder.asFolder(), step.forward, step.origin)
                     openChat()
                 } catch (_: ApiException) {
                     showMessage(folderNotOpened)

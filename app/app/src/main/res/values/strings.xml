@@ -620,6 +620,13 @@
     <string name="switch_folder_new">added when picked</string>
     <string name="switch_folder_note">Tap one to start a new chat there. A folder that is not a working folder yet is added first, and you are notified.</string>
     <string name="switch_folder_failed">That folder could not be opened. Ask again in the chat to see why.</string>
+    <string name="switch_forward_note">The new chat starts with: “%1$s”</string>
+    <string name="chat_continued_in">Continued in %1$s</string>
+    <string name="chat_continued_in_chat">Continued in a new chat</string>
+    <string name="chat_continued_in_coach">Continued in the coach conversation</string>
+    <string name="chat_started_from">Started from a chat in %1$s</string>
+    <string name="chat_started_from_chat">Started from an earlier chat</string>
+    <string name="chat_started_from_coach">Started from the coach conversation</string>
 
     <!-- Moving a blank chat's files into a project (#163, #168) -->
     <string name="move_label">Move files</string>

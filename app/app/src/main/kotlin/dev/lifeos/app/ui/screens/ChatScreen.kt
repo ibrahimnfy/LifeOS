@@ -253,7 +253,11 @@ internal fun ColumnScope.ConversationPane(
             !paired -> NotPairedNotice(onPair)
             state.loading && state.messages.isEmpty() -> SkeletonCard(rows = 2)
             state.loadProblem != null -> ErrorNotice(checkNotNull(state.loadProblem), 0, onRetry = chat::load)
-            state.isEmpty && state.loaded -> empty { draft = it }
+            state.isEmpty && state.loaded -> {
+                // A chat a switch started without a request (#187) still says where it came from.
+                state.origin?.let { StartedFromLine(it, onSwitch) }
+                empty { draft = it }
+            }
             else -> Thread(core, state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true }, onSwitch = onSwitch)
         }
     }
@@ -372,6 +376,8 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
     } else if (state.olderExist) {
         LinkAction(stringResource(R.string.chat_older_load), onClick = onOlder)
     }
+    // A chat a switch started (#187): where it came from, above its first message.
+    if (!state.olderExist && !state.loadingOlder) state.origin?.let { StartedFromLine(it, onSwitch) }
     // Questions and approvals of the last run. Those that wait for the owner come last, where
     // the eye is; those that are settled stay as a record above the answer that followed them.
     val (waiting, settled) = state.interactions.partition { it.pending }
@@ -393,7 +399,13 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
         // Coach (#114): from this message on it is a renewed session; what stands above was tidied up.
         if (message.key == state.renewedAt) SystemLine(renewedLine(state.tidied))
         if (message === answer) cards(settled)
-        if (message.fromOwner) OwnerBubble(message) else AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
+        if (message.fromOwner) {
+            OwnerBubble(message)
+        } else {
+            if (message.text.isNotBlank() || message.files.isNotEmpty()) AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
+            // This answer's switch started another chat (#187): it continued there.
+            message.continuedIn?.let { ContinuedInLine(it, onSwitch) }
+        }
     }
     if (answer == null) cards(settled)
     // Conversations the last answer offers to go to (#164): the owner picks one.

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -24,6 +25,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.lifeos.app.R
@@ -31,6 +33,7 @@ import dev.lifeos.app.data.ChatSwitch
 import dev.lifeos.app.data.FileMove
 import dev.lifeos.app.data.FolderKinds
 import dev.lifeos.app.data.Interaction
+import dev.lifeos.app.data.SwitchSession
 import dev.lifeos.app.ui.components.PrimaryButton
 import dev.lifeos.app.ui.components.RowDivider
 import dev.lifeos.app.ui.components.SecondaryButton
@@ -78,7 +81,7 @@ internal fun SwitchCard(offer: ChatSwitch, onPick: (ChatSwitch) -> Unit) {
                 letter = session.folderLabel,
                 title = session.title.trim().ifEmpty { stringResource(R.string.sessions_untitled) },
                 line = listOfNotNull(folder.ifBlank { null }, relativeIso(session.lastActivity)).joinToString(" · "),
-            ) { onPick(ChatSwitch.open(session)) }
+            ) { onPick(offer.picked(session)) }
         }
         offer.folder?.let { folder ->
             if (offer.sessions.isNotEmpty()) RowDivider()
@@ -89,7 +92,7 @@ internal fun SwitchCard(offer: ChatSwitch, onPick: (ChatSwitch) -> Unit) {
                 letter = folder.label,
                 title = if (blank) stringResource(R.string.switch_new_blank) else stringResource(R.string.switch_new_in, folder.label),
                 line = null,
-            ) { onPick(ChatSwitch.new(folder)) }
+            ) { onPick(offer.picked(folder)) }
         }
         // Folders found by name (#179): where each lies, and whether it is a working folder already.
         offer.folders.forEachIndexed { index, choice ->
@@ -101,7 +104,7 @@ internal fun SwitchCard(offer: ChatSwitch, onPick: (ChatSwitch) -> Unit) {
                 letter = choice.label,
                 title = choice.label,
                 line = listOf(choice.where.ifBlank { choice.path }, state).joinToString(" · "),
-            ) { onPick(ChatSwitch.pick(choice)) }
+            ) { onPick(offer.picked(choice)) }
         }
         if (offer.sessions.isNotEmpty()) {
             Text(text = stringResource(R.string.switch_choose_note), style = LifeType.small, color = colors.muted, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
@@ -109,6 +112,52 @@ internal fun SwitchCard(offer: ChatSwitch, onPick: (ChatSwitch) -> Unit) {
         if (offer.folders.isNotEmpty()) {
             Text(text = stringResource(R.string.switch_folder_note), style = LifeType.small, color = colors.muted, modifier = Modifier.padding(top = 4.dp, bottom = 4.dp))
         }
+        // The owner's request the new chat starts with (#187): what a tap will send.
+        offer.forward?.takeIf { offer.folder != null || offer.folders.isNotEmpty() }?.let { request ->
+            Text(text = stringResource(R.string.switch_forward_note, request), style = LifeType.small, color = colors.muted, maxLines = 4, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(bottom = 4.dp))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------- where a chat moved (#187)
+
+/** Below an answer whose switch started another chat: "Continued in …"; a tap opens that chat. */
+@Composable
+internal fun ContinuedInLine(session: SwitchSession, onOpen: (ChatSwitch) -> Unit) {
+    val text = when (session.kind) {
+        FolderKinds.CHAT -> stringResource(R.string.chat_continued_in_chat)
+        FolderKinds.COACH -> stringResource(R.string.chat_continued_in_coach)
+        else -> stringResource(R.string.chat_continued_in, placeName(session))
+    }
+    MovedLine(text) { onOpen(ChatSwitch.open(session)) }
+}
+
+/** Above the first message of a chat a switch started: where it came from; a tap opens that chat. */
+@Composable
+internal fun StartedFromLine(session: SwitchSession, onOpen: (ChatSwitch) -> Unit) {
+    val text = when (session.kind) {
+        FolderKinds.CHAT, "" -> stringResource(R.string.chat_started_from_chat)
+        FolderKinds.COACH -> stringResource(R.string.chat_started_from_coach)
+        else -> stringResource(R.string.chat_started_from, placeName(session))
+    }
+    MovedLine(text) { onOpen(ChatSwitch.open(session)) }
+}
+
+@Composable
+private fun placeName(session: SwitchSession): String =
+    if (session.kind == FolderKinds.MEMORY) stringResource(R.string.chat_memory_label) else session.folderLabel.ifBlank { stringResource(R.string.chat_folder_chat) }
+
+@Composable
+private fun MovedLine(text: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = LifeDimens.minTouch)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = text, style = LifeType.small, color = LifeTheme.colors.link, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

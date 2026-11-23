@@ -436,8 +436,8 @@ class ChatSwitchTest {
         assertEquals(listOf("~/Documents", "~/work"), card.folders.map { it.where })
         assertEquals(listOf(false, true), card.folders.map { it.allowed })
         assertNull(card.step())
-        val pick = ChatSwitch.pick(card.folders[0])
-        assertEquals(SwitchStep.Pick("/home/owner/Documents/Notes"), pick.step())
+        val pick = card.picked(card.folders[0])
+        assertEquals(SwitchStep.Pick("/home/owner/Documents/Notes", origin = card.origin), pick.step())
 
         // The computer opens it (it may add it first); the new chat starts in the folder it answers.
         transport.answer("POST /folders/open", 200, """{"added":true,"folder":{"path":"/home/owner/Documents/Notes","label":"Notes","kind":"project","colour":4}}""")
@@ -461,6 +461,188 @@ class ChatSwitchTest {
         assertEquals(5, ChatSwitch.of(json("""{"action":"choose_folder","folders":[$many]}"""))?.folders?.size)
         // A pick is only ever made on the phone: an answer cannot ask for one.
         assertNull(ChatSwitch.of(json("""{"action":"pick_folder","folders":[{"path":"/home/owner/x","label":"x"}]}""")))
+    }
+
+    // ------------------------------------------------------------------ the request carried along (#187)
+
+    private val oldId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    private val request = "Solve the hw2 questions as an HTML file, from the course materials"
+    private val newWithRequest = """{"action":"new","sessions":[],"folder":{"path":"/home/owner/course-ex","label":"2026/2027-1 EX362.01","kind":"course","colour":3},"forward":${JsonPrimitive(request)}}"""
+
+    /** A blank chat (session [oldId]) whose answer switches to a course folder, carrying [request]. */
+    private suspend fun TestScope.switched(switch: String = newWithRequest): Chat {
+        val chat = chat()
+        chat.newChat()
+        answers(
+            event("session", """{"session_id":"$oldId"}"""),
+            event("delta", """{"text":"Opening it.\n[[switch-find: EX362 | $request]]"}"""),
+            event("done", """{"answer":"Opening it.","session_id":"$oldId","switch":$switch}"""),
+            done(),
+        )
+        chat.send("Go to the EX362 folder, open a chat there and solve hw2 there")
+        advanceUntilIdle()
+        return chat
+    }
+
+    private fun body(call: FakeTransport.Call) = call.body as kotlinx.serialization.json.JsonObject
+
+    @Test
+    fun `a request rides only on a new chat or a folder card, cleaned and bounded`() {
+        assertEquals(request, ChatSwitch.of(json(newWithRequest))?.forward)
+        val card = ChatSwitch.of(json("""{"action":"choose_folder","folders":[{"path":"/home/owner/a/Notes","label":"Notes"}],"forward":"write it up"}"""))
+        assertEquals("write it up", card?.forward)
+        // Never into an existing conversation.
+        assertNull(ChatSwitch.of(json("""{"action":"open","sessions":[{"id":"s-9"}],"forward":"x"}"""))?.forward)
+        assertNull(ChatSwitch.of(json("""{"action":"choose","sessions":[{"id":"s-9"},{"id":"s-8"}],"forward":"x"}"""))?.forward)
+        // Control and format characters are spaces, a joiner stays; never cut: too long is none.
+        val rlo = Char(0x202E)
+        val zwj = Char(0x200D)
+        assertEquals("fix the parser", ChatSwitch.forwardOf("fix\u0007 the${rlo}  parser\n"))
+        assertEquals("a${zwj}b", ChatSwitch.forwardOf("a${zwj}b"))
+        assertNull(ChatSwitch.forwardOf("   "))
+        assertEquals(ChatSwitch.MAX_FORWARD, ChatSwitch.forwardOf("x".repeat(ChatSwitch.MAX_FORWARD))?.length)
+        assertNull(ChatSwitch.forwardOf("x".repeat(ChatSwitch.MAX_FORWARD + 1)))
+    }
+
+    @Test
+    fun `a new chat a switch starts sends the owner's request at once, and names where it came from`() = runTest {
+        val chat = switched()
+        val switch = checkNotNull(chat.takeSwitch())
+        val step = switch.step() as SwitchStep.New
+        assertEquals(request, step.forward)
+        assertEquals(oldId, step.origin?.id)
+        assertEquals(FolderKinds.CHAT, step.origin?.kind)
+
+        answers(
+            event("session", """{"session_id":"00000000-0000-4000-8000-000000000001"}"""),
+            event("done", """{"answer":"Here is hw2.html.","session_id":"00000000-0000-4000-8000-000000000001"}"""),
+            done(),
+        )
+        chat.startFrom(step.folder, step.forward, step.origin)
+        // The owner's own message, shown as such, at once.
+        assertEquals(listOf("me:$request"), texts(chat))
+        assertEquals(oldId, chat.state.value.origin?.id)
+        advanceUntilIdle()
+        assertEquals(listOf("me:$request", "it:Here is hw2.html."), texts(chat))
+        val sent = body(transport.calls.last())
+        assertEquals("/ask", transport.calls.last().path)
+        assertEquals(JsonPrimitive(request), sent["prompt"])
+        assertEquals(JsonPrimitive("/home/owner/course-ex"), sent["folder"])
+        assertEquals(JsonPrimitive(oldId), sent["continued_from"])
+        assertEquals(JsonPrimitive("00000000-0000-4000-8000-000000000001"), sent["new_session_id"])
+        assertEquals("2026/2027-1 EX362.01", chat.state.value.folder?.label)
+    }
+
+    @Test
+    fun `the answer to a request the app sent never switches by itself and carries nothing further`() = runTest {
+        val chat = switched()
+        val step = checkNotNull(chat.takeSwitch()).step() as SwitchStep.New
+        val again = """{"action":"new","sessions":[],"folder":{"path":"/home/owner/other","label":"other","kind":"project","colour":1},"forward":"and more"}"""
+        answers(
+            event("session", """{"session_id":"00000000-0000-4000-8000-000000000001"}"""),
+            event("done", """{"answer":"Moving on.","session_id":"00000000-0000-4000-8000-000000000001","switch":$again}"""),
+            done(),
+        )
+        chat.startFrom(step.folder, step.forward, step.origin)
+        advanceUntilIdle()
+        assertNull(chat.state.value.switchTo)
+        val card = checkNotNull(chat.state.value.choices)
+        assertEquals("other", card.folder?.label)
+        assertNull(card.forward)
+        // The owner's next message is their own again: its answer may switch.
+        answers(
+            event("done", """{"answer":"Ok.","session_id":"00000000-0000-4000-8000-000000000001","switch":$again}"""),
+            done(),
+        )
+        chat.send("Yes, go there")
+        advanceUntilIdle()
+        assertEquals("and more", chat.state.value.switchTo?.forward)
+    }
+
+    @Test
+    fun `offline, the request waits in the composer of the new chat`() = runTest {
+        val chat = Chat(api, store, this, { wall }, { false }, { uptime }, newId = { "00000000-0000-4000-8000-000000000001" })
+        val origin = SwitchSession(oldId, folderLabel = "Chats", kind = FolderKinds.CHAT)
+        chat.startFrom(Folder("/home/owner/course-ex", "EX362", FolderKinds.COURSE), request, origin)
+        advanceUntilIdle()
+        assertEquals(emptyList<String>(), texts(chat))
+        assertEquals(request, chat.state.value.draft)
+        assertEquals(ChatProblem.NOT_REACHED, chat.state.value.failure?.problem)
+        assertEquals(oldId, chat.state.value.origin?.id)
+        assertTrue(transport.calls.none { it.path == "/ask" })
+    }
+
+    @Test
+    fun `a card keeps the request, so a pick still starts with it, and a followed answer carries none`() = runTest {
+        val findFolder = """{"action":"choose_folder","sessions":[],"folder":null,"folders":[{"path":"/home/owner/a/Notes","label":"Notes","kind":"project"},{"path":"/home/owner/b/Notes","label":"Notes","kind":"project"}],"forward":${JsonPrimitive(request)}}"""
+        val chat = switched(findFolder)
+        val card = checkNotNull(chat.state.value.choices)
+        assertEquals(request, card.forward)
+        assertEquals(SwitchStep.Pick("/home/owner/a/Notes", request, card.origin), card.picked(card.folders[0]).step())
+        assertEquals(oldId, card.origin?.id)
+        // Opening a conversation from a card never takes the request along.
+        assertNull(card.picked(SwitchSession("s-9")).forward)
+
+        // A switch that waited too long for the screen is a card, request and all.
+        val late = switched()
+        uptime += Chat.SWITCH_FRESH_MILLIS + 1
+        assertNull(late.takeSwitch())
+        val stale = checkNotNull(late.state.value.choices)
+        assertEquals(request, (stale.picked(checkNotNull(stale.folder)).step() as SwitchStep.New).forward)
+
+        // A followed answer (not received here): a card without the request.
+        store.pointer = ChatPointer(oldId, "/home/owner/project-alpha", "project-alpha")
+        transport.answer("GET /sessions/$oldId/queue", 200, """{"running":true,"paused":null,"queue":[]}""")
+        transport.answer("GET /sessions/$oldId/history", 200, """{"exchanges":[{"user":"Go there","assistant":"","complete":false}],"older":null}""")
+        transport.live = {
+            flow {
+                emit(event("live", """{"session_id":"$oldId","running":true,"followable":true,"queue_id":null}"""))
+                emit(event("replay_end", """{"events":0}"""))
+                emit(event("done", """{"answer":"Opening it.","session_id":"$oldId","switch":$newWithRequest}"""))
+                emit(done())
+            }
+        }
+        val followed = chat()
+        followed.restore()
+        followed.load()
+        advanceUntilIdle()
+        assertNull(followed.state.value.switchTo)
+        val offered = checkNotNull(followed.state.value.choices)
+        assertEquals("/home/owner/course-ex", offered.folder?.path)
+        assertNull(offered.forward)
+    }
+
+    @Test
+    fun `the history names the chat an answer continued in, and the chat this one came from`() = runTest {
+        val newId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        transport.answer("GET /sessions/$oldId/queue", 200, """{"running":false,"paused":null,"queue":[]}""")
+        transport.answer(
+            "GET /sessions/$oldId/history",
+            200,
+            """{"exchanges":[{"user":"Go to EX362 and solve hw2","assistant":"Opening it.","complete":true,"continued_in":{"id":"$newId","title":"Solve the hw2","folder_label":"2026/2027-1 EX362.01","kind":"course","colour":3}}],"older":null,"continued_from":null}""",
+        )
+        val chat = chat()
+        chat.open(SessionSummary(oldId, "Go to EX362"))
+        advanceUntilIdle()
+        val answer = chat.state.value.messages.last()
+        assertEquals("Opening it.", answer.text)
+        assertEquals(newId, answer.continuedIn?.id)
+        assertEquals("2026/2027-1 EX362.01", answer.continuedIn?.folderLabel)
+        assertNull(chat.state.value.origin)
+        // A tap on it opens that chat.
+        assertEquals(newId, (ChatSwitch.open(checkNotNull(answer.continuedIn)).step() as SwitchStep.Open).session.id)
+
+        transport.answer("GET /sessions/$newId/queue", 200, """{"running":false,"paused":null,"queue":[]}""")
+        transport.answer(
+            "GET /sessions/$newId/history",
+            200,
+            """{"exchanges":[{"user":"Solve the hw2","assistant":"Done.","complete":true,"continued_in":null}],"older":null,"continued_from":{"id":"$oldId","title":"Go to EX362","folder_label":"Chats","kind":"chat","colour":0}}""",
+        )
+        chat.open(SessionSummary(newId, "Solve the hw2"))
+        advanceUntilIdle()
+        assertEquals(oldId, chat.state.value.origin?.id)
+        assertEquals(listOf("me:Solve the hw2", "it:Done."), texts(chat))
+        assertNull(chat.state.value.messages.last().continuedIn)
     }
 
     @Test

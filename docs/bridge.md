@@ -177,6 +177,7 @@ Request body (JSON):
 | `session_id` | string, optional | Continue an earlier `/ask` conversation |
 | `folder` | string, optional | For a new conversation: a path from `GET /folders`. Left out: a blank chat in its own new folder (see "Blank chats") |
 | `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. A first message refused before its run began (for example `429 busy`, or a failed check) does not keep the id: sending it again starts it. Follow-ups go to `POST /sessions/{id}/messages` as usual |
+| `continued_from` | string, optional | With `new_session_id`: the session whose switch started this conversation (#187); both histories then name each other. Not a session id: `400 bad_request`; one the bridge does not list is ignored. See "The owner's request goes along" |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
 | `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
 
@@ -674,8 +675,9 @@ event:
 
 - `action` is `open` (one conversation: the app opens it), `choose` (one to
   five: the app shows a card to pick from) or `new` (`sessions` is empty and
-  `folder` is `{"path", "label", "kind", "colour"}`: the app opens an empty
-  chat whose first message is sent with `"folder": <path>`).
+  `folder` is `{"path", "label", "kind", "colour"}`: the app opens a new
+  chat whose first message is sent with `"folder": <path>`; with `forward`,
+  below, that first message is the owner's request, sent at once).
 - **Validation.** An id the bridge does not list is dropped, and so is the
   conversation's own id. A line that named one id is `open`; a line that
   named several is `choose`, also when only one of them is listed. A folder
@@ -696,6 +698,48 @@ event:
   the system prompt a conversation was started with, so an older
   conversation (the current coach session included) does not know these
   lines until it is compacted or renewed. New conversations do.
+
+**The owner's request goes along (#187).** When the owner asks to work
+somewhere else ("go to the course folder and solve hw2 there"), a line that
+starts a new chat carries the request after a `|`:
+
+| Line | Meaning |
+|---|---|
+| `[[switch-new: <folder label or path> \| <request>]]` | a new conversation in that folder, starting with the request |
+| `[[switch-find: <folder name or path> \| <request>]]` | find the folder (below), and start there with the request |
+
+- The request is the owner's own, rewritten by the run as one
+  self-contained line (the new chat cannot see the old one), without the
+  move itself. Only what follows the **first** `|` is the request, so a
+  folder named by a path with a `|` in it cannot carry one.
+- The bridge puts it into the `switch` item as `"forward": "<request>"`, on
+  `new` and on a `choose_folder` card (so a pick still starts with it); the
+  app sends it as the new chat's first message at once. It is cleaned
+  (control and format characters such as direction overrides become spaces,
+  except the zero-width joiners; runs of spaces become one) and at most
+  2000 characters. A longer one is **never cut** (a cut request could ask
+  for something else): it is dropped, the switch still happens, and the
+  answer says "The request was too long to carry over to the new chat;
+  write it there."
+- Only in the fresh answer to a message the owner sent (as for folders by
+  asking); a bridge turn never forwards, and the history removes the whole
+  line.
+- **Never into an existing conversation.** A `|` part on a `[[switch: …]]`
+  line is ignored and `open`/`choose` items never carry `forward`: an
+  existing conversation may be running, has its own context and history,
+  and a sent message cannot be taken back. The owner writes the message
+  there.
+- **Both chats name each other.** The app sends the new chat's first
+  message with `"continued_from": "<id of the old conversation>"` next to
+  `new_session_id` (a session id, else `400 bad_request`; an id the bridge
+  does not list is ignored). The bridge records the old conversation, its
+  last exchange (the answer that asked for the switch) and the new one in
+  `~/.config/lifeos/session-links.json` (ids only, never a message or a
+  folder; the last 500). The history of the old conversation then carries
+  `"continued_in": {<a conversation as in a switch item>}` on that
+  exchange, and the history of the new one `"continued_from": {…}` at the
+  top of the page (both `null` otherwise, and when the other conversation
+  is no longer listed).
 
 Checked with the real CLI through the bridge (2026-11-21, small model):
 from a blank chat, "open the chat in which I asked you to remember a
@@ -748,7 +792,10 @@ chat in that course's folder of the Moodle sync, where it is readable.
   added to `allowed_paths` when it is not there yet (one line, written
   atomically; audit record `AllowedPathAdded` with `"by": "chat"`; the change
   log), and the answer's `switch` is `new` with that folder, exactly as for
-  `[[switch-new: …]]`. No approval prompt (owner's decision).
+  `[[switch-new: …]]`. No approval prompt (owner's decision). The run wrote
+  its answer before the search, so the bridge adds the sentence "A new chat
+  opens in “<label>”." (#187); the standing instruction tells the run never
+  to call a folder missing itself.
 - **Already a folder of `GET /folders`**: just `new` there; nothing changes.
 - **Several matches**, or one from a search that hit a bound: a pick card,
   and nothing is added yet:
@@ -963,9 +1010,16 @@ exchanges.
                 "user": "…", "assistant": "…",
                 "tools": [{"name": "Read", "count": 3}],
                 "complete": true, "truncated": false,
-                "mcp_servers": [{"name": "tools", "outside_sandbox": true}]}],
- "older": "…", "total_exchanges_known": null}
+                "mcp_servers": [{"name": "tools", "outside_sandbox": true}],
+                "continued_in": null}],
+ "older": "…", "total_exchanges_known": null, "continued_from": null}
 ```
+
+- `continued_in` and `continued_from` (#187): the conversation a switch of
+  this answer started, and the conversation whose switch started this one,
+  each as a conversation of a `switch` item (`id`, `title`, `folder_label`,
+  `kind`, `colour`, `last_activity`), else `null`. See "The owner's request
+  goes along" above.
 
 - `mcp_servers` (#157) lists the MCP servers that answer had, the same as
   the `done` event's `mcp_servers`; empty for every other answer. The bridge
@@ -2754,6 +2808,11 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 #   notification appears; a second folder of the same name elsewhere -> "choose_folder";
 #   then ask "stop using the zebra notes folder" -> the answer says it is no longer allowed,
 #   `GET /allowed-paths` no longer lists it, the folder and its files are still there
+# the request goes along (#187): in a blank chat ask "go to my zebra notes folder and write a
+#   short list of three animals there" -> "switch" with "action":"new" and a "forward" like
+#   "Write a short list of three animals"; the app starts the chat there with that message;
+#   afterwards `GET /sessions/<old id>/history` has "continued_in" on that answer and
+#   `GET /sessions/<new id>/history` has "continued_from"
 # course folders (#179): with a line `<course id><TAB><folder>` in ~/.config/lifeos/course_folders,
 #   ask in a chat of that course's sync folder "which files are in my own folder for this
 #   course?" -> it lists them; ask it (capable) to create a file there -> it cannot
