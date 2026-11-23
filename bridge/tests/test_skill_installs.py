@@ -252,10 +252,10 @@ def test_install_records_never_count_as_a_runs_tool_calls(ask_dir, isolated_conf
 
 
 def capable_marker():
-    data = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
+    data = {"runner": "sdk", "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
             "suite_version": capable.SUITE_VERSION}  # fmt: skip
-    capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
 
 def test_api_round_trip(settings, ask_dir, auth, monkeypatch):
@@ -315,3 +315,11 @@ def test_the_check_has_a_probe_for_it(settings, monkeypatch):
         suite.probe_no_self_install()
         assert suite.probes[-1].passed is expected
         suite.retire()
+
+
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
+
+    return dataclasses.replace(settings, runner="sdk")

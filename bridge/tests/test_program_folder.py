@@ -93,11 +93,11 @@ def test_only_the_folder_itself_never_inside_or_around(allowed, repo):
     assert "hidden" in paths.refusal_reason(repo / ".claude" / "worktrees" / "agent-1")
 
 
-def marker(config, runner="cli", **extra):
+def marker(config, runner="sdk", **extra):
     data = {"runner": runner, "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "memory_folder",
-            "suite_version": capable.SUITE_VERSIONS[runner], **extra}  # fmt: skip
-    capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
+            "suite_version": capable.SUITE_VERSION, **extra}  # fmt: skip
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
 
 def test_capable_runs_there_need_both_scope_blocks(allowed, repo, isolated_config):
@@ -123,7 +123,7 @@ def test_capable_runs_there_need_both_scope_blocks(allowed, repo, isolated_confi
     check(both, other)
     with pytest.raises(ClaudeError):
         check(both, repo)
-    older = capable.PROGRAM_SUITE_VERSIONS["cli"] - 1
+    older = capable.PROGRAM_SUITE_VERSION - 1
     marker(isolated_config, scope=everywhere, program_folder=True, suite_version=older)
     with pytest.raises(ClaudeError):
         check(both, repo)
@@ -204,7 +204,7 @@ def test_the_automatic_check_waits_while_the_code_differs(settings, monkeypatch)
 
     async def due(now):
         asked.append(now)
-        return []
+        return None
 
     monkeypatch.setattr(check, "due", due)
     asyncio.run(check.tick(1.0))
@@ -322,3 +322,11 @@ def test_a_skipped_file_tool_step_is_asked_for_once_more(settings, monkeypatch):
     assert len(asked) == 2 and asked[1].startswith("1. With the Read tool")
     assert found["file tools: hidden file not read, git hook not written"].passed
     suite.retire()
+
+
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
+
+    return dataclasses.replace(settings, runner="sdk")

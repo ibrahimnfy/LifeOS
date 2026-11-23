@@ -1,35 +1,37 @@
-"""The guardrail check reruns by itself after every update (#107, #140).
+"""The guardrail check runs by itself (#107, #140, lean since #181).
 
-Whenever the installed Claude Code or Agent SDK version differs from the one
-a runner's guardrail check passed for, the capable mode of that runner is
-off at once: ``capable.check_available`` compares the versions before every
-capable run, so nothing here has to happen first for the mode to be off.
-This module then starts the check again by itself, tells the owner, and the
-mode comes back only when the check has passed completely (the check writes
-the marker; nothing here ever does).
+Which check, when:
 
-- **When:** at bridge start and every ``INTERVAL`` seconds while it runs.
-- **Which runners:** ``sdk`` always while it has no valid marker, whether or
-  not it is the selected runner, so one bridge restart completes its check
-  (#140); ``cli`` when it was checked on this computer before. Checks run
-  one after the other (they share a scratch folder), ``cli`` first.
-- **Which versions:** both, for both runners (decision #84).
-- **Outcomes** of one check (the check is told an id and writes it into its
-  results, so older results never count):
-  - *passed*: a full pass; the marker matches.
-  - *failed*: this check's results show a probe that failed. Final for this
-    version pair: the owner is told and the mode stays off.
-  - *not run*: anything else: the bridge stopped, a crash, the time limit,
-    another check holding the lock, only failures of the check itself.
-    Never recorded as failed. Retried ``MAX_ATTEMPTS`` times,
-    ``RETRY_SECONDS`` apart, then *incomplete*; at the next bridge start a
-    not-run or incomplete check runs again from the start.
-- **Left-overs** of an interrupted check (its service-environment run, its
-  scratch folder) are cleaned up by the check itself before it starts
-  (``verify.main``), under a lock that lets only one check run at a time.
-- **Notifications** go through ``notifications.send`` with the fixed texts
-  below: no versions, paths or results in them.
-- **Plan usage:** see ``PLAN_RUNS`` and docs/bridge.md.
+- **No valid marker** (never verified, or a check failed): the **full suite**, at
+  once. The capable mode is off until it passes.
+- **Claude Code or the Agent SDK was updated, or the core set changed** (the
+  marker's versions or core version differ from what is installed): the **core
+  set** (``verify.CORE``) on the cheapest capable model (routing job
+  ``guardrail_check``). The capable mode stays on meanwhile: the last verified
+  state holds.
+- **Monthly**: the full suite again, when the last full pass is older than
+  ``FULL_EVERY`` or came from an older suite, at a quiet time (``QUIET_HOURS``
+  local time, nothing running), and at most one automatic full check per
+  ``FULL_EVERY``. The owner can always run it by hand
+  (``scripts/verify-guardrails --full``).
+
+Outcomes of one check (the check is told an id and writes it into its results,
+so older results never count):
+
+- *passed*: the check wrote the marker.
+- *failed*: a guardrail probe failed. The check itself removed the marker: the
+  only way the capable mode goes off (``capable.switch_off``). Final until the
+  versions or the suites change; the owner is told.
+- *not run*: anything else (a probe whose scenario did not happen, a crash, the
+  time limit, the bridge stopping, another check holding the lock, the check's
+  own environment failing). Never failed: the mode stays as it was. Retried
+  ``MAX_ATTEMPTS`` times, ``RETRY_SECONDS`` apart, then *incomplete* (the owner
+  is told); a not-run or incomplete check runs again after the next start.
+
+Checks run one at a time, never while an update is being applied (``held``) or
+while the program folder's code differs from the running code. Notifications go
+through ``notifications.send`` with the fixed texts below: no versions, paths or
+results in them. Plan usage: ``PLAN_RUNS`` and docs/bridge.md.
 """
 
 from __future__ import annotations
@@ -43,6 +45,7 @@ import sys
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from pathlib import Path
 
 from . import capable, notifications, program, store
@@ -55,101 +58,60 @@ INTERVAL = 15 * 60
 RETRY_SECONDS = 30 * 60
 MAX_ATTEMPTS = 3
 CHECK_TIMEOUT = 3 * 3600
-ORDER = ("cli", "sdk")
-# Short model runs of one check, per environment (terminal, then service).
-# Probes that need no model (invalid settings, nested folders) are not counted.
-# Suite version 2 (#91) added two skill runs (the skill probes, then read-only);
-# version 3 (#92) one more (a run trying to add a skill to its folder).
-# Personal skills (#162, cli 5 and sdk 6): one more (a run that starts a personal
-# skill with a "/" message); the read-only skill run and the MCP probes cost nothing
-# extra.
-# The chat-folder probes (#163, the same suite versions) add three per runner: a
-# shell run, a file-tool run and a read-only run in a blank chat's folder.
-# cli 6 and sdk 7 changed how the personal-skill run is judged, not how many runs there are.
-# The approved-push probe (#178, sdk 8) adds one run on the SDK runner.
-# The course-folder probes (#179, cli 7 and sdk 8) add two per runner: a capable run and a
-# read-only run with a read-only course folder.
-# #180 (cli 7 and sdk 8) adds five per runner: one for the program folder, and four for an
-# allowed folder as the run folder (the probe script, the file tools, the gate, and one
-# for the memory folder and another allowed folder).
-PLAN_RUNS = {"cli": 22, "sdk": 27}
-# Failures that say the check could not run, not that a guardrail failed.
-INFRASTRUCTURE = ("service environment: suite ran", "sandbox: probe script ran")
+FULL_EVERY = 30 * 24 * 3600
+QUIET_HOURS = (3, 6)  # local time: from 03:00 to before 06:00
+# Short model runs of one check (retries of skipped steps not counted). The full suite
+# runs here and again in the service environment.
+PLAN_RUNS = {"core": 9, "full": 27}
 
 STARTED = (
     "LifeOS: guardrail check started",
-    "Claude Code or the Agent SDK was updated, or a runner was not checked yet. The capable "
-    "mode is off while the guardrail check runs by itself; it uses the Claude plan.",
+    "The capable mode is off until the guardrail check has passed. It runs by itself and "
+    "uses the Claude plan.",
 )
 PASSED = (
     "LifeOS: guardrail check passed",
-    "Every guardrail probe passed. The capable mode is on again.",
+    "Every guardrail probe passed. The capable mode is on.",
 )
 FAILED = (
     "LifeOS: guardrail check failed",
-    "A guardrail probe failed. The capable mode stays off; the results are in the private "
+    "A guardrail probe failed, so the capable mode is off. The results are in the private "
     "settings folder.",
 )
 INCOMPLETE = (
     "LifeOS: guardrail check incomplete",
     "The guardrail check could not complete after several attempts. The capable mode stays "
-    "off; it runs again at the next start of the bridge.",
+    "as it was; the check runs again after the next start of the bridge.",
 )
 
-# Starts ``python -m lifeos_bridge.verify --runner R --check-id ID``; returns its exit status.
+# Starts ``python -m lifeos_bridge.verify --core|--full --check-id ID``; returns its status.
 Launcher = Callable[[str, str], Awaitable[int]]
 
 
-def results_path(runner: str) -> Path:
-    name = "guardrail-results.json" if runner == "cli" else "guardrail-results-sdk.json"
-    return config_dir() / name
+def results_path() -> Path:
+    from .verify import RESULTS_FILE  # local: verify is large and needs this module
+
+    return config_dir() / RESULTS_FILE
 
 
-def enrolled(settings: Settings) -> list[str]:
-    checked_before = results_path("cli").exists() or capable.marker_path("cli").exists()
-    return [r for r in ORDER if r == "sdk" or checked_before]
-
-
-async def version_key(settings: Settings, runner: str) -> str:
-    """What a runner's check depends on, as one text: both versions and the probe suite."""
-    return (
-        await capable.claude_version(settings)
-        + " | sdk "
-        + capable.installed_sdk_version()
-        + f" | suite {capable.suite_version(runner)}"
-    )
-
-
-def probe_failed(runner: str, check_id: str) -> bool:
+def probe_failed(check_id: str) -> bool:
     """True only when the results of exactly this check show a failed guardrail probe."""
+    from .verify import guardrail_failures  # local: verify is large and needs this module
+
     try:
-        report = json.loads(results_path(runner).read_text(encoding="utf-8"))
+        report = json.loads(results_path().read_text(encoding="utf-8"))
         if report.get("check_id") != check_id:
             return False  # older results: this check did not get as far as writing its own
-        failed = [
-            str(probe.get("name"))
-            for probes in report.get("probes", {}).values()
-            for probe in probes
-            # An inconclusive probe (its scenario did not happen) is not a failure:
-            # the check counts as not run and is retried.
-            if not probe.get("passed") and not probe.get("inconclusive")
-        ]
-    except (OSError, ValueError, AttributeError):
+        return bool(guardrail_failures(report.get("probes", {})))
+    except (OSError, ValueError, AttributeError, TypeError):
         return False
-    # The blocks that only widen the scope (#180) never make the check fail: without
-    # them the capable mode simply keeps its narrower scope.
-    from .verify import SCOPE_PREFIXES  # local: verify is large and needs this module
-
-    return any(
-        name not in INFRASTRUCTURE and not name.startswith(SCOPE_PREFIXES) for name in failed
-    )
 
 
-async def run_verify(runner: str, check_id: str) -> int:
+async def run_verify(kind: str, check_id: str) -> int:
     """The real check, as its own process in the bridge folder (as scripts/verify-guardrails)."""
     bridge_dir = Path(__file__).resolve().parents[2]
     process = await asyncio.create_subprocess_exec(
-        sys.executable, "-m", "lifeos_bridge.verify", "--runner", runner, "--check-id", check_id,
+        sys.executable, "-m", "lifeos_bridge.verify", f"--{kind}", "--check-id", check_id,
         cwd=bridge_dir,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
@@ -168,6 +130,17 @@ async def run_verify(runner: str, check_id: str) -> int:
         return 124
 
 
+def _full_pass_age(marker: dict, now: float) -> float:
+    """Seconds since the marker's last full pass; very large when unknown."""
+    text = marker.get("full_date") or (
+        marker.get("date") if marker.get("check") != "core" else None
+    )
+    try:
+        return now - datetime.fromisoformat(str(text)).timestamp()
+    except ValueError:
+        return float("inf")
+
+
 class GuardCheck:
     def __init__(
         self,
@@ -181,9 +154,11 @@ class GuardCheck:
             lambda title, text: notifications.send(title, text, event="notice")
         )
         self.task: asyncio.Task | None = None
-        self.recheck_passed: set[str] = set()
         # True while an approved update is being applied (#180): no check starts then.
         self.held: Callable[[], bool] = lambda: False
+        # True while anything runs (runs, queues, jobs): the monthly full check waits.
+        self.busy: Callable[[], bool] = lambda: False
+        self.hour: Callable[[float], int] = lambda now: time.localtime(now).tm_hour
 
     @staticmethod
     def _path() -> Path:
@@ -193,107 +168,120 @@ class GuardCheck:
         data = store.read_json(self._path(), {})
         return data if isinstance(data, dict) else {}
 
-    def _save(self, runner: str, entry: dict) -> None:
-        data = self.state()
-        data[runner] = entry
-        store.write_json(self._path(), data)
+    def _save(self, **changes: object) -> None:
+        store.write_json(self._path(), self.state() | changes)
 
     def recover(self) -> None:
         """At start: whatever an earlier bridge left unfinished is "not run" and runs again."""
-        for runner in capable.MARKER_FILE_NAMES:
-            capable.set_check_running(runner, False)
-        for runner, entry in self.state().items():
-            if isinstance(entry, dict) and entry.get("result") in ("running", "not_run",
-                                                                   "incomplete"):  # fmt: skip
-                self._save(runner, entry | {"result": "not_run", "attempts": 0, "next_try": 0})
-            elif isinstance(entry, dict) and entry.get("result") == "passed":
-                # A pass whose marker is gone or no longer valid (lost, replaced, edited)
-                # is checked once more after a restart, not left switched off for good.
-                self.recheck_passed.add(runner)
+        capable.remove_stale_files()
+        entry = self.state().get("current")
+        if isinstance(entry, dict) and entry.get("result") in ("running", "not_run",
+                                                               "incomplete"):  # fmt: skip
+            self._save(current=entry | {"result": "not_run", "attempts": 0, "next_try": 0})
 
-    async def due(self, now: float) -> list[tuple[str, dict]]:
-        """The runners whose check should start now, with their state entries."""
-        found = []
-        for runner in enrolled(self.settings):
-            try:
-                key = await version_key(self.settings, runner)
-            except ClaudeError:
-                continue  # the version cannot be read: the mode is off anyway; try again later
-            entry = self.state().get(runner, {})
-            if entry.get("versions") != key:
-                entry = {"versions": key, "attempts": 0, "result": "", "next_try": 0}
-            try:
-                await capable.check_available(self.settings, None, runner=runner)
-                if not capable.suite_outdated(runner):
-                    if entry.get("result") != "passed":
-                        self._save(runner, entry | {"result": "passed"})
-                    continue  # verified for exactly these versions and this suite
-                # Verified, but by an older probe suite (new probes, #91): run it again.
-            except ClaudeError:
-                pass
-            if entry.get("result") == "passed" and runner in self.recheck_passed:
-                self.recheck_passed.discard(runner)  # once per start
-                entry = entry | {"attempts": 0, "result": "not_run", "next_try": 0}
-            if entry.get("result") in ("failed", "incomplete", "passed"):
-                continue  # final until the versions change or the bridge restarts
-            if entry["attempts"] >= MAX_ATTEMPTS or now < entry.get("next_try", 0):
-                continue
-            found.append((runner, entry))
-        return found
+    @staticmethod
+    def key(claude_version: str) -> str:
+        """What a check's outcome depends on: both versions and both probe suites."""
+        return (
+            f"{claude_version} | sdk {capable.installed_sdk_version()}"
+            f" | core {capable.CORE_VERSION} | suite {capable.SUITE_VERSION}"
+        )
+
+    def _quiet(self, now: float) -> bool:
+        low, high = QUIET_HOURS
+        return low <= self.hour(now) < high and not self.busy()
+
+    async def due(self, now: float) -> tuple[str, dict] | None:
+        """The check that should start now (``"core"`` or ``"full"``) with its state entry."""
+        try:
+            installed = await capable.claude_version(self.settings)
+        except ClaudeError:
+            return None  # the version cannot be read: try again later
+        key = self.key(installed)
+        marker = capable.read_marker()
+        state = self.state()
+        current = state.get("current") if isinstance(state.get("current"), dict) else {}
+        if current.get("key") == key and current.get("result") == "failed":
+            return None  # a failure is final until the versions or the suites change
+        # A monthly check that started and did not finish keeps its slot for its retries.
+        in_slot = (
+            current.get("kind") == "monthly"
+            and current.get("key") == key
+            and current.get("result") in ("", "running", "not_run")
+        )
+        if marker is None:
+            kind = "full"  # never verified, or a check failed
+        elif capable.core_outdated(installed, capable.installed_sdk_version()):
+            kind = "core"
+        elif (_full_pass_age(marker, now) >= FULL_EVERY or capable.suite_outdated()) and (
+            in_slot or now - float(state.get("full_tried") or 0) >= FULL_EVERY
+        ):
+            kind = "monthly"
+        else:
+            return None
+        entry = current
+        if (
+            entry.get("key") != key
+            or entry.get("kind") != kind
+            or (kind == "monthly" and not in_slot)
+        ):
+            entry = {"kind": kind, "key": key, "attempts": 0, "result": "", "next_try": 0}
+        if entry.get("result") in ("failed", "incomplete", "passed"):
+            return None  # final until the key changes or the bridge restarts
+        if entry["attempts"] >= MAX_ATTEMPTS or now < entry.get("next_try", 0):
+            return None
+        if kind == "monthly" and not self._quiet(now):
+            return None
+        return kind, entry
 
     async def tick(self, now: float | None = None) -> None:
         now = time.time() if now is None else now
         if os.environ.get(AUTOCHECK_VAR, "").strip().lower() == "off":
-            return  # no automatic rerun (the mode still goes off after an update)
+            return  # no automatic check (by hand: scripts/verify-guardrails)
         if program.code_changed() or self.held():
             # The check runs the bridge's code from the program folder in a process of its
             # own. A run there may have changed it (#180): the check waits until the bridge
-            # starts again (after an approved update), then runs with that code.
+            # starts again (after an update), then runs with that code.
             return
         if self.task is not None and not self.task.done():
             return  # one check at a time
-        due = await self.due(now)
-        if due:
-            self.task = asyncio.create_task(self._run_all(due))
+        found = await self.due(now)
+        if found is not None:
+            self.task = asyncio.create_task(self._check(*found))
 
-    async def _run_all(self, due: list[tuple[str, dict]]) -> None:
-        for runner, entry in due:
-            await self._check(runner, entry)
-
-    async def _check(self, runner: str, entry: dict) -> None:
-        if not entry.get("notified"):
-            self.notify(*STARTED)
+    async def _check(self, kind: str, entry: dict) -> None:
+        was_on = capable.read_marker() is not None
+        if not was_on and not entry.get("notified"):
+            self.notify(*STARTED)  # only when the mode is off: otherwise nothing changes
+        if kind == "monthly" and entry["attempts"] == 0:
+            self._save(full_tried=time.time())
         check_id = uuid.uuid4().hex
         entry = entry | {"attempts": entry["attempts"] + 1, "result": "running", "notified": True}
-        self._save(runner, entry)
-        capable.set_check_running(runner, True)
+        self._save(current=entry)
         try:
-            status = await self.launcher(runner, check_id)
+            status = await self.launcher("core" if kind == "core" else "full", check_id)
         except asyncio.CancelledError:
             # The bridge is stopping: not run, and not counted; it reruns at the next start.
-            self._save(runner, entry | {"result": "not_run", "attempts": entry["attempts"] - 1})
+            self._save(current=entry | {"result": "not_run", "attempts": entry["attempts"] - 1})
             raise
         except Exception:  # the check could not be started
             status = -1
-        finally:
-            capable.set_check_running(runner, False)
-        passed = False
-        if status == 0:
-            with contextlib.suppress(ClaudeError):
-                await capable.check_available(self.settings, None, runner=runner)
-                passed = True
-        if passed:
-            self._save(runner, entry | {"result": "passed"})
-            self.notify(*PASSED)
-        elif status == 1 and probe_failed(runner, check_id):
-            self._save(runner, entry | {"result": "failed"})
+        from .verify import FAILED as CHECK_FAILED  # local: verify is large
+
+        if status == 0 and capable.read_marker() is not None:
+            self._save(current=entry | {"result": "passed"})
+            if not was_on:
+                self.notify(*PASSED)
+        elif status == CHECK_FAILED and probe_failed(check_id):
+            self._save(current=entry | {"result": "failed"})
             self.notify(*FAILED)
         elif entry["attempts"] >= MAX_ATTEMPTS:
-            self._save(runner, entry | {"result": "incomplete"})
+            self._save(current=entry | {"result": "incomplete"})
             self.notify(*INCOMPLETE)
-        else:  # not run: crash, time limit, lock busy, the check's own environment failed
-            retry = time.time() + RETRY_SECONDS
-            self._save(runner, entry | {"result": "not_run", "next_try": retry})
+        else:  # not run: inconclusive, crash, time limit, lock busy, its own environment
+            self._save(
+                current=entry | {"result": "not_run", "next_try": time.time() + RETRY_SECONDS}
+            )
 
     async def run_forever(self) -> None:
         self.recover()

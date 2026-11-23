@@ -160,16 +160,16 @@ def check(settings, monkeypatch, folder_probes):
     probes = [verify.Probe("sandbox: probe script ran", True), *folder_probes]
     as_dicts = [dataclasses.asdict(p) for p in probes]
     monkeypatch.setattr(verify, "load_settings", lambda: settings)
-    monkeypatch.setattr(verify.Suite, "run_all", lambda self: probes)
+    monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: probes)
     monkeypatch.setattr(verify, "service_suite", lambda *a: as_dicts)
-    return verify.main(["--check-id", "c1"])
+    return verify.main(["--full", "--check-id", "c1"])
 
 
 def test_the_scope_is_widened_only_when_the_block_passed(settings, monkeypatch):
     prefix = verify.FOLDER_PROBE_PREFIX
     passing = [verify.Probe(verify.FOLDER_SANITY, True), verify.Probe(prefix + "reach: x", True)]
     assert check(settings, monkeypatch, passing) == 0
-    marker = json.loads(capable.marker_path("cli").read_text())
+    marker = json.loads(capable.marker_path().read_text())
     assert marker["scope"] == "all_allowed_folders" and marker["all_passed"] is True
 
 
@@ -181,6 +181,6 @@ def test_a_block_that_did_not_pass_leaves_everything_else_unchanged(
     reach = verify.Probe(prefix + "reach: x", False, "written", inconclusive=inconclusive)
     failing = [verify.Probe(verify.FOLDER_SANITY, True), reach]
     assert check(settings, monkeypatch, failing) == 0  # the capable mode is on, as before
-    marker = json.loads(capable.marker_path("cli").read_text())
+    marker = json.loads(capable.marker_path().read_text())
     assert marker["scope"] == "memory_folder" and marker["all_passed"] is True
-    assert guardcheck.probe_failed("cli", "c1") is False  # never "failed" for it
+    assert guardcheck.probe_failed("c1") is False  # never "failed" for it

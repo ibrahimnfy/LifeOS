@@ -238,49 +238,55 @@ Every request is read-only unless it says `"mode": "capable"`. The capable
 mode lets Claude edit files and run shell commands inside guardrails; the
 full design is in [`permission-policy.md`](permission-policy.md).
 
-**It is switched on only by the guardrail check.** The bridge answers
-`503 capable_mode_unavailable` unless the check has passed on this computer
-for the installed Claude Code version (a marker file
-`~/.config/lifeos/capable-mode.json`, written only by the check). A Claude
-Code update switches the mode off again until the check is repeated:
+**It needs the Agent SDK runner and a passed guardrail check (#181).**
+Capable runs exist only with `LIFEOS_RUNNER=sdk`; the `claude -p` runner
+keeps read-only runs only. The bridge answers `503
+capable_mode_unavailable` unless a guardrail check has passed on this
+computer (a signed marker `~/.config/lifeos/capable-mode-sdk.json`, written
+only by the check). By hand:
 
 ```
-scripts/verify-guardrails
+scripts/verify-guardrails          # the core set (about 9 short runs)
+scripts/verify-guardrails --full   # the full suite (about 54 short runs)
 ```
 
 It runs the probe suite of [`permission-policy.md`](permission-policy.md)
-(section 7) with the real Claude Code, once in the terminal and once as a
-transient user service, prints one line per probe and switches the mode on
-only if every probe passed in both. It takes a few minutes and about twenty
-short runs of the owner's Claude plan. Results:
-`~/.config/lifeos/guardrail-results.json`. The check covers runs in the
-memory folder and in a blank chat's folder (#163). Since #180 it also
-covers an allowed folder as the run folder: a block of its own reruns the
-essential probes with a scratch allowed folder (`permission-policy.md`,
-section 9.15). Only when that block passed does the marker say `"scope":
-"all_allowed_folders"`, and capable runs work in every allowed folder;
-otherwise it says `"memory_folder"` and they stay refused there, with the
-rest unchanged. The LifeOS program folder needs that and its own block
-(`"program_folder": true`, on a scratch copy of its layout; see "Updates
-from a chat in the program folder").
+(section 7) with the real Claude Code through the SDK runner and prints
+one line per probe. Results: `~/.config/lifeos/guardrail-results-sdk.json`.
 
-**Each runner has its own check (#106).** `scripts/verify-guardrails
---runner sdk` runs the same suite through the Agent SDK runner. It adds
-the approval probes: a deletion answered "no" does not run; one answered
-"yes" runs, and only after the yes; a never-allowed command is refused
-without being asked about. It writes `capable-mode-sdk.json` and
-`guardrail-results-sdk.json`, recording the runner, the Claude Code
-version and the Agent SDK version. With `LIFEOS_RUNNER=sdk`, a capable
-request:
-
-- runs through the SDK when that marker matches the installed versions;
-- otherwise falls back to `claude -p` if the `cli` marker matches (the
-  session's SDK process is closed first, so a session never has two kinds
-  of writer);
-- otherwise is refused with `503`.
-
-An update of Claude Code or of the Agent SDK switches the capable mode
-off on both runners (decision #84).
+- **The full suite** runs in the terminal and again as a transient user
+  service. It covers runs in the memory folder and in a blank chat's folder
+  (#163), the approval probes (a deletion answered "no" does not run; one
+  answered "yes" runs, and only after the yes; a never-allowed command is
+  refused without being asked about), skills, MCP servers and course
+  folders. Since #180 it also covers an allowed folder as the run folder: a
+  block of its own reruns the essential probes with a scratch allowed folder
+  (`permission-policy.md`, section 9.15). Only when that block passed does
+  the marker say `"scope": "all_allowed_folders"`, and capable runs work in
+  every allowed folder; otherwise it says `"memory_folder"` and they stay
+  refused there, with the rest unchanged. The LifeOS program folder needs
+  that and its own block (`"program_folder": true`, on a scratch copy of
+  its layout; see "Updates from a chat in the program folder").
+- **The core set** (`verify.CORE`) is the part that matters most after an
+  update: the sandbox probe script (writes outside, private settings, keys,
+  sudo, session bus, network), the file tools, the audit log, the gate
+  (approval asked for deleting, pushing and installing), a confirmation
+  never leaving the sandbox, nothing running without an audit log, the
+  run folder's own hooks and MCP servers, nested repositories, MCP servers,
+  another chat's folder and the program folder's protected parts. It runs
+  once, in the environment it is started from. A core pass keeps what the
+  last full pass proved (scope, chat folders, course folders, program
+  folder) and records the new versions.
+- The marker records the versions the last check verified. **A newer
+  Claude Code or Agent SDK does not switch the mode off**: the last
+  verified state holds until the core check has run. **Only a check in
+  which a guardrail probe failed switches it off** (it removes the marker).
+  A check that did not complete (a probe whose scenario did not happen, the
+  check's own environment failing, a crash) changes nothing.
+- The probe model is the routing job `guardrail_check` (default `haiku`,
+  the cheapest capable model; `LIFEOS_MODEL_ROUTING=guardrail_check=sonnet`
+  or the app's model screen changes it; `LIFEOS_BACKGROUND_MODEL` never
+  does).
 
 **Folders inside another git repository (#139).** A capable request is
 refused with `403 folder_inside_repository` when the folder (or the memory
@@ -290,91 +296,58 @@ repository. The message names the repository root to allow instead.
 Subfolders of the memory folder are fine. Details:
 `permission-policy.md`, section 9.9.
 
-**After an update the check reruns by itself (#107, #140).**
+**The check runs by itself (#107, #140, lean since #181).** At bridge
+start and every 15 minutes the bridge decides (`guardcheck.py`):
 
-- Every capable request compares the installed versions with the marker,
-  read at that moment: the Claude Code version and the Agent SDK version
-  (loaded and on disk), for both runners. A mismatch refuses the request.
-- The marker is signed with a key kept next to it (`guardrail-key`), so a
-  marker changed by hand is ignored. While a check runs, the mode of that
-  runner is off.
-- At bridge start and every 15 minutes, the bridge starts the check by
-  itself (`scripts/verify-guardrails`) for every runner whose marker does
-  not match, once per version pair:
-  - the SDK runner **always**, whether or not it is selected, so one
-    restart of the bridge produces its marker;
-  - the `claude -p` runner if it was checked on this computer before.
-  Checks run one after the other, each in the terminal environment and
-  then in the real service environment. The owner is notified when a check
-  starts and when it ends, with fixed texts.
+- **No valid marker** (never verified, or a check failed): the full suite,
+  at once. The owner is told when it starts and when it passed.
+- **Claude Code or the Agent SDK was updated, or the core set changed:**
+  the core set, at once, once per version pair. The capable mode stays on
+  while it runs; nothing is sent to the owner unless it fails.
+- **Monthly:** the full suite, when the last full pass is older than 30
+  days or came from an older suite, at a quiet time (03:00 to 06:00 local
+  time, nothing running), and at most one automatic full check per 30 days.
 - **Outcomes.**
-  - **Passed:** the mode is on again.
-  - **Failed:** this check's own results show a failed probe. This is final
-    for these versions.
+  - **Passed:** the check wrote the marker.
+  - **Failed:** a guardrail probe failed in this check's own results. The
+    mode is off; this is final for these versions and suites, and the owner
+    is told.
   - **Not run:** everything else: the bridge stopped, a crash, the 3-hour
-    time limit, another check still running, or only the check's own
-    environment failed. It is never recorded as failed. It is retried 3
-    times, 30 minutes apart; after that it is "incomplete", and it runs
-    again from the start at the next bridge start.
+    time limit, another check still running, a probe whose scenario did not
+    happen, or only the check's own environment failed. Never recorded as
+    failed, and the mode stays as it was. Retried 3 times, 30 minutes
+    apart; after that it is "incomplete" (the owner is told), and it runs
+    again after the next bridge start.
   - Each check gets an id that it writes into its results, so results of
     an earlier check never count.
 - **Clean-up.** Only one check runs at a time (a lock in the private
-  settings folder). Before it starts, a check stops the service-environment
-  run that an interrupted check may have left (a transient user service
-  with the fixed name `lifeos-guardrail-check`). It also moves an old
-  scratch folder to the memory folder's trash.
+  settings folder). Before it starts, a full check stops the
+  service-environment run that an interrupted check may have left (a
+  transient user service with the fixed name `lifeos-guardrail-check`). A
+  check also moves an old scratch folder to the memory folder's trash.
   - A check removes its own conversations from Claude Code's store when it
     ends (its run folder and its chat folders), and the bridge never lists a
     session of those folders: probe runs are not the owner's conversations.
     The coach's plan and note-filing runs are one-off runs without a stored
     session, like the other jobs.
-- **Plan usage of one restart:** a runner needs a check after an update of
-  Claude Code or the Agent SDK, after a new version of the probe suite (the
-  skill probes of #91 are suite version 2), or when it was never checked.
-  - The `claude -p` suite takes about 22 short runs on the small model per
-    environment.
-  - The SDK suite takes about 27 per environment, because it adds the
-    approval probes and the approved push with network (#178, one run).
-  - Both runners in both environments come to **about 98 short runs**. The
-    skill probes of #91 and #92 add 12 of these (3 runs per environment and
-    runner), the personal-skill probes of #162 add 4 (1 run per environment
-    and runner), the chat-folder probes of #163 add 12 (a shell run, a
-    file-tool run and a read-only run in a blank chat's folder, per
-    environment and runner), the course-folder probes of #179 add 8 (a
-    capable run and a read-only run with a read-only course folder, per
-    environment and runner), and the two blocks of #180 add 20 (per
-    environment and runner: 1 for the program folder, 4 for an allowed
-    folder as the run folder); the MCP probes of #108 and #162 need no model
-    run. Probes without a model run (invalid settings, nested folders) are
-    not counted.
-  - A restart where both markers still match costs nothing.
-  - Each runner has its own suite version (`cli` 7, `sdk` 9), and only a
-    runner whose suite changed is checked again. The read-only course
-    folders of #179 raised both (`cli` 7, `sdk` 8); the next start checks
-    both once. The probes for personal
-    skills and personal MCP servers (#162) and for chat folders (#163)
-    changed both (`cli` 5, `sdk` 6). So did the corrected judgements of the
-    chat-folder probes (`permission-policy.md`, section 9.11) and of the
-    personal-skill run (section 9.2), which add no run (`cli` 6, `sdk` 7).
-    The approved push with network (#178, one SDK run) and the corrected
-    HTTPS probe changed both again (`cli` 7, `sdk` 8), and so did the
-    course folders of #179 and the program-folder and allowed-folder blocks
-    of #180. The next start checks both once. The approval probes
-    may add up to 8 more per environment when the model does not make the
-    needed call at once, the personal-skill run and the skill-copy steps
-    (#171, part of an existing run) up to 2 more each, each of the three
-    chat-folder runs and the two course-folder runs 1 more, and the
-    program-folder run 1 more.
+- **Plan usage:** the core set takes **about 9 short runs** on the probe
+  model; the full suite about 27 per environment, **about 54 short runs**
+  in both. The approval probes may add up to 8 more per environment when
+  the model does not make the needed call at once, the personal-skill run
+  and the skill-copy steps up to 2 more each, each of the three chat-folder
+  runs and the two course-folder runs 1 more, and the program-folder run 1
+  more. Probes without a model run (invalid settings, nested folders, MCP
+  servers) are not counted.
 - **While the bridge's code differs from what it started with** (a chat in
   the program folder changed it, or work in the terminal), the automatic
   check waits: it would run that code outside the sandbox. It runs at the
-  next start of the bridge, for example after an approved update (#180).
+  next start of the bridge, for example after an update (#180).
 - State: `~/.config/lifeos/guardrail-check.json`.
-- `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
-  still goes off after an update; run the check by hand then. The owner
+- `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic check only. The owner
   keeps it on (2026-11-21).
-- A marker written before #107 has no signature. After this update the
-  mode is therefore off once, until the check reruns by itself.
+- Files of bridges before #181 (`capable-mode.json` of the `claude -p`
+  runner, `guardrail-check-running-*`) are removed at start; they are never
+  read.
 After the check, restart the service (`systemctl --user restart
 lifeos-bridge`) if the bridge code changed since it was started.
 
@@ -1184,10 +1157,9 @@ for both; only how the assistant process lives differs.
   - Cancel and send now use the SDK's interrupt. Only when the turn does not
     end within a few seconds is the process closed (terminate, then kill).
     The same happens in the background when the phone goes away mid-answer.
-  - **The capable mode runs on this runner only after its own guardrail
-    check passed** (`scripts/verify-guardrails --runner sdk`, see "Capable
-    mode"). Until then a capable request falls back to `claude -p` if that
-    path passed its check, and is refused otherwise.
+  - **The capable mode runs on this runner only, after a guardrail check
+    passed** (see "Capable mode"). With `claude -p` (`LIFEOS_RUNNER=cli`)
+    every capable request is refused (#181).
 - Sessions move freely between the bridge and the terminal: a session
   started through the SDK runner continues with `claude -p --resume <id>`
   or `claude --resume <id>`, and the reverse (verified with the real CLI).

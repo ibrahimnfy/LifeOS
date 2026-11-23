@@ -60,6 +60,10 @@ JOBS: Mapping[str, Job] = {
     "course_resources": Job("Course resource research from syllabi", "sonnet", None, "opus"),
     "summaries": Job("Summaries", "sonnet", None, "opus"),
     "context_map": Job("Context map of the allowed folders", "sonnet", None, "opus"),
+    # #181: the cheapest capable model; never moved by LIFEOS_BACKGROUND_MODEL, so a
+    # change of the probe model is always a choice made for this job.
+    "guardrail_check": Job("Guardrail check (core set after updates, monthly full suite)",
+                           "haiku", None, background=False),
 }  # fmt: skip
 
 

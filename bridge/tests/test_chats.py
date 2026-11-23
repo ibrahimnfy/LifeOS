@@ -343,20 +343,22 @@ def test_a_live_sdk_session_keeps_its_folder_until_it_closes(settings, auth, cha
 # ------------------------------------------------------------------ the capable mode
 
 
-def marker(runner="cli", **changes):
+def marker(runner="sdk", **changes):
     data = {"runner": runner, "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "memory_folder",
-            "suite_version": capable.SUITE_VERSIONS[runner], "skills_verified": True,
+            "suite_version": capable.SUITE_VERSION, "skills_verified": True,
             "chat_folders": True} | changes  # fmt: skip
-    capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
 
 def test_a_capable_run_in_a_chat_folder_has_the_same_guardrails(
-    world, auth, ask_dir, project, root, chat_calls
+    settings, auth, ask_dir, project, root, chat_calls
 ):
     marker()
-    assert ask(world, auth, "FAKE_WRITE made.txt", mode="capable").status_code == 200
-    [call] = chat_calls()
+    sdk = dataclasses.replace(settings, runner="sdk", allowed_paths=(project,))
+    with TestClient(create_app(sdk)) as world:
+        assert ask(world, auth, "FAKE_WRITE made.txt", mode="capable").status_code == 200
+    [call] = [entry for entry in chat_calls() if "args" in entry]
     folder = Path(call["cwd"])
     granted = json.loads(option(call["args"], "--settings"))
     sandbox = granted["sandbox"]
@@ -378,10 +380,11 @@ def test_a_capable_run_in_a_chat_folder_has_the_same_guardrails(
     assert (folder / "made.txt").is_file()
 
 
-def test_capable_in_a_chat_folder_waits_for_the_check_that_probed_one(client, auth, chat_calls):
+def test_capable_in_a_chat_folder_waits_for_the_check_that_probed_one(settings, auth, chat_calls):
+    client = TestClient(create_app(dataclasses.replace(settings, runner="sdk")))
     for changes in (
         {"chat_folders": False},
-        {"suite_version": capable.CHAT_SUITE_VERSIONS["cli"] - 1},
+        {"suite_version": capable.CHAT_SUITE_VERSION - 1},
     ):
         marker(**changes)
         response = ask(client, auth, mode="capable")

@@ -192,15 +192,16 @@ def test_only_capable_runs_get_exactly_the_approved_servers(settings, ask_dir):
 
 
 def marker(suite):
-    data = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
+    data = {"runner": "sdk", "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
             "suite_version": suite}  # fmt: skip
-    capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
 
 def calls(ask_dir):
     path = ask_dir / ".fake-claude-calls.jsonl"
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    entries = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    return [entry for entry in entries if "args" in entry]  # launches, not SDK messages
 
 
 def test_api_from_listing_to_a_run(
@@ -536,7 +537,7 @@ def test_api_for_personal_servers(settings, ask_dir, auth, write_session, isolat
 
 
 def test_an_older_check_passes_no_personal_server(settings, ask_dir, auth, write_session):
-    marker(capable.PERSONAL_SUITE_VERSIONS["cli"] - 1)
+    marker(capable.PERSONAL_SUITE_VERSION - 1)
     source = define_personal(settings, {"mine": PERSONAL})
     approve_personal(ask_dir, source)
     session_id = write_session(ask_dir, [user_line(ask_dir, "first")])
@@ -624,3 +625,11 @@ def test_a_folder_server_with_a_field_the_card_does_not_show_cannot_be_approved(
     with TestClient(create_app(settings)) as client:
         answer = client.post(f"/sessions/{session_id}/mcp-servers/tools/approval", headers=auth)
     assert answer.status_code == 409 and answer.json()["error"] == "mcp_server_unsupported"
+
+
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
+
+    return dataclasses.replace(settings, runner="sdk")

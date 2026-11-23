@@ -446,16 +446,17 @@ def test_without_the_probes_or_for_other_commands_nothing_changes(
 
 
 def test_the_feature_needs_a_marker_of_a_suite_with_its_probes(isolated_config):
+    def write(**fields):
+        data = {"runner": "sdk", "claude_version": "x", "all_passed": True} | fields
+        capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
+
     assert not capable.network_push_probed("sdk")
-    capable.marker_path("sdk").write_text(json.dumps({"suite_version": 7}))
+    write(suite_version=7)
     assert not capable.network_push_probed("sdk")
-    capable.marker_path("sdk").write_text(json.dumps({"suite_version": 8}))
+    write(suite_version=8)
     assert not capable.network_push_probed("sdk")  # the probes were skipped
-    marker = {"suite_version": 8, "network_push": True}
-    capable.marker_path("sdk").write_text(json.dumps(marker))
+    write(suite_version=8, network_push=True)
     assert capable.network_push_probed("sdk")
-    capable.marker_path("cli").write_text(json.dumps({"suite_version": 99}))
-    assert not capable.network_push_probed("cli")  # no approvals on the cli runner
     assert not netpush.available("cli")
 
 
@@ -486,7 +487,7 @@ PUSHED = (
 
 def judged(settings, tmp_path, *, push_text=PUSHED, check_text="NEXT_NET_CLOSED https: URLError",
            card=None, mark_text=None, steps=None):  # fmt: skip
-    suite = verify.Suite(settings, "sdk")
+    suite = verify.Suite(settings)
     command = "git push origin main"
     uses = [
         {"name": "Bash", "input": {"command": command}, "id": "p"},
@@ -544,10 +545,7 @@ def test_a_check_that_did_not_report_is_not_run(settings, tmp_path):
 
 
 def test_the_push_block_is_skipped_on_the_cli_runner_and_without_a_chat_root(settings, tmp_path):
-    suite = verify.Suite(settings, "cli")
-    verify.probe_network_push(suite)
-    assert suite.probes == []
-    suite = verify.Suite(dataclasses.replace(settings, chat_root=tmp_path / ".hidden"), "sdk")
+    suite = verify.Suite(dataclasses.replace(settings, chat_root=tmp_path / ".hidden"))
     verify.probe_network_push(suite)
     assert [(p.name, p.passed) for p in suite.probes] == [(verify.NET_NOT_CHECKED, True)]
     assert not verify.network_push_checked({"terminal": [dataclasses.asdict(suite.probes[0])]})

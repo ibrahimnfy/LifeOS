@@ -228,19 +228,20 @@ folder; nothing outside them can be touched.
 Not a setting someone can flip by accident:
 
 1. The owner installs the sandbox prerequisites (done).
-2. `scripts/verify-guardrails` runs the probe suite (section 7) against the
-   real Claude Code, both from a terminal and under the service environment
-   (a transient user service with the bridge unit's settings). It first
-   removes an existing marker, so the mode is off while the check runs.
-3. Only if **every** probe passes, it writes a marker file
-   `~/.config/lifeos/capable-mode.json` containing the Claude Code version,
-   the date and the list of passed probes. With `--runner sdk` the suite
-   runs through the Agent SDK runner and the marker is
-   `capable-mode-sdk.json`, which also records the SDK version (section 9.7).
-4. The bridge accepts `"mode": "capable"` only when the marker exists **and**
-   its version equals the installed Claude Code version. After a Claude Code
-   update the mode is off until the probes are run again; the bridge reruns
-   them by itself and notifies the owner (section 9.8).
+2. `scripts/verify-guardrails --full` runs the probe suite (section 7)
+   against the real Claude Code through the Agent SDK runner, both from a
+   terminal and under the service environment (a transient user service
+   with the bridge unit's settings). Since #181 capable runs exist on the
+   SDK runner only; `claude -p` keeps read-only runs (section 9.16).
+3. Only if **every** probe passes, it writes a signed marker file
+   `~/.config/lifeos/capable-mode-sdk.json` containing the Claude Code and
+   Agent SDK versions, the date and the probe results.
+4. The bridge accepts `"mode": "capable"` only on the SDK runner and only
+   when the marker exists. After an update of Claude Code or the Agent SDK
+   the last verified state holds while the core set of probes runs again by
+   itself; only a check in which a guardrail probe *failed* switches the
+   mode off (section 9.16; before #181 every update switched it off,
+   section 9.8).
 5. The probes run in a scratch folder inside the memory folder, so the
    marker records `"scope": "memory_folder"`: capable runs in other allowed
    folders stay refused until the suite also covers such a folder (no folder
@@ -789,6 +790,9 @@ Built on the SDK runner; the `claude -p` path is unchanged.
 
 ### 9.7 The capable mode on the SDK runner (#106)
 
+Superseded in part by #181 (section 9.16): there is one runner with a
+capable mode, the SDK runner, and no fallback to `claude -p`.
+
 - **One marker per runner.** `scripts/verify-guardrails --runner sdk` runs
   the probe suite of section 7 through the SDK runner and writes
   `capable-mode-sdk.json` with the runner, the Claude Code version and the
@@ -822,6 +826,9 @@ Built on the SDK runner; the `claude -p` path is unchanged.
     run (it would use the real memory folder).
 
 ### 9.8 The check reruns by itself after every update (#107)
+
+Superseded in part by #181 (section 9.16): an update no longer switches the
+mode off, and only the core set runs after it.
 
 Condition (2) of the owner's decision #84: "whenever the Claude Code or SDK
 version changes, the guardrail checks rerun by themselves, the capable mode
@@ -1633,3 +1640,63 @@ folder as in any Claude Code session there.
 The owner's read-only course folders (section 9.13) keep their write-deny in
 every capable run, also in one whose folder is an allowed folder: the
 policy is the same `build_policy`; their own probes are not repeated here.
+
+### 9.16 Lean guardrail checks: one runner, a core set, no switch-off while checking (owner, #181)
+
+Owner decision of 2026-11-23.
+
+- **One runner.** Capable runs need the Agent SDK runner
+  (`LIFEOS_RUNNER=sdk`). The `claude -p` runner keeps read-only runs only;
+  its capable path, its marker (`capable-mode.json`) and its probes are
+  gone. A capable request on it is refused with `503` and says so. Files a
+  bridge before #181 left behind are removed at start, never read.
+- **Two sizes of check** (`scripts/verify-guardrails [--full]`):
+  - **The core set** (default; `verify.CORE`; about 9 short runs, once, in
+    the environment it is started from). Chosen for what an update of
+    Claude Code or the Agent SDK could break and what would hurt most if it
+    broke:
+    - the sandbox probe script: no write outside the run's folders, the
+      private settings (bridge token, pairing and push keys) and SSH keys
+      unreadable, no `sudo`, no session bus or systemd, no secret in the
+      environment, and the network rules of the run;
+    - the file tools: the private settings unreadable (also through a
+      link), no write outside;
+    - the audit log: every tool call recorded by the gate before it runs,
+      no result without a record, nothing runs when the log cannot be
+      written;
+    - the gate: approval asked for deleting, pushing and installing,
+      never-allowed actions refused, the file to delete survives a "no";
+    - a confirmation never lets a command out of the sandbox;
+    - the run folder's own hooks and MCP servers never run; a folder inside
+      another repository is refused; only approved, unchanged MCP servers
+      reach a run (the last two need no model run);
+    - a blank chat's folder: another chat's folder and the chat root
+      unreadable and unwritable (three runs);
+    - the LifeOS program folder: its hidden and protected parts.
+    Not in the core set (full suite only): the approval answers yes/no, the
+    unsandboxed retry, invalid settings, read-only after capable, skills and
+    their copies, personal skills, course folders, allowed folders as run
+    folders.
+  - **The full suite** (`--full`; about 27 short runs per environment, in
+    the terminal and the service environment).
+- **Model.** The routing job `guardrail_check`, default `haiku` (the
+  cheapest capable model). `LIFEOS_BACKGROUND_MODEL` never moves it. A
+  model that skips steps makes probes inconclusive, never passed.
+- **When** (`guardcheck.py`): no valid marker → the full suite at once;
+  a new Claude Code or Agent SDK version, or a new core set → the core set
+  at once; otherwise the full suite when the last full pass is older than
+  30 days or came from an older suite, at 03:00–06:00 local time while
+  nothing runs, at most one automatic full check per 30 days.
+- **The mode is never switched off while a check runs.** The marker
+  records the versions it verified; the bridge no longer compares them with
+  the installed ones. A core pass rewrites the marker with the new versions
+  and keeps what the last full pass proved (scope, chat folders, course
+  folders, program folder; the chat and program-folder blocks must have
+  passed again). **Only a failed check switches the mode off** (the check
+  removes the marker: `capable.switch_off`, the one place). Failed means a
+  guardrail probe failed; an inconclusive probe, a failure of the check's
+  own environment (`verify.INFRASTRUCTURE`), a crash, a time limit or a
+  check that was not run change nothing and are retried (3 times, 30
+  minutes apart; again after the next start). Without any marker (never
+  verified, or after a failure) the mode is off until a full pass; a core
+  pass alone never switches it on.

@@ -81,13 +81,3 @@ def test_the_audit_cross_check_counts_only_the_gates_records(tmp_path):
     watch({"type": "user", "message": {"content": [result]}})  # one result, one gate record
     with pytest.raises(ClaudeError):
         watch({"type": "user", "message": {"content": [result]}})  # bridge records do not count
-
-
-def test_an_sdk_update_switches_the_claude_p_path_off_too(settings, monkeypatch):
-    marker = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
-              "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders"}  # fmt: skip
-    capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(marker)))
-    asyncio.run(capable.check_available(settings, None, runner="cli"))
-    monkeypatch.setattr(capable, "installed_sdk_version", lambda: "9.9.9")
-    with pytest.raises(ClaudeError):  # decision #84: either version, both runners
-        asyncio.run(capable.check_available(settings, None, runner="cli"))

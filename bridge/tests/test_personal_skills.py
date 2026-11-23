@@ -41,11 +41,11 @@ Tidy $file. !`touch never`
 """
 
 
-def marker(runner="cli", suite=None):
+def marker(runner="sdk", suite=None):
     data = {"runner": runner, "claude_version": VERSION, "sdk_version": capable.sdk_version(),
             "all_passed": True, "scope": "all_allowed_folders",
-            "suite_version": capable.suite_version(runner) if suite is None else suite}  # fmt: skip
-    capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
+            "suite_version": capable.SUITE_VERSION if suite is None else suite}  # fmt: skip
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
 
 def personal(settings, name="review", text="---\ndescription: Review.\n---\nReview it.\n"):
@@ -280,7 +280,8 @@ def test_the_personal_folder_as_a_session_folder_is_never_the_folders_own(tmp_pa
 
 def calls(ask_dir):
     path = ask_dir / ".fake-claude-calls.jsonl"
-    return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    entries = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    return [entry for entry in entries if "args" in entry]  # launches, not SDK messages
 
 
 @pytest.fixture
@@ -291,7 +292,7 @@ def session(settings, ask_dir, write_session):
     return write_session(ask_dir, [user_line(ask_dir, "first")])
 
 
-@pytest.mark.parametrize("runner", ["cli", "sdk"])
+@pytest.mark.parametrize("runner", ["sdk"])  # capable runs exist on the SDK runner only
 def test_every_capable_run_is_offered_the_personal_skills(settings, ask_dir, auth, session, runner):
     marker(runner)
     with TestClient(create_app(dataclasses.replace(settings, runner=runner))) as client:
@@ -328,7 +329,7 @@ def test_every_capable_run_is_offered_the_personal_skills(settings, ask_dir, aut
 
 
 def test_an_older_check_offers_no_personal_skill(settings, ask_dir, auth, session):
-    marker("cli", suite=capable.PERSONAL_SUITE_VERSIONS["cli"] - 1)
+    marker("sdk", suite=capable.PERSONAL_SUITE_VERSION - 1)
     with TestClient(create_app(settings)) as client:
         url = f"/sessions/{session}"
         listed = client.get(f"{url}/commands", headers=auth).json()
@@ -343,12 +344,11 @@ def test_an_older_check_offers_no_personal_skill(settings, ask_dir, auth, sessio
 def test_the_sdk_runners_older_suite_does_not_count(settings):
     """Suite 5 of the SDK runner still proved that no personal skill is offered."""
     marker("sdk", suite=5)
-    marker("cli", suite=5)
-    assert capable.personal_available("cli") and not capable.personal_available("sdk")
+    assert not capable.personal_available()
     marker("sdk", suite=6)
-    assert capable.personal_available("sdk")
-    capable.marker_path("sdk").unlink()
-    assert not capable.personal_available("sdk")
+    assert capable.personal_available()
+    capable.marker_path().unlink()
+    assert not capable.personal_available()
 
 
 # ------------------------------------------------------------------- the probes
@@ -708,10 +708,7 @@ def test_the_judgement_reads_the_stream_and_the_gates_records(settings, ask_dir)
 
     def judged(prompt):
         session = str(uuid.uuid4())
-        command = claude.build_command(
-            settings, session_id=session, resume=False, stream=True, policy=policy
-        )
-        run = verify.execute(settings, command, prompt, ask_dir, session)
+        run = verify.sdk_execute(settings, policy, prompt, ask_dir, session)
         return run, verify.audit_commands(run, suite.audit_entries(session))
 
     run, audit = judged("FAKE_TOOL ls -la")
@@ -736,12 +733,12 @@ def test_an_inconclusive_personal_probe_writes_no_marker_and_counts_as_not_run(
 ):
     probes = [verify.Probe("a", True), verify.Probe(USED, False, "x", inconclusive=True)]
     monkeypatch.setattr(verify, "load_settings", lambda: settings)
-    monkeypatch.setattr(verify.Suite, "run_all", lambda self: probes)
+    monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: probes)
     as_dicts = [dataclasses.asdict(p) for p in probes]
     monkeypatch.setattr(verify, "service_suite", lambda *a: as_dicts)
-    assert verify.main(["--check-id", "c1"]) == 1
-    assert not capable.marker_path("cli").exists()
-    assert guardcheck.probe_failed("cli", "c1") is False  # retried, never "failed"
+    assert verify.main(["--full", "--check-id", "c1"]) == verify.NOT_RUN
+    assert not capable.marker_path().exists()
+    assert guardcheck.probe_failed("c1") is False  # retried, never "failed"
 
 
 def test_the_switched_on_run_and_the_read_only_run_are_judged_for_personal_skills(
@@ -791,14 +788,12 @@ def test_the_probe_setting_and_the_not_verifiable_state_are_gone(settings, monke
 
     probes = [verify.Probe("a", True)]
     monkeypatch.setattr(verify, "load_settings", lambda: settings)
-    monkeypatch.setattr(verify.Suite, "run_all", lambda self: probes)
+    monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: probes)
     as_dicts = [dataclasses.asdict(p) for p in probes]
     monkeypatch.setattr(verify, "service_suite", lambda *a: as_dicts)
-    assert verify.main([]) == 0
-    written = json.loads(capable.marker_path("cli").read_text())
-    assert (
-        written["all_passed"] is True and written["suite_version"] == capable.SUITE_VERSIONS["cli"]
-    )
+    assert verify.main(["--full"]) == 0
+    written = json.loads(capable.marker_path().read_text())
+    assert written["all_passed"] is True and written["suite_version"] == capable.SUITE_VERSION
     for gone in ("skills_verified", "skills_unverified_reason", "personal_skill_probe"):
         assert gone not in written
     assert not hasattr(capable, "skills_recheck_needed")
@@ -809,19 +804,22 @@ def test_a_marker_of_the_old_rule_is_checked_again(settings, monkeypatch):
     import asyncio
 
     monkeypatch.delenv("LIFEOS_GUARD_AUTOCHECK", raising=False)
-    for runner, suite in (("cli", 4), ("sdk", 5)):
-        data = {"runner": runner, "claude_version": VERSION, "all_passed": True,
-                "sdk_version": capable.sdk_version(), "scope": "memory_folder",
-                "suite_version": suite, "skills_verified": False}  # fmt: skip
-        capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
+    data = {"runner": "sdk", "claude_version": VERSION, "all_passed": True,
+            "sdk_version": capable.sdk_version(), "scope": "memory_folder",
+            "suite_version": 5, "skills_verified": False}  # fmt: skip
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
     launched = []
 
-    async def launcher(runner, check_id):
-        launched.append(runner)
-        marker(runner)
+    async def launcher(kind, check_id):
+        launched.append(kind)
+        written = data | {"core_version": capable.CORE_VERSION, "full_date": "2099-01-01"}
+        if kind == "full":
+            written["suite_version"] = capable.SUITE_VERSION
+        capable.marker_path().write_text(json.dumps(capable.sign_marker(written)))
         return 0
 
     guard = guardcheck.GuardCheck(settings, launcher=launcher, notify=lambda *a: None)
+    guard.hour = lambda now: 4  # a quiet time: the older full suite runs then
 
     async def go():
         await guard.tick()
@@ -829,5 +827,13 @@ def test_a_marker_of_the_old_rule_is_checked_again(settings, monkeypatch):
         await guard.tick()
 
     asyncio.run(go())
-    assert launched == ["cli", "sdk"]  # once each, and no loop afterwards
-    assert "personal probe" not in asyncio.run(guardcheck.version_key(settings, "cli"))
+    assert launched == ["core", "full"]  # once each, and no loop afterwards
+    assert "personal probe" not in guardcheck.GuardCheck.key("fake-claude 1.0")
+
+
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
+
+    return dataclasses.replace(settings, runner="sdk")

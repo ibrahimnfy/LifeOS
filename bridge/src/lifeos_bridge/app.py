@@ -290,9 +290,11 @@ def create_app(settings: Settings) -> FastAPI:
         sweeping = asyncio.create_task(sweep_chats_forever())
         # SDK runner: live sessions close after a while without messages.
         reaper = asyncio.create_task(sdk_pool.reap_forever()) if sdk_pool is not None else None
-        # After an update of Claude Code or the Agent SDK the guardrail check reruns by itself.
+        # The guardrail check runs by itself (#181: core set after updates, monthly full).
         guard = guardcheck.GuardCheck(settings)
         guard.held = lambda: applier.holding
+        # The monthly full check waits for a quiet moment (#181): nothing else running.
+        guard.busy = lambda: any(found != "guardrail check" for found in update_blockers())
         _app.state.guard = guard
         guarding = asyncio.create_task(guard.run_forever())
         # Phones reach the bridge through the relay; without the owner's Firebase
@@ -320,7 +322,7 @@ def create_app(settings: Settings) -> FastAPI:
             guarding.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await guarding
-            await guard.close()  # a running check is stopped; the mode stays off
+            await guard.close()  # a running check is stopped: not run, the mode as it was
             if sdk_pool is not None:
                 await sdk_pool.close_all()  # the transcripts keep every conversation
             with contextlib.suppress(Exception):
@@ -591,17 +593,6 @@ def create_app(settings: Settings) -> FastAPI:
             chosen["effort"] = read_choice(data, "effort", claude.effort_levels(settings))
         return {name: value for name, value in chosen.items() if value is not None}
 
-    async def capable_on_sdk(cwd: Path) -> bool:
-        """Which runner a capable run uses; raises when neither passed the guardrail check."""
-        if sdk_pool is not None:
-            try:
-                await capable.check_available(settings, cwd, runner="sdk")
-                return True
-            except ClaudeError:
-                pass  # the claude -p path stays the fallback until the SDK path passed
-        await capable.check_available(settings, cwd, runner="cli")
-        return False
-
     def finish(session_id: str) -> None:
         """A run of the session ended: free it and send what is waiting, if anything."""
         slots.release(session_id)
@@ -781,20 +772,16 @@ def create_app(settings: Settings) -> FastAPI:
                     "session_in_use", 409, "this session is open on the computer right now"
                 )
             if is_capable:
-                # Decision #84: on the SDK runner only after the guardrail check passed
-                # there; until then the claude -p path is the fallback, if it passed.
-                use_sdk = await capable_on_sdk(cwd)
-                if not use_sdk and sdk_pool is not None:
-                    await sdk_pool.drop(session_id)  # never two kinds of writer at once
+                # The SDK runner only (#181), after a guardrail check passed there.
+                await capable.check_available(settings, cwd)
                 watch = capable.AuditWatch(session_id)
-                runner = "sdk" if use_sdk else "cli"
                 # The owner's personal skills and MCP servers (#162): in every capable
-                # run, once the check with their probes has passed on this runner.
-                personal = capable.personal_available(runner)
+                # run, once the check with their probes has passed.
+                personal = capable.personal_available()
                 if chosen["skills"]:
                     # The folder's own skills (#91): only after the check with the skill
                     # probes; never silently without them (switch them off instead).
-                    await capable.skills_available(settings, cwd, runner=runner)
+                    await capable.skills_available(settings, cwd)
                 offer = await asyncio.to_thread(
                     skills.for_run, settings, cwd, session_id,
                     folder_skills=chosen["skills"], personal=personal,
@@ -809,7 +796,7 @@ def create_app(settings: Settings) -> FastAPI:
                     mcp_servers.for_run, cwd, settings.personal_mcp_file if personal else None
                 )
                 if servers:
-                    await capable.mcp_available(settings, cwd, runner=runner)
+                    await capable.mcp_available(settings, cwd)
                     scopes = await asyncio.to_thread(mcp_servers.scopes_for_run, cwd, servers)
                     try:
                         detail = {"session": session_id, "folder": str(cwd),
@@ -821,9 +808,9 @@ def create_app(settings: Settings) -> FastAPI:
                         ) from exc
                     used_servers = [(name, scopes[name]) for name in sorted(servers)]
                 # Its course folder only after a check whose course-folder probes passed.
-                readable = course_dirs if capable.course_folders_available(runner) else []
+                readable = course_dirs if capable.course_folders_available() else []
                 policy = capable.build_policy(
-                    settings, cwd, ask_host=use_sdk, skills_dir=offer.folder_dir,
+                    settings, cwd, ask_host=True, skills_dir=offer.folder_dir,
                     personal_skills_dir=offer.personal_dir, mcp=servers, course_dirs=readable,
                 )  # fmt: skip
                 run_args |= {"policy": policy, "observer": watch}
@@ -1991,12 +1978,11 @@ def create_app(settings: Settings) -> FastAPI:
         reason = None if switched else "skills are switched off for this session"
         personal_reason = None
         try:
-            use_sdk = await capable_on_sdk(info.folder)
-            runner = "sdk" if use_sdk else "cli"
-            if not capable.personal_available(runner):
+            await capable.check_available(settings, info.folder)
+            if not capable.personal_available():
                 personal_reason = capable.PERSONAL_UNAVAILABLE_REASON
             if reason is None:
-                await capable.skills_available(settings, info.folder, runner=runner)
+                await capable.skills_available(settings, info.folder)
         except ClaudeError as error:
             reason = reason or error.message
             personal_reason = personal_reason or error.message

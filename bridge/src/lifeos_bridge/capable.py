@@ -1,17 +1,18 @@
 """The capable mode: shell commands and edits, inside guardrails.
 
-Design and status: docs/permission-policy.md. The mode is switched off
-unless a marker file says that the guardrail probes passed for exactly the
-installed Claude Code and Agent SDK versions, on the runner that would run
-it. Each runner has its own marker: ``claude -p`` (``cli``) and the Agent
-SDK (``sdk``). Both record both versions: an update of either switches the
-mode off on both runners (decision #84).
+Design and status: docs/permission-policy.md. Capable runs need the Agent SDK
+runner (``LIFEOS_RUNNER=sdk``); ``claude -p`` keeps read-only runs only (#181).
+The mode is switched off unless a marker file says that a guardrail check
+passed on this computer.
 
 The marker is signed with a key that only the check and the bridge read
 (``guardrail-key`` in the private settings folder), so a marker changed by
-hand switches the mode off instead of on. While a check runs (started by
-hand or by ``guardcheck``), the mode is off. Every capable request checks
-all of this again, with the versions read at that moment (#107).
+hand switches the mode off instead of on. It records the Claude Code and
+Agent SDK versions the last check verified. A newer version does **not**
+switch the mode off (#181): the last verified state holds while the core set
+of probes runs again (``guardcheck``), and only a check that *failed*
+removes the marker (``switch_off``). Every capable request reads the marker
+again.
 """
 
 from __future__ import annotations
@@ -32,48 +33,40 @@ from .claude import ClaudeError, Policy
 from .config import Settings, config_dir
 from .paths import refusal_reason
 
-MARKER_FILE_NAME = "capable-mode.json"  # the cli runner (the name it always had)
-MARKER_FILE_NAMES = {"cli": MARKER_FILE_NAME, "sdk": "capable-mode-sdk.json"}
+MARKER_FILE_NAME = "capable-mode-sdk.json"
+# Left behind by bridges before #181 (the claude -p runner's marker, the flags of a
+# running check): never read any more; removed at start (``guardcheck``).
+STALE_FILE_NAMES = (
+    "capable-mode.json", "guardrail-check-running-cli", "guardrail-check-running-sdk",
+)  # fmt: skip
 AUDIT_DIR_NAME = "audit"
 KEY_FILE_NAME = "guardrail-key"
-# Version of the probe suite. A marker of an older suite keeps the capable mode
-# on, but not what needed the newer probes; the automatic check reruns it.
+# Version of the full probe suite. A marker of an older suite keeps the capable mode
+# on, and what needs newer probes waits for the next full check (monthly, or by hand).
 # 2: the skill probes (#91). 3: a run cannot add skills to its folder (#92).
 # 4: unapproved or changed MCP servers are never passed to a run (#108).
-# 5 (SDK runner only): its approval probes tell a scenario that did not happen
-# (recorded as inconclusive, the check counts as not run) from a guardrail that
-# held or broke; the escape probe targets a file outside the sandbox (#106).
-# cli 5 and sdk 6: the owner's personal skills and personal MCP servers (#162).
-# Each runner reruns only when its own suite changed.
-# The same versions also probe a blank chat's folder as the run folder (#163).
-# cli 6 and sdk 7: the chat-folder probes judge another chat's file way by way, by the
-# result of the call that asked for it, and a step that was not made is "not run" (#163).
-# Also in cli 6 and sdk 7: the personal-skill probe judges every shell call by what happened to
-# it, not by counts. A call that Claude Code rejects before it starts has no audit
-# record and needs none; the first real check had failed on such a call (#162).
-# cli 7 and sdk 8: an approved push gets network for that one command, run by the bridge in
-# a confinement of its own (#178, SDK runner only; the cli runner has no approvals).
-# Also cli 7 and sdk 8: the owner's read-only course folders (#179): readable by tool
-# and command, never writable, nothing in them loaded.
-# The same versions (#180): the LifeOS program folder as the run folder, with its hidden and
-# protected parts (``program.py``), probed on a scratch copy of its layout; and an allowed
-# folder as the run folder. Both blocks only widen the scope (marker fields
-# ``program_folder`` and ``scope``); each keeps its own constant.
-SUITE_VERSIONS = {"cli": 7, "sdk": 9}
-PROGRAM_SUITE_VERSIONS = {"cli": 7, "sdk": 9}
-SUITE_VERSION = max(SUITE_VERSIONS.values())
-# The first suite of each runner whose probes cover an approved push with network (#178).
-NETWORK_SUITE_VERSIONS = {"sdk": 8}
+# 5: the approval probes tell a scenario that did not happen (inconclusive) from a
+# guardrail that held or broke; the escape probe targets a file outside the sandbox (#106).
+# 6: the owner's personal skills and MCP servers (#162); a blank chat's folder (#163).
+# 7: another chat's file judged way by way; personal-skill shell calls judged one by one.
+# 8: read-only course folders (#179); the program folder and allowed folders as run
+# folders (#180, marker fields ``program_folder`` and ``scope``).
+# 9: the program-folder file-tool step reads a plainly named file.
+SUITE_VERSION = 9
+# Version of the core set (``verify.CORE``): the probes that run again after an update of
+# Claude Code or the Agent SDK, on the cheapest capable model (#181). A marker of an older
+# core set gets the core check.
+CORE_VERSION = 1
+PROGRAM_SUITE_VERSION = 9
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
-# The first suite of each runner that probes a chat folder as the run folder (#163).
-CHAT_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
-# Personal skills and personal MCP servers (#162) need the probes of these suite
-# versions, per runner: the SDK runner's suite 5 still proved the opposite rule.
-PERSONAL_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
+# The first suite that probes a chat folder as the run folder (#163).
+CHAT_SUITE_VERSION = 6
+# Personal skills and personal MCP servers (#162) need the probes of this suite.
+PERSONAL_SUITE_VERSION = 6
 # A capable run is given a course folder to read (#179) only after a check whose
-# course-folder probes passed: these suite versions, and ``course_folders`` in the marker.
-COURSE_SUITE_VERSIONS = {"cli": 7, "sdk": 8}
+# course-folder probes passed: this suite version, and ``course_folders`` in the marker.
+COURSE_SUITE_VERSION = 8
 SDK_PACKAGE = "claude-agent-sdk"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
@@ -88,13 +81,13 @@ DENIED_READS = (
 SANDBOX_HIDDEN = ("~/", "/run/user", "/media", "/mnt")
 
 
-def marker_path(runner: str = "cli") -> Path:
-    return config_dir() / MARKER_FILE_NAMES[runner]
+def marker_path() -> Path:
+    return config_dir() / MARKER_FILE_NAME
 
 
 def sdk_version() -> str:
     """Version of the Agent SDK this bridge process has loaded."""
-    import claude_agent_sdk  # imported here: the cli runner does not need it
+    import claude_agent_sdk  # imported here: read-only runs on claude -p do not need it
 
     return str(claude_agent_sdk.__version__)
 
@@ -105,20 +98,6 @@ def installed_sdk_version() -> str:
         return metadata.version(SDK_PACKAGE)
     except metadata.PackageNotFoundError:
         return ""
-
-
-def running_flag(runner: str) -> Path:
-    return config_dir() / f"guardrail-check-running-{runner}"
-
-
-def set_check_running(runner: str, running: bool) -> None:
-    """Mark that a check of ``runner`` runs; the mode of that runner is off meanwhile."""
-    flag = running_flag(runner)
-    if running:
-        config_dir().mkdir(mode=0o700, parents=True, exist_ok=True)
-        flag.write_text("running\n", encoding="utf-8")
-    else:
-        flag.unlink(missing_ok=True)
 
 
 def _key(create: bool) -> bytes | None:
@@ -159,6 +138,29 @@ def signature_valid(marker: dict) -> bool:
     )
 
 
+def read_marker() -> dict | None:
+    """The marker when a passed check wrote it (complete and signed); otherwise ``None``."""
+    try:
+        marker = json.loads(marker_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(marker, dict) or marker.get("all_passed") is not True:
+        return None
+    if not isinstance(marker.get("claude_version"), str) or marker.get("runner") != "sdk":
+        return None
+    return marker if signature_valid(marker) else None
+
+
+def switch_off() -> None:
+    """The only place the capable mode is switched off: a check *failed* (#181)."""
+    marker_path().unlink(missing_ok=True)
+
+
+def remove_stale_files() -> None:
+    for name in STALE_FILE_NAMES:
+        (config_dir() / name).unlink(missing_ok=True)
+
+
 def audit_dir() -> Path:
     return config_dir() / AUDIT_DIR_NAME
 
@@ -188,47 +190,32 @@ async def claude_version(settings: Settings) -> str:
     return version
 
 
-async def check_available(
-    settings: Settings, run_dir: Path | None = None, runner: str = "cli"
-) -> None:
-    """Raise unless the guardrail probes passed for the installed versions, on ``runner``.
+async def check_available(settings: Settings, run_dir: Path | None = None) -> None:
+    """Raise unless a guardrail check passed on this computer (and covered ``run_dir``).
 
-    The probes run in the memory folder. Unless the marker says they also
-    covered other allowed folders, capable runs elsewhere stay refused. The
-    marker must carry a valid signature and must not be older than a check
-    that is running now.
+    The probes run in the memory folder. Unless the marker says they also covered
+    other allowed folders, capable runs elsewhere stay refused. The marker must carry
+    a valid signature. Its versions are not compared with the installed ones (#181):
+    after an update the last verified state holds until the core check has run, and
+    only a failed check switches the mode off.
     """
-    if runner not in MARKER_FILE_NAMES:
-        raise unavailable("unknown runner")
-    if running_flag(runner).exists():
-        raise unavailable("the guardrail check is running")
-    try:
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+    if settings.runner != "sdk":
         raise unavailable(
-            f"the guardrail check has not passed for the {runner} runner on this computer yet"
-        ) from exc
-    recorded = marker.get("claude_version") if isinstance(marker, dict) else None
-    if not isinstance(recorded, str) or marker.get("all_passed") is not True:
-        raise unavailable("the guardrail check has not passed on this computer yet")
-    if not signature_valid(marker):
-        raise unavailable("the guardrail marker was not written by the check; it is ignored")
-    if marker.get("runner", "cli") != runner:
-        raise unavailable(f"the guardrail check did not cover the {runner} runner")
-    # Decision #84: a change of either version switches the mode off, on both runners.
-    if not marker.get("sdk_version") == sdk_version() == installed_sdk_version():
+            "capable runs need the Agent SDK runner (LIFEOS_RUNNER=sdk); the claude -p "
+            "runner keeps read-only runs only"
+        )
+    marker = read_marker()
+    if marker is None:
         raise unavailable(
-            "the Agent SDK was updated since the guardrail check; run scripts/verify-guardrails"
+            "the guardrail check has not passed on this computer yet (it runs by itself; "
+            "by hand: scripts/verify-guardrails --full)"
         )
     if run_dir is not None and _is_chat_folder(settings, run_dir):
         # A blank chat's folder (#163): only after a check whose chat-folder probes passed.
-        version = marker.get("suite_version")
-        probed = isinstance(version, int) and version >= CHAT_SUITE_VERSIONS[runner]
-        if not probed or marker.get("chat_folders") is not True:
+        if _marker_suite(marker) < CHAT_SUITE_VERSION or marker.get("chat_folders") is not True:
             raise unavailable(
                 "the guardrail check has not covered chat folders yet; run "
-                "scripts/verify-guardrails (and with --runner sdk) once the chat folder "
-                "can be used"
+                "scripts/verify-guardrails --full once the chat folder can be used"
             )
     elif run_dir is not None:
         memory, folder = settings.ask_dir.resolve(), run_dir.resolve()
@@ -236,105 +223,84 @@ async def check_available(
         if folder == program.program_dir(settings.allowed_roots):
             # The LifeOS program folder (#180): an allowed folder with rules of its own,
             # after a check that covered allowed folders and its own probes.
-            version = marker.get("suite_version")
-            probed = isinstance(version, int) and version >= PROGRAM_SUITE_VERSIONS[runner]
+            probed = _marker_suite(marker) >= PROGRAM_SUITE_VERSION
             if not everywhere or not probed or marker.get("program_folder") is not True:
                 raise unavailable(
                     "the guardrail check has not covered the LifeOS program folder; the next "
-                    "check does (it runs by itself after an update of Claude Code or of the "
-                    "probes, or by hand: scripts/verify-guardrails)"
+                    "full check does (monthly, or by hand: scripts/verify-guardrails --full)"
                 )
         elif not everywhere and folder != memory and not folder.is_relative_to(memory):
             # Other allowed folders (#180): after a check whose allowed-folder block passed.
             raise unavailable(
                 "the guardrail check covers runs in the memory folder only so far; the next "
-                "check covers allowed folders (scripts/verify-guardrails)"
+                "full check covers allowed folders (scripts/verify-guardrails --full)"
             )
-    if recorded != await claude_version(settings):
-        raise unavailable(
-            "Claude Code was updated since the guardrail check; run scripts/verify-guardrails"
-        )
 
 
-def _marker_suite(runner: str) -> int:
-    """The suite version of the runner's marker; 0 when there is none."""
-    try:
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return 0
+def _marker_suite(marker: dict | None = None) -> int:
+    """The full suite version of the marker; 0 when there is none."""
+    marker = read_marker() if marker is None else marker
     version = marker.get("suite_version") if isinstance(marker, dict) else None
     return version if isinstance(version, int) else 0
 
 
-async def skills_available(
-    settings: Settings, run_dir: Path | None = None, runner: str = "cli"
-) -> None:
+async def skills_available(settings: Settings, run_dir: Path | None = None) -> None:
     """Raise unless the capable mode is on and its check included the skill probes (#91)."""
-    await check_available(settings, run_dir, runner=runner)
-    if _marker_suite(runner) < SKILLS_SUITE_VERSION:
+    await check_available(settings, run_dir)
+    if _marker_suite() < SKILLS_SUITE_VERSION:
         raise skills_unavailable()
 
 
-def personal_available(runner: str) -> bool:
-    """Whether the runner's check included the probes for personal skills and servers (#162).
+def personal_available() -> bool:
+    """Whether the check included the probes for personal skills and servers (#162).
 
     Asked after ``check_available``. With an older marker a capable run simply
     gets no personal skill and no personal MCP server, as before #162.
     """
-    return _marker_suite(runner) >= PERSONAL_SUITE_VERSIONS.get(runner, SUITE_VERSION)
+    return _marker_suite() >= PERSONAL_SUITE_VERSION
 
 
-def network_push_probed(runner: str) -> bool:
-    """Whether the runner's check included the probes of an approved push with network (#178).
-
-    Asked when an approval is about to be shown. Without them an approved push runs
-    as before: inside the sandbox, without network.
-    """
-    needed = NETWORK_SUITE_VERSIONS.get(runner)
-    if needed is None or _marker_suite(runner) < needed:
-        return False
-    try:  # the probes may have been skipped (no usable chat root, no bubblewrap)
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
-    return isinstance(marker, dict) and marker.get("network_push") is True
+def network_push_probed(runner: str = "sdk") -> bool:
+    """Whether the check included the probes of an approved push with network (#178)."""
+    marker = read_marker()
+    return (
+        runner == "sdk"
+        and marker is not None
+        and _marker_suite(marker) >= 8
+        and marker.get("network_push") is True
+    )
 
 
-def course_folders_available(runner: str) -> bool:
-    """Whether the runner's check proved the read-only course folders (#179).
+def course_folders_available() -> bool:
+    """Whether the check proved the read-only course folders (#179).
 
     Asked after ``check_available``. Without it a capable run is not given its
     course folder to read; the write denials for course folders apply anyway.
     """
-    try:
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return False
+    marker = read_marker()
     return (
-        isinstance(marker, dict)
+        marker is not None
         and marker.get("course_folders") is True
-        and _marker_suite(runner) >= COURSE_SUITE_VERSIONS.get(runner, SUITE_VERSION)
+        and _marker_suite(marker) >= COURSE_SUITE_VERSION
     )
 
 
 PERSONAL_UNAVAILABLE_REASON = (
-    "the owner's personal skills are offered after the guardrail check with the "
-    "personal-skill probes has passed (it runs by itself at the next start of the bridge)"
+    "the owner's personal skills are offered after a full guardrail check with the "
+    "personal-skill probes has passed (scripts/verify-guardrails --full)"
 )
 
 
-async def mcp_available(
-    settings: Settings, run_dir: Path | None = None, runner: str = "cli"
-) -> None:
+async def mcp_available(settings: Settings, run_dir: Path | None = None) -> None:
     """Raise unless the capable mode is on and its check included the MCP probes (#108)."""
-    await check_available(settings, run_dir, runner=runner)
-    if _marker_suite(runner) < MCP_SUITE_VERSION:
+    await check_available(settings, run_dir)
+    if _marker_suite() < MCP_SUITE_VERSION:
         raise ClaudeError(
             "mcp_unavailable",
             503,
-            "this folder has approved MCP servers, and they are used only after the guardrail "
-            "check with the MCP probes has passed (it runs by itself at the next start of the "
-            "bridge); revoke their approval to work without them",
+            "this folder has approved MCP servers, and they are used only after a full "
+            "guardrail check with the MCP probes has passed; revoke their approval to work "
+            "without them",
         )
 
 
@@ -342,9 +308,8 @@ def skills_unavailable() -> ClaudeError:
     return ClaudeError(
         "skills_unavailable",
         503,
-        "the session's skills stay off until the guardrail check with the skill probes has "
-        "passed (it runs by itself at the next start of the bridge); switch skills off for "
-        "this session to work without them",
+        "the session's skills stay off until a full guardrail check with the skill probes "
+        "has passed; switch skills off for this session to work without them",
     )
 
 
@@ -354,18 +319,25 @@ def _is_chat_folder(settings: Settings, folder: Path) -> bool:
     return chats.is_chat_folder(settings, folder)
 
 
-def suite_version(runner: str) -> int:
-    return SUITE_VERSIONS.get(runner, SUITE_VERSION)
+def suite_outdated() -> bool:
+    """True when the marker comes from an older full probe suite."""
+    marker = read_marker()
+    return marker is not None and _marker_suite(marker) < SUITE_VERSION
 
 
-def suite_outdated(runner: str) -> bool:
-    """True when the runner's marker comes from an older probe suite."""
-    try:
-        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+def core_outdated(claude_version: str, sdk: str) -> bool:
+    """True when the marker's verified versions or core set differ from what is installed:
+    the core check is due (#181)."""
+    marker = read_marker()
+    if marker is None:
         return False
-    version = marker.get("suite_version") if isinstance(marker, dict) else None
-    return not isinstance(version, int) or version < suite_version(runner)
+    core = marker.get("core_version")
+    return (
+        marker.get("claude_version") != claude_version
+        or marker.get("sdk_version") != sdk
+        or not isinstance(core, int)
+        or core < CORE_VERSION
+    )
 
 
 def _rule_path(folder: Path) -> str:

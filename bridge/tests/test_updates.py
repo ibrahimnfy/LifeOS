@@ -32,10 +32,10 @@ def repo(tmp_path, monkeypatch):
 
 @pytest.fixture
 def allowed(settings, repo, isolated_config):
-    data = {"runner": "cli", "claude_version": "fake-claude 1.0", "all_passed": True,
+    data = {"runner": "sdk", "claude_version": "fake-claude 1.0", "all_passed": True,
             "sdk_version": capable.sdk_version(), "scope": "all_allowed_folders",
-            "suite_version": capable.SUITE_VERSIONS["cli"], "program_folder": True}  # fmt: skip
-    capable.marker_path("cli").write_text(json.dumps(capable.sign_marker(data)))
+            "suite_version": capable.SUITE_VERSION, "program_folder": True}  # fmt: skip
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
     return dataclasses.replace(settings, allowed_paths=(repo,))
 
 
@@ -393,3 +393,11 @@ def test_a_refused_card_removes_its_notification(
     asks = [ref for event, ref in sent if event == "approval"]
     cleared = [ref for event, ref in sent if event == "cleared"]
     assert asks == [session_id] and cleared == [session_id]
+
+
+@pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    import dataclasses
+
+    return dataclasses.replace(settings, runner="sdk")

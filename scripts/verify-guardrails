@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Guardrail check for the capable mode: runs the probe suite of
-# docs/permission-policy.md against the real Claude Code, in this terminal
-# and in the service environment, and switches the capable mode on only if
-# every probe passes. Uses a few short runs of the owner's Claude plan.
+# Guardrail check for the capable mode: runs probes of docs/permission-policy.md
+# against the real Claude Code through the Agent SDK runner. A pass writes the
+# marker that keeps the capable mode on; a failed guardrail probe switches it
+# off; a check that does not complete changes nothing (#181).
 #
-# Usage: scripts/verify-guardrails [--runner cli|sdk] [--no-service]
-# (--runner sdk checks the Agent SDK runner; each runner has its own marker)
+# Usage: scripts/verify-guardrails [--full] [--no-service]
+#   (default) the core set: about 9 short runs, in this environment
+#   --full    the full suite: about 27 short runs here and as many again in
+#             the service environment (--no-service skips that; no marker then)
 set -euo pipefail
 bridge_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bridge" && pwd)"
 cd "$bridge_dir"

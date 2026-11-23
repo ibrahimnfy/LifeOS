@@ -28,16 +28,16 @@ def sdk_settings(settings, monkeypatch):
 def marker(isolated_config):
     """Write a marker the way scripts/verify-guardrails does (per runner)."""
 
-    def write(runner="sdk", **fields):
+    def write(**fields):
         data = {
-            "runner": runner,
+            "runner": "sdk",
             "claude_version": VERSION,
             "sdk_version": capable.sdk_version(),
             "all_passed": True,
             "scope": "all_allowed_folders",
         } | fields
         data = {k: v for k, v in data.items() if v is not None}
-        capable.marker_path(runner).write_text(json.dumps(capable.sign_marker(data)))
+        capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
 
     return write
 
@@ -55,51 +55,47 @@ def option(args, name):
     return args[args.index(name) + 1] if name in args else None
 
 
-def check(settings, runner, run_dir=None):
-    return asyncio.run(capable.check_available(settings, run_dir, runner=runner))
+def check(settings, run_dir=None):
+    return asyncio.run(capable.check_available(settings, run_dir))
 
 
 # ------------------------------------------------------------------- the markers
 
 
-def test_each_runner_needs_its_own_marker(settings, marker):
+def test_only_the_sdk_runner_has_a_capable_mode(settings, sdk_settings, marker):
     with pytest.raises(ClaudeError):
-        check(settings, "sdk")
-    marker("cli")
-    check(settings, "cli")
+        check(sdk_settings)
+    marker()
+    check(sdk_settings)
     with pytest.raises(ClaudeError):
-        check(settings, "sdk")  # a pass of claude -p says nothing about the SDK path
-    marker("sdk")
-    check(settings, "sdk")
+        check(settings)  # claude -p: read-only runs only (#181)
 
 
-def test_a_marker_from_before_runners_counts_for_cli_only(settings, isolated_config):
+def test_a_marker_of_the_claude_p_runner_counts_for_nothing(sdk_settings, isolated_config):
     legacy = {"claude_version": VERSION, "all_passed": True, "scope": "all_allowed_folders",
               "sdk_version": capable.sdk_version()}  # fmt: skip
     (isolated_config / "capable-mode.json").write_text(json.dumps(capable.sign_marker(legacy)))
-    check(settings, "cli")
     with pytest.raises(ClaudeError):
-        check(settings, "sdk")
+        check(sdk_settings)
 
 
 @pytest.mark.parametrize(
     "fields",
     [
-        {"sdk_version": "0.0.1"},
-        {"sdk_version": None},
-        {"claude_version": "older"},
         {"runner": "cli"},
+        {"runner": None},
+        {"claude_version": None},
         {"all_passed": False},
         {"all_passed": "yes"},
     ],
 )
-def test_the_sdk_marker_must_match_runner_and_both_versions(settings, isolated_config, fields):
+def test_the_marker_must_be_complete(sdk_settings, isolated_config, fields):
     data = {"runner": "sdk", "claude_version": VERSION, "sdk_version": capable.sdk_version(),
             "all_passed": True, "scope": "all_allowed_folders"} | fields  # fmt: skip
     data = {k: v for k, v in data.items() if v is not None}
-    capable.marker_path("sdk").write_text(json.dumps(capable.sign_marker(data)))
+    capable.marker_path().write_text(json.dumps(capable.sign_marker(data)))
     with pytest.raises(ClaudeError) as caught:
-        check(settings, "sdk")
+        check(sdk_settings)
     assert caught.value.code == "capable_mode_unavailable"
 
 
@@ -112,27 +108,16 @@ def test_without_any_marker_capable_is_refused(sdk_settings, auth, ask_dir):
     assert response.status_code == 503 and launches(ask_dir) == []
 
 
-def test_until_the_sdk_path_passed_claude_p_is_the_fallback(sdk_settings, auth, ask_dir, marker):
-    marker("cli")
-    with TestClient(create_app(sdk_settings)) as client:
-        first = client.post("/ask", headers=auth, json={"prompt": "read only first"}).json()
-        session_id = first["session_id"]
-        assert session_id in client.app.state.sdk_pool.live
-        response = client.post(
-            "/ask", headers=auth,
-            json={"prompt": "capable now", "mode": "capable", "session_id": session_id},
-        )  # fmt: skip
-        assert response.status_code == 200
-        # The SDK process of the session was closed first: never two writers.
-        assert session_id not in client.app.state.sdk_pool.live
-    cli_runs = [e for e in log(ask_dir) if "args" in e and not e.get("sdk")]
-    assert cli_runs and "-p" in cli_runs[-1]["args"] and "--settings" in cli_runs[-1]["args"]
-    hook = json.loads(option(cli_runs[-1]["args"], "--settings"))["hooks"]["PreToolUse"][0]
-    assert "--ask-host" not in hook["hooks"][0]["command"]  # the claude -p gate refuses
+def test_the_claude_p_runner_refuses_capable_runs(settings, auth, ask_dir, marker):
+    marker()
+    with TestClient(create_app(settings)) as client:
+        response = client.post("/ask", headers=auth, json={"prompt": "x", "mode": "capable"})
+    assert response.status_code == 503 and "LIFEOS_RUNNER=sdk" in response.json()["message"]
+    assert log(ask_dir) == []
 
 
 def test_after_the_sdk_path_passed_capable_runs_through_it(sdk_settings, auth, ask_dir, marker):
-    marker("sdk")
+    marker()
     with TestClient(create_app(sdk_settings)) as client:
         response = client.post("/ask", headers=auth, json={"prompt": "hello", "mode": "capable"})
         assert response.status_code == 200 and response.json()["answer"] == "echo: hello"
@@ -155,15 +140,15 @@ def test_after_the_sdk_path_passed_capable_runs_through_it(sdk_settings, auth, a
     assert "--settings" not in second["args"] and "--resume" in second["args"]
 
 
-def test_an_sdk_version_change_switches_the_sdk_path_off(sdk_settings, auth, ask_dir, marker):
-    marker("sdk", sdk_version="0.0.1")
+def test_an_sdk_version_change_keeps_the_mode_on(sdk_settings, auth, ask_dir, marker):
+    marker(sdk_version="0.0.1", claude_version="older")  # #181: until the core check ran
     with TestClient(create_app(sdk_settings)) as client:
         response = client.post("/ask", headers=auth, json={"prompt": "x", "mode": "capable"})
-    assert response.status_code == 503 and launches(ask_dir) == []
+    assert response.status_code == 200 and launches(ask_dir)
 
 
 def test_a_tool_result_without_audit_record_stops_the_sdk_run(sdk_settings, auth, marker):
-    marker("sdk")
+    marker()
     with TestClient(create_app(sdk_settings)) as client:
         response = client.post(
             "/ask", headers=auth, json={"prompt": "FAKE_UNAUDITED", "mode": "capable"}
@@ -172,7 +157,7 @@ def test_a_tool_result_without_audit_record_stops_the_sdk_run(sdk_settings, auth
 
 
 def test_capable_approval_through_the_api(sdk_settings, auth, ask_dir, marker, isolated_config):
-    marker("sdk")
+    marker()
     prompt = "FAKE_TOOL Bash " + json.dumps({"command": "rm old.txt"})
     with TestClient(create_app(sdk_settings)) as client:
         holder = {}
@@ -204,7 +189,7 @@ def test_capable_approval_through_the_api(sdk_settings, auth, ask_dir, marker, i
 
 
 def test_a_non_streaming_capable_request_cannot_be_asked(sdk_settings, auth, marker):
-    marker("sdk")
+    marker()
     prompt = "FAKE_TOOL Bash " + json.dumps({"command": "rm old.txt"})
     with TestClient(create_app(sdk_settings)) as client:
         response = client.post("/ask", headers=auth, json={"prompt": prompt, "mode": "capable"})
@@ -222,7 +207,7 @@ def test_the_suite_runs_capable_steps_through_the_sdk_runner(settings, monkeypat
         return verify.Run(0, [], [], "", [], "", session_id)
 
     monkeypatch.setattr(verify, "sdk_execute", fake_sdk)
-    suite = verify.Suite(settings, "sdk")
+    suite = verify.Suite(settings)
     suite.run_dir = settings.ask_dir
     suite.capable_run("1. something\n", approve=True)
     [(policy, kwargs)] = seen
@@ -250,23 +235,18 @@ def write_env(config):
     (config / "env").chmod(0o600)
 
 
-def test_verify_writes_the_marker_of_its_runner_only(
-    settings, isolated_config, monkeypatch, marker
-):
-    marker("cli")
-    marker("sdk")
+def test_verify_writes_the_sdk_marker(settings, isolated_config, monkeypatch, marker):
     monkeypatch.setattr(verify, "load_settings", lambda: settings)
     passed = [verify.Probe("x", True)]
-    monkeypatch.setattr(verify.Suite, "run_all", lambda self: passed)
+    monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: passed)
     monkeypatch.setattr(verify, "service_suite", lambda *a: [dataclasses.asdict(p) for p in passed])
-    assert verify.main(["--runner", "sdk"]) == 0
-    written = json.loads(capable.marker_path("sdk").read_text())
+    assert verify.main(["--full"]) == 0
+    written = json.loads(capable.marker_path().read_text())
     assert written["runner"] == "sdk" and written["sdk_version"] == capable.sdk_version()
     assert written["claude_version"] == VERSION and written["all_passed"] is True
-    assert capable.marker_path("cli").exists()  # the other runner's marker is untouched
+    assert written["check"] == "full" and written["suite_version"] == capable.SUITE_VERSION
 
     failed = [verify.Probe("x", False)]
-    monkeypatch.setattr(verify.Suite, "run_all", lambda self: failed)
-    assert verify.main(["--runner", "sdk"]) == 1
-    assert not capable.marker_path("sdk").exists()  # off at once, and stays off
-    assert capable.marker_path("cli").exists()
+    monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: failed)
+    assert verify.main([]) == verify.FAILED
+    assert not capable.marker_path().exists()  # a failed guardrail switches it off

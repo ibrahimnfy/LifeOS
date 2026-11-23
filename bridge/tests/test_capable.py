@@ -14,13 +14,19 @@ from test_ask import option, parse_sse
 
 
 @pytest.fixture
+def settings(settings):
+    """Capable runs exist on the SDK runner only (#181)."""
+    return dataclasses.replace(settings, runner="sdk")
+
+
+@pytest.fixture
 def enable(isolated_config):
-    """Write the marker file the way scripts/verify-guardrails will."""
+    """Write the marker file the way scripts/verify-guardrails does."""
 
     def write(version="fake-claude 1.0", all_passed=True, scope="all_allowed_folders"):
-        marker = {"claude_version": version, "all_passed": all_passed, "scope": scope,
-                  "sdk_version": capable.sdk_version()}  # fmt: skip
-        (isolated_config / "capable-mode.json").write_text(json.dumps(capable.sign_marker(marker)))
+        marker = {"runner": "sdk", "claude_version": version, "all_passed": all_passed,
+                  "scope": scope, "sdk_version": capable.sdk_version()}  # fmt: skip
+        capable.marker_path().write_text(json.dumps(capable.sign_marker(marker)))
 
     return write
 
@@ -40,7 +46,7 @@ def test_default_mode_is_read_only_even_when_capable_is_enabled(
     enable()
     client.post("/ask", json={"prompt": "hello"}, headers=auth)
     args = calls()[0]["args"]
-    assert option(args, "--tools") == "Read,Glob,Grep"
+    assert option(args, "--tools") == "Read,Glob,Grep,AskUserQuestion"
     # nothing is added but the conversation index, which a read-only run can only read
     assert "--settings" not in args and added_dirs(args) == [index_dir(ask_dir)]
 
@@ -61,7 +67,7 @@ def test_capable_is_refused_without_marker(client, auth, calls):
 @pytest.mark.parametrize(
     "marker",
     [
-        {"claude_version": "some other version", "all_passed": True},
+        {"runner": "sdk", "claude_version": "fake-claude 1.0", "all_passed": True},  # unsigned
         {"claude_version": "fake-claude 1.0", "all_passed": False},
         {"claude_version": "fake-claude 1.0"},
         ["not", "an", "object"],
@@ -70,7 +76,7 @@ def test_capable_is_refused_without_marker(client, auth, calls):
 def test_capable_is_refused_with_wrong_or_incomplete_marker(
     client, auth, calls, isolated_config, marker
 ):
-    (isolated_config / "capable-mode.json").write_text(json.dumps(marker))
+    capable.marker_path().write_text(json.dumps(marker))
     assert ask(client, auth, "hello").status_code == 503
     assert calls() == []
 
@@ -83,10 +89,11 @@ def test_capable_run_flags_and_single_settings_json(client, auth, calls, enable,
     assert response.json()["refused_actions"] == []
     call = calls()[0]
     args = call["args"]
-    assert option(args, "--tools") == "Read,Glob,Grep,Edit,Write,Bash"
-    assert option(args, "--permission-mode") == "dontAsk"
-    assert option(args, "--permission-prompts") == "none"
-    assert option(args, "--output-format") == "stream-json"
+    assert option(args, "--tools") == "Read,Glob,Grep,Edit,Write,Bash,AskUserQuestion"
+    # The bridge answers permission prompts itself (SDK runner): only the owner's yes.
+    assert option(args, "--permission-mode") == "default"
+    assert option(args, "--permission-prompt-tool") == "stdio"
+    assert option(args, "--input-format") == "stream-json"
     assert "--restricted" in args and "--strict-mcp-config" in args
     # Nothing is granted on the command line.
     for flag in ("--allowedTools", "--allowed-tools", "--dangerously-skip-permissions"):
@@ -145,9 +152,11 @@ def test_approval_required_command_is_refused_with_explanation(
     response = ask(client, auth, "FAKE_TOOL git push origin main")
     body = response.json()
     assert response.status_code == 200
-    assert "approval" in body["answer"] and "pushing" in body["answer"]
+    assert "approval" in body["answer"]
     assert body["refused_actions"] == ["push"]
-    assert audit_entries(isolated_config)[0]["decision"] == "refused"
+    # the gate sent it to the bridge, which could not ask anyone (not streamed): refused
+    decisions = [e["decision"] for e in audit_entries(isolated_config)]
+    assert decisions == ["asked", "approval_requested", "refused"]
 
 
 def test_run_is_stopped_when_a_tool_ran_without_audit_record(client, auth, enable):
@@ -179,15 +188,16 @@ def test_capable_resume_adds_the_memory_folder_and_next_request_is_read_only(
     enable()
     project = tmp_path / "home" / "project"
     project.mkdir()
-    client = TestClient(create_app(dataclasses.replace(settings, allowed_paths=(project,))))
     session_id = write_session(project, [user_line(project, "x")])
     url = f"/sessions/{session_id}/messages"
-    assert (
-        client.post(url, json={"prompt": "go", "mode": "capable"}, headers=auth).status_code == 200
-    )
-    assert client.post(url, json={"prompt": "again"}, headers=auth).status_code == 200
+    with TestClient(create_app(dataclasses.replace(settings, allowed_paths=(project,)))) as client:
+        capable_run = client.post(url, json={"prompt": "go", "mode": "capable"}, headers=auth)
+        assert capable_run.status_code == 200
+        assert client.post(url, json={"prompt": "again"}, headers=auth).status_code == 200
     first, second = [
-        json.loads(line) for line in (project / ".fake-claude-calls.jsonl").read_text().splitlines()
+        entry
+        for line in (project / ".fake-claude-calls.jsonl").read_text().splitlines()
+        if "args" in (entry := json.loads(line))
     ]
     assert added_dirs(first["args"]) == [str(ask_dir), index_dir(ask_dir)]
     granted = json.loads(option(first["args"], "--settings"))
@@ -195,7 +205,7 @@ def test_capable_resume_adds_the_memory_folder_and_next_request_is_read_only(
     assert sorted(granted["sandbox"]["filesystem"]["allowRead"]) == sorted(
         [str(ask_dir), str(project), index_dir(ask_dir)]
     )
-    assert option(second["args"], "--tools") == "Read,Glob,Grep"
+    assert option(second["args"], "--tools") == "Read,Glob,Grep,AskUserQuestion"
     assert "--settings" not in second["args"]
 
 
@@ -223,15 +233,17 @@ def test_a_check_that_covered_only_the_memory_folder_keeps_other_folders_refused
     enable(scope="memory_folder")
     project = tmp_path / "home" / "project"
     project.mkdir()
-    client = TestClient(create_app(dataclasses.replace(settings, allowed_paths=(project,))))
     session_id = write_session(project, [user_line(project, "x")])
-    response = client.post(
-        f"/sessions/{session_id}/messages", json={"prompt": "go", "mode": "capable"}, headers=auth
-    )
-    assert response.status_code == 503
-    assert response.json()["error"] == "capable_mode_unavailable"
-    assert not (project / ".fake-claude-calls.jsonl").exists()
-    assert ask(client, auth, "go").status_code == 200  # the memory folder itself is covered
+    with TestClient(create_app(dataclasses.replace(settings, allowed_paths=(project,)))) as client:
+        response = client.post(
+            f"/sessions/{session_id}/messages",
+            json={"prompt": "go", "mode": "capable"},
+            headers=auth,
+        )
+        assert response.status_code == 503
+        assert response.json()["error"] == "capable_mode_unavailable"
+        assert not (project / ".fake-claude-calls.jsonl").exists()
+        assert ask(client, auth, "go").status_code == 200  # the memory folder itself is covered
 
 
 def test_verify_refuses_to_run_without_a_memory_folder(settings, monkeypatch, capsys, tmp_path):
@@ -244,8 +256,9 @@ def test_verify_refuses_to_run_without_a_memory_folder(settings, monkeypatch, ca
 
 
 def test_verify_reads_a_run_from_its_stream(settings, ask_dir):
+    import uuid
+
     from lifeos_bridge import claude, verify
 
-    command = claude.build_command(settings, session_id="s", resume=False, stream=True)
-    run = verify.execute(settings, command, "hello", ask_dir, "s")
+    run = verify.sdk_execute(settings, claude.READ_ONLY, "hello", ask_dir, str(uuid.uuid4()))
     assert run.exit_status == 0 and run.answer
