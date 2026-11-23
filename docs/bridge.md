@@ -2372,7 +2372,7 @@ checkout) in `allowed_paths`; only the folder itself can be listed, never a
 folder inside or around it. A capable run there works like a terminal
 session: issues, code, tests, commits. What it must never see or change in
 the folder, and why nothing it changes runs outside the sandbox before the
-owner's yes, is in [`permission-policy.md`](permission-policy.md), section
+update is applied, is in [`permission-policy.md`](permission-policy.md), section
 9.14. Capable runs there need the guardrail check with the program-folder
 probes and the allowed-folder probes (a full check of suite 9 or later; marker
 `"program_folder": true` and `"scope": "all_allowed_folders"`).
@@ -2386,32 +2386,24 @@ of its own:
 [[apply-update]]
 ```
 
-**The card.** The bridge takes the line out of a fresh answer of a capable
-run (never from the history, never from a background job) and offers an
-approval card, kind `apply_update`, in the answer's `update_requests` and in
-`GET /sessions/{id}/interactions`:
+**No card since #183** (owner decision of 2026-11-23). The bridge takes the
+line out of a fresh answer of a capable run to a message the owner sent
+(never from the history, a queued bridge turn or a background job) and
+schedules the update at once for the commit the program folder is at
+(read from git's files; no git program runs at that moment). The owner
+gets the notification "LifeOS: update started"; `GET /app/update` shows
+`waiting`. The answer carries no `update_requests` then.
 
-```json
-{"id": "a…", "kind": "apply_update", "session_id": "…", "folder": "…",
- "state": "ready", "commit": "<40 hex>", "running_commit": "<40 hex or empty>",
- "created_at": "…", "expires_at": "…"}
-```
+- Refused at once, in the answer's `update_requests` (`"kind":
+  "apply_update", "state": "refused"`, `error_code`): `not_owner` (an
+  answer to anything else than the owner's own message),
+  `not_program_folder` (the line came from another folder),
+  `update_in_progress`, `no_commit`, `audit_unavailable`.
+- A card of a bridge before #183 that still waits can be answered as
+  before (`POST /sessions/{id}/interactions/{iid}` `{"approve": true|false}`);
+  no new one is made.
 
-- `commit` is the commit the program folder is at when the card is made
-  (read from git's files; no git program runs before the yes);
-  `running_commit` the one it was at when the bridge started.
-- One card waits at a time: a newer request replaces it. It waits a day,
-  like the other cards; no answer means no.
-- Refused at once (`"state": "refused"`, `error_code`): `not_program_folder`
-  (the line came from another folder), `update_in_progress`, `no_commit`,
-  `audit_unavailable`.
-- Answer with `POST /sessions/{id}/interactions/{iid}` `{"approve": true|false}`.
-  A yes answers `{"approved": true, "state": "waiting", "commit"}`; when the
-  folder is at another commit by then: `{"approved": false, "reason":
-  "changed"}` (that commit was never shown; the run asks again), and while
-  another update is under way `"reason": "update_in_progress"`.
-
-**After the yes**, in the background:
+**Then**, in the background:
 
 1. **Wait** until nothing runs: runs of both runners (a live SDK session that
    is answering counts, an idle one does not), queued messages that are not
@@ -2493,17 +2485,14 @@ grep -o '"program_folder": [a-z]*' ~/.config/lifeos/capable-mode*.json
 # a capable chat there with a real small request (a wording fix, say): it works,
 # runs the tests it can, commits, and asks for the update
 curl -s -H "$H" -H 'Content-Type: application/json' $B/ask -d '{"prompt":"<the request>; commit it and ask for the update to be applied","mode":"capable","folder":"'"$PWD"'"}'
-# -> "update_requests":[{"kind":"apply_update","state":"ready","commit":"…"}]
-curl -s -H "$H" $B/sessions/<id>/interactions      # the same card
-curl -s -X POST -H "$H" -H 'Content-Type: application/json' \
-  $B/sessions/<id>/interactions/<iid> -d '{"approve":true}'
+# -> the answer without the line; no card (#183); "LifeOS: update started"
 curl -s -H "$H" $B/app/update                       # waiting → testing → building → restarting
 # a minute or a few later: "LifeOS: update applied"; `systemctl --user status lifeos-bridge`
 # shows a new start; /app/update says "applied"; grep update_ ~/.config/lifeos/audit/*.jsonl
 ```
 
 A failing check: make an uncommitted change to a tracked file before the
-yes; `/app/update` ends at `"state": "failed", "step": "check"`, the bridge
+run ends; `/app/update` ends at `"state": "failed", "step": "check"`, the bridge
 keeps running, and a notification names the step.
 
 ## Moodle sign-in

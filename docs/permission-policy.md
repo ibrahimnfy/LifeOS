@@ -1538,12 +1538,17 @@ Now:
 - *The bridge runs no git there before the owner's yes*: the commit on the
   card is read from git's files.
 
-**Applying an update needs the owner's yes (agent choice, recorded by the
-owner's decision of 2026-11-23).** Tests, the app build and the restarted
-bridge run code a phone chat changed, outside the sandbox. A capable run can
-only ask (`[[apply-update]]`); the card names the commit; the yes applies
-exactly that commit, after every run has ended, and never while a run is
-active. The flow and its failure cases are in `bridge.md`, "Updates from a
+**Applying an update needs no card since #183 (owner decision of
+2026-11-23).** Tests, the app build and the restarted bridge run code a
+phone chat changed, outside the sandbox. A capable run can only ask
+(`[[apply-update]]`), and only in an answer to a message the owner sent;
+the bridge then applies exactly the commit the program folder is at, after
+every run (this one included) has ended, and never while a run is active.
+The owner is told that it started and how it ended. Before #183 a yes on an
+approval card was needed (agent choice of #180). With the open network of
+#182, content a chat reads from the web can try to steer it into asking for
+an update; the owner-sent condition and the commit, test, lint and build
+checks are what stand in the way. The flow and its failure cases are in `bridge.md`, "Updates from a
 chat in the program folder". The audit log has the request, the answer and
 the outcome.
 

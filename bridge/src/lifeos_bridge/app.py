@@ -521,18 +521,22 @@ def create_app(settings: Settings) -> FastAPI:
             background.add(wake)
             wake.add_done_callback(background.discard)
 
-    def with_update(payload: dict, session_id: str, cwd: Path) -> None:
-        """A capable run in the program folder asks for its changes to be applied (#180)."""
+    def with_update(payload: dict, session_id: str, cwd: Path, owner: bool) -> None:
+        """A capable run in the program folder asks for its changes to be applied (#180).
+
+        Since #183 no card: in an answer to the owner's own message the update is
+        scheduled at once; the applier waits until this run and every other has ended."""
         answer = str(payload.get("answer") or "")
         if "[[apply-update" not in answer:
             return
-        text, cards = updates.from_answer(settings, answer, session_id, cwd)
+        text, refused, scheduled = updates.from_answer(
+            settings, answer, session_id, cwd, owner=owner
+        )
         payload["answer"] = text
-        payload["update_requests"] = cards
-        if any(card.get("state") == "ready" for card in cards):
-            wake = asyncio.create_task(asyncio.to_thread(push.send_hint, "approval", session_id))
-            background.add(wake)
-            wake.add_done_callback(background.discard)
+        if refused:
+            payload["update_requests"] = refused
+        if scheduled:
+            applier.start()
 
     # Blank chats (#163): the folder of every chat a run is using right now, so that it is
     # never removed under a run. A live SDK session keeps its folder too (it is the
@@ -913,7 +917,7 @@ def create_app(settings: Settings) -> FastAPI:
                             payload["refused_actions"] = watch.refused_actions()
                         if is_capable:
                             with_installs(payload, session_id, cwd)
-                            with_update(payload, session_id, cwd)
+                            with_update(payload, session_id, cwd, owner)
                         if is_chat:
                             with_moves(payload, session_id, cwd)
                         await asyncio.to_thread(with_switch, payload, session_id, owner)
