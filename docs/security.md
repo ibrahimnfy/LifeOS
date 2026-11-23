@@ -310,7 +310,8 @@ What each party can see and do, with this design in place.
    accepted:
    - Whatever a run can read (the run's folder, the memory folder, the other
      allowed folders, the read-only course folders) can be sent to any
-     public host. Web content a run reads can try to steer it (prompt
+     public host. Hosts of the local network are reachable by *name* through
+     the proxy (not by IP address). Web content a run reads can try to steer it (prompt
      injection); the approval cards and the sandbox's file rules are what
      still hold.
    - The approval cards for deleting, pushing, `gh` changes and installing
@@ -325,10 +326,12 @@ What each party can see and do, with this design in place.
      `read:org` scopes).
    - What stays closed: the private settings folder (bridge token, pairing
      and push keys, device secrets), SSH keys and the rest of the home
-     folder (hidden); the computer's own services (bridge port, adb server,
-     databases) and private networks, through the proxy (no IP address is
-     allowed, names that resolve locally are refused) and through WebFetch
-     (refused by the gate); direct connections (no route); `sudo` (refused
+     folder (hidden); Claude Code's own process environment (its file tools
+     refuse process files, and `/proc` is denied to them); the computer's own
+     services (bridge port, adb server, databases), through the proxy (no IP
+     address is allowed, names that resolve to the computer are refused) and
+     through WebFetch (refused by the gate, also for private addresses);
+     direct connections (no route); `sudo` (refused
      by the gate, and impossible in the sandbox: "no new privileges"); a
      push of the memory folder (refused without asking).
 

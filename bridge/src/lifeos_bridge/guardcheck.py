@@ -238,6 +238,8 @@ class GuardCheck:
         now = time.time() if now is None else now
         if os.environ.get(AUTOCHECK_VAR, "").strip().lower() == "off":
             return  # no automatic check (by hand: scripts/verify-guardrails)
+        if self.settings.runner != "sdk":
+            return  # claude -p keeps read-only runs only: no capable mode to check (#181)
         if program.code_changed() or self.held():
             # The check runs the bridge's code from the program folder in a process of its
             # own. A run there may have changed it (#180): the check waits until the bridge

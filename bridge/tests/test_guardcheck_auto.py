@@ -388,3 +388,36 @@ def test_plan_runs_are_documented():
     docs = (Path(__file__).resolve().parents[2] / "docs" / "bridge.md").read_text()
     assert f"about {guardcheck.PLAN_RUNS['core']} short runs" in docs
     assert f"about {2 * guardcheck.PLAN_RUNS['full']} short runs" in docs
+
+
+def test_the_launcher_starts_a_check_the_check_understands(settings, monkeypatch):
+    """The automatic check passes --core or --full: the check's own parser must take both."""
+    seen = {}
+
+    class Process:
+        pid = 1
+
+        async def wait(self):
+            return 0
+
+    async def fake_exec(*args, **_kw):
+        seen["args"] = args
+        return Process()
+
+    monkeypatch.setattr(verify, "load_settings", lambda: settings)
+    monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: [verify.Probe("x", True)])
+    monkeypatch.setattr(verify, "service_suite", lambda *a: [{"name": "x", "passed": True}])
+    for kind in ("core", "full"):
+        with monkeypatch.context() as patch:  # only the launch itself is a stand-in
+            patch.setattr(guardcheck.asyncio, "create_subprocess_exec", fake_exec)
+            asyncio.run(guardcheck.run_verify(kind, "c1"))
+        argv = list(seen["args"])
+        assert argv[1:3] == ["-m", "lifeos_bridge.verify"]
+        assert verify.main(argv[3:]) == verify.PASSED
+        assert json.loads(guardcheck.results_path().read_text())["check"] == kind
+
+
+def test_the_claude_p_runner_gets_no_automatic_check(auto, settings):
+    make, _notices, launches, *_ = auto
+    tick(make(the_settings=settings))  # LIFEOS_RUNNER=cli: no capable mode, nothing to check
+    assert launches == []

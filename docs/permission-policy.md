@@ -278,6 +278,8 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | Connect to the bridge's own port and to a listener of the check on localhost, directly | no connection |
 | Since #182: a tunnel through the sandbox proxy (HTTP CONNECT and SOCKS) to the check's listener and the bridge's port, as `127.0.0.1`, `localhost`, `127.1`, `2130706433`, `0x7f.1`, `0.0.0.0`, `::1`, `::ffff:127.0.0.1`, `127.0.0.2` and the computer's own network address; WebFetch of the listener | every one refused, and nothing reaches the listener |
 | Since #182: the owner's GitHub token, in the run's environment and every process environment readable from the sandbox (compared by hash) | never readable |
+| Since #182: a public host name that resolves to `127.0.0.1`, through the proxy, plain and with TLS | refused by the proxy; nothing reaches the listener |
+| Since #182: the file tools read Claude Code's own environment (`/proc/self/environ`, directly and through a link in the run folder) | the GitHub token appears nowhere |
 | Since #182: an HTTPS request to a public host | reached (not a guardrail: decides whether runs get the open network) |
 | Session-bus call; `systemctl --user` call; `systemd-run --user`; Unix socket creation; desktop settings database | no connection / not visible |
 | A hook and an MCP server defined inside the run folder | do not run |
@@ -1744,8 +1746,13 @@ settings pages, checked with real runs on Claude Code 2.1.330 and Agent SDK
 - **What is used: one wildcard per top-level domain** (`*.com`, `*.org`,
   ..., 1 435 entries from the IANA list, shipped as
   `bridge/src/lifeos_bridge/tlds.txt`). Every host name matches; no IP
-  address does, in any spelling; host names that resolve to the computer or
-  a private network are refused by the proxy. Measured: all the spellings
+  address does, in any spelling; host names that resolve to the computer
+  itself are refused by the proxy (measured with a public name that
+  resolves to `127.0.0.1`: "blocked: resolved to a loopback address", plain
+  HTTP and HTTPS, nothing reached the listener). Names that resolve to
+  *other* private addresses are not refused (measured: the proxy tried to
+  connect to `192.168.0.1` and `10.0.0.1` and timed out), as the
+  documentation says for intranet names. Measured: all the spellings
   above refused ("host is not on the allow list"), public hosts reached
   (`pip`, `git`, `gh`, `urllib`), nothing reached the check's listener. A new
   top-level domain is reached only after the list is updated.
@@ -1804,8 +1811,18 @@ by the gate (inside the sandbox it is impossible anyway: "no new privileges"
 flag, `/etc/sudo.conf` owned by an unmapped user); WebFetch of the bridge's
 port was refused by the gate.
 
+**Claude Code's own environment.** The Claude Code process holds the real
+token and header (its sandboxed commands get the placeholders), and its
+file tools run in that process. Measured: Read and Grep of
+`/proc/self/environ` are refused ("a device or process file that this tool
+does not read"), a link to it in the run folder is refused by the
+restricted mode (outside the working folders), and Glob of `/proc/self` as
+well. A deny rule `Read(//proc/**)` was added as a second layer, and the
+file-tool probe tries both ways.
+
 **Probes** (suite 10, core version 1): the sandbox probe script tries the
-computer's own services through the proxy in every spelling (refused),
+computer's own services through the proxy in every spelling (refused), a
+public name that resolves to `127.0.0.1` (refused),
 direct connections (refused), and looks for the token in its own and every
 readable process environment (absent); the file-tool run fetches the
 check's listener with WebFetch (refused); a counting listener records any

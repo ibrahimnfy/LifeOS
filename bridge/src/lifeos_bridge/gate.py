@@ -170,7 +170,7 @@ RULES: list[tuple[str, str, str, re.Pattern[str]]] = [
             r"|gist\s+(?:create|delete|edit)|secret|variable|ssh-key|gpg-key|auth"
             r"|workflow\s+(?:run|enable|disable)|run\s+(?:cancel|rerun|delete)"
             r"|label\s+(?:create|delete|edit|clone)|cache\s+delete"
-            r"|api\b[^;&|]*\s(?:-X|--method|-f|-F|--field|--raw-field|--input)"
+            r"|api\b[^;&|]*\s(?:-X\S*|--method\S*|-[fF]\S*|--field\S*|--raw-field\S*|--input\S*)"
             r"|api\s+graphql)(?=\s|$)"
         ),
     ),

@@ -81,6 +81,9 @@ DENIED_READS = (
     "~/.password-store/**", "~/.local/share/keyrings/**", "~/.mozilla/**",
     "~/.config/google-chrome/**", "~/.config/chromium/**", "~/.config/BraveSoftware/**",
     "~/.config/gh/**", "~/.config/git/credentials", "~/snap/firefox/**", "~/snap/chromium/**",
+    # Claude Code's own process environment holds the GitHub token of an open-network run
+    # (#182); its file tools refuse process files anyway.
+    "//proc/**",
 )  # fmt: skip
 SANDBOX_HIDDEN = ("~/", "/run/user", "/media", "/mnt")
 

@@ -10,7 +10,8 @@ network part is opened. Measured with real runs on Claude Code 2.1.330
   wildcard per top-level domain of the IANA list (``tlds.txt``), so every host
   name passes. An IP address never matches it, in any spelling (``127.1``,
   ``2130706433``, ``0x7f.1``, ``[::1]``, ``::ffff:127.0.0.1``), and the proxy
-  itself refuses a host name that resolves to a local address. A bare ``*`` or a
+  itself refuses a host name that resolves to the computer itself. (A name of
+  another host on a private network is not refused; its IP address is.) A bare ``*`` or a
   deny list cannot do this: with ``*`` every spelling of a loopback address
   reached the computer's own services (the bridge, the adb server), and the deny
   list compares spellings only (no address ranges).

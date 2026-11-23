@@ -365,9 +365,12 @@ What a capable run looks like:
     `bridge/src/lifeos_bridge/tlds.txt`): web research, package installs,
     `gh` and `git` over HTTPS. No IP address matches the list, in any
     spelling, and the proxy refuses a host name that resolves to the
-    computer itself or a private network, so the bridge's port, the adb
-    server and every other local service stay out of reach. Direct
-    connections are impossible (a network namespace of its own).
+    computer itself (measured with a public name that resolves to
+    `127.0.0.1`, plain and with TLS), so the bridge's port, the adb server
+    and every other local service stay out of reach. A *name* of another
+    host on a private network is not refused (measured: the proxy tried to
+    connect); its IP address is. Direct connections are impossible (a
+    network namespace of its own).
   - It gets the `WebFetch` and `WebSearch` tools. WebFetch runs outside the
     sandbox, so the gate refuses a fetch whose host is not a public address.
   - **GitHub:** the bridge reads the owner's token (`gh auth token`, outside

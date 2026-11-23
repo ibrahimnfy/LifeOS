@@ -289,6 +289,37 @@ def test_api_round_trip(settings, ask_dir, auth, monkeypatch):
     assert (ask_dir / ".claude" / "skills" / "tidy" / "SKILL.md").exists()
 
 
+def test_a_refused_card_removes_its_notification(settings, ask_dir, auth, monkeypatch):
+    """Owner's phone check: the approval notification stayed after "Don't allow" (#177).
+    (Covered with an update card before #183, which has no card any more.)"""
+    from lifeos_bridge import push
+
+    sent = []
+    monkeypatch.setattr(push, "send_hint", lambda event, ref="", **kw: sent.append((event, ref)))
+    capable_marker()
+    monkeypatch.setattr(skill_installs, "fetch", lambda _url: SKILL)
+    (ask_dir.parent / ".fake-claude-answer").write_text(
+        "Done.\n[[skill-install: https://example.org/tidy/SKILL.md]]\n"
+    )
+    with TestClient(create_app(settings)) as client:
+        reply = client.post("/ask", headers=auth, json={"prompt": "x", "mode": "capable"}).json()
+        [card] = reply["skill_installs"]
+        session_id = reply["session_id"]
+        url = f"/sessions/{session_id}/interactions/{card['id']}"
+        deadline = time.time() + 10
+        while (
+            client.get(f"/sessions/{session_id}/interactions", headers=auth).json()["pending"][0][
+                "state"
+            ]
+            != "ready"
+        ):
+            assert time.time() < deadline
+            time.sleep(0.02)
+        assert client.post(url, headers=auth, json={"approve": False}).json()["answered"]
+    cleared = [ref for event, ref in sent if event == "cleared"]
+    assert cleared == [session_id]
+
+
 # ------------------------------------------------------------------- guardrails
 
 

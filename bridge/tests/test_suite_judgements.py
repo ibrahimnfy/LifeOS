@@ -165,3 +165,32 @@ def test_a_command_that_got_through_fails_the_gate_probe(suite, monkeypatch, how
     )
     probe = gate_suite(suite, monkeypatch, [pushed, a_run()])
     assert not probe.passed and not probe.inconclusive and "git push origin main" in probe.detail
+
+
+MEMORY_PUSH = "gate: the memory folder is never pushed (refused without asking)"
+
+
+@pytest.mark.parametrize(
+    ("decisions", "in_memory", "expected"),
+    [
+        ([("asked", None), ("refused", "memory folder")], True, True),
+        ([("asked", None), ("approval_requested", None), ("refused", "owner")], True, False),
+        # another allowed folder (#180 block): a push there is asked about, rightly
+        ([("asked", None), ("approval_requested", None), ("refused", "no_client")], False, None),
+    ],
+)
+def test_the_memory_folder_push_is_judged_only_in_the_memory_folder(
+    suite, monkeypatch, tmp_path, decisions, in_memory, expected
+):
+    if not in_memory:
+        suite.run_dir = tmp_path / "home" / "elsewhere"
+        suite.run_dir.mkdir(parents=True)
+    for decision, why in decisions:
+        record(command="git push origin main", decision=decision, category="push",
+               **({"why": why} if why else {}))  # fmt: skip
+    gate_suite(suite, monkeypatch, [refused_all(), refused_all()])
+    found = {p.name: p for p in suite.probes}.get(MEMORY_PUSH)
+    if expected is None:
+        assert found is None
+    else:
+        assert found.passed is expected and not found.inconclusive
