@@ -51,7 +51,10 @@ KEY_FILE_NAME = "guardrail-key"
 # Also in cli 6 and sdk 7: the personal-skill probe judges every shell call by what happened to
 # it, not by counts. A call that Claude Code rejects before it starts has no audit
 # record and needs none; the first real check had failed on such a call (#162).
-SUITE_VERSIONS = {"cli": 6, "sdk": 7}
+# cli 7 and sdk 8: the owner's read-only course folders (#179): readable by tool and
+# command, never writable, nothing in them loaded. (#178 raised the same versions for
+# its approval probes; one restart reruns the check once.)
+SUITE_VERSIONS = {"cli": 7, "sdk": 8}
 SUITE_VERSION = max(SUITE_VERSIONS.values())
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4
@@ -60,6 +63,9 @@ CHAT_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
 # Personal skills and personal MCP servers (#162) need the probes of these suite
 # versions, per runner: the SDK runner's suite 5 still proved the opposite rule.
 PERSONAL_SUITE_VERSIONS = {"cli": 5, "sdk": 6}
+# A capable run is given a course folder to read (#179) only after a check whose
+# course-folder probes passed: these suite versions, and ``course_folders`` in the marker.
+COURSE_SUITE_VERSIONS = {"cli": 7, "sdk": 8}
 SDK_PACKAGE = "claude-agent-sdk"
 
 # Second layer for Claude Code's own file tools; the sandbox hides the whole
@@ -254,6 +260,23 @@ def personal_available(runner: str) -> bool:
     return _marker_suite(runner) >= PERSONAL_SUITE_VERSIONS.get(runner, SUITE_VERSION)
 
 
+def course_folders_available(runner: str) -> bool:
+    """Whether the runner's check proved the read-only course folders (#179).
+
+    Asked after ``check_available``. Without it a capable run is not given its
+    course folder to read; the write denials for course folders apply anyway.
+    """
+    try:
+        marker = json.loads(marker_path(runner).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(marker, dict)
+        and marker.get("course_folders") is True
+        and _marker_suite(runner) >= COURSE_SUITE_VERSIONS.get(runner, SUITE_VERSION)
+    )
+
+
 PERSONAL_UNAVAILABLE_REASON = (
     "the owner's personal skills are offered after the guardrail check with the "
     "personal-skill probes has passed (it runs by itself at the next start of the bridge)"
@@ -385,6 +408,7 @@ def build_policy(
     skills_dir: Path | None = None,
     personal_skills_dir: Path | None = None,
     mcp: dict[str, dict] | None = None,
+    course_dirs: list[Path] | None = None,
 ) -> Policy:
     """The policy of one capable run in ``run_dir``; refuses folders that may never be used.
 
@@ -407,6 +431,13 @@ def build_policy(
     A blank chat's folder (#163) is accepted like an allowed folder, with the same
     guardrails: the run may write its own chat folder and the memory folder, and
     read the allowed folders; the chat root and every other chat stay out of reach.
+
+    ``course_dirs``: the owner's own course folders the run may read (#179); ``None``
+    means those of the run folder's course (``course_folders.for_folder``). Read by
+    the file tools (added folders) and by commands (``allowRead``), never written:
+    every folder of ``course_folders``, readable or not, gets ``denyWrite`` and a
+    deny rule for the file tools, and none of them (or a folder inside one) is ever
+    the run's folder.
     """
     run_dir = run_dir.resolve()
     memory = settings.ask_dir.resolve()
@@ -424,6 +455,21 @@ def build_policy(
         reason = refusal_reason(folder)
         if reason is not None:
             raise ClaudeError("folder_not_allowed", 403, reason)
+    from . import course_folders  # local: it reaches the course sync's records
+
+    readable = [Path(folder).resolve() for folder in (
+        course_folders.for_folder(settings, run_dir) if course_dirs is None else course_dirs
+    )]  # fmt: skip
+    protected = [*readable]
+    protected += [f for f in course_folders.all_folders(settings) if f not in protected]
+    for folder in protected:
+        if run_dir == folder or run_dir.is_relative_to(folder):
+            raise ClaudeError(
+                "folder_not_allowed",
+                403,
+                "this is one of the owner's read-only course folders; a run that may change "
+                "files never works there",
+            )
 
     writable = (
         [run_dir] if run_dir == memory or run_dir.is_relative_to(memory) else [run_dir, memory]
@@ -446,7 +492,9 @@ def build_policy(
             "excludedCommands": [],
             "filesystem": {
                 "denyRead": list(SANDBOX_HIDDEN),
-                "allowRead": sorted({str(p) for p in (*roots, run_dir, memory, *copies, *shared)}),
+                "allowRead": sorted(
+                    {str(p) for p in (*roots, run_dir, memory, *copies, *shared, *readable)}
+                ),
             },
             "network": {
                 "allowedDomains": [],
@@ -466,8 +514,8 @@ def build_policy(
                 for name in (".claude/**", ".mcp.json")
             ]
             # The copies of the skills a run was started with (#171): read, never changed.
-            # ...and the conversation index (#164).
-            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared)],
+            # ...and the conversation index (#164), and the owner's course folders (#179).
+            + [f"Edit({_rule_path(folder)}/**)" for folder in (*copies, *shared, *protected)],
         },
         "hooks": {
             "PreToolUse": [
@@ -478,11 +526,11 @@ def build_policy(
             ]
         },
     }
-    if copies or shared:
+    if copies or shared or protected:
         # Whatever else would let commands write there (an added folder, an allow
-        # rule): never the copies, and never the conversation index.
+        # rule): never the copies, the conversation index or a course folder.
         settings_json["sandbox"]["filesystem"]["denyWrite"] = [
-            str(folder) for folder in (*copies, *shared)
+            str(folder) for folder in (*copies, *shared, *protected)
         ]
     mcp_config = None
     if mcp:
@@ -503,6 +551,7 @@ def build_policy(
             *(folder for folder in writable if folder != run_dir),
             *copies,
             *shared,
+            *readable,
         ),
         skills_dir=skills_dir,
         personal_skills_dir=personal_skills_dir,

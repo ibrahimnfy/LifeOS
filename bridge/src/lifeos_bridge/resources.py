@@ -194,6 +194,7 @@ def named_folders() -> list[Path] | None:
     One absolute path (or starting with ``~``) per line in ``resource_folders`` in
     the private config folder; empty lines and ``#`` comments are skipped. A missing
     or unreadable file means "not named yet"; an empty one means "there are none".
+    Once named, the folders of ``course_folders`` count as well (#179).
     """
     try:
         text = (config_dir() / FOLDERS_FILE).read_text(encoding="utf-8")
@@ -209,6 +210,10 @@ def named_folders() -> list[Path] | None:
                 continue
             if path.is_absolute():
                 folders.append(path)
+    # The owner's own course folders (``course_folders``, #179) hold resources too.
+    from . import course_folders  # local: it reaches the course sync's records
+
+    folders += [path for path in course_folders.all_folders() if path not in folders]
     return folders
 
 

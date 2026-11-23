@@ -91,6 +91,7 @@ documented here as they are built.
 | GET | `/whoami` | yes | Lets a client verify its token; returns the bridge version |
 | POST | `/ask` | yes | Runs a prompt through headless Claude and returns the answer; a new conversation without a folder is a blank chat |
 | GET | `/folders` | yes | Where a new conversation may run: a blank chat, the memory folder, the allowed folders |
+| POST | `/folders/open` | yes | The folder the owner picked on a "choose folder" card: allowed if needed (same rules as asking), then a new chat starts there (#179) |
 | GET | `/sessions` | yes | Lists Claude Code sessions in the allowed folders and the blank chats, each with its folder kind, and one summary entry per folder |
 | POST | `/sessions/{id}/messages` | yes | Continues a listed session with a new message |
 | GET | `/sessions/{id}/history` | yes | A session's earlier messages, a few exchanges per page |
@@ -323,26 +324,30 @@ Subfolders of the memory folder are fine. Details:
     environment.
   - The SDK suite takes about 19 per environment, because it adds the
     approval probes.
-  - Both runners in both environments come to **about 68 short runs**. The
+  - Both runners in both environments come to **about 76 short runs**. The
     skill probes of #91 and #92 add 12 of these (3 runs per environment and
     runner), the personal-skill probes of #162 add 4 (1 run per environment
-    and runner), and the chat-folder probes of #163 add 12 (a shell run, a
+    and runner), the chat-folder probes of #163 add 12 (a shell run, a
     file-tool run and a read-only run in a blank chat's folder, per
+    environment and runner), and the course-folder probes of #179 add 8 (a
+    capable run and a read-only run with a read-only course folder, per
     environment and runner); the MCP probes of #108 and #162 need no model
     run. Probes without a model run (invalid settings, nested folders) are
     not counted.
   - A restart where both markers still match costs nothing.
-  - Each runner has its own suite version (`cli` 6, `sdk` 7), and only a
-    runner whose suite changed is checked again. The probes for personal
+  - Each runner has its own suite version (`cli` 7, `sdk` 8), and only a
+    runner whose suite changed is checked again. The read-only course
+    folders of #179 raised both (`cli` 7, `sdk` 8); the next start checks
+    both once. The probes for personal
     skills and personal MCP servers (#162) and for chat folders (#163)
     changed both (`cli` 5, `sdk` 6). So did the corrected judgements of the
     chat-folder probes (`permission-policy.md`, section 9.11) and of the
     personal-skill run (section 9.2), which add no run (`cli` 6, `sdk` 7).
-    The next start checks both once. The approval probes
+    The approval probes
     may add up to 8 more per environment when the model does not make the
     needed call at once, the personal-skill run and the skill-copy steps
     (#171, part of an existing run) up to 2 more each, and each of the
-    three chat-folder runs 1 more.
+    three chat-folder runs and the two course-folder runs 1 more.
 - State: `~/.config/lifeos/guardrail-check.json`.
 - `LIFEOS_GUARD_AUTOCHECK=off` stops the automatic rerun only. The mode
   still goes off after an update; run the check by hand then. The owner
@@ -378,6 +383,8 @@ What a capable run looks like:
 Folders that can never be allowed, whatever `allowed_paths` says: the home
 folder itself, anything outside it, hidden folders, the LifeOS program
 folder and the private settings folder. Symbolic links are resolved first.
+The owner's read-only course folders (#179) are never the folder of a
+capable run, and never writable in any run: "Read-only course folders".
 
 ### Choosing the folder of a new conversation
 
@@ -669,6 +676,148 @@ that folder; "open one of my earlier chats about numbers or files, I am not
 sure which" gave `choose` with the two that fit. An earlier, weaker wording
 of the instruction made the model list the chats with letters instead of
 writing the line; the wording now forbids that.
+
+### Folders by asking (#179)
+
+In any chat the owner can say "find my thesis folder and let's work there",
+or "stop using the old-site folder". The run cannot search or change
+anything itself: it ends its answer with a line of its own (the standing
+instruction of every conversation names both, in the same sentence as the
+switch lines), and the bridge does the rest.
+
+| Line | Meaning |
+|---|---|
+| `[[switch-find: <folder name or path>]]` | find that folder and start a new chat there |
+| `[[switch-remove: <folder label or path>]]` | stop using that allowed folder |
+
+**The search** reads folder **names** only, never a file's name or
+content:
+
+- under the home folder, never outside it; no symbolic link is followed or
+  matched;
+- hidden folders are never entered, nor system, cache, package and build
+  folders (`snap`, `node_modules`, `__pycache__`, `site-packages`, `venv`,
+  `Android`, `build`, `dist`, `target`, `vendor`, …), the private settings
+  folder, the LifeOS program folder, the chat root and the copies of skills;
+- at most 6 levels deep, 200 000 entries and 3 seconds;
+- names are compared without case, accents and punctuation (`Ödevler_İleri`
+  is `odevler ileri`); an equal name wins, else a name that holds the asked
+  words. A label of a folder a conversation can already start in is
+  recognised without a search; a path (`/…` or `~/…`) is taken as it is.
+
+**Where a match leads.** The existing limits stay: never the home folder
+itself, a folder outside it, a hidden folder, the program folder, the
+private settings folder, the chat root. A folder inside a git repository
+stands for the repository's root (#139); when the root is refused, the
+folder is refused with that reason, never added on its own. One of the
+owner's read-only course folders (below) is never added: it leads to a new
+chat in that course's folder of the Moodle sync, where it is readable.
+
+**The answer** (JSON and the stream's `done` event):
+
+- **One clear match** (and a search that was not stopped by a bound): it is
+  added to `allowed_paths` when it is not there yet (one line, written
+  atomically; audit record `AllowedPathAdded` with `"by": "chat"`; the change
+  log), and the answer's `switch` is `new` with that folder, exactly as for
+  `[[switch-new: …]]`. No approval prompt (owner's decision).
+- **Already a folder of `GET /folders`**: just `new` there; nothing changes.
+- **Several matches**, or one from a search that hit a bound: a pick card,
+  and nothing is added yet:
+
+```json
+{"action": "choose_folder", "sessions": [], "folder": null,
+ "folders": [{"path": "/home/<you>/Documents/Notes", "label": "Notes",
+              "kind": "project", "colour": 0, "allowed": false,
+              "where": "~/Documents"}]}
+```
+
+  At most five, nearest to the home folder first. `allowed` says whether the
+  folder is a conversation folder already; `where` is the folder around it,
+  to tell folders of one name apart. The app sends the pick to `POST
+  /folders/open` with `{"path": "<path of the card>"}`: every rule above is
+  applied again, the folder is added when needed (audit `"by": "pick"`),
+  and the answer is `{"added": true|false, "folder": {"path", "label",
+  "kind", "colour"}}`; the app then opens a new chat there. A refused path
+  answers `403 path_not_allowed` with the reason.
+- **Nothing usable**: no `switch`; one sentence is added to the answer
+  ("No folder named “…” was found in the home folder." or "The folder “…”
+  cannot be used: <reason>.").
+- **Removing** deletes only that folder's line from `allowed_paths` (named
+  by its folder name, any case, or its path; nothing else in the file
+  changes and no file of the folder is touched), with the audit record
+  `AllowedPathRemoved` (`"by": "chat"`) and a sentence in the answer. The
+  memory folder is not in the file and cannot be removed this way. At most
+  three per answer.
+- At most one find acts per answer; a find that led somewhere wins over a
+  conversation line of the same answer.
+
+**Notifications.** Adding or removing a folder (by asking, by a pick, or
+through `/allowed-paths`) shows the fixed desktop text "A folder was added;
+N allowed now…" (never a name) and wakes the paired phones with a sealed
+`notice` whose title is "Folder added: <folder name>" (or "removed"); the
+lock screen shows the fixed notice text only, and a tap opens the Chat tab
+and shows the title in the unlocked app.
+
+**Only the owner's fresh answer acts.** Without an approval prompt, the
+lines act only in the answer to a message the owner sent: `/ask`, `POST
+/sessions/{id}/messages`, a queued message, a coach message. The bridge's
+own turns (the coach compaction), jobs and background runs never act on
+them, and the history removes the lines like the switch lines. A client
+cannot claim a turn is the owner's: keys starting with `_` are dropped from
+every request.
+
+Checked with the real CLI (2026-11-23, small model, a scratch home tree of
+folders, through the bridge's own handling): see the manual check below.
+
+### Read-only course folders (#179)
+
+The owner's own folders for their courses (decision on #161) are listed in
+the private file `~/.config/lifeos/course_folders`, one per line:
+
+```
+# <Moodle course id><TAB><absolute path>
+5	/home/<you>/Desktop/<course folder>
+```
+
+- **Limits.** A line is used only when its folder passes the limits of the
+  allowed folders (inside the home folder, not hidden, not the program or
+  settings folder; links resolved) and neither holds nor lies in the memory
+  folder or the chat root. Other lines are ignored.
+- **Read-only, always.** Every capable run gets a sandbox write denial
+  (`denyWrite`) and a deny rule for the file tools (`Edit(//<folder>/**)`,
+  which covers `Write` and `Edit`) for **every** listed folder, readable by
+  that run or not. Such a folder, or one inside it, is never the folder of
+  a capable run (`403 folder_not_allowed`) and never becomes an allowed
+  folder (`400 path_not_allowed`, also through `/allowed-paths` and asking).
+  Added folders are writable for sandboxed commands by default, which is
+  why the write denial is needed for them too (seen in the control run).
+- **Context of that course's chats.** A run whose folder is a course's own
+  folder of the Moodle sync (`<course sync folder>/<name>-<id>`, or a folder
+  inside it; found from the sync's own records, never from the name) gets
+  the listed folders of that course as added folders: the file tools may
+  read them, and so may sandboxed commands (`allowRead`). Its system prompt
+  says where the folder is and that it is read-only. A read-only run gets
+  them always; a capable run only after a guardrail check whose
+  course-folder probes passed (`"course_folders": true` in the marker, suite
+  `cli` 7 / `sdk` 8). The course sync folder itself belongs to no single
+  course and gets none.
+- **A new chat in a course.** `POST /ask` accepts a course's own folder of
+  the sync as `folder` (when it lies in an allowed folder), so a switch to a
+  course opens there.
+- **Nothing in it is loaded.** Claude Code's restricted mode loads no
+  `CLAUDE.md`, `AGENTS.md`, rules, skills, commands, agents, settings,
+  hooks or MCP servers of an added folder. Checked with the real Claude
+  Code 2.1.330 under the bridge's flags (read-only, capable, and capable
+  with a plugin copy, where slash commands are on) and by the guardrail
+  probes; a control run without the restricted mode did load the folder's
+  skill, command and agent, and with Claude Code's switch for added-folder
+  instruction files its `CLAUDE.md` and rules (`permission-policy.md`,
+  section 9.12).
+- **Never in the app's course materials**, which stay what Moodle provides
+  (they are built from the sync's own records only).
+- **Resources.** Once the resource folders are named (`resource_folders`),
+  the course folders count as existing resource folders too: what they
+  hold is not downloaded again.
 
 ### `GET /sessions`
 
@@ -1497,11 +1646,16 @@ The folders Claude may work in besides the memory folder, stored in
   folder itself; anything outside the home folder, which includes all system
   folders; hidden folders or anything inside one (settings, keys,
   credentials); the LifeOS program folder; the private settings folder;
-  paths that do not exist or are not folders. Symbolic links are resolved
-  before checking.
-- Every change is written to `~/.config/lifeos/allowed_paths.log` and
-  announced on the computer through `scripts/notify.sh`. The notification
-  says that a folder was added or removed, never which one.
+  one of the owner's read-only course folders or a folder inside one
+  (#179); paths that do not exist or are not folders. Symbolic links are
+  resolved before checking.
+- Every change is written to `~/.config/lifeos/allowed_paths.log` and the
+  audit log, and announced on the computer through `scripts/notify.sh`. The
+  notification says that a folder was added or removed, never which one.
+  The paired phones get a sealed notice naming the folder (#179, "Folders
+  by asking").
+- A run can add or remove a folder too, when the owner asks for it in a
+  chat: "Folders by asking (#179)".
 
 ### Coach: `/coach/plan`, `/coach/question`, `/coach/settings`
 
@@ -1915,7 +2069,9 @@ nothing, and proposes a list. **The bridge downloads** by its own rules
   listed as `folders_not_named`, and the view's `"folders_named"` is
   false); an empty file means "there are none". When the file appears, one
   more run (without the model) tries the waiting items. The bridge only
-  reads names and sizes there, never opens or writes a file.
+  reads names and sizes there, never opens or writes a file. Once the file
+  exists, the folders of `course_folders` (#179, "Read-only course
+  folders") are checked too.
 - **Matching rule for "already present"** (listed as `already_present`,
   final): the owner's folders and the course's own folder are walked (no
   links followed, hidden entries skipped, at most 20 000 entries) and the
@@ -2302,6 +2458,15 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 # continue the same conversation: add "session_id":"<id from above>"
 # moving by asking: in any chat ask "open my chat about <topic>" -> the answer has a
 #   "switch" item with "action":"open" and that session; `GET /sessions/<id>/history` has none
+# folders by asking (#179): make a test folder, e.g. `mkdir -p ~/lifeos-find-test/Zebra-notes`,
+#   then ask "find my zebra notes folder and let's work there" -> "switch" with "action":"new"
+#   and that folder; `GET /allowed-paths` lists it; a "LifeOS: allowed folders changed"
+#   notification appears; a second folder of the same name elsewhere -> "choose_folder";
+#   then ask "stop using the zebra notes folder" -> the answer says it is no longer allowed,
+#   `GET /allowed-paths` no longer lists it, the folder and its files are still there
+# course folders (#179): with a line `<course id><TAB><folder>` in ~/.config/lifeos/course_folders,
+#   ask in a chat of that course's sync folder "which files are in my own folder for this
+#   course?" -> it lists them; ask it (capable) to create a file there -> it cannot
 # blank chat: leave "folder" out and ask "What do you know about me?" -> nothing; afterwards
 #   `ls ~/LifeOS-Chats` shows no folder for it, and `/sessions` lists it with "kind":"chat";
 #   continue it with its session id -> it answers, and remembers the first message

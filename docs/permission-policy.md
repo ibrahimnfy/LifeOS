@@ -105,6 +105,7 @@ claude -p --output-format stream-json --verbose
   --plugin-dir <copy> --add-dir <copy>  (per copy of skills, section 9.2; then
                                          without --disable-slash-commands)
   --add-dir <conversation index>       (read-only, section 9.11)
+  --add-dir <course folder>            (read-only, the course's chats; section 9.12)
   --settings '<generated JSON>'
 ```
 
@@ -285,6 +286,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | The copies of the skills a run was started with (personal and the folder's): a script of a skill, started as a sandboxed command, reads the supporting files and tries to create, append, make writable, rename and delete in the copies; the file tools read a supporting file and try to write into each copy; the script also tries the private settings canary and a copy the run was not given | readable both ways; nothing changed (also judged from the copies themselves, for every copy of the check); the script's command is in the audit log; the canary and the other copy are not readable |
 | MCP server of the run folder, and a personal one (scratch file of the check): unapproved; approved; changed after the approval (no model run) | passed only while approved and unchanged; secret values are neither shown nor on the command line |
 | A blank chat's folder as the run folder: the chat root and another chat (shell, file tools, read-only), the gate, a `CLAUDE.md` in the folder | see section 9.11 |
+| The owner's read-only course folders: read and change them by command and by file tool, capable and read-only; instruction files, skills, hooks and MCP servers in them | readable, never changed, nothing loaded; see section 9.12 |
 
 **Probes that need the model to make a particular call** (the SDK
 approval probes, and since #162 the run that starts the personal skill) are
@@ -1103,3 +1105,70 @@ more kind of run folder; nothing is relaxed for it.
   runner, once), the shell reads, the three `Read` probes and the summary
   probe all failed, and the summary named the calls. The full check in
   both environments is the one that switches the mode on.
+
+### 9.12 The owner's read-only course folders (#179)
+
+The owner keeps folders of their own for some courses (decision on #161).
+They are listed in the private file `course_folders` (`<Moodle course
+id><TAB><absolute path>`; each line must pass the limits of the allowed
+folders and may neither hold nor lie in the memory folder or the chat
+root) and are **read-only context** for the chats of that course.
+
+- **Readable by the course's runs.** A run whose folder is the course's own
+  folder of the Moodle sync (or a folder in it, found through the sync's
+  records) gets the matching folders with `--add-dir`, so the file tools
+  may read them, and in capable runs `allowRead`, so sandboxed commands may
+  read them too. A capable run gets them only after a check whose
+  course-folder probes passed (`"course_folders": true` in the marker).
+- **Never writable, in any capable run.** Every listed folder, readable by
+  the run or not, is in the sandbox's `denyWrite` and has a deny rule
+  `Edit(//<folder>/**)` (which covers `Edit` and `Write`). This matters:
+  **Claude Code's sandbox lets commands write in every added folder** (seen
+  in the control run below), so the write denial is what keeps a readable
+  course folder unchanged, as for the copies of skills (#171) and the
+  conversation index (#164).
+- **Never a run folder.** A listed folder or one inside it is refused as
+  the folder of a capable run (`folder_not_allowed`) and can never become
+  an allowed folder (`path_not_allowed`), whoever asks.
+- **Nothing in it is loaded.** Checked with Claude Code 2.1.330 (small
+  model, a scratch course folder holding `CLAUDE.md`, `CLAUDE.local.md`,
+  `AGENTS.md`, `.claude/rules/`, a skill, a command, an agent,
+  `.claude/settings.json` and `settings.local.json` with `SessionStart`,
+  `UserPromptSubmit` and `PreToolUse` hooks, and a `.mcp.json` server; no
+  stored session):
+
+  | Run | Offered from the folder | Loaded or ran |
+  |---|---|---|
+  | Read-only flags of the bridge, the folder added | nothing (no skill, command or agent of it) | no instruction word; no hook; no MCP server |
+  | Capable flags, the folder added | nothing | nothing |
+  | Capable flags with a plugin copy of personal skills (slash commands on, `Skill` tool) | only the copy's skill and Claude Code's built-in ones | nothing |
+  | Control: no restricted mode (`--setting-sources project`), Claude Code's switch for added-folder instruction files set | the folder's skill, command and agent | `CLAUDE.md` and `.claude/rules/` loaded; hooks and the MCP server still not |
+
+  The restricted mode is what keeps an added folder's skills, commands and
+  agents out; the bridge starts every run with it. Hooks, settings and MCP
+  servers of an added folder were not loaded in any mode tried.
+- **Probes** (suite `cli` 7 / `sdk` 8, two short runs per environment and
+  runner). Two scratch course folders: one outside every folder of the run
+  (in the chat root, named like the suite's chat folders and removed with
+  them), and one inside the run folder, where the run may write everything
+  else.
+
+  | Probe | Must happen |
+  |---|---|
+  | The policy (no model run) | both folders in `allowRead`, `denyWrite` and the `Edit` deny rules |
+  | Either folder as the folder of a capable run (no model run) | refused with `folder_not_allowed` |
+  | A script inside the sandbox reads a file of each folder | readable |
+  | The script creates, appends, makes writable, renames, deletes, makes a folder, and with `sh`, `mv` and `rm` writes, renames and deletes, in each folder | every change fails |
+  | File tools: `Read` in each folder; `Write` a new file and `Edit` a file in each | read works; every `Write` and `Edit` is refused (judged by the result of each call) |
+  | A read-only run: `Read` in the outside folder | works; no shell or write tool |
+  | Both folders, looked at from outside the sandbox after all runs | unchanged (every file's mode and content) |
+  | Instruction files, skills, commands, agents, hooks and an MCP server in the outside folder | none offered (init message), none ran, the instruction word in no reply |
+
+  A step the model did not make is "not run" (inconclusive) and the check
+  is retried, never passed. Run alone against Claude Code 2.1.330 in the
+  terminal environment (2026-11-23, scratch settings, memory folder and
+  chat root): every probe passed on both runners. **Control** (`claude -p`,
+  once): with the course rules removed from the capable run's settings
+  (no `denyWrite`, no deny rules), every change by command worked in both
+  folders (also in the one outside the run folder, which is only an added
+  folder), `Write` worked in the inside folder, and seven probes failed.
