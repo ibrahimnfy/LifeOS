@@ -417,3 +417,11 @@ a new entry is added that says what changed and why.
 - **GitHub access in runs (#182).** The bridge reads the owner's `gh` token outside the sandbox and passes it as masked variables (`GH_TOKEN` and a pre-encoded git header); commands see a placeholder and the sandbox's proxy puts the real value in only for GitHub's hosts. GitHub SSH addresses are rewritten to HTTPS. Nothing from the `gh` or git settings or the keyring is readable. `Read(//proc/**)` is denied.
 - **Approvals with the open network (#182).** Cards for deleting, force, pushing, installing and sending stay; the gate's network category is gone, so downloads and `gh`/`git` reads run freely; `gh` commands that change something on GitHub are asked like a push; a push of the memory folder is refused without a card. The bridge-run push of #178 (`netpush`) is removed.
 - **Updates without a card, built (#183).** `[[apply-update]]` in the answer to a message the owner sent starts the applier at once ("update started"); every other check stays (wait until no run is active, commit, tests, lint, build and register, restart) and the owner is notified of the outcome. New refusal: `not_owner`.
+
+## Owner answers recorded 2026-11-26 (twelfth round)
+
+- **#188 = B: a chat opened by asking takes over the change permission of the chat it came from.** Course folders stay read-only and the approval cards stay.
+- **The command bar picks the change permission from the task.** When the bar opens or continues a chat, the interpreter decides from the owner's request whether the work needs to change files, and the chat is set accordingly (the owner's example: resumed computer chats ask before changes).
+- **The command bar can continue a chat from the computer ("resume").** "Go to that chat and do this there" finds the computer session and sends the request there; when it cannot send, the bar still leads the owner to that chat.
+- **Note reminder problems are to be fixed** (the known gaps reported after the eleventh round).
+- **#189 = C: the physics-tile home is built in the app.** The owner asked to integrate everything into the final version and will install the app after this round; this replaces "main and the installed app do not change until the owner approves" of #186.
