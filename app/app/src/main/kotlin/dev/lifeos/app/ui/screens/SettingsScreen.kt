@@ -61,6 +61,7 @@ import dev.lifeos.app.R
 import dev.lifeos.app.settings.LanguageSetting
 import dev.lifeos.app.settings.HomeStyle
 import dev.lifeos.app.settings.ThemeSetting
+import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.PrimaryButton
 import dev.lifeos.app.ui.components.StatusDot
 import dev.lifeos.app.ui.components.TopBar
@@ -129,6 +130,15 @@ fun SettingsScreen(
                     }
                 }
             }
+            // The tiles back at their first places and sizes; the home follows at once.
+            val layoutReset = stringResource(R.string.settings_home_reset_done)
+            val showMessage = LocalSnackbar.current
+            SecondaryButton(text = stringResource(R.string.settings_home_reset), onClick = {
+                scope.launch {
+                    core.settings.setHomeLayout("")
+                    showMessage(layoutReset)
+                }
+            })
 
             SettingsGroup(stringResource(R.string.settings_connection)) {
                 ConnectionSection(core = core, onPair = onPair)

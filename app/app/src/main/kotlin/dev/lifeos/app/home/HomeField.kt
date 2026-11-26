@@ -18,7 +18,9 @@ import androidx.compose.runtime.setValue
  * frame is a few dozen float operations for nine tiles, and the screen reads [field] only while
  * placing and drawing, so a frame recomposes nothing.
  */
-class HomeField(private val ids: List<String>, private val save: (String) -> Unit) {
+class HomeField(private val spots: List<Spot>, private val save: (String) -> Unit) {
+    private val ids = spots.map { it.id }
+
     /** Null until the saved layout was read and the field measured: nothing is drawn before. */
     var field by mutableStateOf<Field?>(null)
         private set
@@ -47,6 +49,9 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
     private var base: Field? = null
     private var lastSaved: String? = null
 
+    /** This field's own recent saves: the store reports them back, and they are not news. */
+    private val ownSaves = ArrayDeque<String>()
+
     /** Whether the owner changed the layout since it was last saved (a field that was only fitted is not saved). */
     private var touched = false
     private var lastNanos = 0L
@@ -56,12 +61,26 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
 
     // ---------------------------------------------------------------- start and size
 
-    /** The stored layout was read (null: none yet). */
+    /**
+     * The stored layout was read (null or blank: none). Called again when the stored value
+     * changes: one that is not this field's own last save (Settings cleared it: "reset") replaces
+     * the layout on screen.
+     */
     fun loaded(text: String?) {
-        if (loaded) return
+        if (loaded && (text == lastSaved || text in ownSaves)) return
+        val first = !loaded
         loaded = true
         saved = HomeLayout.decode(text)
         lastSaved = text
+        if (!first && field != null) {
+            slide = null
+            held = null
+            running = false
+            touched = false
+            field = HomeLayout.restore(saved, default())
+            base = field
+            return
+        }
         place()
     }
 
@@ -77,7 +96,8 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
 
     private fun empty() = Field(width, height, emptyList(), minSize = minSize)
 
-    private fun default(): Field = TilePhysics.scatter(empty(), ids)
+    /** As in the prototype: scattered, or the calm grid when animations are removed. */
+    private fun default(): Field = if (reducedMotion) TilePhysics.tidy(empty(), ids) else TilePhysics.scatter(empty(), spots)
 
     private fun place() {
         if (!loaded || width <= 0f || height <= 0f) return
@@ -96,16 +116,23 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
 
     // ---------------------------------------------------------------- the finger
 
-    /** What a touch met: the tile, and whether it was flying (then the touch catches it and is no tap). */
+    /** What a touch met: the tile, and whether it was flying (the touch catches it). */
     data class Press(val id: String, val caught: Boolean)
 
-    /** A finger went down at a point of the field (dp). The tile under it stops and comes to the front. */
+    /**
+     * A finger went down at a point of the field (dp). A slide to the grid ends where it is, as
+     * in the prototype; the tile under the finger stops and comes to the front.
+     */
     fun press(x: Float, y: Float): Press? {
         val current = field ?: return null
+        val sliding = slide != null
+        if (sliding) {
+            slide = null
+            touched = true
+        }
         val id = TilePhysics.hit(current, x, y) ?: return null
         val tile = current.tile(id) ?: return null
-        val caught = tile.moving || slide != null
-        slide = null
+        val caught = tile.moving || sliding
         field = TilePhysics.toFront(TilePhysics.moveTo(current, id, tile.x, tile.y), id)
         held = id
         touched = true
@@ -149,8 +176,22 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
     /** The calm grid. Returns the layout before it, for Undo. */
     fun tidy(): Field? = moveTo { TilePhysics.tidy(it, ids) }
 
-    /** The default layout again. Returns the layout before it, for Undo. */
-    fun reset(): Field? = moveTo { default() }
+    /** The keyboard: the focused tile moves by a step and comes to the front. */
+    fun nudge(id: String, dx: Float, dy: Float) {
+        val current = field ?: return
+        val tile = current.tile(id) ?: return
+        slide = null
+        field = TilePhysics.toFront(TilePhysics.moveTo(current, id, tile.x + dx, tile.y + dy), id)
+        touched = true
+        if (!running) persist()
+    }
+
+    /** The keyboard's plus and minus: the width changes by [delta] dp. */
+    fun grow(id: String, delta: Float) {
+        val current = field ?: return
+        val tile = current.tile(id) ?: return
+        scale(id, (tile.size + delta) / tile.size)
+    }
 
     /** Back to a layout [tidy] or [reset] returned. */
     fun restore(layout: Field) {
@@ -235,6 +276,8 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
         val text = HomeLayout.encode(current)
         if (text == lastSaved) return
         lastSaved = text
+        ownSaves.addLast(text)
+        if (ownSaves.size > 16) ownSaves.removeFirst()
         save(text)
     }
 }

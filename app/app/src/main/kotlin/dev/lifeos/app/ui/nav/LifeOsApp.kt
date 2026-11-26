@@ -1,5 +1,11 @@
 package dev.lifeos.app.ui.nav
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
@@ -126,6 +132,10 @@ fun LifeOsApp(
     // The home (#192): the physics tiles or the classic list, and whether the list is open above the tiles.
     val homeStyle by core.settings.homeStyle.collectAsStateWithLifecycle(initialValue = null)
     var todayList by rememberSaveable { mutableStateOf(false) }
+    // Where a page opened from a home tile grows from (#195): the tile's bounds, for pages and for the list in place.
+    val reveal = remember { RevealState() }
+    var todayOrigin by remember { mutableStateOf<RevealOrigin?>(null) }
+    val homeOnTop = { backStackEntry?.destination?.route == Routes.TODAY }
     val savedMessage = stringResource(R.string.capture_saved)
     val waitingMessage = stringResource(R.string.capture_waiting)
     val showMessage: (String) -> Unit = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
@@ -481,48 +491,90 @@ fun LifeOsApp(
                 .padding(innerPadding)
                 .consumeWindowInsets(innerPadding),
         ) {
-            composable(Routes.TODAY) {
+            composable(
+                Routes.TODAY,
+                // A tile's page grows out of the tile above the home and shrinks back into it (#195).
+                exitTransition = { if (reveal.tapped) ExitTransition.KeepUntilTransitionsFinished else null },
+                popEnterTransition = { if (reveal.origin != null && initialState.destination.route in TILE_ROUTES) EnterTransition.None else null },
+            ) {
                 // Nothing until the stored style is read, so the other home is never drawn first.
                 val style = homeStyle
+                val dark = LifeTheme.colors.isDark
                 // The list above the tiles belongs to the tiles: with the classic home it is the home itself.
                 LaunchedEffect(style, todayList) { if (style == HomeStyle.CLASSIC && todayList) todayList = false }
                 val openCoachPage = { navController.navigate(Routes.COACH) { launchSingleTop = true } }
                 val openConsolidation = { navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true } }
-                if (style == HomeStyle.TILES && !todayList) {
-                    HomeScreen(
-                        core = core,
-                        onPair = openPair,
-                        onConnectionClick = openSettings,
-                        onOpenConsolidation = openConsolidation,
-                        // Each tile opens a screen the app already has; Back returns to the tiles.
-                        onOpen = { tile ->
-                            when (tile) {
-                                HomeTile.COACH -> openCoachPage()
-                                HomeTile.TODAY -> todayList = true
-                                HomeTile.TASKS -> navController.openTab(Tab.TASKS)
-                                HomeTile.CHAT -> navController.openTab(Tab.CHAT)
-                                HomeTile.CALENDAR -> navController.navigate(Routes.CALENDAR) { launchSingleTop = true }
-                                HomeTile.NOTES -> navController.navigate(Routes.NOTES) { launchSingleTop = true }
-                                HomeTile.COURSES -> navController.navigate(Routes.COURSES) { launchSingleTop = true }
-                                HomeTile.ACTIVITY -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
-                                HomeTile.PROJECTS -> navController.navigate(Routes.PROJECTS) { launchSingleTop = true }
-                            }
-                        },
-                    )
-                } else if (style != null) {
+                val today: @Composable (onBack: (() -> Unit)?) -> Unit = { onBack ->
                     TodayScreen(
                         core = core,
                         onPair = openPair,
                         onConnectionClick = openSettings,
                         onOpenCoach = openCoachPage,
                         onOpenConsolidation = openConsolidation,
-                        onBack = if (style == HomeStyle.TILES) ({ todayList = false }) else null,
+                        onBack = onBack,
                     )
+                }
+                if (style == HomeStyle.TILES) {
+                    // "Today's tasks" opens the list in place, growing out of its tile like every other page.
+                    val list = updateTransition(todayList, label = "today list")
+                    val grow = list.animateFloat(
+                        transitionSpec = { if (targetState) tween(RevealMotion.OPEN_MS, easing = RevealMotion.Open) else tween(RevealMotion.CLOSE_MS, easing = RevealMotion.Close) },
+                        label = "today list window",
+                    ) { if (it) 1f else 0f }
+                    val fade = list.animateFloat(
+                        transitionSpec = {
+                            if (targetState) tween(RevealMotion.FADE_MS, RevealMotion.FADE_DELAY_MS, LinearEasing) else tween(RevealMotion.FADE_MS, easing = LinearEasing)
+                        },
+                        label = "today list content",
+                    ) { if (it) 1f else 0f }
+                    if (!(list.currentState && list.targetState)) {
+                        HomeScreen(
+                            core = core,
+                            onPair = openPair,
+                            onConnectionClick = openSettings,
+                            onOpenConsolidation = openConsolidation,
+                            onCommand = {
+                                capturePrefill = ""
+                                captureOpen = true
+                            },
+                            onToggleTheme = { onThemeChange(if (dark) ThemeSetting.LIGHT else ThemeSetting.DARK) },
+                            // Each tile opens a screen the app already has; Back returns to the tiles.
+                            onOpen = { tile, origin ->
+                                if (tile == HomeTile.TODAY) {
+                                    todayOrigin = origin
+                                    todayList = true
+                                } else {
+                                    reveal.tap(origin)
+                                    when (tile) {
+                                        HomeTile.COACH -> openCoachPage()
+                                        HomeTile.CHATS -> navController.openTab(Tab.CHAT)
+                                        HomeTile.AGENDA -> navController.navigate(Routes.CALENDAR) { launchSingleTop = true }
+                                        HomeTile.NOTES -> navController.navigate(Routes.NOTES) { launchSingleTop = true }
+                                        HomeTile.COURSES -> navController.navigate(Routes.COURSES) { launchSingleTop = true }
+                                        HomeTile.ACTIVITY -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
+                                        HomeTile.SESSIONS -> navController.navigate(Routes.SESSIONS) { launchSingleTop = true }
+                                        HomeTile.PROJECTS -> navController.navigate(Routes.PROJECTS) { launchSingleTop = true }
+                                        HomeTile.TODAY -> Unit
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    if (list.currentState || list.targetState) {
+                        val origin = todayOrigin
+                        if (origin != null) {
+                            RevealBox(origin, { grow.value }, { fade.value }) { today { todayList = false } }
+                        } else {
+                            today { todayList = false }
+                        }
+                    }
+                } else if (style != null) {
+                    today(null)
                 }
             }
             // The coach conversation (#114): the same screen from the coach card on Today and from the Chat tab.
             listOf(Routes.COACH, Routes.CHAT_COACH).forEach { route ->
-                composable(route) {
+                tilePage(route, reveal, homeOnTop) {
                     CoachScreen(
                         core = core,
                         onBack = { navController.popBackStack() },
@@ -533,7 +585,7 @@ fun LifeOsApp(
                     )
                 }
             }
-            composable(Routes.CHAT) {
+            tilePage(Routes.CHAT, reveal, homeOnTop) {
                 ChatListScreen(
                     core = core,
                     onConnectionClick = openSettings,
@@ -557,7 +609,7 @@ fun LifeOsApp(
             }
             // The same list from the Chat tab and from More.
             listOf(Routes.CHAT_SESSIONS, Routes.SESSIONS).forEach { route ->
-                composable(route) {
+                tilePage(route, reveal, homeOnTop) {
                     SessionsScreen(
                         core = core,
                         onBack = { navController.popBackStack() },
@@ -580,7 +632,7 @@ fun LifeOsApp(
             composable(Routes.ALL_TASKS) {
                 AllTasksScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
             }
-            composable(Routes.NOTES) {
+            tilePage(Routes.NOTES, reveal, homeOnTop) {
                 NotesScreen(
                     core = core,
                     onBack = { navController.popBackStack() },
@@ -607,7 +659,7 @@ fun LifeOsApp(
             composable(Routes.CONSOLIDATION) {
                 ConsolidationScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
             }
-            composable(Routes.PROJECTS) {
+            tilePage(Routes.PROJECTS, reveal, homeOnTop) {
                 ProjectsScreen(
                     core = core,
                     onBack = { navController.popBackStack() },
@@ -639,13 +691,13 @@ fun LifeOsApp(
                     },
                 )
             }
-            composable(Routes.ACTIVITY) {
+            tilePage(Routes.ACTIVITY, reveal, homeOnTop) {
                 ActivityScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings)
             }
-            composable(Routes.CALENDAR) {
+            tilePage(Routes.CALENDAR, reveal, homeOnTop) {
                 CalendarScreen(core, onBack = { navController.popBackStack() }, onConnectionClick = openSettings, onPair = openPair)
             }
-            composable(Routes.COURSES) {
+            tilePage(Routes.COURSES, reveal, homeOnTop) {
                 CoursesScreen(
                     core = core,
                     onBack = { navController.popBackStack() },
@@ -780,6 +832,9 @@ fun LifeOsApp(
         )
     }
 }
+
+/** The screens the home tiles open (#195). */
+private val TILE_ROUTES = setOf(Routes.COACH, Routes.CHAT, Routes.CALENDAR, Routes.NOTES, Routes.COURSES, Routes.ACTIVITY, Routes.SESSIONS, Routes.PROJECTS)
 
 /** Opens a bottom-bar tab at its root screen (#166, see [TabTaps]): no sub-page is kept or brought back. */
 private fun NavHostController.openTab(tab: Tab) {

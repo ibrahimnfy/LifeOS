@@ -4,23 +4,25 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /**
- * The tiles of the home field (#192), in the order of "Tidy", which is also the order a screen
- * reader goes through them. Each one opens a screen the app already has. [id] is what the saved
- * layout names; never change one.
+ * The tiles of the home field (#192, #195): the nine of prototype C, in its order, which is the
+ * order of "Tidy" and the order a screen reader goes through them. Each one opens a screen the
+ * app already has. [id] is what the saved layout names. [fx], [fy] and [scale] are the tile's
+ * place and size in the default layout (the prototype's scatter table).
  */
-enum class HomeTile(val id: String) {
-    COACH("coach"),
-    TODAY("today"),
-    TASKS("tasks"),
-    CALENDAR("calendar"),
-    CHAT("chat"),
-    NOTES("notes"),
-    COURSES("courses"),
-    ACTIVITY("activity"),
-    PROJECTS("projects");
+enum class HomeTile(val id: String, val fx: Float, val fy: Float, val scale: Float) {
+    COACH("coach", 0.50f, 0.17f, 1.50f),
+    TODAY("today", 0.30f, 0.43f, 1.25f),
+    AGENDA("agenda", 0.76f, 0.40f, 1.00f),
+    COURSES("courses", 0.68f, 0.64f, 1.15f),
+    NOTES("notes", 0.50f, 0.88f, 0.82f),
+    CHATS("chats", 0.26f, 0.69f, 1.00f),
+    ACTIVITY("activity", 0.18f, 0.90f, 0.85f),
+    SESSIONS("sessions", 0.84f, 0.88f, 0.80f),
+    PROJECTS("projects", 0.85f, 0.15f, 0.78f);
 
     companion object {
         val ids: List<String> = entries.map { it.id }
+        val spots: List<Spot> = entries.map { Spot(it.id, it.fx, it.fy, it.scale) }
 
         fun fromId(id: String?): HomeTile? = entries.firstOrNull { it.id == id }
     }
