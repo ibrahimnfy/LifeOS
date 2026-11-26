@@ -33,6 +33,8 @@ import dev.lifeos.app.R
 import dev.lifeos.app.UNDO_MILLIS
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.withTimeoutOrNull
+import dev.lifeos.app.home.HomeTile
+import dev.lifeos.app.settings.HomeStyle
 import dev.lifeos.app.settings.ThemeSetting
 import dev.lifeos.app.ui.components.BottomBar
 import dev.lifeos.app.ui.components.CaptureKind
@@ -50,6 +52,7 @@ import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.screens.ChatScreen
 import dev.lifeos.app.ui.screens.CoachScreen
+import dev.lifeos.app.ui.screens.HomeScreen
 import dev.lifeos.app.ui.screens.ChatListScreen
 import dev.lifeos.app.ui.screens.ConsolidationScreen
 import dev.lifeos.app.ui.screens.ProjectScreen
@@ -120,6 +123,9 @@ fun LifeOsApp(
     var capturePrefill by rememberSaveable { mutableStateOf("") }
     // A search the command bar asked for (#185): handed to the Notes screen once.
     var notesQuery by rememberSaveable { mutableStateOf<String?>(null) }
+    // The home (#192): the physics tiles or the classic list, and whether the list is open above the tiles.
+    val homeStyle by core.settings.homeStyle.collectAsStateWithLifecycle(initialValue = null)
+    var todayList by rememberSaveable { mutableStateOf(false) }
     val savedMessage = stringResource(R.string.capture_saved)
     val waitingMessage = stringResource(R.string.capture_waiting)
     val showMessage: (String) -> Unit = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
@@ -280,6 +286,7 @@ fun LifeOsApp(
             // named (a question shows its answer card there). The coach conversation is a placeholder.
             is Destination.Coach -> {
                 core.showCoachMessage(destination.messageId)
+                todayList = true // with the home tiles (#192) the coach card is on the list behind "Today's tasks"
                 navController.openTab(Tab.TODAY)
             }
             Destination.Sleep -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
@@ -406,6 +413,11 @@ fun LifeOsApp(
             }
             // A note was saved or deleted: every list reads again.
             "note_saved", "note_deleted" -> core.memoryChanged()
+            // The home style (#192), as Settings changes it.
+            "set_home_style" -> HomeStyle.entries.firstOrNull { it.storedValue == outcome.field("style") }?.let { style ->
+                todayList = false
+                scope.launch { core.settings.setHomeStyle(style) }
+            }
         }
     }
     val commandHooks = run {
@@ -437,7 +449,10 @@ fun LifeOsApp(
         bottomBar = {
             BottomBar(
                 selected = selectedTab,
-                onSelect = { navController.openTab(it) },
+                onSelect = {
+                    if (it == Tab.TODAY) todayList = false
+                    navController.openTab(it)
+                },
                 onCapture = {
                     capturePrefill = ""
                     captureOpen = true
@@ -453,13 +468,43 @@ fun LifeOsApp(
                 .consumeWindowInsets(innerPadding),
         ) {
             composable(Routes.TODAY) {
-                TodayScreen(
-                    core = core,
-                    onPair = openPair,
-                    onConnectionClick = openSettings,
-                    onOpenCoach = { navController.navigate(Routes.COACH) { launchSingleTop = true } },
-                    onOpenConsolidation = { navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true } },
-                )
+                // Nothing until the stored style is read, so the other home is never drawn first.
+                val style = homeStyle
+                // The list above the tiles belongs to the tiles: with the classic home it is the home itself.
+                LaunchedEffect(style) { if (style == HomeStyle.CLASSIC) todayList = false }
+                val openCoachPage = { navController.navigate(Routes.COACH) { launchSingleTop = true } }
+                val openConsolidation = { navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true } }
+                if (style == HomeStyle.TILES && !todayList) {
+                    HomeScreen(
+                        core = core,
+                        onPair = openPair,
+                        onConnectionClick = openSettings,
+                        onOpenConsolidation = openConsolidation,
+                        // Each tile opens a screen the app already has; Back returns to the tiles.
+                        onOpen = { tile ->
+                            when (tile) {
+                                HomeTile.COACH -> openCoachPage()
+                                HomeTile.TODAY -> todayList = true
+                                HomeTile.TASKS -> navController.openTab(Tab.TASKS)
+                                HomeTile.CHAT -> navController.openTab(Tab.CHAT)
+                                HomeTile.CALENDAR -> navController.navigate(Routes.CALENDAR) { launchSingleTop = true }
+                                HomeTile.NOTES -> navController.navigate(Routes.NOTES) { launchSingleTop = true }
+                                HomeTile.COURSES -> navController.navigate(Routes.COURSES) { launchSingleTop = true }
+                                HomeTile.ACTIVITY -> navController.navigate(Routes.ACTIVITY) { launchSingleTop = true }
+                                HomeTile.PROJECTS -> navController.navigate(Routes.PROJECTS) { launchSingleTop = true }
+                            }
+                        },
+                    )
+                } else if (style != null) {
+                    TodayScreen(
+                        core = core,
+                        onPair = openPair,
+                        onConnectionClick = openSettings,
+                        onOpenCoach = openCoachPage,
+                        onOpenConsolidation = openConsolidation,
+                        onBack = if (style == HomeStyle.TILES) ({ todayList = false }) else null,
+                    )
+                }
             }
             // The coach conversation (#114): the same screen from the coach card on Today and from the Chat tab.
             listOf(Routes.COACH, Routes.CHAT_COACH).forEach { route ->

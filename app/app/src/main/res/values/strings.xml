@@ -1103,4 +1103,59 @@
     <string name="note_reminder">Reminder: %1$s</string>
     <string name="note_reminder_fired">Reminded: %1$s</string>
     <string name="models_job_command">Command bar</string>
+
+    <!-- The home of physics tiles (#192) -->
+    <string name="home_tile_today">Today\'s tasks</string>
+    <string name="home_open">Open</string>
+    <string name="home_larger">Make larger</string>
+    <string name="home_smaller">Make smaller</string>
+    <string name="home_refresh">Read again</string>
+    <string name="home_tidy">Tidy up</string>
+    <string name="home_tidy_label">Tidy up: put the tiles into a neat grid</string>
+    <string name="home_tidied">Tiles tidied up.</string>
+    <string name="home_reset">Reset</string>
+    <string name="home_reset_label">Reset: put the tiles back to their first places and sizes</string>
+    <string name="home_reset_done">Layout reset.</string>
+    <plurals name="home_cap_field">
+        <item quantity="one">Field · %1$d node</item>
+        <item quantity="other">Field · %1$d nodes</item>
+    </plurals>
+    <string name="home_cap_hint">Drag · fling · pinch</string>
+    <plurals name="home_live_today">
+        <item quantity="one">%1$d left today</item>
+        <item quantity="other">%1$d left today</item>
+    </plurals>
+    <string name="home_live_today_none">Nothing left today</string>
+    <plurals name="home_live_tasks">
+        <item quantity="one">%1$d open task</item>
+        <item quantity="other">%1$d open tasks</item>
+    </plurals>
+    <string name="home_live_tasks_none">No open tasks</string>
+    <plurals name="home_live_events">
+        <item quantity="one">%1$d event today</item>
+        <item quantity="other">%1$d events today</item>
+    </plurals>
+    <string name="home_live_events_none">No events today</string>
+    <string name="home_live_chat_busy">Answer on its way</string>
+    <plurals name="home_live_notes">
+        <item quantity="one">%1$d note</item>
+        <item quantity="other">%1$d notes</item>
+    </plurals>
+    <string name="home_live_notes_none">No notes yet</string>
+    <plurals name="home_live_deadline">
+        <item quantity="one">Deadline in %1$d day</item>
+        <item quantity="other">Deadline in %1$d days</item>
+    </plurals>
+    <string name="home_live_deadline_today">Deadline today</string>
+    <string name="home_live_deadline_none">No deadlines ahead</string>
+    <string name="home_live_sleep">Last sleep %1$s</string>
+    <plurals name="home_live_projects">
+        <item quantity="one">%1$d project</item>
+        <item quantity="other">%1$d projects</item>
+    </plurals>
+    <string name="home_live_projects_none">No projects yet</string>
+    <string name="settings_home">Home style</string>
+    <string name="settings_home_tiles">Physics tiles</string>
+    <string name="settings_home_classic">Classic list</string>
+    <string name="command_result_home_style">Home style changed</string>
 </resources>

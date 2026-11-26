@@ -534,6 +534,7 @@ fun outcomeLine(context: Context, outcome: CommandOutcome, locale: Locale): Stri
         "refresh_plan" -> context.getString(R.string.command_result_refresh_plan)
         "sync_courses" -> context.getString(R.string.command_result_sync_courses)
         "record_sleep" -> context.getString(R.string.command_result_record_sleep, title, moment ?: outcome.moment.orEmpty())
+        "set_home_style" -> context.getString(R.string.command_result_home_style)
         else -> if (title.isNotBlank()) context.getString(R.string.command_result_open, title) else context.getString(R.string.command_result_opening)
     }
 }

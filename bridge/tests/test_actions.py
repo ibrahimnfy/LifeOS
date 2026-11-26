@@ -302,6 +302,13 @@ def test_one_failing_action_does_not_lose_the_others(client, auth, brain, interp
 def test_app_actions_are_handed_over():
     done = actions.execute(None, "open_screen", {"screen": "calendar"})
     assert done.perform == {"action": "open_screen", "screen": "calendar"} and done.undo is None
+    # A setting of the app is an action too (#192): the home style goes to the app as it is.
+    style = actions.execute(None, "set_home_style", {"style": "classic"})
+    assert style.perform == {"action": "set_home_style", "style": "classic"} and style.undo is None
+    # The choices are the values the app stores (settings/HomeStyle.kt).
+    source = (APP_SOURCE / "settings/HomeStyle.kt").read_text()
+    stored = tuple(re.findall(r'^\s+[A-Z]+\("(\w+)"\)', source, re.M))
+    assert stored == actions.BY_NAME["set_home_style"].params[0].choices == ("tiles", "classic")
 
 
 # ---------------------------------------------------------------- the endpoint

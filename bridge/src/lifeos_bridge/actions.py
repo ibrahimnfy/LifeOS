@@ -270,6 +270,13 @@ ACTIONS: tuple[Action, ...] = (
         screens=(*dict.fromkeys(SCREENS.values()), "CHAT_COACH", "CHAT_SESSIONS"),
     ),
     Action(
+        "set_home_style",
+        "Choose what the Today tab shows: the physics tiles or the classic list of cards "
+        '(the setting "Home style").',
+        (Param("style", "choice", "which home", True, choices=("tiles", "classic")),),
+        runs="app",
+    ),
+    Action(
         "open_course",
         "Open one course (its materials, assignments and grades).",
         (Param("course", "text", "the course's name or code", True, limit=200),),
