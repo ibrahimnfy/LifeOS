@@ -25,9 +25,16 @@ data class SwitchSession(
     fun summary(): SessionSummary = SessionSummary(id, title, lastActivity = lastActivity, folderLabel = folderLabel, kind = kind, colour = colour)
 }
 
-/** The folder a `new` switch starts a conversation in: one of the folders of `GET /folders`. */
+/**
+ * The folder a `new` switch starts a conversation in: one of the folders of `GET /folders`.
+ * [mode] "capable": the new chat takes over "may change files" from the chat the switch came
+ * from (#190); the computer says so, and only where that is allowed.
+ */
 @Serializable
-data class SwitchFolder(val path: String = "", val label: String = "", val kind: String = "", val colour: Int = 0)
+data class SwitchFolder(val path: String = "", val label: String = "", val kind: String = "", val colour: Int = 0, val mode: String? = null) {
+    /** A new chat here starts with changes allowed: said by the computer, and never for a course's folder. */
+    val inheritsChanges: Boolean get() = mode == ChatSwitch.MODE_CAPABLE && kind != FolderKinds.COURSE && kind != FolderKinds.COACH
+}
 
 /**
  * A folder the bridge found by name (#179), offered on a "choose_folder" card: [allowed] says it is a
@@ -42,6 +49,8 @@ data class SwitchFolderChoice(
     val colour: Int = 0,
     val allowed: Boolean = false,
     val where: String = "",
+    /** As [SwitchFolder.mode]: a chat started in this folder takes over "may change files" (#190). */
+    val mode: String? = null,
 )
 
 /**
@@ -64,6 +73,12 @@ data class ChatSwitch(
     val forward: String? = null,
     @Transient val origin: SwitchSession? = null,
 ) {
+    /**
+     * Without what only the fresh answer to the owner's own message may hand on: the request
+     * (#187) and the change permission (#190).
+     */
+    fun withoutCarry(): ChatSwitch = copy(forward = null, folder = folder?.copy(mode = null), folders = folders.map { it.copy(mode = null) })
+
     /** A card for the owner to pick from, never done by itself. */
     val isChoice: Boolean get() = action == CHOOSE || action == CHOOSE_FOLDER
 
@@ -86,6 +101,9 @@ data class ChatSwitch(
 
         /** The owner's pick on a [CHOOSE_FOLDER] card: the bridge opens the folder, then a new chat starts. */
         const val PICK_FOLDER = "pick_folder"
+
+        /** The mode of a folder whose new chat may change files (#190). */
+        const val MODE_CAPABLE = "capable"
 
         /** The bridge offers at most five conversations to choose from. */
         const val MAX_CHOICES = 5
@@ -160,10 +178,17 @@ sealed interface SwitchStep {
      * [forward] (#187) that first message is the owner's request, sent at once; [origin] is the
      * conversation the switch came from.
      */
-    data class New(val folder: Folder?, val forward: String? = null, val origin: SwitchSession? = null) : SwitchStep
+    data class New(val folder: Folder?, val forward: String? = null, val origin: SwitchSession? = null, val capable: Boolean = false) : SwitchStep
 
-    /** A found folder the owner picked (#179): `POST /folders/open` first, then [New] in the folder it answers. */
-    data class Pick(val path: String, val forward: String? = null, val origin: SwitchSession? = null) : SwitchStep
+    /**
+     * A found folder the owner picked (#179): `POST /folders/open` first, then [New] in the folder it
+     * answers. [capable]: the pick takes over "may change files" (#190), unless the folder it
+     * answers is a course's.
+     */
+    data class Pick(val path: String, val forward: String? = null, val origin: SwitchSession? = null, val capable: Boolean = false) : SwitchStep {
+        /** Whether the chat in the folder the computer opened starts with changes allowed. */
+        fun capableIn(opened: SwitchFolder): Boolean = capable && opened.kind != FolderKinds.COURSE && opened.kind != FolderKinds.COACH
+    }
 }
 
 /** The folder `POST /folders/open` answers with (#179). */
@@ -180,7 +205,8 @@ fun SwitchFolder.asFolder(): Folder? =
  */
 fun ChatSwitch.step(): SwitchStep? = when (action) {
     ChatSwitch.OPEN -> sessions.singleOrNull()?.let { if (it.kind == FolderKinds.COACH) SwitchStep.Coach else SwitchStep.Open(it.summary()) }
-    ChatSwitch.NEW -> folder?.let { target -> SwitchStep.New(target.asFolder(), forward, origin) }
-    ChatSwitch.PICK_FOLDER -> folders.singleOrNull()?.takeIf { it.path.startsWith("/") }?.let { SwitchStep.Pick(it.path, forward, origin) }
+    ChatSwitch.NEW -> folder?.let { target -> SwitchStep.New(target.asFolder(), forward, origin, target.inheritsChanges) }
+    ChatSwitch.PICK_FOLDER -> folders.singleOrNull()?.takeIf { it.path.startsWith("/") }
+        ?.let { SwitchStep.Pick(it.path, forward, origin, it.mode == ChatSwitch.MODE_CAPABLE && it.kind != FolderKinds.COURSE) }
     else -> null
 }

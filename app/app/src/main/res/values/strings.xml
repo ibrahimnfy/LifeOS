@@ -1100,6 +1100,14 @@
     <string name="command_result_record_sleep">Sleep recorded: %2$s</string>
     <string name="command_result_open">Opening %1$s</string>
     <string name="command_result_opening">Opening</string>
+    <string name="command_result_new_chat">New chat</string>
+    <string name="command_result_sent">Sent to %1$s</string>
+    <string name="command_result_chat_busy">%1$s is busy on the computer. Your message is in its field</string>
+    <string name="command_result_chat_not_sent">Opening %1$s. Your message is in its field</string>
+    <string name="command_result_chat_not_found">No chat matched. Here are your sessions.</string>
+    <string name="command_result_with_setting">%1$s · %2$s</string>
+    <string name="command_setting_read_only">read-only</string>
+    <string name="command_setting_capable">may change files</string>
     <string name="command_result_not_found">Nothing matched, so nothing was done.</string>
     <string name="command_result_past">That time has already passed, so nothing was saved.</string>
     <string name="command_result_failed">This could not be done.</string>

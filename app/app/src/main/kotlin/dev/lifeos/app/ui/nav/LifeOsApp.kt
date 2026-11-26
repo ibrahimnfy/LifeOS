@@ -200,7 +200,7 @@ fun LifeOsApp(
                 openChat()
             }
             is SwitchStep.New -> {
-                core.chat.startFrom(step.folder, step.forward, step.origin)
+                core.chat.startFrom(step.folder, step.forward, step.origin, step.capable)
                 openChat()
             }
             // A folder found by name (#179): the computer opens it (it may add it to the allowed
@@ -208,7 +208,7 @@ fun LifeOsApp(
             is SwitchStep.Pick -> scope.launch {
                 try {
                     val opened = core.api.openFolder(step.path)
-                    core.chat.startFrom(opened.folder.asFolder(), step.forward, step.origin)
+                    core.chat.startFrom(opened.folder.asFolder(), step.forward, step.origin, step.capableIn(opened.folder))
                     openChat()
                 } catch (_: ApiException) {
                     showMessage(folderNotOpened)
@@ -376,7 +376,11 @@ fun LifeOsApp(
                 notesQuery = outcome.field("query")
                 openRoute(Routes.NOTES)
             }
-            "new_chat" -> newChat(outcome.field("text"))
+            // The chats the bar opens start with the change permission it picked (#190).
+            "new_chat" -> {
+                core.chat.newChat(draft = outcome.field("text"), capable = outcome.capable)
+                openChat()
+            }
             "ask_coach" -> {
                 core.coach.offerDraft(outcome.field("text"))
                 openCoach()
@@ -389,17 +393,20 @@ fun LifeOsApp(
                 scope.launch {
                     when (val found = SessionLookup.find(core.api, id)) {
                         is SessionLookup.Found.Session -> {
-                            core.chat.open(found.session, found.memory)
+                            core.chat.openWith(found.session, found.memory, outcome.capable, outcome.field("text"), outcome.flag("send"))
                             openChat()
                         }
-                        SessionLookup.Found.Coach -> openCoach()
+                        SessionLookup.Found.Coach -> {
+                            core.coach.offerDraft(outcome.field("text"))
+                            openCoach()
+                        }
                         else -> showMessage(sessionLost)
                     }
                 }
             }
             "new_chat_in" -> {
                 val folder = outcome.folder()?.let { runCatching { BridgeJson.decodeFromJsonElement(SwitchFolder.serializer(), it) }.getOrNull() }
-                core.chat.newChat(folder?.asFolder())
+                core.chat.newChat(folder?.asFolder(), draft = outcome.field("text"), capable = outcome.capable && folder?.kind != FolderKinds.COURSE)
                 openChat()
             }
             "open_course" -> outcome.number("course_id")?.let { id ->

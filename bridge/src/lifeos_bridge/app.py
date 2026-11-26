@@ -48,6 +48,7 @@ from . import (
     moodle_watch,
     moves,
     network,
+    permission,
     program,
     projects,
     push,
@@ -411,6 +412,8 @@ def create_app(settings: Settings) -> FastAPI:
 
         return [info for info in found if shown(info)]
 
+    app.state.known_sessions = known_sessions
+
     def known_session(session_id: object) -> sessions.SessionInfo | None:
         if not isinstance(session_id, str):
             return None
@@ -422,9 +425,16 @@ def create_app(settings: Settings) -> FastAPI:
     # Moving between conversations by asking (#164): where the index is, and the answer.
     phone_instructions += " " + conversations.instructions(settings)
 
-    def with_switch(payload: dict, session_id: str, owner: bool = False) -> None:
+    def with_switch(
+        payload: dict, session_id: str, owner: bool = False, mode: str = "read_only"
+    ) -> None:
         """A fresh answer that asks to open, offer or start a conversation: the ``switch``
         item. Everything it names is checked against the bridge's own lists.
+
+        ``mode`` is the mode of the run that answered. A new chat takes it over (#190):
+        a folder of the item says ``"mode": "capable"`` when a chat there starts with it,
+        clamped by ``permission.granted``, and only in the answer to a message the owner
+        sent; without it the new chat is read-only.
 
         Folders by asking (#179) change the allowed folders without an approval prompt,
         so they act only in the answer to a message the owner sent (``owner``); a find
@@ -437,8 +447,19 @@ def create_app(settings: Settings) -> FastAPI:
         # A request carried to a new chat (#187) only for the owner's message, like a find.
         text, switch = conversations.from_answer(settings, answer, session_id, found, owner=owner)
         payload["answer"] = text
-        if folder_switch is not None or switch is not None:
-            payload["switch"] = folder_switch or switch
+        item = folder_switch or switch
+        if item is None:
+            return
+        payload["switch"] = item
+        if isinstance(item.get("forward"), str):
+            permission.remember(item["forward"])  # that first message is not the owner's own
+        if not owner or mode != "capable":
+            return  # no ``mode`` on a folder: a chat there starts read-only
+        for folder in [item.get("folder"), *(item.get("folders") or [])]:
+            if isinstance(folder, dict) and folder.get("path"):
+                kind = folder.get("kind")
+                if permission.granted(settings, Path(folder["path"]), mode, kind) == "capable":
+                    folder["mode"] = "capable"
 
     def described(session_id: str | None) -> dict | None:
         """A conversation as a ``switch`` item names it, read fresh; ``None`` when not listed."""
@@ -656,6 +677,7 @@ def create_app(settings: Settings) -> FastAPI:
                     "_queued": True,
                     "_queue_id": entry["id"],
                     "_owner": True,  # a message the owner sent, queued
+                    "relayed": entry.get("relayed") is True,  # unless the app sent it itself
                     "interactive": entry.get("interactive") is True,
                 },
                 session_id=session_id,
@@ -673,7 +695,12 @@ def create_app(settings: Settings) -> FastAPI:
         prompt = read_prompt(data)
         mode = read_mode(data)
         is_capable = mode == "capable"
-        owner = data.get("_owner") is True  # a message the owner sent (not a bridge turn)
+        # A message the app sent by itself in a model's words (#190, ``permission``) is not
+        # one the owner sent: nothing that needs the owner's own message follows from it.
+        relayed = data.get("relayed") is True or permission.was_relayed(prompt)
+        owner = data.get("_owner") is True and not relayed  # not a bridge turn either
+        # The first message of a chat a switch started never applies an update by itself.
+        may_update = owner and data.get("_continued") is not True
         # The coach conversation runs through this same path, on its own job and
         # instructions, read-only (coach_chat.py).
         is_coach = session_id == await asyncio.to_thread(coach_chat.current_id)
@@ -690,7 +717,7 @@ def create_app(settings: Settings) -> FastAPI:
             # or (send now) the current run is interrupted and this one goes next.
             entry = control.add(
                 session_id, prompt, mode, cwd, front=when == "now",
-                interactive=data.get("interactive") is True,
+                interactive=data.get("interactive") is True, relayed=relayed,
             )  # fmt: skip
             interrupted = False
             if when == "now":
@@ -884,7 +911,7 @@ def create_app(settings: Settings) -> FastAPI:
                 )
                 if is_chat:
                     with_moves(answer, session_id, cwd)
-                await asyncio.to_thread(with_switch, answer, session_id, owner)
+                await asyncio.to_thread(with_switch, answer, session_id, owner, mode)
                 return answer
             started = True
         finally:
@@ -940,10 +967,10 @@ def create_app(settings: Settings) -> FastAPI:
                             payload["refused_actions"] = watch.refused_actions()
                         if is_capable:
                             with_installs(payload, session_id, cwd)
-                            with_update(payload, session_id, cwd, owner)
+                            with_update(payload, session_id, cwd, may_update)
                         if is_chat:
                             with_moves(payload, session_id, cwd)
-                        await asyncio.to_thread(with_switch, payload, session_id, owner)
+                        await asyncio.to_thread(with_switch, payload, session_id, owner, mode)
                         if used_servers:
                             payload["mcp_servers"] = [
                                 {"name": name, "scope": scope, "outside_sandbox": True}
@@ -1340,7 +1367,10 @@ def create_app(settings: Settings) -> FastAPI:
         a repeat answers ``{"repeat": true, "session_id", "running"}`` and runs
         nothing; the same id with another message or folder answers 409.
         ``continued_from`` (with ``new_session_id``) names the chat whose switch
-        started this one (#187): both histories then say so.
+        started this one (#187): both histories then say so, and the answer to this
+        first message never applies an update by itself (#190). ``relayed: true``: the
+        app sent the message by itself (a request a switch or the command bar carried),
+        so it is not a message the owner sent (``permission``).
         """
         data = await read_json_object(request)
         prompt = read_prompt(data)
@@ -1387,7 +1417,12 @@ def create_app(settings: Settings) -> FastAPI:
                 if cwd is None:
                     cwd = new_chat_folder()
                 return await run_prompt(
-                    {**data, "_admitted": admitted, "_owner": True},
+                    {
+                        **data,
+                        "_admitted": admitted,
+                        "_owner": True,
+                        "_continued": origin is not None,
+                    },
                     session_id=chosen_id,
                     resume=False,
                     cwd=cwd,
@@ -1414,8 +1449,9 @@ def create_app(settings: Settings) -> FastAPI:
                     raise ClaudeError("session_not_found", 404, "unknown session")
                 cwd = found
             return await run_prompt(
-                {**data, "_owner": True}, session_id=session_id, resume=True, cwd=cwd
-            )
+                {**data, "_owner": True, "_continued": False},
+                session_id=session_id, resume=True, cwd=cwd,
+            )  # fmt: skip
         chosen = chosen_folder(data)
         cwd = chosen if chosen is not None else new_chat_folder()
         # No --name: a fixed name would hide the first prompt, which is the
@@ -1423,8 +1459,9 @@ def create_app(settings: Settings) -> FastAPI:
         session_id = str(uuid.uuid4())
         try:
             return await run_prompt(
-                {**data, "_owner": True}, session_id=session_id, resume=False, cwd=cwd
-            )
+                {**data, "_owner": True, "_continued": False},
+                session_id=session_id, resume=False, cwd=cwd,
+            )  # fmt: skip
         except ClaudeError:
             if chosen is None:
                 tidy_chat(cwd)  # refused before it ran: no empty folder is left behind
@@ -1445,8 +1482,9 @@ def create_app(settings: Settings) -> FastAPI:
         if session_folder(info) is None:
             raise ClaudeError("folder_missing", 409, "the session's folder no longer exists")
         return await run_prompt(
-            {**data, "_owner": True}, session_id=info.id, resume=True, cwd=info.folder
-        )
+            {**data, "_owner": True, "_continued": False},
+            session_id=info.id, resume=True, cwd=info.folder,
+        )  # fmt: skip
 
     background: set[asyncio.Task] = set()
 
@@ -2086,7 +2124,19 @@ def create_app(settings: Settings) -> FastAPI:
     # ---- the command bar (#185): a request turned into actions of the registry ----
 
     def command_context(now: datetime, zone: str | None) -> actions.Context:
-        return actions.Context(settings, now, zone, known_sessions)
+        loop = asyncio.get_running_loop()
+
+        def busy() -> set[str] | None:
+            """Sessions that cannot take a message now (asked from an action's worker
+            thread, and only by an action that wants to send one): answering here, or
+            held by another Claude Code process. ``None``: unknown, so nothing is sent."""
+            try:
+                held = asyncio.run_coroutine_threadsafe(held_elsewhere(), loop).result(8.0)
+            except Exception:
+                return None
+            return None if held is None else set(held) | set(slots.active)
+
+        return actions.Context(settings, now, zone, known_sessions, busy)
 
     def start_plan() -> None:
         """ "Prepare today's plan again" from the bar: a run of its own, not waited for."""

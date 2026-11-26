@@ -178,6 +178,7 @@ Request body (JSON):
 | `folder` | string, optional | For a new conversation: a path from `GET /folders`. Left out: a blank chat in its own new folder (see "Blank chats") |
 | `new_session_id` | string, optional | A lowercase UUID the phone chose for a **new** conversation (not with `session_id`). Sending the same first message (same text and folder) again with it runs nothing and answers `{"repeat": true, "session_id", "running": bool}`; the same id with another message or folder, or the id of an existing session, answers `409 session_id_conflict`. A first message refused before its run began (for example `429 busy`, or a failed check) does not keep the id: sending it again starts it. Follow-ups go to `POST /sessions/{id}/messages` as usual |
 | `continued_from` | string, optional | With `new_session_id`: the session whose switch started this conversation (#187); both histories then name each other. Not a session id: `400 bad_request`; one the bridge does not list is ignored. See "The owner's request goes along" |
+| `relayed` | boolean, optional | The app sent this message by itself (a request a switch or the command bar carried, #190): it is not a message the owner sent. See "The owner's request goes along" |
 | `stream` | boolean, optional | Send the answer as it is written (see below) |
 | `mode` | string, optional | `read_only` (default) or `capable`; see "Capable mode" |
 
@@ -741,6 +742,27 @@ starts a new chat carries the request after a `|`:
   exchange, and the history of the new one `"continued_from": {…}` at the
   top of the page (both `null` otherwise, and when the other conversation
   is no longer listed).
+- **The new chat takes over the change permission (#190).** When the run
+  that asked for the switch was a capable one and answered a message the
+  owner sent, the folder of the item (`folder`, and each of `folders` on a
+  pick card) carries `"mode": "capable"`, and the app starts the new chat
+  with "may change files" on. Without it the new chat is read-only. It is
+  clamped in code (`permission.granted`): never for a course's folder or the
+  coach, and only where a capable run is available by the check every
+  capable run passes (`capable.require_available`); the first message is
+  checked again when it arrives. Approval cards stay as they are.
+- **A carried request is not a message the owner sent.** The app sends it
+  with `"relayed": true`; the bridge also remembers the requests its own
+  switches carried (24 hours, in memory) and treats a message with exactly
+  that text as relayed whatever the app says. The answer to a relayed
+  message applies no update (`not_owner`), finds, adds or removes no folder,
+  carries no request further and hands no permission on, so chats cannot
+  chain and an update is never applied without a message of the owner's
+  own. The first message of a chat sent with `continued_from` never applies
+  an update either, also when the owner tapped Send on a carried request
+  that waited as a draft. `relayed` is accepted by `POST /ask` and
+  `POST /sessions/{id}/messages`; a relayed message that has to wait in the
+  queue stays relayed.
 
 Checked with the real CLI through the bridge (2026-11-21, small model):
 from a blank chat, "open the chat in which I asked you to remember a
@@ -1793,6 +1815,36 @@ screen) and its undo. `GET /command/actions` lists them.
   `"text": null`, options with a `"choice"` token that does the resolved
   action and the rest of the request without a model run; one pick per
   question).
+- **The change permission of a chat the bar opens (#190).** A chat has one
+  permission setting with two values: read-only, or "may change files"
+  (capable mode: changes inside the guardrails, with approval cards for
+  deleting, force, pushing, installing and sending). A session of the
+  computer continued from the phone uses the same two. `new_chat`,
+  `continue_chat` and `work_in_folder` take `changes`: `read_only` or
+  `may_change`; the interpreter picks it from the owner's words alone (it is
+  never shown a session title or a folder name: the bridge matches those
+  itself), and `may_change` only when the request clearly asks for work
+  that changes files or runs commands; unsure or left out is read-only. The
+  bridge clamps it as for a switch (`permission.granted`); the outcome says
+  what the chat really gets in `"mode"` (`read_only` or `capable`), also in
+  `perform`, and the bar's confirmation line shows it.
+- **Continuing a chat with a request.** `continue_chat` finds a session
+  among those of `GET /sessions` (the app's chats and the computer's Claude
+  Code sessions alike) by its title and its folder's name. With `message`
+  ("go to that chat and do X there") the outcome's `perform` is
+  `{"action": "open_chat", "session_id", "mode", "text", "send": true}`: the
+  app opens the chat and sends the text as a relayed message (above; the
+  bridge remembers the text it handed over, so it is relayed whatever the
+  app says, and never applies an update by itself). When
+  the session is answering, is open in another Claude Code process, or that
+  could not be checked, there is no `send` and the outcome has
+  `"note": "chat_busy"`: the app opens the chat with the text in its message
+  field. The coach conversation never gets a sent message (`"not_sent"`).
+  No match opens the sessions screen (`"note": "chat_not_found"`, `perform`
+  `open_screen` `sessions`); several matches, or a partial one, are one
+  question with options that keep the message. `new_chat` and
+  `work_in_folder` put their `text` into the message field; they send
+  nothing.
 - **Undo:** `POST /command/undo` with `{"undo": "<token>"}` takes one action
   back, once, within 15 minutes: a created note goes to the trash with its
   reminder, a deleted note is restored, a ticked task is reopened, an added
@@ -2797,6 +2849,14 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 #   "Write a short list of three animals"; the app starts the chat there with that message;
 #   afterwards `GET /sessions/<old id>/history` has "continued_in" on that answer and
 #   `GET /sessions/<new id>/history` has "continued_from"
+# the permission goes along (#190): the same from a chat with "mode":"capable" in an allowed
+#   folder -> the item's "folder" has "mode":"capable"; from a read-only chat it has none.
+#   Send the carried request as a first message with "mode":"capable" in the program folder and
+#   let the run end with [[apply-update]] -> "update_requests" says "not_owner", nothing applied
+# the bar continues a session (#190): POST /command with "text":"go to the <words of a session
+#   title> chat and fix the typo there" -> one result with "mode", and "perform" with "open_chat",
+#   "text" and "send":true; with words of two sessions -> a question; with words of none ->
+#   "note":"chat_not_found" and "perform" opens the sessions screen
 # course folders (#179): with a line `<course id><TAB><folder>` in ~/.config/lifeos/course_folders,
 #   ask in a chat of that course's sync folder "which files are in my own folder for this
 #   course?" -> it lists them; ask it (capable) to create a file there -> it cannot
