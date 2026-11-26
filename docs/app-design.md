@@ -141,10 +141,13 @@ selectable as the home (Settings → Home style).*
   new release, a memory proposal. The coach's card with Rerun, its open
   question, the assistant's picks and ticking tasks are on the list behind
   "Today's tasks"; a tapped coach notification opens that list directly.
+  When the computer was not reached, one line says from when the tiles'
+  values are.
 - **Stored on the phone:** each tile's place (as a fraction of the field, so
   it fits a rotation or another screen), size and stacking order, saved when
   the tiles come to rest. A field that shrinks (landscape, split screen)
-  moves the tiles inside and gives the layout back when it grows again.
+  moves the tiles inside; as long as no tile is touched there, the layout
+  is not saved and comes back when the field grows again.
 - **Look:** the D3 tokens and the seven tones with a sci-fi layer: a field a
   little darker than the page with faint grid and scan lines, corner marks,
   captions in the monospace font, each tile glowing in its tone's ink, the

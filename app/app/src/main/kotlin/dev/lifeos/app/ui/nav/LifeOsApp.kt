@@ -471,7 +471,7 @@ fun LifeOsApp(
                 // Nothing until the stored style is read, so the other home is never drawn first.
                 val style = homeStyle
                 // The list above the tiles belongs to the tiles: with the classic home it is the home itself.
-                LaunchedEffect(style) { if (style == HomeStyle.CLASSIC) todayList = false }
+                LaunchedEffect(style, todayList) { if (style == HomeStyle.CLASSIC && todayList) todayList = false }
                 val openCoachPage = { navController.navigate(Routes.COACH) { launchSingleTop = true } }
                 val openConsolidation = { navController.navigate(Routes.CONSOLIDATION) { launchSingleTop = true } }
                 if (style == HomeStyle.TILES && !todayList) {

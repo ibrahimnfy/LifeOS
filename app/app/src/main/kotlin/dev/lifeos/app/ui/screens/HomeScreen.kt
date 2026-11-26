@@ -113,6 +113,7 @@ import dev.lifeos.app.home.TilePhysics
 import dev.lifeos.app.settings.SettingsStore
 import dev.lifeos.app.ui.components.LocalUndo
 import dev.lifeos.app.ui.components.NotPairedNotice
+import dev.lifeos.app.ui.components.SavedCopyLine
 import dev.lifeos.app.ui.components.SectionTones
 import dev.lifeos.app.ui.components.TopBar
 import dev.lifeos.app.ui.components.TopBarAction
@@ -259,6 +260,8 @@ fun HomeScreen(
         )
         Column(Modifier.padding(horizontal = LifeDimens.pad), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (lines.notPaired) NotPairedNotice(onPair)
+            // The computer was not reached: the tiles show its last answer, and say from when.
+            lines.savedAtMillis?.let { SavedCopyLine(it) }
             UpdateCard(core) // #138: only while a newer release is waiting
             ConsolidationCard(core, onOpen = onOpenConsolidation) // #151: only while a proposal waits
         }
@@ -298,7 +301,7 @@ fun HomeScreen(
                     },
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                HudButton(stringResource(R.string.home_reset), stringResource(R.string.home_reset_label), LifeIcons.Refresh) {
+                HudButton(stringResource(R.string.home_reset), stringResource(R.string.home_reset_label), icon = null) {
                     tiles.reset()?.let { before -> showUndo(resetDone) { tiles.restore(before) } }
                 }
                 HudButton(stringResource(R.string.home_tidy), stringResource(R.string.home_tidy_label), LifeIcons.Grid) {
@@ -312,7 +315,13 @@ fun HomeScreen(
 // ---------------------------------------------------------------- what the tiles say
 
 /** One live line per tile (null: nothing to say right now), and how to read everything again. */
-private class LiveLines(val notPaired: Boolean, val refresh: () -> Unit, private val lines: Map<HomeTile, String?>) {
+private class LiveLines(
+    val notPaired: Boolean,
+    /** Set while the lines come from a saved copy (the computer did not answer): when it was saved. */
+    val savedAtMillis: Long?,
+    val refresh: () -> Unit,
+    private val lines: Map<HomeTile, String?>,
+) {
     fun of(tile: HomeTile): String? = lines[tile]?.takeIf { it.isNotBlank() }
 }
 
@@ -414,7 +423,11 @@ private fun liveLines(core: LifeOsCore): LiveLines {
         projectsModel.refresh()
     }
     val notPaired = planState is UiState.NotPaired || agendaState is UiState.NotPaired
-    return LiveLines(notPaired, refresh, lines)
+    // As on the classic Today: the age of the plan's or the agenda's saved copy.
+    val copy = listOf(planState, agendaState).firstNotNullOfOrNull { state ->
+        (state as? UiState.Content<*>)?.takeIf { it.fromCache && !it.refreshing }?.savedAtMillis
+    }
+    return LiveLines(notPaired, copy, refresh, lines)
 }
 
 // ---------------------------------------------------------------- one tile
@@ -666,7 +679,7 @@ private fun HudCaptions() {
 
 /** A pill on the field in the HUD's style: 48 dp high, an icon and a short word in capitals. */
 @Composable
-private fun HudButton(text: String, label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun HudButton(text: String, label: String, icon: ImageVector?, onClick: () -> Unit) {
     val colors = LifeTheme.colors
     val hud = HomeColors.hud(colors)
     Row(
@@ -676,11 +689,11 @@ private fun HudButton(text: String, label: String, icon: ImageVector, onClick: (
             .background(HomeColors.tile(colors))
             .border(1.dp, hud.copy(alpha = 0.5f), RoundedCornerShape(50))
             .clickable(onClickLabel = label, role = Role.Button, onClick = onClick)
-            .padding(start = 12.dp, end = 16.dp),
+            .padding(start = if (icon != null) 12.dp else 16.dp, end = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = hud, modifier = Modifier.size(18.dp))
+        if (icon != null) Icon(icon, contentDescription = null, tint = hud, modifier = Modifier.size(18.dp))
         Text(
             text = text.uppercase(appLocale()),
             style = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.08.em),

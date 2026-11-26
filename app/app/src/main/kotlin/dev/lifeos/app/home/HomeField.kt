@@ -46,6 +46,9 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
     /** The layout as the owner left it; a temporary smaller field (split screen) is fitted from it. */
     private var base: Field? = null
     private var lastSaved: String? = null
+
+    /** Whether the owner changed the layout since it was last saved (a field that was only fitted is not saved). */
+    private var touched = false
     private var lastNanos = 0L
     private var slide: Slide? = null
 
@@ -105,15 +108,18 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
         slide = null
         field = TilePhysics.toFront(TilePhysics.moveTo(current, id, tile.x, tile.y), id)
         held = id
+        touched = true
         return Press(id, caught)
     }
 
     fun drag(id: String, x: Float, y: Float) {
         field = TilePhysics.moveTo(field ?: return, id, x, y)
+        touched = true
     }
 
     fun pinch(id: String, size: Float, x: Float, y: Float) {
         field = TilePhysics.resize(field ?: return, id, size, x, y)
+        touched = true
     }
 
     /** The finger left: with a speed (dp per ms) the tile flies on, unless motion is off. */
@@ -134,6 +140,7 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
         val tile = current.tile(id) ?: return
         slide = null
         field = TilePhysics.toFront(TilePhysics.resize(current, id, tile.size * factor, tile.x, tile.y), id)
+        touched = true
         if (!running) persist()
     }
 
@@ -156,6 +163,7 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
         val now = TilePhysics.stop(current)
         val to = target(now)
         held = null
+        touched = true
         if (reducedMotion) {
             slide = null
             field = to
@@ -221,6 +229,8 @@ class HomeField(private val ids: List<String>, private val save: (String) -> Uni
 
     private fun persist() {
         val current = field ?: return
+        if (!touched) return
+        touched = false
         base = current
         val text = HomeLayout.encode(current)
         if (text == lastSaved) return

@@ -220,6 +220,26 @@ class HomeFieldTest {
     }
 
     @Test
+    fun `a layout that was only fitted to a smaller field is never saved`() {
+        val tiles = ready()
+        val portrait = tiles.field!!
+        tiles.measured(900f, 300f)
+        tiles.hide() // a tile's screen is opened in landscape, or the app goes to the background
+        tiles.measured(412f, 640f)
+        assertEquals(portrait, tiles.field)
+        assertTrue(saves.isEmpty())
+        // Touched in landscape, it is the owner's layout from then on.
+        tiles.measured(900f, 300f)
+        val (x, y) = centre(tiles, "coach")
+        tiles.press(x, y)
+        tiles.drag("coach", x + 60f, y)
+        tiles.release("coach")
+        assertEquals(1, saves.size)
+        tiles.hide()
+        assertEquals(1, saves.size)
+    }
+
+    @Test
     fun `a bounce off an edge is counted for the flash`() {
         val tiles = ready()
         val (x, y) = centre(tiles, "coach")
