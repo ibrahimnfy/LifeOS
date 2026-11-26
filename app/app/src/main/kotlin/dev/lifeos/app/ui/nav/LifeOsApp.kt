@@ -6,7 +6,9 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -495,7 +497,7 @@ fun LifeOsApp(
                 Routes.TODAY,
                 // A tile's page grows out of the tile above the home and shrinks back into it (#195).
                 exitTransition = { if (reveal.tapped) ExitTransition.KeepUntilTransitionsFinished else null },
-                popEnterTransition = { if (reveal.origin != null && initialState.destination.route in TILE_ROUTES) EnterTransition.None else null },
+                popEnterTransition = { if (reveal.fromTile && initialState.destination.route in TILE_ROUTES) EnterTransition.None else null },
             ) {
                 // Nothing until the stored style is read, so the other home is never drawn first.
                 val style = homeStyle
@@ -527,6 +529,7 @@ fun LifeOsApp(
                         },
                         label = "today list content",
                     ) { if (it) 1f else 0f }
+                    Box(Modifier.fillMaxSize()) {
                     if (!(list.currentState && list.targetState)) {
                         HomeScreen(
                             core = core,
@@ -567,6 +570,7 @@ fun LifeOsApp(
                         } else {
                             today { todayList = false }
                         }
+                    }
                     }
                 } else if (style != null) {
                     today(null)

@@ -1132,6 +1132,7 @@
     <string name="home_show_field">Görsel görünüme dön</string>
     <string name="home_command_label">LifeOS\'a sor ya da söyle</string>
     <string name="home_command_hint">Bir şey sor ya da söyle…</string>
+    <string name="home_field_help">Bir kutucuğu sürükleyip bırakarak fırlat; iki parmakla büyüt ya da küçült; açmak için dokun. Klavye: ok tuşları odaktaki kutucuğu taşır, artı ve eksi boyutunu değiştirir, Enter açar.</string>
     <string name="home_tidy">Topla</string>
     <string name="home_tidy_label">Topla: kutucukları düzenli yerlerine koy</string>
     <string name="home_tidied">Kutucuklar toplandı.</string>

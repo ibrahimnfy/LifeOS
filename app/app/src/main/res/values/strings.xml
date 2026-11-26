@@ -1134,6 +1134,7 @@
     <string name="home_show_field">Back to the visual view</string>
     <string name="home_command_label">Ask or tell LifeOS</string>
     <string name="home_command_hint">Ask or tell me anything…</string>
+    <string name="home_field_help">Drag a tile and let go to throw it; pinch with two fingers to resize; tap to open. Keyboard: arrow keys move the focused tile, plus and minus resize it, Enter opens it.</string>
     <string name="home_tidy">Tidy up</string>
     <string name="home_tidy_label">Tidy up: put the tiles back into a neat layout</string>
     <string name="home_tidied">Tiles tidied up.</string>

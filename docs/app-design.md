@@ -219,6 +219,14 @@ style).*
   - The smallest tile grows with the system font size (the prototype has no
     font scaling).
   - Before Android 9 the glow is drawn as fading rings instead of a blur.
+  - On a wide screen the home uses the whole width like every screen of
+    the app; the prototype is a centred column of 480 px.
+  - A tile's spoken label is "name. live line"; the prototype adds a
+    sentence of sample content.
+  - With animations removed a page opens at once; the prototype fades it
+    in over 160 ms.
+  - "N new tips" counts the tips of today's plan; the app does not track
+    which ones were read.
 - **Manual check:**
   1. Open the app: the Today tab shows "Home" with the date, the field with
      nine see-through tiles (the grid lines are faintly visible through

@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -279,7 +280,7 @@ fun HomeScreen(
 
     // "Remove animations": known before the first layout (it decides the default one), and read
     // again on every return, because it may change while the app is in the background.
-    remember(tiles) { tiles.reducedMotion = animationsOff(context) }
+    SideEffect { tiles.reducedMotion = animationsOff(context) }
     LifecycleResumeEffect(tiles) {
         tiles.reducedMotion = animationsOff(context)
         onPauseOrDispose { }
@@ -874,6 +875,7 @@ private fun BoxScope.HudCaptions() {
     val locale = appLocale()
     val style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 1.2.em, letterSpacing = 0.08.em)
     val hint = stringResource(R.string.home_cap_hint)
+    val help = stringResource(R.string.home_field_help) // the prototype's description of the field, for a screen reader
     Text(
         text = pluralStringResource(R.plurals.home_cap_field, HomeTile.entries.size, HomeTile.entries.size).uppercase(locale),
         style = style.copy(fontWeight = FontWeight.Bold),
@@ -892,7 +894,7 @@ private fun BoxScope.HudCaptions() {
         modifier = Modifier
             .align(Alignment.TopEnd)
             .padding(end = 32.dp, top = 12.dp)
-            .clearAndSetSemantics { contentDescription = hint },
+            .clearAndSetSemantics { contentDescription = help },
     )
 }
 

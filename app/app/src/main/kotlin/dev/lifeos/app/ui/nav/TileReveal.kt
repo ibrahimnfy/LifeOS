@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +60,9 @@ class RevealState {
         private set
     var tapped: Boolean = false
 
+    /** Whether the tile page on screen came out of a tile (so going back home shrinks it into the tile). */
+    var fromTile: Boolean = false
+
     fun tap(from: RevealOrigin?) {
         origin = from
         tapped = from != null
@@ -90,7 +94,7 @@ fun NavGraphBuilder.tilePage(
     route = route,
     arguments = arguments,
     enterTransition = { if (reveal.tapped && initialState.destination.route == Routes.TODAY) EnterTransition.None else null },
-    popExitTransition = { if (reveal.origin != null && targetState.destination.route == Routes.TODAY) ExitTransition.KeepUntilTransitionsFinished else null },
+    popExitTransition = { if (reveal.fromTile && targetState.destination.route == Routes.TODAY) ExitTransition.KeepUntilTransitionsFinished else null },
 ) { entry ->
     TilePage(reveal, homeOnTop()) { content(entry) }
 }
@@ -102,6 +106,7 @@ private fun AnimatedContentScope.TilePage(state: RevealState, homeOnTop: Boolean
     LaunchedEffect(Unit) { state.tapped = false }
     val saved = rememberSaveable { taken?.encode().orEmpty() }
     val origin = remember(saved) { RevealOrigin.decode(saved) }
+    SideEffect { state.fromTile = origin != null }
     if (origin == null) {
         content()
         return
