@@ -434,3 +434,9 @@ a new entry is added that says what changed and why.
 - **One reminder to come per note (#191).** A second one moves the first (the bar's undo restores the old time); the note shows the one to come, else the last fired. Only reminders to come count towards the limit of 200, and a full store refuses before the note is written. The note screen sets, moves or removes the reminder by hand.
 - **Pending note deletion (#191)** is on the phone's storage from the tap on; if the app ends within the six seconds, the next start queues it.
 - **Home (#192).** The Today tab shows the physics-tile field by default; the classic list stays selectable (Settings → Home style, app action `set_home_style`) and opens from the "Today's tasks" tile. Nine tiles (Coach, Today's tasks, Tasks, Calendar, Chat, Notes, Courses, Activity, Projects), opaque rather than glass for contrast. Physics is a pure step function with the prototype's constants; frames run only while something moves; "remove animations" disables flying. The layout is stored as fractions of the field plus size and stacking order. Each tile reads its screen's endpoint on a home visit; no value is shown without an answer or a saved copy. Tidy and Reset are gestures, not actions.
+
+## Owner answers recorded 2026-11-26 (twelfth round, second part)
+
+- **#193 = A: chats keep two change settings** (read-only, may change files); no mode that asks before every change.
+- **#194 = A: a chat in a folder just added by asking inherits the change permission** of the chat it came from.
+- **The home must match prototype C exactly (#192 follow-up):** slightly translucent tiles and the same behaviour and look as the HTML prototype, nothing left out. This replaces the agent's choice of opaque tiles.
