@@ -779,10 +779,17 @@ def _set_reminder(ctx: Context, p: dict) -> Outcome:
             "repeat": p.get("repeat", "none")}  # fmt: skip
     if ctx.zone:
         body["timezone"] = ctx.zone
-    made = reminders.create(target.get("session_id"), body, note_id=target.get("note_id"))
+    before = None
+    if "note_id" in target:  # a note has one reminder to come: a second time moves it (#191)
+        made, before = reminders.set_for_note(target["note_id"], body)
+    else:
+        made = reminders.create(target["session_id"], body)
 
     def back() -> None:
-        reminders.delete(made["id"])
+        if before is None:
+            reminders.delete(made["id"])
+        else:
+            reminders.update(made["id"], before)
 
     return Outcome("set_reminder", title=title, when=made["at"],
                    undo=_undo_token("set_reminder", back))  # fmt: skip

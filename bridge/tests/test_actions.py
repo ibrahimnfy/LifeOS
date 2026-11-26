@@ -262,6 +262,18 @@ def test_reminders_on_notes_are_set_and_cancelled(ctx, brain):
     assert not missing.ok
 
 
+def test_a_second_reminder_of_a_note_moves_the_first_and_undo_puts_it_back(ctx, brain):
+    memory.add_note(brain, "renew the example card", NOW)
+    first = actions.execute(ctx, "set_reminder", {"note": "card", "at": "2027-01-20T09:30"})
+    moved = actions.execute(ctx, "set_reminder", {"note": "card", "at": "2027-01-22T08:00"})
+    assert moved.ok and moved.when == "2027-01-22T05:00:00Z"
+    assert [r["at"] for r in reminders.load()] == ["2027-01-22T05:00:00Z"]
+    actions.undo(moved.undo)
+    assert [r["at"] for r in reminders.load()] == [first.when]
+    actions.undo(first.undo)
+    assert reminders.load() == []
+
+
 def test_words_that_match_only_partly_are_asked_about_even_once(ctx, brain):
     actions.execute(ctx, "add_task", {"title": "Call the dentist"})
     # One task, but "plumber" is not in it: a destructive action asks instead of guessing.

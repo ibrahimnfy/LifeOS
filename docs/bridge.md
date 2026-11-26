@@ -1561,9 +1561,15 @@ switch for reply notifications.
   so an edit moves the reminder to the new id; deleting the note parks the
   reminder (`state: "deleted"`, never fired, not listed) and a restore brings
   it back. `GET /notes/{id}` carries the note's `reminder` (or `null`);
-  `GET /reminders?note_id=` lists them. A capture filed away by the nightly
-  consolidation keeps a reminder that no longer finds its note (the app says
-  the note is gone).
+  `GET /reminders?note_id=` lists them. A note has **one reminder to come**:
+  a second `POST /reminders` for the same note moves it and answers `200`
+  with the same reminder (#191). `GET /notes/{id}` shows the one to come,
+  else the one that fired last; fired ones stay listed so that their
+  notifications still find the note, and only reminders to come count
+  towards the limit of 200. A capture filed away by the nightly
+  consolidation keeps its id and its reminder: `GET /notes/{id}` still
+  returns it (`kind: "filed"`, see the notes below), so the reminder fires
+  and opens it as before.
 - `POST /reminders` with `{"session_id": "…", "at":
   "2027-01-15T09:00:00+03:00", "note": "…", "repeat": "none" | "daily" |
   "weekly", "timezone": "Europe/Istanbul"}`. `at` must carry a time-zone
@@ -1669,7 +1675,11 @@ git, or **has a git remote**: the memory must stay on the computer.
 - `GET /notes?query=&limit=` lists the captures of the inbox, newest first
   (`kind: "inbox"`), and the topic files under `notes/` (`kind: "topic"`,
   with their title), each with `id`, `at` and a `preview`; `query` searches
-  title and text. `GET /notes/{id}` returns one with its full `text`.
+  title and text. `GET /notes/{id}` returns one with its full `text`. A
+  capture the consolidation filed into a topic file is in no list, but its
+  id still answers (#191): `kind: "filed"`, its text as captured, and
+  `filed_in` (the topic file that has its words now), read from
+  `.trash/inbox-filed.md`; it is read-only (`PATCH` and `DELETE` answer 404).
   `PATCH /notes/{id}` with `{"text": "…"}` changes a captured note (its id
   is derived from its text, so the answer carries the new id); topic notes
   are read-only here.
