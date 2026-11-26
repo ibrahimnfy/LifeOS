@@ -152,7 +152,12 @@ every section in its own clearly visible card.*
   starts with that request as its first message, sent at once (offline it
   waits in the composer); the new chat says where it was started from and
   the old answer says "Continued in <folder>", each a tap to the other chat
-  (#187).
+  (#187). The new chat takes over "Changes allowed" from the chat it came
+  from when the computer says it may (never a course's chat); the command
+  bar sets it from the request when it opens or continues a chat, says so
+  in its confirmation line ("read-only" or "may change files"), and can
+  send a request into a chat or a session of the computer named by words
+  (#190).
 - **Moving a blank chat's files (#163):** the assistant can propose to move
   the chat's files into a project; an approval card like the skill and MCP
   cards lists the files with their sizes and the target, with **Allow** /

@@ -503,6 +503,9 @@ private fun pickQuestion(kind: String): Int = when (kind) {
     else -> R.string.command_pick_other
 }
 
+/** The actions that open or continue a chat: their line names the chat's change permission. */
+private val CHAT_ACTIONS = setOf("new_chat", "continue_chat", "work_in_folder")
+
 /**
  * One line of what an action did, in the app's language: "Task added: Buy milk",
  * "Note saved, reminder Tue 24 Nov, 10:00: Call the office".
@@ -517,6 +520,24 @@ fun outcomeLine(context: Context, outcome: CommandOutcome, locale: Locale): Stri
             else -> R.string.command_result_failed
         }
         return context.getString(reason)
+    }
+    // A chat the bar opens or continues: what happened, then the change permission it got (#190).
+    if (outcome.action in CHAT_ACTIONS) {
+        val line = when {
+            outcome.note == "chat_not_found" -> return context.getString(R.string.command_result_chat_not_found)
+            outcome.note == "chat_busy" -> context.getString(R.string.command_result_chat_busy, title)
+            outcome.note == "not_sent" -> context.getString(R.string.command_result_chat_not_sent, title)
+            outcome.action == "new_chat" -> context.getString(R.string.command_result_new_chat)
+            outcome.action == "work_in_folder" -> context.getString(R.string.command_result_work_in_folder, title)
+            outcome.flag("send") -> context.getString(R.string.command_result_sent, title)
+            else -> context.getString(R.string.command_result_open, title)
+        }
+        val setting = when (outcome.mode) {
+            "capable" -> R.string.command_setting_capable
+            "read_only" -> R.string.command_setting_read_only
+            else -> return line
+        }
+        return context.getString(R.string.command_result_with_setting, line, context.getString(setting))
     }
     return when (outcome.action) {
         "create_note" -> if (moment != null) context.getString(R.string.command_result_create_note_reminder, title, moment) else context.getString(R.string.command_result_create_note, title)

@@ -1092,6 +1092,14 @@
     <string name="command_result_record_sleep">Uyku kaydedildi: %2$s</string>
     <string name="command_result_open">%1$s açılıyor</string>
     <string name="command_result_opening">Açılıyor</string>
+    <string name="command_result_new_chat">Yeni sohbet</string>
+    <string name="command_result_sent">%1$s sohbetine gönderildi</string>
+    <string name="command_result_chat_busy">%1$s bilgisayarda meşgul. Mesajın yazı alanında</string>
+    <string name="command_result_chat_not_sent">%1$s açılıyor. Mesajın yazı alanında</string>
+    <string name="command_result_chat_not_found">Eşleşen sohbet yok. Oturumların burada.</string>
+    <string name="command_result_with_setting">%1$s · %2$s</string>
+    <string name="command_setting_read_only">salt okunur</string>
+    <string name="command_setting_capable">dosyaları değiştirebilir</string>
     <string name="command_result_not_found">Eşleşen bir şey yok, bu yüzden hiçbir şey yapılmadı.</string>
     <string name="command_result_past">O saat geçti, bu yüzden hiçbir şey kaydedilmedi.</string>
     <string name="command_result_failed">Bu yapılamadı.</string>

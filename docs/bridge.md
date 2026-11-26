@@ -2837,6 +2837,14 @@ curl -s -H "Authorization: Bearer $LIFEOS_BRIDGE_TOKEN" -H 'Content-Type: applic
 #   "Write a short list of three animals"; the app starts the chat there with that message;
 #   afterwards `GET /sessions/<old id>/history` has "continued_in" on that answer and
 #   `GET /sessions/<new id>/history` has "continued_from"
+# the permission goes along (#190): the same from a chat with "mode":"capable" in an allowed
+#   folder -> the item's "folder" has "mode":"capable"; from a read-only chat it has none.
+#   Send the carried request as a first message with "mode":"capable" in the program folder and
+#   let the run end with [[apply-update]] -> "update_requests" says "not_owner", nothing applied
+# the bar continues a session (#190): POST /command with "text":"go to the <words of a session
+#   title> chat and fix the typo there" -> one result with "mode", and "perform" with "open_chat",
+#   "text" and "send":true; with words of two sessions -> a question; with words of none ->
+#   "note":"chat_not_found" and "perform" opens the sessions screen
 # course folders (#179): with a line `<course id><TAB><folder>` in ~/.config/lifeos/course_folders,
 #   ask in a chat of that course's sync folder "which files are in my own folder for this
 #   course?" -> it lists them; ask it (capable) to create a file there -> it cannot

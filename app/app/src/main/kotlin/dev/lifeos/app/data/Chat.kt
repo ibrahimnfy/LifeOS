@@ -425,6 +425,12 @@ class Chat(
     @Volatile
     private var startingPrompt: String? = null
 
+    /** A message of the command bar that waits until the chat it is for has been read ([openWith]). */
+    private class PendingSend(val generation: Int, val sessionId: String, val text: String)
+
+    @Volatile
+    private var pendingSend: PendingSend? = null
+
     /** Coach: the thread was already found without the awaited message once (see [read]). */
     @Volatile
     private var doubted = false
@@ -472,15 +478,19 @@ class Chat(
      * it a folder of its own. With one ("Ask about this project", or a switch to a folder,
      * #164) it runs there, the memory folder included. [draft] goes into the composer. The
      * previous conversation stays on the computer (Sessions). [origin]: the conversation whose
-     * switch started this one (#187).
+     * switch started this one (#187). [capable]: it starts with "may change files" on, taken
+     * over from the chat it came from or picked by the command bar (#190); the computer said it
+     * may, and checks every message again.
      */
-    fun newChat(folder: Folder? = null, draft: String? = null, origin: SwitchSession? = null) {
+    fun newChat(folder: Folder? = null, draft: String? = null, origin: SwitchSession? = null, capable: Boolean = false) {
         if (coach) return
         stopWork()
         startingPrompt = null
         val where = ChatFolder.of(folder)
         val from = origin?.takeIf { validId(it.id) }
-        mutable.update { ChatState(generation = it.generation + 1, folder = where, draft = draft?.takeIf { text -> text.isNotBlank() }, origin = from) }
+        mutable.update {
+            ChatState(generation = it.generation + 1, folder = where, draft = draft?.takeIf { text -> text.isNotBlank() }, origin = from, capable = capable)
+        }
         store.save(null)
     }
 
@@ -488,13 +498,49 @@ class Chat(
      * A switch started a new chat in [folder] (#187): with the owner's [request] it is sent at
      * once as the first message, the owner's own, so the work begins without retyping. If it
      * cannot leave the phone (offline) it waits in the composer instead, as any message that was
-     * not sent. Its answer never switches by itself again ([ChatState.forwardedKey]).
+     * not sent. Its answer never switches by itself again ([ChatState.forwardedKey]). [capable]:
+     * the new chat takes over "may change files" from the chat the switch came from (#190).
      */
-    fun startFrom(folder: Folder?, request: String?, origin: SwitchSession?) {
+    fun startFrom(folder: Folder?, request: String?, origin: SwitchSession?, capable: Boolean = false) {
         if (coach) return
-        newChat(folder, origin = origin)
+        newChat(folder, origin = origin, capable = capable)
         val text = ChatSwitch.forwardOf(request) ?: return
         if (!send(text, forwarded = true)) offerDraft(text)
+    }
+
+    /**
+     * The command bar continues [session] (#190): the chat is opened and set to [capable], the
+     * permission the bar picked from the owner's request. With [text] and [send] the text is
+     * sent there by the app itself (a relayed message, as in [startFrom]) once the chat is
+     * read; if it cannot be sent then (the computer works on the chat, it is offline) it
+     * waits in the composer. Without [send] the text only goes into the composer.
+     */
+    fun openWith(session: SessionSummary, memory: Boolean, capable: Boolean, text: String?, send: Boolean) {
+        if (coach || !validId(session.id)) return
+        open(session, memory)
+        val state = mutable.value
+        if (state.sessionId != session.id) return
+        setCapable(capable)
+        val message = text?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        if (!send) return offerDraft(message)
+        if (state.loaded && !state.loading) {
+            if (!send(message, forwarded = true)) offerDraft(message)
+            return
+        }
+        pendingSend = PendingSend(state.generation, session.id, message)
+    }
+
+    /** The bar's message for the chat that is being read ([openWith]): sent when the read has ended. */
+    private fun sendPending(generation: Int) {
+        val waiting = pendingSend ?: return
+        val state = mutable.value
+        if (waiting.generation != generation || state.generation != generation || state.sessionId != waiting.sessionId) {
+            pendingSend = null
+            return
+        }
+        if (state.loading) return
+        pendingSend = null
+        if (!send(waiting.text, forwarded = true)) offerDraft(waiting.text)
     }
 
     /**
@@ -568,6 +614,7 @@ class Chat(
     }
 
     private fun stopWork() {
+        pendingSend = null
         run?.cancel()
         reading?.cancel()
         run = null
@@ -731,6 +778,7 @@ class Chat(
         if ((exchanges != null || gone) && busy != true && awaiting === sent) awaiting = null
         if (exchanges != null) restoreOffers(generation, id)
         if (exchanges != null && running) follow(generation, id)
+        sendPending(generation)
     }
 
     /** The thread as the computer has it; a sent message that is not in it did not arrive. */
@@ -1106,13 +1154,15 @@ class Chat(
     /**
      * Send [prompt] in this conversation; while an answer is awaited it is put in line on the
      * computer instead and sent when that run has ended. False if nothing was started.
-     * [forwarded]: the app sends the request a switch carried here ([startFrom], #187).
+     * [forwarded]: the app sends it by itself: the request a switch carried here ([startFrom],
+     * #187) or a message of the command bar ([openWith], #190). Such a message is never put in
+     * line (there it would look like one the owner wrote), and the computer is told it is relayed.
      */
     fun send(prompt: String, forwarded: Boolean = false): Boolean {
         val text = prompt.trim()
         val current = mutable.value
         if (text.isEmpty()) return false
-        if (!current.canSend) return current.canQueue && enqueue(current.generation, text)
+        if (!current.canSend) return !forwarded && current.canQueue && enqueue(current.generation, text)
         val generation = current.generation
         val key = keys.incrementAndGet()
         // A new conversation gets its id from the phone (#148). The same first message again
@@ -1355,7 +1405,7 @@ class Chat(
             // Only a new conversation names its folder: none for a blank chat (#166), the path for
             // any other, the memory folder included (no folder means a blank chat since #163).
             val folder = before.folder?.requested
-            val ended = api.chat(prompt, before.sessionId, folder, options(before), coach = coach).firstOrNull { event ->
+            val ended = api.chat(prompt, before.sessionId, folder, options(before, relayed = !queued && before.forwardedKey == key), coach = coach).firstOrNull { event ->
                 when (event) {
                     // Coach (#156): after its wait for the tidying up the message was put in line after all.
                     is AnswerEvent.Stream -> if (event.event == "queued") {
@@ -1471,12 +1521,14 @@ class Chat(
     /**
      * What the request carries besides the prompt. `interactive`: this app shows questions and
      * approvals, so the run may wait for the owner instead of being refused at once. `mode`:
-     * only when the owner allowed changes for this conversation.
+     * only when the owner allowed changes for this conversation. `relayed`: the app sends this
+     * message by itself (#190), so the computer does not take it for one the owner sent.
      */
-    private fun options(state: ChatState): Map<String, JsonElement> = buildMap {
+    private fun options(state: ChatState, relayed: Boolean = false): Map<String, JsonElement> = buildMap {
         put("interactive", JsonPrimitive(true))
         // The coach conversation is read-only and has its own model: the computer refuses anything else.
         if (coach) return@buildMap
+        if (relayed) put("relayed", JsonPrimitive(true))
         if (state.capable) put("mode", JsonPrimitive("capable"))
         // A new conversation names its model with its first message; afterwards the computer remembers it.
         if (state.sessionId == null) {
@@ -1725,7 +1777,7 @@ class Chat(
                     // #187: the answer to a request the app sent by itself never switches by itself
                     // (no chain of chats without the owner), and a followed answer carries no request.
                     val forwarded = state.forwardedKey != null
-                    val switch = item?.let { if (own && !forwarded) it else it.copy(forward = null) }?.copy(origin = originOf(state, id))
+                    val switch = item?.let { if (own && !forwarded) it else it.withoutCarry() }?.copy(origin = originOf(state, id))
                     val direct = switch?.takeIf { own && !forwarded && !it.isChoice }
                     val messages = if (text.isBlank() && files.isEmpty()) state.messages else put(state.messages, ChatMessage(answer, false, text, files = files, servers = servers))
                     if (id != null && id != state.sessionId) state.folder?.let { store.save(it.pointer(id)) }

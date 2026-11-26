@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -29,7 +30,16 @@ data class CommandOutcome(
     val undo: String? = null,
     val error: String? = null,
     val perform: JsonObject? = null,
+    /** The change permission of the chat it opens or continues (#190): "read_only" or "capable"; null for other actions. */
+    val mode: String? = null,
+    /** Why it did less than asked: "chat_not_found", "chat_busy" (the message waits in the chat's field), "not_sent". */
+    val note: String? = null,
 ) {
+    /** The chat starts with "may change files" on: the computer picked it from the request and allows it there. */
+    val capable: Boolean get() = mode == ChatSwitch.MODE_CAPABLE
+
+    fun flag(name: String): Boolean = (perform?.get(name) as? JsonPrimitive)?.booleanOrNull == true
+
     /** The app's part, e.g. `{"action": "open_screen", "screen": "notes"}`. */
     val performs: String? get() = perform?.get("action")?.jsonPrimitive?.contentOrNull
 
