@@ -440,3 +440,9 @@ a new entry is added that says what changed and why.
 - **#193 = A: chats keep two change settings** (read-only, may change files); no mode that asks before every change.
 - **#194 = A: a chat in a folder just added by asking inherits the change permission** of the chat it came from.
 - **The home must match prototype C exactly (#192 follow-up):** slightly translucent tiles and the same behaviour and look as the HTML prototype, nothing left out. This replaces the agent's choice of opaque tiles.
+
+### Implementation choices for the home matched to the prototype (#195; agent, cheap to change)
+- **The home is prototype C value for value:** nine glass tiles (coach, today, agenda, courses, notes, chats, activity, sessions, projects), its header, captions, list view, Tidy pill, command bar and the page growing out of a tile. This replaces the #192 choices of opaque tiles, the Tasks tile, the Reset pill, Undo on Tidy and the refresh button.
+- **Glass** is a translucent fill (86 % light, 78 % dark) without backdrop blur, because the prototype has none.
+- **Header buttons** for language and theme change the stored app settings. The home's command bar opens the app's command bar sheet. "Reset the tile layout" lives in Settings → Home style.
+- **Contrast:** the prototype's 55 % tile edge and 10 sp smallest live line are kept as the owner's choice, below the 3:1 and 11 sp guidance.
