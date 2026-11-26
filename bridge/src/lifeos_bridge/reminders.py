@@ -11,7 +11,11 @@ the note.
 A note's id follows its text (memory.py), so the memory functions keep the
 link: an edit renames it (:func:`note_renamed`), a deletion parks the
 reminder as ``deleted`` and a restore brings it back (:func:`note_deleted`,
-:func:`note_restored`).
+:func:`note_restored`). A capture filed by the consolidation keeps its id
+(``memory.get_note`` still finds it), so its reminder needs no change (#191).
+
+A note has at most one reminder to come (:func:`set_for_note` moves it); the
+ones that fired stay, so that their notifications still find the note.
 """
 
 from __future__ import annotations
@@ -108,10 +112,44 @@ def check(data: dict) -> None:
     _read_fields(data, partial=False)
 
 
+def _room(items: list[dict]) -> None:
+    """Only reminders to come count: fired and parked ones never use up the room (#191)."""
+    if len([r for r in items if r.get("state") == "scheduled"]) >= MAX_REMINDERS:
+        raise bad(f"at most {MAX_REMINDERS} reminders")
+
+
+def check_room() -> None:
+    """Refuse a new reminder before its note is written (400)."""
+    _room(load())
+
+
+def of_note(note_id: str) -> dict | None:
+    """The reminder a note shows: the one to come, else the one that fired last."""
+    found = listing(note_id=note_id)
+    coming = [r for r in found if r.get("state") == "scheduled"]
+    return coming[0] if coming else (found[-1] if found else None)
+
+
 def for_note(note_id: str, data: dict, clock: Clock = now_utc) -> dict:
     """The note's reminder: the one it has (a repeated create of the phone), or a new one."""
-    found = listing(note_id=note_id)
-    return found[0] if found else create(None, data, clock, note_id=note_id, allow_past=True)
+    found = of_note(note_id)
+    return found or create(None, data, clock, note_id=note_id, allow_past=True)
+
+
+def set_for_note(note_id: str, data: dict, clock: Clock = now_utc) -> tuple[dict, dict | None]:
+    """Remind about a note at a time: its reminder to come is moved, else one is made.
+
+    Returns the reminder and, when it was moved, the fields it had before (for an undo).
+    """
+    coming = listing(state="scheduled", note_id=note_id)
+    if not coming:
+        return create(None, data, clock, note_id=note_id), None
+    fields = _read_fields(data, partial=False)
+    if fields.get("repeat", "none") == "none" and fields["at"] < clock() - PAST_TOLERANCE:
+        raise bad("`at` is in the past")
+    before = {k: coming[0].get(k) for k in ("at", "note", "repeat", "timezone")}
+    data = {"repeat": "none", "timezone": None, **data}  # what a new one would have
+    return update(coming[0]["id"], data), before
 
 
 def create(
@@ -131,8 +169,7 @@ def create(
         raise bad("a reminder belongs to one session or one note")
     fields = _read_fields(data, partial=False)
     items = load()
-    if len([r for r in items if r.get("state") != "deleted"]) >= MAX_REMINDERS:
-        raise bad(f"at most {MAX_REMINDERS} reminders")
+    _room(items)
     repeat = fields.get("repeat", "none")
     if repeat == "none" and fields["at"] < clock() - PAST_TOLERANCE and not allow_past:
         raise bad("`at` is in the past")

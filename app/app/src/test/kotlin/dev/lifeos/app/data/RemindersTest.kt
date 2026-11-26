@@ -142,4 +142,26 @@ class RemindersTest {
         assertEquals("s-2", found.session.id)
         assertFalse(found.memory)
     }
+
+    @Test
+    fun `a note's reminder names the note, and a filed note still carries its reminder`() = runTest {
+        val at = checkNotNull(Reminders.moment("2027-01-15", "09:30", zone))
+        assertEquals(
+            """{"note_id":"i-aaaaaaaaaaaa","at":"2027-01-15T09:30:00+03:00","repeat":"daily","timezone":"Europe/Istanbul"}""",
+            Reminders.forNote("i-aaaaaaaaaaaa", at, Reminders.Repeat.DAILY).toString(),
+        )
+        // A capture the tidy-up filed (#191) is still answered under its id: read-only, with its reminder.
+        transport.answer(
+            "GET /notes/i-aaaaaaaaaaaa",
+            200,
+            """{"id":"i-aaaaaaaaaaaa","kind":"filed","title":null,"at":"2027-01-14 09:00","text":"Sample","filed_in":"projects/example-project.md",
+                "reminder":{"id":"r1","session_id":null,"note_id":"i-aaaaaaaaaaaa","at":"2027-01-15T06:30:00Z","repeat":"none","state":"scheduled"}}""",
+        )
+        val note = api.get(Endpoints.note("i-aaaaaaaaaaaa")).first
+        assertTrue(note.filed)
+        assertFalse(note.editable)
+        assertEquals("projects/example-project.md", note.filedIn)
+        assertEquals("i-aaaaaaaaaaaa", note.reminder?.noteId)
+        assertTrue(note.reminder?.scheduled == true)
+    }
 }

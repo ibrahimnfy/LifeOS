@@ -47,7 +47,9 @@ import dev.lifeos.app.data.Downloads
 import dev.lifeos.app.data.Endpoint
 import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.EventDraft
+import dev.lifeos.app.data.NoteDeletions
 import dev.lifeos.app.data.NoteLists
+import dev.lifeos.app.data.PendingDeleteStore
 import dev.lifeos.app.data.Task
 import dev.lifeos.app.data.TaskLists
 import dev.lifeos.app.data.TaskNote
@@ -437,6 +439,7 @@ class LifeOsCore(private val app: Application) {
                 if (id != null) {
                     confirmedNoteIds[LocalItems.PREFIX + item.id] = id
                     outbox.retargetNote(LocalItems.PREFIX + item.id, id)
+                    noteDeletions.retarget(LocalItems.PREFIX + item.id, id)
                 }
             }
             OutboxItem.Kind.TASK -> api.addTask(item.text, item.due, item.clientId, item.note).let { saved ->
@@ -731,11 +734,27 @@ class LifeOsCore(private val app: Application) {
     private fun noteIdNow(localName: String): String? =
         confirmedNoteIds[localName] ?: confirmed.items.value.firstOrNull { LocalItems.PREFIX + it.clientId == localName }?.note?.id
 
-    private val deletedNotesState = MutableStateFlow<Set<String>>(emptySet())
+    /**
+     * The deletions in their undo time, kept on storage (#191): one that the end of the app
+     * interrupted is completed at the next start (below), when its offer to undo is gone too.
+     */
+    private val noteDeletions = NoteDeletions(
+        PendingDeleteStore(File(app.filesDir, "outbox/deleting-notes.json")),
+        outbox,
+        System::currentTimeMillis,
+        // Not [newItemId]: this may run while the app starts, before the encryption is loaded.
+        { java.util.UUID.randomUUID().toString().replace("-", "").take(16) },
+        ::noteIdNow,
+    )
     private val deleteTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
+    init {
+        // Queued only; it is sent with the rest of the outbox once the computer answers.
+        noteDeletions.finishLeftOver()
+    }
+
     /** Notes deleted a moment ago whose deletion can still be undone; the lists hide them already. */
-    val justDeletedNotes: StateFlow<Set<String>> = deletedNotesState
+    val justDeletedNotes: StateFlow<Set<String>> = noteDeletions.hidden
 
     /**
      * Delete a note (#184): it disappears at once, and after [UNDO_MILLIS] the deletion is
@@ -745,36 +764,21 @@ class LifeOsCore(private val app: Application) {
      * the original note deleted. False when it cannot be deleted now (an edit is on its way).
      */
     fun deleteNote(noteId: String, label: String = ""): Boolean {
-        if (noteId in deletedNotesState.value) return true
-        if (!NoteLists.canDelete(noteId, outbox.items.value)) return false
-        deletedNotesState.value += noteId
+        if (deleteTimers.containsKey(noteId)) return true
+        if (!noteDeletions.begin(noteId, label)) return false
         deleteTimers[noteId] = scope.launch {
             delay(UNDO_MILLIS)
             deleteTimers.remove(noteId)
-            val stored = when (val plan = NoteLists.deletion(noteId, outbox.items.value, ::noteIdNow)) {
-                is NoteLists.Deletion.Discard -> {
-                    outbox.discard(plan.itemId)
-                    false
-                }
-                is NoteLists.Deletion.Delete -> {
-                    plan.dropEdit?.let { outbox.discard(it) }
-                    // [label]: the note's start, for the notice when the computer refuses the deletion.
-                    outbox.add(OutboxItem(newItemId(), OutboxItem.Kind.NOTE_DELETE, System.currentTimeMillis(), text = label.take(120), noteId = plan.noteId))
-                }
-                // An edit left meanwhile: the note stays; nothing is sent.
-                NoteLists.Deletion.NotNow -> false
-            }
-            deletedNotesState.value -= noteId
-            if (stored && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
+            val queued = noteDeletions.finish(noteId)
+            if (queued && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
         }
         return true
     }
 
     /** The owner took the deletion back in time. False if it was already on its way. */
     fun undoDeleteNote(noteId: String): Boolean {
-        val timer = deleteTimers.remove(noteId) ?: return false
-        timer.cancel()
-        deletedNotesState.value -= noteId
+        if (!noteDeletions.undo(noteId)) return false
+        deleteTimers.remove(noteId)?.cancel()
         return true
     }
 
@@ -1328,6 +1332,9 @@ class LifeOsCore(private val app: Application) {
         cache.wipe()
         outbox.wipe()
         confirmed.wipe()
+        deleteTimers.values.forEach { it.cancel() }
+        deleteTimers.clear()
+        noteDeletions.wipe()
         downloads.clear()
         chat.forget()
         coach.forget()

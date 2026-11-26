@@ -113,10 +113,16 @@ data class Note(
     val title: String? = null,
     val at: String? = null,
     val text: String = "",
-    /** Its reminder (#185), scheduled or fired; null when it has none. */
+    /** Its reminder (#185): the one to come, else the one that fired last; null when it has none. */
     val reminder: Reminder? = null,
+    /**
+     * A capture the computer's tidy-up filed into a topic file ([kind] "filed", #191): the file
+     * that has its words now. It is in no list; a reminder of it still opens it, read-only.
+     */
+    @SerialName("filed_in") val filedIn: String? = null,
 ) {
     val editable: Boolean get() = kind == "inbox"
+    val filed: Boolean get() = kind == "filed"
 }
 
 /** The answer to a new note (`POST /notes`): the stored note's id and time (`at`, ISO). */

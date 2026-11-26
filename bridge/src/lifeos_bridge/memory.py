@@ -253,6 +253,8 @@ def add_note(
             return {"saved": True, "repeat": True, "id": stored_id, "client_id": phone_id,
                     "at": at.isoformat(timespec="minutes") if at else None,
                     "reminder": reminder}  # fmt: skip
+        if remind is not None:
+            reminders.check_room()  # refused before the note is written, never after
         current = read_text(path) or "# Inbox\n\n"
         if not current.endswith("\n"):
             current += "\n"
@@ -291,6 +293,31 @@ def _inbox_entries(text: str) -> list[dict]:
         digest = hashlib.sha256(f"{entry['at']}\n{entry['text']}".encode()).hexdigest()[:12]
         entry["id"] = f"i-{digest}"
     return entries
+
+
+# A capture the consolidation filed into a topic file (consolidation.py) leaves the inbox; its
+# lines are kept in FILED_FILE, the last one ending with FILED_MARK and the topic file. It keeps
+# its id there, so what names it (a reminder, #191) still finds it: read-only, in no list.
+FILED_FILE = ".trash/inbox-filed.md"
+FILED_MARK = "  → "
+FILED_LINE = re.compile(
+    rf"^(.*){FILED_MARK}(profile\.md|(?:projects|courses|people|notes)/[a-z0-9][a-z0-9-]*\.md)$"
+)
+
+
+def _filed_entries(text: str) -> list[dict]:
+    """The captures in FILED_FILE as they were in the inbox, each with ``filed_in``."""
+    lines, targets = [], {}
+    for index, line in enumerate(text.splitlines()):
+        found = FILED_LINE.match(line)
+        if found:
+            targets[index] = found.group(2)
+            line = found.group(1)
+        lines.append(line)
+    entries = _inbox_entries("\n".join(lines))
+    for entry in entries:
+        entry["filed_in"] = targets.get(entry["end"] - 1)
+    return [e for e in entries if e["filed_in"]]
 
 
 def _topic_note(path: Path) -> dict:
@@ -347,6 +374,10 @@ def get_note(memory: Path, note_id: str) -> dict:
             if entry["id"] == note_id:
                 return {"id": entry["id"], "kind": "inbox", "title": None, "at": entry["at"],
                         "text": entry["text"]}  # fmt: skip
+        for entry in reversed(_filed_entries(read_text(memory / FILED_FILE))):
+            if entry["id"] == note_id:
+                return {"id": entry["id"], "kind": "filed", "title": None, "at": entry["at"],
+                        "text": entry["text"], "filed_in": entry["filed_in"]}  # fmt: skip
     raise ClaudeError("note_not_found", 404, "unknown note")
 
 

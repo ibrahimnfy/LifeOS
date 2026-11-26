@@ -1599,14 +1599,16 @@ def create_app(settings: Settings) -> FastAPI:
     async def create_reminder(request: Request):
         """Body: ``{"session_id" | "note_id", "at", "note"?, "repeat"?, "timezone"?}``.
 
-        ``repeat``: none, daily or weekly. A note's reminder (#185) names the note by its id.
+        ``repeat``: none, daily or weekly. A note's reminder (#185) names the note by its id;
+        a note has one reminder to come, so a second time moves it (200 instead of 201).
         """
         data = await read_json_object(request)
         session_id = data.pop("session_id", None)
         note_id = data.pop("note_id", None)
         if isinstance(note_id, str) and session_id is None:
             await asyncio.to_thread(memory.get_note, brain, note_id)  # 404 for an unknown note
-            return reminders.create(None, data, note_id=note_id)
+            reminder, moved = reminders.set_for_note(note_id, data)
+            return JSONResponse(reminder, status_code=201 if moved is None else 200)
         info = known_session(session_id) if isinstance(session_id, str) else None
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
@@ -1676,8 +1678,7 @@ def create_app(settings: Settings) -> FastAPI:
     async def get_note(note_id: str):
         """One note in full, with its reminder (#185) or ``null``."""
         note = await asyncio.to_thread(memory.get_note, brain, note_id)
-        found = reminders.listing(note_id=note_id)
-        return note | {"reminder": found[0] if found else None}
+        return note | {"reminder": reminders.of_note(note_id)}
 
     @app.patch("/notes/{note_id}")
     async def update_note(note_id: str, request: Request):

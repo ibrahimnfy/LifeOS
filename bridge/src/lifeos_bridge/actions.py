@@ -779,10 +779,17 @@ def _set_reminder(ctx: Context, p: dict) -> Outcome:
             "repeat": p.get("repeat", "none")}  # fmt: skip
     if ctx.zone:
         body["timezone"] = ctx.zone
-    made = reminders.create(target.get("session_id"), body, note_id=target.get("note_id"))
+    before = None
+    if "note_id" in target:  # a note has one reminder to come: a second time moves it (#191)
+        made, before = reminders.set_for_note(target["note_id"], body)
+    else:
+        made = reminders.create(target["session_id"], body)
 
     def back() -> None:
-        reminders.delete(made["id"])
+        if before is None:
+            reminders.delete(made["id"])
+        else:
+            reminders.update(made["id"], before)
 
     return Outcome("set_reminder", title=title, when=made["at"],
                    undo=_undo_token("set_reminder", back))  # fmt: skip
@@ -799,6 +806,9 @@ def _cancel_reminder(ctx: Context, p: dict) -> Outcome:
     reminders.delete(gone["id"])
 
     def back() -> None:
+        note_id = gone.get("note_id")
+        if note_id is not None and reminders.listing(state="scheduled", note_id=note_id):
+            return  # the note got a new reminder meanwhile: it has one to come (#191)
         fields = {k: gone[k] for k in ("at", "note", "repeat", "timezone") if gone.get(k)}
         reminders.create(gone.get("session_id"), fields, note_id=gone.get("note_id"),
                          allow_past=True)  # fmt: skip

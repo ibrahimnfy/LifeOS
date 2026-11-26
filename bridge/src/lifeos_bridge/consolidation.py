@@ -45,7 +45,7 @@ MAX_REJECTED = 500
 MAX_WHY = 200
 TOPIC = re.compile(r"profile\.md|(?:projects|courses|people|notes)/[a-z0-9][a-z0-9-]*\.md")
 KINDS = ("file_capture", "merge_facts", "add_fact")
-FILED_FILE = ".trash/inbox-filed.md"
+FILED_FILE = memory.FILED_FILE
 FILED_HEADER = "# Filed inbox captures\n\nKept here after the consolidation filed them.\n"
 LONG_CAPTURES = "## From the inbox"
 
@@ -425,7 +425,9 @@ def _file_capture(memory_dir: Path, texts: dict, before: dict, op: dict, target:
     del lines[entry["start"] : entry["end"]]
     texts["inbox.md"] = "\n".join(lines) + "\n"
     filed = _text(memory_dir, texts, before, FILED_FILE, FILED_HEADER)
-    texts[FILED_FILE] = filed.rstrip("\n") + "\n" + "\n".join(removed) + f"  → {op['file']}\n"
+    texts[FILED_FILE] = (
+        filed.rstrip("\n") + "\n" + "\n".join(removed) + f"{memory.FILED_MARK}{op['file']}\n"
+    )
     return True
 
 
