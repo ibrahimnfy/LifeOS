@@ -28,7 +28,7 @@ object CommandRoutes {
 
     /** Everything the app performs: the registry's app actions and what its bridge actions hand over (actions.PERFORMS). */
     val PERFORMED: Set<String> = setOf(
-        "open_screen", "search_notes", "new_chat", "ask_coach",
+        "open_screen", "search_notes", "new_chat", "ask_coach", "set_home_style",
         "note_saved", "note_deleted", "open_note", "open_chat", "new_chat_in", "open_course", "open_assignment", "open_project",
     )
 }

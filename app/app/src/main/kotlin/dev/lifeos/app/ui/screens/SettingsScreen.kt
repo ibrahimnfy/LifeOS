@@ -59,6 +59,7 @@ import androidx.core.os.LocaleListCompat
 import dev.lifeos.app.BuildConfig
 import dev.lifeos.app.R
 import dev.lifeos.app.settings.LanguageSetting
+import dev.lifeos.app.settings.HomeStyle
 import dev.lifeos.app.settings.ThemeSetting
 import dev.lifeos.app.ui.components.PrimaryButton
 import dev.lifeos.app.ui.components.StatusDot
@@ -80,6 +81,7 @@ fun SettingsScreen(
     val colors = LifeTheme.colors
     val scope = rememberCoroutineScope()
     val lockTimeout by core.settings.lockTimeout.collectAsStateWithLifecycle(initialValue = LockTimeout.Default)
+    val homeStyle by core.settings.homeStyle.collectAsStateWithLifecycle(initialValue = null)
     // The per-app locale kept by the platform is the source of truth for the language.
     var language by remember {
         mutableStateOf(
@@ -115,6 +117,16 @@ fun SettingsScreen(
                 options.forEachIndexed { index, option ->
                     if (index > 0) GroupDivider()
                     ChoiceRow(label = option.label(), selected = option == theme) { onThemeChange(option) }
+                }
+            }
+
+            // What the Today tab shows (#192): the physics tiles or the classic list.
+            SettingsGroup(stringResource(R.string.settings_home), selectable = true) {
+                HomeStyle.entries.forEachIndexed { index, option ->
+                    if (index > 0) GroupDivider()
+                    ChoiceRow(label = stringResource(if (option == HomeStyle.TILES) R.string.settings_home_tiles else R.string.settings_home_classic), selected = option == homeStyle) {
+                        scope.launch { core.settings.setHomeStyle(option) }
+                    }
                 }
             }
 

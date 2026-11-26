@@ -1107,4 +1107,59 @@
     <string name="note_reminder">Hatırlatma: %1$s</string>
     <string name="note_reminder_fired">Hatırlatıldı: %1$s</string>
     <string name="models_job_command">Komut çubuğu</string>
+
+    <!-- The home of physics tiles (#192) -->
+    <string name="home_tile_today">Bugünün görevleri</string>
+    <string name="home_open">Aç</string>
+    <string name="home_larger">Büyüt</string>
+    <string name="home_smaller">Küçült</string>
+    <string name="home_refresh">Yeniden oku</string>
+    <string name="home_tidy">Topla</string>
+    <string name="home_tidy_label">Topla: kutucukları düzenli bir ızgaraya diz</string>
+    <string name="home_tidied">Kutucuklar toplandı.</string>
+    <string name="home_reset">Sıfırla</string>
+    <string name="home_reset_label">Sıfırla: kutucukları ilk yerlerine ve boyutlarına döndür</string>
+    <string name="home_reset_done">Yerleşim sıfırlandı.</string>
+    <plurals name="home_cap_field">
+        <item quantity="one">Alan · %1$d düğüm</item>
+        <item quantity="other">Alan · %1$d düğüm</item>
+    </plurals>
+    <string name="home_cap_hint">Sürükle · fırlat · sıkıştır</string>
+    <plurals name="home_live_today">
+        <item quantity="one">Bugün %1$d görev kaldı</item>
+        <item quantity="other">Bugün %1$d görev kaldı</item>
+    </plurals>
+    <string name="home_live_today_none">Bugünlük iş kalmadı</string>
+    <plurals name="home_live_tasks">
+        <item quantity="one">%1$d açık görev</item>
+        <item quantity="other">%1$d açık görev</item>
+    </plurals>
+    <string name="home_live_tasks_none">Açık görev yok</string>
+    <plurals name="home_live_events">
+        <item quantity="one">Bugün %1$d etkinlik</item>
+        <item quantity="other">Bugün %1$d etkinlik</item>
+    </plurals>
+    <string name="home_live_events_none">Bugün etkinlik yok</string>
+    <string name="home_live_chat_busy">Yanıt yolda</string>
+    <plurals name="home_live_notes">
+        <item quantity="one">%1$d not</item>
+        <item quantity="other">%1$d not</item>
+    </plurals>
+    <string name="home_live_notes_none">Henüz not yok</string>
+    <plurals name="home_live_deadline">
+        <item quantity="one">Teslime %1$d gün</item>
+        <item quantity="other">Teslime %1$d gün</item>
+    </plurals>
+    <string name="home_live_deadline_today">Teslim bugün</string>
+    <string name="home_live_deadline_none">Yaklaşan teslim yok</string>
+    <string name="home_live_sleep">Son uyku %1$s</string>
+    <plurals name="home_live_projects">
+        <item quantity="one">%1$d proje</item>
+        <item quantity="other">%1$d proje</item>
+    </plurals>
+    <string name="home_live_projects_none">Henüz proje yok</string>
+    <string name="settings_home">Ana ekran</string>
+    <string name="settings_home_tiles">Fizikli kutucuklar</string>
+    <string name="settings_home_classic">Klasik liste</string>
+    <string name="command_result_home_style">Ana ekran değiştirildi</string>
 </resources>

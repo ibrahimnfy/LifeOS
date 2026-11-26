@@ -78,7 +78,27 @@ class SettingsStore(context: Context) {
         dataStore.edit { it[SLEEP_PROMPT_TIME] = time }
     }
 
+    /** What the Today tab shows (#192): the physics tiles (default) or the classic list. */
+    val homeStyle: Flow<HomeStyle> = dataStore.data
+        .map { HomeStyle.fromStored(it[HOME_STYLE]) }
+        .distinctUntilChanged()
+
+    suspend fun setHomeStyle(style: HomeStyle) {
+        dataStore.edit { it[HOME_STYLE] = style.storedValue }
+    }
+
+    /** The home tiles' places, sizes and stacking order (home/HomeLayout.kt); null until first saved. */
+    val homeLayout: Flow<String?> = dataStore.data
+        .map { it[HOME_LAYOUT] }
+        .distinctUntilChanged()
+
+    suspend fun setHomeLayout(layout: String) {
+        dataStore.edit { it[HOME_LAYOUT] = layout }
+    }
+
     private companion object {
+        val HOME_STYLE = stringPreferencesKey("home_style")
+        val HOME_LAYOUT = stringPreferencesKey("home_layout")
         val SLEEP_PROMPT = stringPreferencesKey("sleep_prompt")
         val SLEEP_PROMPT_TIME = stringPreferencesKey("sleep_prompt_time")
         val USAGE_SYNC = stringPreferencesKey("usage_sync")

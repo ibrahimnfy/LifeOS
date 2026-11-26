@@ -1,5 +1,6 @@
 package dev.lifeos.app.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -33,6 +34,7 @@ import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.Agenda
 import dev.lifeos.app.data.CoachMessage
+import dev.lifeos.app.data.Confirmed
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.CoachRerun
 import dev.lifeos.app.data.Dates
@@ -60,7 +62,16 @@ private const val VISIBLE_TODAY_ROWS = 3
  * computer for a new plan (a model run).
  */
 @Composable
-fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: () -> Unit, onPair: () -> Unit, onOpenConsolidation: () -> Unit = {}) {
+fun TodayScreen(
+    core: LifeOsCore,
+    onConnectionClick: () -> Unit,
+    onOpenCoach: () -> Unit,
+    onPair: () -> Unit,
+    onOpenConsolidation: () -> Unit = {},
+    /** Set when this list was opened from the home tiles (#192): a back arrow, and Back returns to them. */
+    onBack: (() -> Unit)? = null,
+) {
+    BackHandler(enabled = onBack != null) { onBack?.invoke() }
     val planModel = rememberLoad(core, Endpoints.plan) { false }
     val agendaModel = rememberLoad(core, Endpoints.agenda) { false }
     val planState by planModel.state.collectAsStateWithLifecycle()
@@ -76,7 +87,7 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
     val refresh: () -> Unit = { TodayReload.reload { endpoint -> models[endpoint.key]?.refresh() } }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = stringResource(R.string.nav_today), onConnectionClick = onConnectionClick)
+        TopBar(title = stringResource(R.string.nav_today), onBack = onBack, onConnectionClick = onConnectionClick)
         RefreshBox(refreshing = planState.isRefreshing || agendaState.isRefreshing, onRefresh = refresh, modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
@@ -138,9 +149,7 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
                     is UiState.Error -> ErrorNotice(state.problem, state.status, onRetry = agendaModel::refresh)
                     is UiState.Content -> {
                         // This phone's new tasks for today (or late) are here at once, before the agenda has them.
-                        val todays = LocalItems.tasks(outbox, confirmed, state.savedAtMillis)
-                            .filter { Dates.sectionOf(it.due, today()).let { s -> s == TaskSection.TODAY || s == TaskSection.OVERDUE } }
-                        val tasks = TaskLists.open(LocalItems.withTasks(state.data.tasksOverdue + state.data.tasksToday, todays), outbox, ticked)
+                        val tasks = todaysTasks(state.data, state.savedAtMillis, outbox, confirmed, ticked)
                         LifeCard(watermark = Watermark(LifeIcons.TodayMark, SectionTones.TODAY)) {
                             SectionHeader(
                                 icon = LifeIcons.Today,
@@ -157,6 +166,16 @@ fun TodayScreen(core: LifeOsCore, onConnectionClick: () -> Unit, onOpenCoach: ()
             }
         }
     }
+}
+
+/**
+ * The open tasks of today and the late ones, as the Today card lists them (the home tile counts
+ * the same list). This phone's new tasks are in it at once, before the agenda has them.
+ */
+internal fun todaysTasks(agenda: Agenda, listAtMillis: Long, outbox: List<OutboxItem>, confirmed: List<Confirmed>, ticked: Set<String>): List<Task> {
+    val todays = LocalItems.tasks(outbox, confirmed, listAtMillis)
+        .filter { Dates.sectionOf(it.due, today()).let { s -> s == TaskSection.TODAY || s == TaskSection.OVERDUE } }
+    return TaskLists.open(LocalItems.withTasks(agenda.tasksOverdue + agenda.tasksToday, todays), outbox, ticked)
 }
 
 /**
