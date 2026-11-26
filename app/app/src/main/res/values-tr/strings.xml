@@ -704,7 +704,7 @@
     <string name="reminder_past">Bu saat geçti. Daha ileri bir zaman seç.</string>
     <string name="reminder_delete">Hatırlatıcıyı sil</string>
     <string name="reminder_has">Hatırlatıcısı var</string>
-    <string name="reminder_lost">Bu hatırlatıcının oturumu açılamadı. Artık listelenmiyor olabilir ya da bilgisayara ulaşılamıyor.</string>
+    <string name="reminder_lost">Bu hatırlatıcı açılamadı. Sohbeti ya da notu artık yerinde olmayabilir ya da bilgisayara ulaşılamıyor.</string>
     <string name="reminder_note_shown">Hatırlatıcı: %1$s</string>
     <string name="session_notify">Yanıt hazır olunca bildir</string>
     <string name="session_notify_note">Bu oturum için. Seni bekleyen bir soru ya da onay her zaman bildirilir.</string>
@@ -1100,5 +1100,11 @@
     <string name="capture_remind_clear">Hatırlatma yok</string>
     <string name="note_reminder">Hatırlatma: %1$s</string>
     <string name="note_reminder_fired">Hatırlatıldı: %1$s</string>
+    <string name="note_reminder_hint">Bildirimde yalnızca “Hatırlatıcı” yazar. Dokununca, uygulamanın kilidini açtıktan sonra bu not açılır.</string>
+    <string name="note_reminder_saved">Hatırlatma kaydedildi</string>
+    <string name="note_reminder_removed">Hatırlatma kaldırıldı</string>
+    <string name="note_reminder_failed">Hatırlatma değiştirilemedi. Bilgisayar yanıt verdiğinde yeniden dene.</string>
+    <string name="notes_filed">Taşındı</string>
+    <string name="note_filed_read_only">Bu not, hafıza düzenlenirken %1$s dosyasına taşındı. Burada yazdığın haliyle gösterilir; orada, bilgisayarda değiştirilir.</string>
     <string name="models_job_command">Komut çubuğu</string>
 </resources>

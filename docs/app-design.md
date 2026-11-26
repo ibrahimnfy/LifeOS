@@ -369,7 +369,19 @@ every section in its own clearly visible card.*
   id the computer gave it; an edit of the note that never left is dropped
   and the original note deleted; while an edit is on its way (or may have
   arrived) "Delete" is not offered, as for a second edit. A deletion that
-  finds nothing (`404`) counts as done.
+  finds nothing (`404`) counts as done. The deletion is on storage from the
+  tap on (#191): if the app ends during the six seconds, the next start
+  queues it (the offer to undo went with the screen), so the note does not
+  come back.
+- **Reminder (#185, #191):** the note screen shows the note's reminder (the
+  one to come, else when it last reminded). "Remind me" sets one; a tap on a
+  reminder to come opens the sheet to move it (once, daily, weekly) or
+  delete it. These are asked of the computer at once, like a session's
+  reminder. A note has one reminder to come.
+- **Filed captures (#191):** a capture the consolidation filed into a topic
+  file is in no list, but its reminder still opens it: read-only, marked
+  "Filed", with the file its words are in now, without Edit or Delete; its
+  reminder can still be moved or removed.
 - **States:** loading · saved copy · empty ("Nothing captured yet") · no
   search results · error with retry; edits made offline are queued like
   captures and marked "waiting to sync".

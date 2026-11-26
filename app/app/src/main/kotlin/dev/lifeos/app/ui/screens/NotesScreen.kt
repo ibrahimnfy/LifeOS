@@ -38,6 +38,7 @@ import dev.lifeos.app.data.NoteRow
 import dev.lifeos.app.data.NoteSummary
 import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.Problem
+import dev.lifeos.app.data.Reminders
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.data.UiStates
 import dev.lifeos.app.ui.components.*
@@ -286,6 +287,11 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
     var attempt by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf<NoteState>(NoteState.Loading) }
     var editing by rememberSaveable { mutableStateOf(false) }
+    // Its reminder, set, moved or removed by hand (#191): asked of the computer at once.
+    var reminding by rememberSaveable { mutableStateOf(false) }
+    val reminderSaved = stringResource(R.string.note_reminder_saved)
+    val reminderRemoved = stringResource(R.string.note_reminder_removed)
+    val reminderFailed = stringResource(R.string.note_reminder_failed)
 
     LaunchedEffect(noteId, pairing != null, locked, attempt) {
         if (pairing == null) {
@@ -332,6 +338,9 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                     val note = current.note
                     val summary = NoteSummary(note.id, note.kind, note.title, note.at, note.text)
                     val pending = NoteLists.pendingEdit(note.id, outbox)
+                    // Read from the computer just now (not the saved copy): its reminder can be changed.
+                    val live = current.savedAtMillis == null
+                    val coming = note.reminder?.takeIf { it.scheduled }
                     current.savedAtMillis?.let { SavedCopyLine(it) }
                     OutboxNotices(core, setOf(OutboxItem.Kind.NOTE_EDIT))
                     LifeCard {
@@ -339,25 +348,43 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                             note.title?.takeIf { it.isNotBlank() }?.let { Text(it, style = LifeType.sectionTitle, color = colors.text) }
                             val meta = listOfNotNull(
                                 noteMoment(note.at, locale),
-                                stringResource(R.string.notes_topic).takeIf { !note.editable },
+                                stringResource(R.string.notes_topic).takeIf { !note.editable && !note.filed },
+                                stringResource(R.string.notes_filed).takeIf { note.filed },
                                 stringResource(R.string.outbox_waiting).takeIf { pending != null },
                             ).joinToString(" · ")
                             if (meta.isNotEmpty()) {
                                 Text(meta, style = LifeType.small, color = colors.muted, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                             }
                             SelectionContainer { Text(pending?.text ?: note.text, style = LifeType.body, color = colors.text) }
-                            // Its reminder (#185): set with the note in "+" or by the command bar.
+                            // Its reminder (#185): set with the note in "+", by the command bar or here.
+                            // One to come can be tapped to move or remove it (#191).
                             note.reminder?.let { reminder ->
-                                val moment = reminder.moment?.let { momentLabel(it.epochSecond, locale) } ?: reminder.at
-                                val line = if (reminder.scheduled) R.string.note_reminder else R.string.note_reminder_fired
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val text = if (reminder.scheduled) {
+                                    stringResource(R.string.note_reminder, reminderLabel(reminder))
+                                } else {
+                                    stringResource(R.string.note_reminder_fired, reminder.moment?.let { momentLabel(it.epochSecond, locale) } ?: reminder.at)
+                                }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = if (reminder.scheduled && live) {
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 48.dp)
+                                            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.reminder_edit)) { reminding = true }
+                                    } else {
+                                        Modifier
+                                    },
+                                ) {
                                     Icon(LifeIcons.Bell, contentDescription = null, tint = colors.muted)
-                                    Text(stringResource(line, moment), style = LifeType.small, color = colors.muted)
+                                    Text(text, style = LifeType.small, color = colors.muted)
                                 }
                             }
                         }
                     }
+                    if (coming == null && live) SecondaryButton(text = stringResource(R.string.capture_remind), onClick = { reminding = true })
                     when {
+                        note.filed -> Text(stringResource(R.string.note_filed_read_only, note.filedIn.orEmpty()), style = LifeType.small, color = colors.muted)
                         !note.editable -> Text(stringResource(R.string.note_topic_read_only), style = LifeType.small, color = colors.muted)
                         current.savedAtMillis != null && pending == null -> Text(stringResource(R.string.note_edit_needs_full), style = LifeType.small, color = colors.muted)
                         NoteLists.canEdit(summary, outbox) -> PrimaryButton(text = stringResource(R.string.note_edit), onClick = { editing = true })
@@ -365,7 +392,8 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                     }
                     // Captures and topic notes alike go to the computer's trash (#184), with a moment to
                     // undo. Not while an edit is on its way: the line above says so already.
-                    if (NoteLists.canDelete(note.id, outbox)) {
+                    // A filed capture is no note of the lists any more: there is nothing to delete here.
+                    if (!note.filed && NoteLists.canDelete(note.id, outbox)) {
                         SecondaryButton(
                             text = stringResource(R.string.note_delete),
                             danger = true,
@@ -375,6 +403,28 @@ fun NoteScreen(core: LifeOsCore, noteId: String, onBack: () -> Unit, onConnectio
                                     onBack()
                                 }
                             },
+                        )
+                    }
+                    if (reminding && live) {
+                        // Sent at once, like a session's reminder: the computer keeps and fires it.
+                        fun change(done: String, call: suspend () -> Unit) {
+                            reminding = false
+                            scope.launch {
+                                try {
+                                    call()
+                                    snackbar(done)
+                                } catch (_: ApiException) {
+                                    snackbar(reminderFailed)
+                                }
+                                attempt++ // read the note again, with its reminder as it is now
+                            }
+                        }
+                        ReminderEditSheet(
+                            reminder = coming,
+                            onDismiss = { reminding = false },
+                            onSave = { at, _, repeat -> change(reminderSaved) { core.api.createReminder(Reminders.forNote(note.id, at, repeat)) } },
+                            onDelete = coming?.let { { change(reminderRemoved) { core.api.deleteReminder(it.id) } } },
+                            withNote = false,
                         )
                     }
                     if (editing) {

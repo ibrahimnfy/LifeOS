@@ -77,9 +77,16 @@ internal fun RemindersSheet(reminders: List<Reminder>, onDismiss: () -> Unit, on
 /**
  * A new reminder ([reminder] null) or one to change: the day, the time, once or repeating, and
  * a note. [onSave] gets the body for the computer ([Reminders.body] without the session).
+ * [withNote] false: a note's own reminder (#191), which needs no second note.
  */
 @Composable
-internal fun ReminderEditSheet(reminder: Reminder?, onDismiss: () -> Unit, onSave: (ZonedDateTime, String, Reminders.Repeat) -> Unit, onDelete: (() -> Unit)?) {
+internal fun ReminderEditSheet(
+    reminder: Reminder?,
+    onDismiss: () -> Unit,
+    onSave: (ZonedDateTime, String, Reminders.Repeat) -> Unit,
+    onDelete: (() -> Unit)?,
+    withNote: Boolean = true,
+) {
     val colors = LifeTheme.colors
     val zone = remember { ZoneId.systemDefault() }
     // New: the next full hour. An existing one: its next time, on the phone's clock.
@@ -113,7 +120,7 @@ internal fun ReminderEditSheet(reminder: Reminder?, onDismiss: () -> Unit, onSav
             Chip(stringResource(R.string.reminder_daily), selected = repeat == Reminders.Repeat.DAILY) { repeat = Reminders.Repeat.DAILY }
             Chip(stringResource(R.string.reminder_weekly), selected = repeat == Reminders.Repeat.WEEKLY) { repeat = Reminders.Repeat.WEEKLY }
         }
-        OutlinedTextField(
+        if (withNote) OutlinedTextField(
             value = note,
             onValueChange = { note = it.take(Reminders.MAX_NOTE) },
             label = { Text(stringResource(R.string.reminder_note)) },
@@ -136,10 +143,10 @@ internal fun ReminderEditSheet(reminder: Reminder?, onDismiss: () -> Unit, onSav
                 .padding(vertical = 8.dp),
         )
         Text(
-            text = stringResource(if (usable) R.string.reminder_hint else R.string.reminder_past),
+            text = stringResource(if (!usable) R.string.reminder_past else if (withNote) R.string.reminder_hint else R.string.note_reminder_hint),
             style = LifeType.small,
             color = if (usable) colors.muted else colors.badge,
-            modifier = Modifier.padding(bottom = 8.dp),
+            modifier = Modifier.padding(top = if (withNote) 0.dp else 8.dp, bottom = 8.dp),
         )
         PrimaryButton(text = stringResource(R.string.capture_save), enabled = usable, onClick = { at?.let { onSave(it, note, repeat) } })
         if (onDelete != null) {

@@ -296,11 +296,18 @@ fun LifeOsApp(
             // A session reminder (#75): its session, and its note in one line.
             is Destination.Reminder -> {
                 withTimeoutOrNull(8_000) { core.pairing.first { it != null } }
-                val reminder = try {
+                // Right after a start the first request may fail: once more, as for a session (#191).
+                suspend fun asked(): dev.lifeos.app.data.Reminder? = try {
                     SessionLookup.reminder(core.api, destination.reminderId)
                 } catch (_: ApiException) {
-                    null
+                    delay(2_500)
+                    try {
+                        SessionLookup.reminder(core.api, destination.reminderId)
+                    } catch (_: ApiException) {
+                        null
+                    }
                 }
+                val reminder = asked()
                 val noteId = reminder?.noteId
                 val found = reminder?.sessionId?.takeIf { noteId == null }?.let { sessionOf(it) }
                 when {

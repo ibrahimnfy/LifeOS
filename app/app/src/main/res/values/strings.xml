@@ -706,7 +706,7 @@
     <string name="reminder_past">This time has passed. Choose a later one.</string>
     <string name="reminder_delete">Delete the reminder</string>
     <string name="reminder_has">Has a reminder</string>
-    <string name="reminder_lost">The session of this reminder could not be opened. It may no longer be listed, or the computer cannot be reached.</string>
+    <string name="reminder_lost">This reminder could not be opened. Its chat or note may no longer be there, or the computer cannot be reached.</string>
     <string name="reminder_note_shown">Reminder: %1$s</string>
     <string name="session_notify">Notify me when an answer is ready</string>
     <string name="session_notify_note">For this session. A question or an approval that waits for you is always announced.</string>
@@ -1102,5 +1102,11 @@
     <string name="capture_remind_clear">No reminder</string>
     <string name="note_reminder">Reminder: %1$s</string>
     <string name="note_reminder_fired">Reminded: %1$s</string>
+    <string name="note_reminder_hint">The notification says only “Reminder”. Tapping it opens this note after you unlock the app.</string>
+    <string name="note_reminder_saved">Reminder saved</string>
+    <string name="note_reminder_removed">Reminder removed</string>
+    <string name="note_reminder_failed">The reminder could not be changed. Try again when the computer answers.</string>
+    <string name="notes_filed">Filed</string>
+    <string name="note_filed_read_only">This note was moved into %1$s when the memory was tidied. It is shown here as you wrote it; it is changed there, on the computer.</string>
     <string name="models_job_command">Command bar</string>
 </resources>

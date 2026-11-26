@@ -80,6 +80,18 @@ object Reminders {
         if (REGION.matches(zone)) put("timezone", JsonPrimitive(zone))
     }
 
+    /**
+     * "Remind me about this note at <time>" (#191): `POST /reminders` with the note's id. A note
+     * has one reminder to come, so the computer moves it when there is one already.
+     */
+    fun forNote(noteId: String, at: ZonedDateTime, repeat: Repeat): JsonObject = buildJsonObject {
+        put("note_id", JsonPrimitive(noteId))
+        put("at", JsonPrimitive(at.withNano(0).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)))
+        put("repeat", JsonPrimitive(repeat.id))
+        val zone = at.zone.id
+        if (REGION.matches(zone)) put("timezone", JsonPrimitive(zone))
+    }
+
     private val REGION = Regex("[A-Za-z_]+(/[A-Za-z0-9_+-]+)+")
 
     /** A one-off reminder needs a time that lies ahead; a repeating one moves on to its next time by itself. */
