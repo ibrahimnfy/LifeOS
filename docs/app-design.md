@@ -112,79 +112,139 @@ every section in its own clearly visible card.*
 - **Endpoints:** the coach's plan ([`coach-design.md`](coach-design.md)),
   tasks.
 
-### 3.1a Home: physics tiles (#192, built)
+### 3.1a Home: physics tiles (#192, #195, built)
 
-*Chosen by the owner from the home prototypes (prototype C). It replaces the
-list of 3.1 as what the Today tab shows; the list stays one tap away and
-selectable as the home (Settings → Home style).*
+*Chosen by the owner from the home prototypes, and made **the same as
+prototype C** (`experiment/home:docs/design/prototypes/c-physics.html`) at
+the owner's request (#195): look, contents, controls, gestures and physics
+are the prototype's, value for value. It is what the Today tab shows; the
+list of 3.1 stays one tap away and selectable as the home (Settings → Home
+style).*
 
-- **Purpose:** every feature as a live tile on a free field, to play with.
-- **Tiles, in "Tidy" order** (also the screen reader's order), each with its
-  icon, its name and one live line read from the screen behind it:
-  Coach (today's message) · Today's tasks (how many are left; opens the list
-  of 3.1) · Tasks (open tasks) · Calendar (today's events) · Chat (an answer
-  on its way) · Notes (how many) · Courses (days to the next deadline) ·
-  Activity (last sleep) · Projects (how many). A line is shown only when the
-  computer or its saved copy gave the value: nothing while loading, locked,
-  not paired or failed.
-- **Play:** drag a tile and let go: it flies on with the finger's speed,
-  slows down and bounces off the edges of the field (with a short flash).
-  Flying tiles knock into each other softly; tiles may overlap, and the last
-  one touched is on top. Two fingers resize a tile (76–210 dp wide; the
-  second finger may land anywhere). A tap opens the tile's screen; a touch
-  that catches a flying tile only stops it.
-- **Tidy up** slides all tiles into a calm grid of equal size; **Reset**
-  brings back the first layout. Both can be undone from the message they
-  show. The round arrow in the top bar reads the tiles' lines again (there
-  is no pull to refresh on a field that is dragged).
-- **Kept in sight above the field**, only while they apply: not paired, a
-  new release, a memory proposal. The coach's card with Rerun, its open
-  question, the assistant's picks and ticking tasks are on the list behind
-  "Today's tasks"; a tapped coach notification opens that list directly.
-  When the computer was not reached, one line says from when the tiles'
-  values are.
+- **Top bar:** "Home" with today's date under it, the connection dot (opens
+  Settings), and three round buttons: the language (it shows the one it
+  switches to), light/dark, and field/list.
+- **Field:** a surface a little darker than the page with faint grid lines
+  (32 dp) and scan lines (4 dp) in the link colour, four corner marks, and
+  two captions in capitals in the monospace font: "Field · 9 nodes" (left)
+  and "Drag · fling · pinch" (right).
+- **Tiles**, in the prototype's order, which is the order of "Tidy up" and
+  of a screen reader: Coach (gradient ring) · Today's tasks · Agenda ·
+  Courses · Notes · Chats · Sleep and activity · Sessions · Projects, each
+  with the prototype's icon and tone. A tile is **glass**: the page colour
+  at 86 % (light) or 78 % (dark), no blur, so the grid and a tile lying
+  under it show through faintly, exactly as in the prototype. It has a 1 dp
+  edge in its tone's ink, a ring and a soft glow of the same ink outside the
+  edge, two corner ticks, its icon on a round mark, its name (two lines at
+  most) and one live line in the monospace font. A tile narrower than
+  146 dp puts the name under the icon; one lower than 81 dp drops the live
+  line.
+- **Live lines** have the prototype's shape with the app's own numbers:
+  "3 new tips" (today's plan) · "4 tasks left today" · "Next 14:00" (the
+  next event today) · "Lab report · 2 d" (the nearest deadline) · "12
+  notes" · "5 chats" · "Slept 7 h 20 min" · "31 sessions" · "2 projects". A
+  line is shown only when the computer or its saved copy gave the value:
+  nothing while loading, locked, not paired or failed.
+- **Play:** drag a tile and let go: it flies on with the finger's speed
+  (2.6 dp/ms at most), slows down (time constant 1.1 s) and bounces off the
+  edges of the field keeping 88 % of its speed, with a short flash of its
+  glow. Flying tiles knock into each other softly; tiles may overlap, and
+  the last one touched is on top. The tile under the finger is lifted (a
+  drop shadow). Two fingers resize a tile (76–210 dp wide; the second finger
+  may land anywhere; when one finger leaves, the other goes on dragging).
+  A touch stops a flying tile. A tap (no movement, under 700 ms) **grows
+  the tile into its screen** (the screen's window opens from the tile's
+  bounds in 420 ms, on the card colour first, its content fading in) and
+  Back shrinks it into the tile again (260 ms).
+- **Tidy up** (the glass pill above the command bar) slides all tiles into
+  the 3 × 3 grid in 520 ms; touching the field during the slide stops it
+  there.
+- **List view** (the list button): the same nine as plain rows (mark, name,
+  live line), the coach's with the gradient ring; a row opens its screen in
+  a circle growing from its mark. "Tidy up" is hidden there.
+- **Command bar:** the bar with the gradient ring at the bottom of the home
+  ("Ask or tell me anything…", the microphone) opens the app's command bar
+  (section 3.4), where typing and speaking happen. The field ends 8 dp
+  above it.
+- **Keyboard:** Enter opens the focused tile, the arrow keys move it (24 dp,
+  with Shift 64 dp), plus and minus resize it (16 dp).
+- **Only in the app, kept small:** above the field, only while they apply:
+  not paired, the age of a saved copy, a new release, a memory proposal. The
+  coach's card with Rerun, its open question, the assistant's picks and
+  ticking tasks are on the list behind "Today's tasks" (a tapped coach
+  notification opens that list directly). Settings → Home style has "Reset
+  the tile layout".
 - **Stored on the phone:** each tile's place (as a fraction of the field, so
   it fits a rotation or another screen), size and stacking order, saved when
   the tiles come to rest. A field that shrinks (landscape, split screen)
-  moves the tiles inside; as long as no tile is touched there, the layout
-  is not saved and comes back when the field grows again.
-- **Look:** the D3 tokens and the seven tones with a sci-fi layer: a field a
-  little darker than the page with faint grid and scan lines, corner marks,
-  captions in the monospace font, each tile glowing in its tone's ink, the
-  coach in the gradient ring. Tiles are opaque, so text never has another
-  tile's text behind it (contrast: `HomeColorsTest`).
+  moves the tiles inside; as long as no tile is touched there, the layout is
+  not saved and comes back when the field grows again. The first layout is
+  the prototype's scatter (the calm grid when animations are removed).
 - **Motion and battery:** the physics is a pure step function
   (`home/TilePhysics.kt`, tested on the JVM). Frames are requested only
   while something moves; the loop ends when all tiles rest and at once when
   the screen is hidden. With the system's "remove animations" nothing flies
-  or slides: a tile stays where it is dropped and Tidy places at once.
+  or slides and pages open at once. Glass costs nothing extra (one
+  translucent fill per tile); the glow is a mask-filter blur of a rounded
+  rectangle, which the GPU draws without an off-screen pass (Android 9 and
+  later; fading rings before that). Each tile is a layer of its own, moved
+  without being composed again.
 - **Accessibility:** each tile is one button for a screen reader ("name.
-  live line", action "Open"), with the custom actions "Make larger" and
-  "Make smaller" in place of the pinch; "Tidy up" and the classic home stand
-  in for dragging. The smallest tile is 76 × 59 dp (above the 48 dp target)
-  and grows with the font size; a small tile drops its live line and keeps
-  icon and name. A keyboard can focus a tile and open it with Enter.
+  live line", action "Open"), in the Tidy order wherever it lies, with the
+  custom actions "Make larger" and "Make smaller" in place of the pinch; the
+  list view and "Tidy up" stand in for dragging. The smallest tile is
+  76 × 59 dp and grows with the font size. Text on a tile over the field
+  keeps at least 6 : 1 (`HomeColorsTest`); where a tile lies on another
+  tile's text the glass lets it through faintly, as in the prototype.
 - **As an action:** the command bar's `set_home_style` (tiles / classic)
   changes the setting; `open_screen today` opens the home.
+- **Not the same as the prototype, and why:**
+  - The language and light/dark buttons change the app's settings and are
+    kept; in the prototype they last for the visit only (a web page has no
+    settings).
+  - The command bar on the home opens the app's command bar instead of
+    being typed into in place: the app has one command bar (#185), in a
+    sheet above the keyboard, on every screen.
+  - The app's bottom bar stays below the home: it is the app's navigation
+    on every screen; the prototype is a single page.
+  - The pages a tile opens are the app's real screens, not the prototype's
+    sample pages; the notices above the field exist only in the app.
+  - The tile's size is stored in dp (the prototype stores it as a fraction
+    of the width, which blows tiles up in landscape), and the stacking order
+    is stored too (the prototype forgets it).
+  - "Tidy up" uses more than three columns when the field is wide and low
+    (landscape), where the prototype's three would not fit.
+  - On the very smallest tiles (under 92 dp) the icon's mark is 22 dp
+    instead of 30 dp, so the name is not cut off as it is in the prototype.
+  - The smallest tile grows with the system font size (the prototype has no
+    font scaling).
+  - Before Android 9 the glow is drawn as fading rings instead of a blur.
 - **Manual check:**
-  1. Open the app: the Today tab shows the field with nine tiles. Throw one:
-     it flies, bounces off the edges and comes to rest; throw it harder and
-     it goes farther.
+  1. Open the app: the Today tab shows "Home" with the date, the field with
+     nine see-through tiles (the grid lines are faintly visible through
+     them) and the command bar at the bottom. Throw a tile: it flies,
+     flashes and bounces off the edges and comes to rest; throw it harder
+     and it goes farther. While you hold it, it has a shadow.
   2. Pinch a tile larger and smaller; drop one on another (they overlap, the
-     touched one is on top). Tap one: its screen opens; Back returns to the
-     field with every tile where it was.
-  3. "Tidy up": a 3 × 3 grid; "Undo" in the message puts the tiles back.
-     "Reset": the first layout.
-  4. Close the app from the recent apps and open it again: places, sizes and
+     lower one shows through faintly, the touched one is on top). Tap one:
+     its screen grows out of the tile; Back shrinks it into the tile, and
+     every tile is where it was. Try "Today's tasks" (the list of 3.1) and
+     "Sessions" too.
+  3. "Tidy up": a 3 × 3 grid. The list button: nine rows; a row opens its
+     screen; the button again brings the field back.
+  4. The TR / EN button switches the language, the half-circle light and
+     dark; check both in each. Tap the command bar: the app's command bar
+     opens.
+  5. Close the app from the recent apps and open it again: places, sizes and
      the order of overlapping tiles are as they were left. Rotate the phone:
      all tiles stay on the field.
-  5. Phone settings → Accessibility → "Remove animations" on: a dragged
+  6. Phone settings → Accessibility → "Remove animations" on: a dragged
      tile stays where it is dropped, Tidy places at once. TalkBack on: the
      tiles are read in the Tidy order, double tap opens, the actions menu
      offers larger and smaller.
-  6. Settings → Home style → Classic list: Today is the list of 3.1 again;
-     "Physics tiles" brings the field back. Check light and dark, and
-     English and Turkish.
+  7. Settings → Home style → "Reset the tile layout": the first layout is
+     back. "Classic list": Today is the list of 3.1 again; "Physics tiles"
+     brings the field back.
 
 ### 3.2 Chat
 
