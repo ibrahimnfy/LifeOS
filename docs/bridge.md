@@ -1823,7 +1823,9 @@ screen) and its undo. `GET /command/actions` lists them.
   Code sessions alike) by its title and its folder's name. With `message`
   ("go to that chat and do X there") the outcome's `perform` is
   `{"action": "open_chat", "session_id", "mode", "text", "send": true}`: the
-  app opens the chat and sends the text as a relayed message (above). When
+  app opens the chat and sends the text as a relayed message (above; the
+  bridge remembers the text it handed over, so it is relayed whatever the
+  app says, and never applies an update by itself). When
   the session is answering, is open in another Claude Code process, or that
   could not be checked, there is no `send` and the outcome has
   `"note": "chat_busy"`: the app opens the chat with the text in its message

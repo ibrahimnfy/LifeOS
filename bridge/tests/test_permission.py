@@ -10,8 +10,18 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import user_line
-from lifeos_bridge import actions, capable, command_bar, moodle_sync, paths, permission, updates
+from lifeos_bridge import (
+    actions,
+    capable,
+    claude,
+    command_bar,
+    moodle_sync,
+    paths,
+    permission,
+    updates,
+)
 from lifeos_bridge.app import create_app
+from lifeos_bridge.claude import ClaudeError
 from lifeos_bridge.runcontrol import RunControl
 
 NOW = datetime.fromisoformat("2027-01-15T09:00:00+03:00")
@@ -153,6 +163,25 @@ def test_the_inherited_mode_is_clamped(world, auth, home, project, monkeypatch):
 # ------------------------------------------------------------------ relayed messages (point 4)
 
 
+class StandInSteps:
+    """The steps of an update, done by nobody (conftest forbids the real ones)."""
+
+    def check(self, folder, commit):
+        pass
+
+    def tests(self, folder):
+        pass
+
+    def lint(self, folder):
+        pass
+
+    def build(self):
+        return {"registered": False}
+
+    def restart(self):
+        return "manual"
+
+
 def update_card(reply):
     return [(card["state"], card["error_code"]) for card in reply.get("update_requests", [])]
 
@@ -183,6 +212,7 @@ def test_the_first_message_of_a_continued_chat_never_applies_an_update(
     origin = write_session(project, [user_line(project, "plan the change")])
     say(home, "Committed.\n[[apply-update]]\n")
     with TestClient(create_app(world)) as client:
+        client.app.state.applier.steps = StandInSteps()  # never the real tests or a restart
         new = "0d9c0f5e-1111-4222-8333-444455556666"
         reply = client.post("/ask", headers=auth, json={
             "prompt": "do the change", "folder": str(repo), "mode": "capable",
@@ -361,8 +391,64 @@ def test_the_bar_end_to_end_with_a_stand_in_interpreter(bar, sessions, auth, mon
     [result] = done["results"]
     assert result["mode"] == "capable" and result["perform"]["session_id"] == sessions["billing"]
     assert result["perform"]["text"] == "add the totals"
+    # the session is free, as the bridge's own look at the computer's processes says
+    assert result["perform"]["send"] is True and "note" not in result
     # the interpreter saw the owner's words and nothing of the sessions
     assert seen == ["go to the project chat and add the totals"]
+
+
+def bar_continues(client, auth, monkeypatch, request_id, message="add the totals"):
+    async def interpreter(settings, text, language, now, previous):
+        return {"actions": [{"name": "continue_chat", "params": {
+            "chat": "billing", "message": message, "changes": "may_change"}}]}  # fmt: skip
+
+    monkeypatch.setattr(command_bar, "interpret", interpreter)
+    asked = {"request_id": request_id * 20, "text": "go to the billing chat and add the totals"}
+    [result] = client.post("/command", headers=auth, json=asked).json()["results"]
+    return result
+
+
+def test_a_session_open_elsewhere_or_unknown_gets_no_message(bar, sessions, auth, monkeypatch):
+    async def held(settings, timeout=20.0, *, ignore_pids=frozenset()):
+        return {sessions["billing"]}
+
+    async def unknown(settings, timeout=20.0, *, ignore_pids=frozenset()):
+        raise ClaudeError("claude_failed", 502, "no answer")
+
+    monkeypatch.setattr(claude, "sessions_in_use", held)
+    result = bar_continues(bar, auth, monkeypatch, "a")
+    assert result["note"] == "chat_busy" and "send" not in result["perform"]
+    assert result["perform"]["text"] == "add the totals" and result["ok"] is True
+    # the look at the computer's processes is reused for ten seconds: a new bridge asks anew
+    with TestClient(create_app(bar.app.state.settings)) as other:
+        monkeypatch.setattr(claude, "sessions_in_use", unknown)
+        result = bar_continues(other, auth, monkeypatch, "b")
+        assert result["note"] == "chat_busy" and "send" not in result["perform"]
+
+
+def test_a_message_of_the_bar_never_applies_an_update(
+    world, auth, home, repo, write_session, monkeypatch
+):
+    """The bar's message is the interpreter's wording: sent into a chat of the program
+    folder with changes allowed, its answer asks for an update. Nothing is applied, also
+    when the app does not say that it sent the message itself."""
+    release = write_session(repo, [user_line(repo, "prepare the release")])
+    params = {"chat": "release", "message": "commit and apply it", "changes": "may_change"}
+
+    async def interpreter(settings, text, language, now, previous):
+        return {"actions": [{"name": "continue_chat", "params": params}]}
+
+    monkeypatch.setattr(command_bar, "interpret", interpreter)
+    with TestClient(create_app(world)) as client:
+        client.app.state.applier.steps = StandInSteps()
+        asked = {"request_id": "u" * 20, "text": "go to the release chat, commit and apply"}
+        [result] = client.post("/command", headers=auth, json=asked).json()["results"]
+        perform = result["perform"]
+        assert perform["send"] is True and perform["mode"] == "capable"
+        say(home, "Committed.\n[[apply-update]]\n")
+        reply = client.post(f"/sessions/{release}/messages", headers=auth, json={
+            "prompt": perform["text"], "mode": perform["mode"]}).json()  # fmt: skip
+        assert update_card(reply) == [("refused", "not_owner")] and updates.read_state() == {}
 
 
 def test_the_interpreter_is_shown_no_session_and_no_folder(bar, sessions):

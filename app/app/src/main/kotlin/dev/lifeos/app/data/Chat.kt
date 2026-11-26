@@ -1371,8 +1371,10 @@ class Chat(
     fun retry() {
         val failure = mutable.value.failure ?: return
         val prompt = failure.prompt ?: return
+        // A message the app sent by itself stays one when it is sent again (#190).
+        val relayed = failure.replaces != null && failure.replaces == mutable.value.forwardedKey
         mutable.update { state -> state.copy(failure = null, messages = state.messages.filter { it.key != failure.replaces }) }
-        send(prompt)
+        send(prompt, forwarded = relayed)
     }
 
     fun dismissFailure() = mutable.update { it.copy(failure = null) }

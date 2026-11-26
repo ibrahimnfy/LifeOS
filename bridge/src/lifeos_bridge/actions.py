@@ -948,6 +948,9 @@ def _continue_chat(ctx: Context, p: dict) -> Outcome:
             note = "chat_busy"
         else:
             perform["send"] = True
+            # Written by the interpreter and sent by the app: not a message the owner
+            # sent, whatever the app says when it arrives (``permission``).
+            permission.remember(p["message"])
     return Outcome("continue_chat", title=_snippet(title(info)), perform=perform, mode=mode,
                    note=note)  # fmt: skip
 

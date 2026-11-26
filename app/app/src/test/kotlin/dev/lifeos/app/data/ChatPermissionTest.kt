@@ -2,10 +2,12 @@ package dev.lifeos.app.data
 
 import dev.lifeos.app.relay.AnswerEvent
 import dev.lifeos.app.relay.RelayResponse
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -168,14 +170,63 @@ class ChatPermissionTest {
         assertFalse(chat.state.value.capable)
     }
 
+    private fun posts() = transport.calls.count { it.method == "POST" }
+
     @Test
     fun `a relayed message is never put in line behind a running answer`() = runTest {
         val chat = chat()
-        transport.answer("GET /sessions/$oldId/queue", 200, """{"running":true,"paused":null,"queue":[]}""")
-        transport.answer("GET /sessions/$oldId/history", 200, """{"exchanges":[],"older":null}""")
+        stored(oldId)
         chat.open(SessionSummary(oldId, "Parser"))
+        advanceUntilIdle()
+        // The owner's message is being answered: anything written now would wait in line.
+        transport.events = { flow { emit(event("delta", """{"text":"Working"}""")); CompletableDeferred<Unit>().await() } }
+        assertTrue(chat.send("Start"))
+        runCurrent()
+        assertTrue(chat.state.value.canQueue)
+        val before = posts()
         assertFalse(chat.send("Fix the failing test", forwarded = true))
-        assertTrue(transport.calls.none { it.method == "POST" })
+        runCurrent()
+        assertEquals(before, posts())
+        assertTrue(chat.state.value.queue.isEmpty())
+        // The bar's message for this chat waits in the composer instead.
+        chat.openWith(SessionSummary(oldId, "Parser"), memory = false, capable = true, text = "Fix the failing test", send = true)
+        runCurrent()
+        assertEquals(before, posts())
+        assertEquals("Fix the failing test", chat.state.value.draft)
+        // A message the owner writes does wait in line, as before.
+        transport.events = { flow { emit(AnswerEvent.Done(RelayResponse(202, json("""{"queued":true,"queue_id":"q1","position":1,"interrupted_current_run":false}""")))) } }
+        assertTrue(chat.send("One more thing"))
+        runCurrent()
+        assertEquals(before + 1, posts())
+        assertNull(body(transport.calls.last { it.method == "POST" })["relayed"])
+        chat.onLocked()
+    }
+
+    @Test
+    fun `the bar's message for a chat the computer works on waits in the composer`() = runTest {
+        val chat = chat()
+        stored(oldId)
+        transport.answer("GET /sessions/$oldId/queue", 200, """{"running":true,"paused":null,"queue":[]}""")
+        chat.openWith(SessionSummary(oldId, "Parser"), memory = false, capable = true, text = "Fix the failing test", send = true)
+        runCurrent()
+        assertEquals(ChatPhase.ELSEWHERE, chat.state.value.phase)
+        assertEquals("Fix the failing test", chat.state.value.draft)
+        assertEquals(0, posts())
+        chat.onLocked()
+    }
+
+    @Test
+    fun `retry of a relayed message that did not arrive is still relayed`() = runTest {
+        val chat = chat()
+        transport.events = { flow { emit(AnswerEvent.Done(RelayResponse(503, json("""{"error":"busy","message":"x"}""")))) } }
+        chat.startFrom(Folder("/home/owner/work", "work"), "Rename the module", null, capable = true)
+        advanceUntilIdle()
+        checkNotNull(chat.state.value.failure)
+        answers(event("session", """{"session_id":"$newId"}"""), event("done", """{"answer":"Done.","session_id":"$newId"}"""), done())
+        chat.retry()
+        advanceUntilIdle()
+        assertEquals(JsonPrimitive(true), body(sent())["relayed"])
+        assertEquals(2, transport.calls.count { it.path == "/ask" })
     }
 
     @Test
