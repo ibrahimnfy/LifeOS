@@ -272,6 +272,12 @@ def test_a_second_reminder_of_a_note_moves_the_first_and_undo_puts_it_back(ctx, 
     assert [r["at"] for r in reminders.load()] == [first.when]
     actions.undo(first.undo)
     assert reminders.load() == []
+    # A cancelled reminder is not put back beside a new one.
+    actions.execute(ctx, "set_reminder", {"note": "card", "at": "2027-01-20T09:30"})
+    gone = actions.execute(ctx, "cancel_reminder", {"note": "card"})
+    actions.execute(ctx, "set_reminder", {"note": "card", "at": "2027-01-25T09:30"})
+    actions.undo(gone.undo)
+    assert [r["at"] for r in reminders.load()] == ["2027-01-25T06:30:00Z"]
 
 
 def test_words_that_match_only_partly_are_asked_about_even_once(ctx, brain):

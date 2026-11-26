@@ -806,6 +806,9 @@ def _cancel_reminder(ctx: Context, p: dict) -> Outcome:
     reminders.delete(gone["id"])
 
     def back() -> None:
+        note_id = gone.get("note_id")
+        if note_id is not None and reminders.listing(state="scheduled", note_id=note_id):
+            return  # the note got a new reminder meanwhile: it has one to come (#191)
         fields = {k: gone[k] for k in ("at", "note", "repeat", "timezone") if gone.get(k)}
         reminders.create(gone.get("session_id"), fields, note_id=gone.get("note_id"),
                          allow_past=True)  # fmt: skip

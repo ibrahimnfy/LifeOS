@@ -243,6 +243,12 @@
     <string name="note_delete">Delete</string>
     <string name="note_delete_label">Delete note: %1$s</string>
     <string name="note_deleted">Note deleted</string>
+    <string name="note_reminder_hint">The notification says only “Reminder”. Tapping it opens this note after you unlock the app.</string>
+    <string name="note_reminder_saved">Reminder saved</string>
+    <string name="note_reminder_removed">Reminder removed</string>
+    <string name="note_reminder_failed">The reminder could not be changed. Try again when the computer answers.</string>
+    <string name="notes_filed">Filed</string>
+    <string name="note_filed_read_only">This note was moved into %1$s when the memory was tidied. It is shown here as you wrote it; it is changed there, on the computer.</string>
 
     <!-- Task editing -->
     <string name="task_open">Open the task</string>
@@ -1102,11 +1108,5 @@
     <string name="capture_remind_clear">No reminder</string>
     <string name="note_reminder">Reminder: %1$s</string>
     <string name="note_reminder_fired">Reminded: %1$s</string>
-    <string name="note_reminder_hint">The notification says only “Reminder”. Tapping it opens this note after you unlock the app.</string>
-    <string name="note_reminder_saved">Reminder saved</string>
-    <string name="note_reminder_removed">Reminder removed</string>
-    <string name="note_reminder_failed">The reminder could not be changed. Try again when the computer answers.</string>
-    <string name="notes_filed">Filed</string>
-    <string name="note_filed_read_only">This note was moved into %1$s when the memory was tidied. It is shown here as you wrote it; it is changed there, on the computer.</string>
     <string name="models_job_command">Command bar</string>
 </resources>

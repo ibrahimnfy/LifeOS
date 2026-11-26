@@ -219,3 +219,19 @@ def test_fired_reminders_do_not_use_up_the_room_and_a_full_store_saves_no_note(
     full = client.post("/notes", headers=auth, json={"text": "five", "remind_at": FUTURE})
     assert full.status_code == 400
     assert memory.list_notes(brain, "five") == []  # refused before anything was written
+
+
+def test_a_topic_note_keeps_its_reminder_through_the_trash(client, auth, brain):
+    (brain / "notes").mkdir()
+    (brain / "notes" / "sample-topic.md").write_text("---\ntitle: Sample topic\n---\n\nBody.\n")
+    git(brain, "add", "-A")
+    git(brain, "-c", "user.name=t", "-c", "user.email=t@localhost", "commit", "-q", "-m", "topic")
+    made = client.post("/reminders", headers=auth, json={"note_id": "n-sample-topic", "at": FUTURE})
+    assert made.status_code == 201
+    assert client.delete("/notes/n-sample-topic", headers=auth).status_code == 200
+    assert reminders.load()[0]["state"] == "deleted"
+    assert client.get("/reminders", headers=auth).json()["reminders"] == []
+    restored = client.post("/notes/n-sample-topic/restore", headers=auth)
+    assert restored.status_code == 200
+    note = client.get("/notes/n-sample-topic", headers=auth).json()
+    assert (note["reminder"]["id"], note["reminder"]["state"]) == (made.json()["id"], "scheduled")

@@ -241,6 +241,12 @@
     <string name="note_delete">Sil</string>
     <string name="note_delete_label">Notu sil: %1$s</string>
     <string name="note_deleted">Not silindi</string>
+    <string name="note_reminder_hint">Bildirimde yalnızca “Hatırlatıcı” yazar. Dokununca, uygulamanın kilidini açtıktan sonra bu not açılır.</string>
+    <string name="note_reminder_saved">Hatırlatma kaydedildi</string>
+    <string name="note_reminder_removed">Hatırlatma kaldırıldı</string>
+    <string name="note_reminder_failed">Hatırlatma değiştirilemedi. Bilgisayar yanıt verdiğinde yeniden dene.</string>
+    <string name="notes_filed">Taşındı</string>
+    <string name="note_filed_read_only">Bu not, hafıza düzenlenirken %1$s dosyasına taşındı. Burada yazdığın haliyle gösterilir; orada, bilgisayarda değiştirilir.</string>
 
     <!-- Görev düzenleme -->
     <string name="task_open">Görevi aç</string>
@@ -1100,11 +1106,5 @@
     <string name="capture_remind_clear">Hatırlatma yok</string>
     <string name="note_reminder">Hatırlatma: %1$s</string>
     <string name="note_reminder_fired">Hatırlatıldı: %1$s</string>
-    <string name="note_reminder_hint">Bildirimde yalnızca “Hatırlatıcı” yazar. Dokununca, uygulamanın kilidini açtıktan sonra bu not açılır.</string>
-    <string name="note_reminder_saved">Hatırlatma kaydedildi</string>
-    <string name="note_reminder_removed">Hatırlatma kaldırıldı</string>
-    <string name="note_reminder_failed">Hatırlatma değiştirilemedi. Bilgisayar yanıt verdiğinde yeniden dene.</string>
-    <string name="notes_filed">Taşındı</string>
-    <string name="note_filed_read_only">Bu not, hafıza düzenlenirken %1$s dosyasına taşındı. Burada yazdığın haliyle gösterilir; orada, bilgisayarda değiştirilir.</string>
     <string name="models_job_command">Komut çubuğu</string>
 </resources>
