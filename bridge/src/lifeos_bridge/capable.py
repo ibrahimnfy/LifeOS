@@ -198,6 +198,31 @@ async def claude_version(settings: Settings) -> str:
 
 
 async def check_available(settings: Settings, run_dir: Path | None = None) -> None:
+    """Raise unless a guardrail check passed on this computer (and covered ``run_dir``);
+    see :func:`require_available`."""
+    require_available(settings, run_dir)
+
+
+def grant(settings: Settings, folder: Path, wanted: str, *, course: bool = False) -> str:
+    """The change permission a chat in ``folder`` gets without the owner's own tap (#190):
+    one a new chat takes over from the chat it came from, or one the command bar picked.
+
+    ``capable`` only when it was wanted, the folder is not a course's (``course``: those
+    chats stay read-only unless the owner switches them by hand) and capable runs are
+    available there by :func:`require_available`, the same check every capable run
+    passes. Anything else is ``read_only``. This only says what the app may ask for:
+    the run itself is checked again when its message arrives.
+    """
+    if wanted != "capable" or course:
+        return "read_only"
+    try:
+        require_available(settings, folder)
+    except ClaudeError:
+        return "read_only"
+    return "capable"
+
+
+def require_available(settings: Settings, run_dir: Path | None = None) -> None:
     """Raise unless a guardrail check passed on this computer (and covered ``run_dir``).
 
     The probes run in the memory folder. Unless the marker says they also covered

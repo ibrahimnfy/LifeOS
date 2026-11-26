@@ -115,10 +115,11 @@ class RunControl:
 
     def add(
         self, session_id: str, prompt: str, mode: str, cwd: Path, *, front: bool,
-        interactive: bool = False,
+        interactive: bool = False, relayed: bool = False,
     ) -> dict:  # fmt: skip
         """``interactive``: the client that sent it shows question and approval cards,
-        so the queued run may ask (a follower of ``/sessions/{id}/live`` answers)."""
+        so the queued run may ask (a follower of ``/sessions/{id}/live`` answers).
+        ``relayed``: the app sent it by itself, so it is not the owner's own (#190)."""
         entries = self.queues.setdefault(session_id, [])
         if len(entries) >= MAX_QUEUED:
             raise ClaudeError("queue_full", 429, f"at most {MAX_QUEUED} messages can wait")
@@ -130,6 +131,8 @@ class RunControl:
             "queued_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "interactive": interactive,
         }
+        if relayed:
+            entry["relayed"] = True
         entries.insert(0, entry) if front else entries.append(entry)
         self._save()
         return entry

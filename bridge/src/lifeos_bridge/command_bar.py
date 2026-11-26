@@ -63,6 +63,17 @@ of), unless it clearly names an existing note or chat (then set_reminder).
 - Several things in one request become several actions, in order (at most four).
 - Keep the owner's words and language in texts and titles; drop only the command words \
 ("note that", "not al", "remind me to").
+- "Go to / continue / open that chat (or session) and do X there" is ONE continue_chat: chat \
+is the words that name the chat (its subject, title or folder), message is X in the owner's \
+words, self-contained, without the part that names the chat. Never do X yourself with other \
+actions and never answer it. Work to do in a folder is work_in_folder with text; a question \
+or work for a new chat is new_chat with text.
+- new_chat, continue_chat and work_in_folder take "changes", the only chat setting you pick. \
+Decide it from the owner's request alone: "may_change" only when the request clearly asks for \
+work that edits, creates or deletes files or runs commands (fix, implement, write the code, \
+refactor, rename, install, commit, update); "read_only" for questions, explanations, \
+summaries, reviews, looking something up or planning, and when no work is named. When unsure, \
+"read_only".
 - Ask a question only when you cannot tell what the owner wants (which of two different \
 actions, or a time that is missing for a reminder). Never ask about details the action does \
 not need. Ask in the request's language, in at most 15 words, with up to four short options.

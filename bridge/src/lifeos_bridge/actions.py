@@ -32,8 +32,10 @@ from . import (
     activity,
     allowed,
     folder_requests,
+    folders,
     memory,
     moodle_sync,
+    permission,
     projects,
     reminders,
     session_meta,
@@ -87,6 +89,17 @@ SCREENS: dict[str, str] = {
 }
 
 TEXT = 4000  # a note's length (memory.MAX_TEXT)
+
+# The change permission of a chat the bar opens or continues (#190): the only per-chat
+# setting the interpreter picks, from the owner's request alone. The names are the
+# interpreter's; ``permission.granted`` turns them into the mode the chat really gets.
+CHANGES = {"read_only": "read_only", "may_change": "capable"}
+CHANGES_PARAM = Param(
+    "changes", "choice",
+    "may_change only when the owner's request clearly asks for work that changes files or "
+    "runs commands; else read_only",
+    choices=tuple(CHANGES),
+)  # fmt: skip
 
 ACTIONS: tuple[Action, ...] = (
     Action(
@@ -217,15 +230,20 @@ ACTIONS: tuple[Action, ...] = (
     Action(
         "new_chat",
         "Open a new, blank chat with the assistant; text goes into its message field (not sent).",
-        (Param("text", "text", "what to ask, if the owner said", limit=TEXT),),
-        runs="app",
+        (Param("text", "text", "what to ask, if the owner said", limit=TEXT), CHANGES_PARAM),
         routes=("POST /ask",),
         screens=("CHAT_THREAD",),
     ),
     Action(
         "continue_chat",
-        "Open an earlier chat by its title or subject.",
-        (Param("chat", "text", "words that find the chat", True),),
+        "Open an earlier chat or a Claude Code session of the computer, found by its title, "
+        'subject or folder. With message ("go to that chat and do X there") X is sent there '
+        "as the owner's next message.",
+        (
+            Param("chat", "text", "words that find the chat", True, limit=200),
+            Param("message", "text", "what to do there, if the owner said", limit=TEXT),
+            CHANGES_PARAM,
+        ),
         routes=(
             "GET /sessions",
             "GET /sessions/{session_id}",
@@ -236,8 +254,13 @@ ACTIONS: tuple[Action, ...] = (
     ),
     Action(
         "work_in_folder",
-        "Find a folder on the computer by name and start a chat there (it becomes allowed).",
-        (Param("folder", "text", "the folder's name", True, limit=200),),
+        "Find a folder on the computer by name and start a chat there (it becomes allowed); "
+        "text goes into its message field (not sent).",
+        (
+            Param("folder", "text", "the folder's name", True, limit=200),
+            Param("text", "text", "what to do there, if the owner said", limit=TEXT),
+            CHANGES_PARAM,
+        ),
         routes=("GET /folders", "POST /folders/open", "POST /allowed-paths", "GET /allowed-paths"),
         screens=("CHAT_THREAD",),
     ),
@@ -498,6 +521,9 @@ class Context:
     now: datetime  # the phone's local time, with its offset
     zone: str | None = None  # the phone's zone name, when it has one the computer knows
     sessions: Callable[[], list] = list  # the sessions the bridge lists (app.known_sessions)
+    # The sessions no message can be sent to right now: answering here, or open in another
+    # Claude Code process of the computer. ``None``: it could not be told (nothing is sent).
+    busy: Callable[[], set[str] | None] = lambda: None
 
     @property
     def brain(self) -> Path:
@@ -544,11 +570,15 @@ class Outcome:
     undo: str | None = None
     error: str | None = None
     perform: dict | None = None
+    mode: str | None = None  # the change permission the chat it opens gets (#190)
+    note: str | None = None  # why it did less than asked: one of :data:`NOTES`
 
     def as_json(self) -> dict:
         found = {"action": self.action, "ok": self.ok, "title": self.title, "when": self.when,
                  "undo": self.undo, "error": self.error}  # fmt: skip
-        return found | ({"perform": self.perform} if self.perform else {})
+        found |= {"perform": self.perform} if self.perform else {}
+        found |= {"mode": self.mode} if self.mode else {}
+        return found | ({"note": self.note} if self.note else {})
 
 
 MAX_OPTIONS = 5
@@ -658,19 +688,27 @@ def _event(ctx: Context, params: dict, action: str) -> memory.Event:
 
 
 def _chat(ctx: Context, params: dict, action: str):
+    """The session the words name, among those the bridge lists: the chats of the app and
+    the Claude Code sessions of the computer alike (``GET /sessions``). Its title and its
+    folder's name are matched; they are never shown to the interpreter."""
     listed = ctx.sessions()
     meta = session_meta.load()
+    known = folders.Folders(ctx.settings)
 
     def title(info) -> str:
         return session_meta.entry_for(info.id, meta)["title"] or info.title or ""
 
+    def label(info) -> str:
+        return known.describe(info)["folder_label"] or ""
+
     if "session_id" in params:
         found = [info for info in listed if info.id == params["session_id"]]
     else:
-        found = best(listed, params["chat"], title)
+        found = best(listed, params["chat"], lambda info: f"{title(info)} {label(info)}")
     return _one(
         found, "chat",
-        lambda info: Option(_snippet(title(info)), info.last_activity.date().isoformat(), action,
+        lambda info: Option(_snippet(title(info)),
+                            f"{label(info)} · {info.last_activity.date().isoformat()}", action,
                             {**_rest(params, "chat"), "session_id": info.id}),
         "chat_not_found",
     ), title  # fmt: skip
@@ -876,10 +914,42 @@ def _change_event(ctx: Context, p: dict) -> Outcome:
                    undo=_undo_token("change_event", back))  # fmt: skip
 
 
+def _mode(ctx: Context, p: dict, folder: Path | None, kind: str | None = None) -> str:
+    """The change permission the interpreter picked, as the chat may really get it."""
+    return permission.granted(ctx.settings, folder, CHANGES.get(p.get("changes")), kind)
+
+
+def _new_chat(ctx: Context, p: dict) -> Outcome:
+    mode = _mode(ctx, p, None)
+    perform = {"action": "new_chat", "mode": mode} | ({"text": p["text"]} if "text" in p else {})
+    return Outcome("new_chat", perform=perform, mode=mode)
+
+
 def _continue_chat(ctx: Context, p: dict) -> Outcome:
-    info, title = _chat(ctx, p, "continue_chat")
-    return Outcome("continue_chat", title=_snippet(title(info)),
-                   perform={"action": "open_chat", "session_id": info.id})  # fmt: skip
+    """Open the chat; with a message, send it there. A chat that cannot take a message
+    right now is opened with the message in its field; one that is not found leads to
+    the list of sessions. Never a guess: words that match several chats, or only partly,
+    are a question (:func:`_one`)."""
+    try:
+        info, title = _chat(ctx, p, "continue_chat")
+    except ClaudeError:
+        return Outcome("continue_chat", note="chat_not_found",
+                       perform={"action": "open_screen", "screen": "sessions"})  # fmt: skip
+    kind = folders.Folders(ctx.settings).describe(info)["kind"]
+    mode = _mode(ctx, p, info.folder, kind)
+    perform = {"action": "open_chat", "session_id": info.id, "mode": mode}
+    note = None
+    if "message" in p:
+        perform["text"] = p["message"]
+        busy = ctx.busy()
+        if kind == "coach":
+            note = "not_sent"  # the coach conversation is the owner's own to write in
+        elif busy is None or info.id in busy:
+            note = "chat_busy"
+        else:
+            perform["send"] = True
+    return Outcome("continue_chat", title=_snippet(title(info)), perform=perform, mode=mode,
+                   note=note)  # fmt: skip
 
 
 def _work_in_folder(ctx: Context, p: dict) -> Outcome:
@@ -893,12 +963,16 @@ def _work_in_folder(ctx: Context, p: dict) -> Outcome:
             raise ClaudeError("folder_not_found", 404, outcome.note or "no such folder")
         if switch["action"] == "choose_folder":
             raise Ask("folder", [
-                Option(f["label"], f.get("where"), "work_in_folder", {"path": f["path"]})
+                Option(f["label"], f.get("where"), "work_in_folder",
+                       {**_rest(p, "folder"), "path": f["path"]})
                 for f in switch["folders"][:MAX_OPTIONS]
             ])  # fmt: skip
         folder = switch["folder"]
-    return Outcome("work_in_folder", title=folder["label"],
-                   perform={"action": "new_chat_in", "folder": folder})  # fmt: skip
+    mode = _mode(ctx, p, Path(folder["path"]), folder.get("kind"))
+    perform = {"action": "new_chat_in", "folder": folder, "mode": mode}
+    if "text" in p:
+        perform["text"] = p["text"]
+    return Outcome("work_in_folder", title=folder["label"], perform=perform, mode=mode)
 
 
 def _stop_using_folder(ctx: Context, p: dict) -> Outcome:
@@ -992,6 +1066,7 @@ EXECUTORS: dict[str, Callable[[Context, dict], Outcome]] = {
     "edit_task": _edit_task,
     "add_event": _add_event,
     "change_event": _change_event,
+    "new_chat": _new_chat,
     "continue_chat": _continue_chat,
     "work_in_folder": _work_in_folder,
     "stop_using_folder": _stop_using_folder,
@@ -1010,8 +1085,11 @@ STARTED_BY_ENDPOINT = ("refresh_plan",)
 # app actions themselves. The app handles every one (data/CommandBar.kt, checked by the test).
 PERFORMS = (
     "note_saved", "note_deleted", "open_note", "open_chat", "new_chat_in", "open_course",
-    "open_assignment", "open_project",
+    "open_assignment", "open_project", "new_chat",
 )  # fmt: skip
+
+# Why an action did less than asked (``Outcome.note``); the app says each in its language.
+NOTES = ("chat_not_found", "chat_busy", "not_sent")
 
 
 def app_action(name: str, params: dict) -> Outcome:
