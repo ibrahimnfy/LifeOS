@@ -245,7 +245,7 @@ class TilePhysicsTest {
             TilePhysics.moveTo(small, "a", 5f, 5f)
             TilePhysics.resize(small, "a", 500f, 5f, 5f)
             TilePhysics.tidy(small)
-            TilePhysics.scatter(small, listOf("a", "b"))
+            TilePhysics.scatter(small, listOf(Spot("a", 0.2f, 0.2f, 1f), Spot("b", 0.8f, 0.8f, 1.5f)))
         }
         // And back to a real screen: everything is inside again.
         val again = TilePhysics.fit(TilePhysics.fit(f, 0f, 0f), 400f, 700f)
@@ -282,7 +282,7 @@ class TilePhysicsTest {
     @Test
     fun `tidy puts the tiles in a calm grid of equal size, in order, without overlap`() {
         val ids = HomeTile.ids
-        val wild = TilePhysics.fling(TilePhysics.scatter(Field(412f, 640f, emptyList()), ids), "coach", 2f, 2f)
+        val wild = TilePhysics.fling(TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.spots), "coach", 2f, 2f)
         val tidy = TilePhysics.tidy(wild, ids)
         assertTrue(tidy.atRest)
         assertEquals(ids, tidy.tiles.map { it.id })
@@ -296,6 +296,10 @@ class TilePhysicsTest {
             assertTrue(row[0].x < row[1].x && row[1].x < row[2].x)
         }
         assertTrue(rows[0][0].y < rows[1][0].y && rows[1][0].y < rows[2][0].y)
+        // The prototype's grid: cells of (412 - 52) / 3 = 120, the first one 16 dp from the left.
+        assertEquals(120f, tidy.tiles.first().size, 0.01f)
+        assertEquals(16f + 60f, tidy.tiles.first().x, 0.01f)
+        assertTrue(tidy.tiles.first().y - tidy.tiles.first().height / 2 >= TilePhysics.TIDY_TOP)
         for (a in tidy.tiles) for (b in tidy.tiles) {
             if (a.id < b.id) assertTrue(abs(a.x - b.x) >= a.size || abs(a.y - b.y) >= a.height)
         }
@@ -323,17 +327,24 @@ class TilePhysicsTest {
 
     @Test
     fun `the default layout holds every tile inside the field`() {
-        val scatter = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.ids)
+        val scatter = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.spots)
         assertEquals(HomeTile.ids, scatter.tiles.map { it.id })
         scatter.tiles.forEach { assertTrue(inside(scatter, it)) }
         assertEquals(HomeTile.ids.indices.toSet(), scatter.tiles.map { it.z }.toSet())
         assertTrue(scatter.atRest)
         assertTrue(scatter.tile("coach")!!.size > scatter.tile("projects")!!.size)
+        // The prototype's numbers: a cell of floor((412 - 52) / 3) = 120, the coach 1.5 cells wide at the top centre.
+        assertEquals(180f, scatter.tile("coach")!!.size, 0f)
+        assertEquals(206f, scatter.tile("coach")!!.x, 0.01f)
+        assertEquals(8f + 20f + 0.17f * 600f, scatter.tile("coach")!!.y, 0.01f)
+        assertEquals(0.26f * 412f, scatter.tile("chats")!!.x, 0.01f)
+        // Later tiles lie on top, as later elements do in the prototype.
+        assertEquals("projects", scatter.tiles.maxByOrNull { it.z }!!.id)
     }
 
     @Test
     fun `the slide to the grid starts at the old places and ends exactly on the grid`() {
-        val from = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.ids)
+        val from = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.spots)
         val to = TilePhysics.tidy(from)
         assertEquals(from.tiles.map { it.x }, TilePhysics.blend(from, to, 0f).tiles.map { it.x })
         assertEquals(to, TilePhysics.blend(from, to, 1f))
@@ -350,7 +361,7 @@ class TilePhysicsTest {
 
     @Test
     fun `places, sizes and the stacking order survive saving`() {
-        val field = TilePhysics.toFront(TilePhysics.resize(TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.ids), "notes", 180f, 150f, 300f), "notes")
+        val field = TilePhysics.toFront(TilePhysics.resize(TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.spots), "notes", 180f, 150f, 300f), "notes")
         val saved = HomeLayout.decode(HomeLayout.encode(field))
         assertNotNull(saved)
         val restored = HomeLayout.restore(saved, TilePhysics.tidy(field))
@@ -365,8 +376,8 @@ class TilePhysicsTest {
 
     @Test
     fun `a saved layout fits another screen`() {
-        val field = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.ids)
-        val wide = TilePhysics.scatter(Field(900f, 320f, emptyList()), HomeTile.ids)
+        val field = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.spots)
+        val wide = TilePhysics.scatter(Field(900f, 320f, emptyList()), HomeTile.spots)
         val restored = HomeLayout.restore(HomeLayout.decode(HomeLayout.encode(field)), wide)
         restored.tiles.forEach { assertTrue(inside(restored, it)) }
         assertEquals(900f, restored.width, 0f)
@@ -374,7 +385,7 @@ class TilePhysicsTest {
 
     @Test
     fun `a layout that cannot be read falls back to the default`() {
-        val default = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.ids)
+        val default = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.spots)
         for (text in listOf(null, "", "   ", "not json", "{}", """{"v":2,"tiles":[{"id":"coach","fx":0.5,"fy":0.5,"size":100}]}""", """{"v":1,"tiles":"x"}""")) {
             assertNull(text, HomeLayout.decode(text))
             assertEquals(default, HomeLayout.restore(HomeLayout.decode(text), default))
@@ -383,21 +394,21 @@ class TilePhysicsTest {
 
     @Test
     fun `unknown, missing and broken tiles of a saved layout are handled one by one`() {
-        val default = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.ids)
+        val default = TilePhysics.scatter(Field(412f, 640f, emptyList()), HomeTile.spots)
         val text = """{"v":1,"tiles":[
             {"id":"notes","fx":0.5,"fy":0.5,"size":120,"z":4},
             {"id":"gone","fx":0.1,"fy":0.1,"size":100,"z":9},
-            {"id":"tasks","fx":7.0,"fy":-3.0,"size":9000,"z":2},
-            {"id":"chat","fx":0.2,"fy":0.2,"size":-5,"z":1}
+            {"id":"agenda","fx":7.0,"fy":-3.0,"size":9000,"z":2},
+            {"id":"chats","fx":0.2,"fy":0.2,"size":-5,"z":1}
         ]}"""
         val restored = HomeLayout.restore(HomeLayout.decode(text), default)
         assertEquals(HomeTile.ids, restored.tiles.map { it.id })
         assertEquals(206f, restored.tile("notes")!!.x, 0.01f)
         assertEquals(120f, restored.tile("notes")!!.size, 0f)
         // Numbers out of range are brought inside; a tile without usable numbers keeps its default place.
-        assertTrue(inside(restored, restored.tile("tasks")!!))
-        assertEquals(TilePhysics.MAX_SIZE, restored.tile("tasks")!!.size, 0f)
-        assertEquals(default.tile("chat")!!.x, restored.tile("chat")!!.x, 0f)
+        assertTrue(inside(restored, restored.tile("agenda")!!))
+        assertEquals(TilePhysics.MAX_SIZE, restored.tile("agenda")!!.size, 0f)
+        assertEquals(default.tile("chats")!!.x, restored.tile("chats")!!.x, 0f)
         assertEquals(HomeTile.ids.indices.toSet(), restored.tiles.map { it.z }.toSet())
     }
 
@@ -406,6 +417,8 @@ class TilePhysicsTest {
     @Test
     fun `tile ids are unique and found again`() {
         assertEquals(HomeTile.entries.size, HomeTile.ids.toSet().size)
+        // The nine of prototype C, in its order.
+        assertEquals(listOf("coach", "today", "agenda", "courses", "notes", "chats", "activity", "sessions", "projects"), HomeTile.ids)
         HomeTile.entries.forEach { assertEquals(it, HomeTile.fromId(it.id)) }
         assertNull(HomeTile.fromId("gone"))
     }

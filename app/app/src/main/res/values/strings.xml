@@ -1118,58 +1118,62 @@
     <string name="note_reminder_fired">Reminded: %1$s</string>
     <string name="models_job_command">Command bar</string>
 
-    <!-- The home of physics tiles (#192) -->
+    <!-- The home of physics tiles (#192), the same as prototype C (#195) -->
+    <string name="home_title">Home</string>
     <string name="home_tile_today">Today\'s tasks</string>
+    <string name="home_tile_agenda">Agenda</string>
+    <string name="home_tile_chats">Chats</string>
+    <string name="home_tile_activity">Sleep and activity</string>
     <string name="home_open">Open</string>
     <string name="home_larger">Make larger</string>
     <string name="home_smaller">Make smaller</string>
-    <string name="home_refresh">Read again</string>
+    <string name="home_language_english">Switch the language to English</string>
+    <string name="home_language_turkish">Switch the language to Turkish</string>
+    <string name="home_theme">Switch between light and dark</string>
+    <string name="home_show_list">Show everything as a list</string>
+    <string name="home_show_field">Back to the visual view</string>
+    <string name="home_command_label">Ask or tell LifeOS</string>
+    <string name="home_command_hint">Ask or tell me anything…</string>
+    <string name="home_field_help">Drag a tile and let go to throw it; pinch with two fingers to resize; tap to open. Keyboard: arrow keys move the focused tile, plus and minus resize it, Enter opens it.</string>
     <string name="home_tidy">Tidy up</string>
-    <string name="home_tidy_label">Tidy up: put the tiles into a neat grid</string>
+    <string name="home_tidy_label">Tidy up: put the tiles back into a neat layout</string>
     <string name="home_tidied">Tiles tidied up.</string>
-    <string name="home_reset">Reset</string>
-    <string name="home_reset_label">Reset: put the tiles back to their first places and sizes</string>
-    <string name="home_reset_done">Layout reset.</string>
     <plurals name="home_cap_field">
         <item quantity="one">Field · %1$d node</item>
         <item quantity="other">Field · %1$d nodes</item>
     </plurals>
     <string name="home_cap_hint">Drag · fling · pinch</string>
+    <plurals name="home_live_coach">
+        <item quantity="one">%1$d new tip</item>
+        <item quantity="other">%1$d new tips</item>
+    </plurals>
     <plurals name="home_live_today">
-        <item quantity="one">%1$d left today</item>
-        <item quantity="other">%1$d left today</item>
+        <item quantity="one">%1$d task left today</item>
+        <item quantity="other">%1$d tasks left today</item>
     </plurals>
-    <string name="home_live_today_none">Nothing left today</string>
-    <plurals name="home_live_tasks">
-        <item quantity="one">%1$d open task</item>
-        <item quantity="other">%1$d open tasks</item>
-    </plurals>
-    <string name="home_live_tasks_none">No open tasks</string>
-    <plurals name="home_live_events">
-        <item quantity="one">%1$d event today</item>
-        <item quantity="other">%1$d events today</item>
-    </plurals>
-    <string name="home_live_events_none">No events today</string>
-    <string name="home_live_chat_busy">Answer on its way</string>
+    <string name="home_live_agenda">Next %1$s</string>
+    <string name="home_live_courses">%1$s · %2$d d</string>
     <plurals name="home_live_notes">
         <item quantity="one">%1$d note</item>
         <item quantity="other">%1$d notes</item>
     </plurals>
-    <string name="home_live_notes_none">No notes yet</string>
-    <plurals name="home_live_deadline">
-        <item quantity="one">Deadline in %1$d day</item>
-        <item quantity="other">Deadline in %1$d days</item>
+    <plurals name="home_live_chats">
+        <item quantity="one">%1$d chat</item>
+        <item quantity="other">%1$d chats</item>
     </plurals>
-    <string name="home_live_deadline_today">Deadline today</string>
-    <string name="home_live_deadline_none">No deadlines ahead</string>
-    <string name="home_live_sleep">Last sleep %1$s</string>
+    <string name="home_live_sleep">Slept %1$s</string>
+    <plurals name="home_live_sessions">
+        <item quantity="one">%1$d session</item>
+        <item quantity="other">%1$d sessions</item>
+    </plurals>
     <plurals name="home_live_projects">
         <item quantity="one">%1$d project</item>
         <item quantity="other">%1$d projects</item>
     </plurals>
-    <string name="home_live_projects_none">No projects yet</string>
     <string name="settings_home">Home style</string>
     <string name="settings_home_tiles">Physics tiles</string>
     <string name="settings_home_classic">Classic list</string>
+    <string name="settings_home_reset">Reset the tile layout</string>
+    <string name="settings_home_reset_done">The tiles are back at their first places.</string>
     <string name="command_result_home_style">Home style changed</string>
 </resources>

@@ -14,7 +14,7 @@ class HomeFieldTest {
     private val frameNanos = 16_000_000L
 
     private fun ready(stored: String? = null, reducedMotion: Boolean = false): HomeField {
-        val tiles = HomeField(HomeTile.ids) { saves += it }
+        val tiles = HomeField(HomeTile.spots) { saves += it }
         tiles.reducedMotion = reducedMotion
         tiles.loaded(stored)
         tiles.measured(412f, 640f)
@@ -37,13 +37,13 @@ class HomeFieldTest {
 
     @Test
     fun `nothing is shown before both the saved layout and the size are known`() {
-        val sizeFirst = HomeField(HomeTile.ids) { saves += it }
+        val sizeFirst = HomeField(HomeTile.spots) { saves += it }
         sizeFirst.measured(412f, 640f)
         assertNull(sizeFirst.field)
         sizeFirst.loaded(null)
         assertNotNull(sizeFirst.field)
 
-        val layoutFirst = HomeField(HomeTile.ids) { saves += it }
+        val layoutFirst = HomeField(HomeTile.spots) { saves += it }
         layoutFirst.loaded(null)
         assertNull(layoutFirst.field)
         layoutFirst.measured(0f, 0f) // not laid out yet
@@ -143,15 +143,70 @@ class HomeFieldTest {
     }
 
     @Test
-    fun `reset brings the default layout back`() {
+    fun `clearing the stored layout brings the default layout back at once`() {
         val tiles = ready()
         val default = tiles.field!!
         tiles.tidy()
         runFrames(tiles)
         assertNotEquals(default.tiles.map { it.x }, tiles.field!!.tiles.map { it.x })
-        tiles.reset()
+        // The store reports the field's own save back: that changes nothing.
+        val tidy = tiles.field
+        tiles.loaded(saves.last())
+        assertEquals(tidy, tiles.field)
+        // Settings cleared it ("Reset the tile layout").
+        tiles.loaded("")
+        assertEquals(default, tiles.field)
+        assertFalse(tiles.running)
+    }
+
+    @Test
+    fun `a late report of an older own save does not undo a newer layout`() {
+        val tiles = ready()
+        tiles.scale("notes", 1.25f)
+        tiles.scale("notes", 1.25f)
+        val now = tiles.field
+        assertEquals(2, saves.size)
+        tiles.loaded(saves[0])
+        tiles.loaded(saves[1])
+        assertEquals(now, tiles.field)
+    }
+
+    @Test
+    fun `with animations removed the first layout is the calm grid`() {
+        val tiles = ready(reducedMotion = true)
+        assertEquals(1, tiles.field!!.tiles.map { it.size }.toSet().size)
+        assertEquals(HomeTile.ids, tiles.field!!.tiles.map { it.id })
+    }
+
+    @Test
+    fun `a touch on the empty field ends a slide where it is`() {
+        val tiles = ready()
+        tiles.tidy()
+        var now = 1_000_000_000L
+        repeat(4) {
+            now += frameNanos
+            tiles.frame(now)
+        }
+        val midway = tiles.field!!.tiles.map { it.x to it.y }
+        assertNull(tiles.press(-10f, -10f))
         runFrames(tiles)
-        assertEquals(default.tiles.map { Triple(it.x, it.y, it.size) }, tiles.field!!.tiles.map { Triple(it.x, it.y, it.size) })
+        assertFalse(tiles.running)
+        assertEquals(midway, tiles.field!!.tiles.map { it.x to it.y })
+    }
+
+    @Test
+    fun `the keyboard moves and resizes a tile`() {
+        val tiles = ready()
+        val before = tiles.field!!.tile("today")!!
+        tiles.nudge("today", 24f, -24f)
+        tiles.grow("today", 16f)
+        val after = tiles.field!!.tile("today")!!
+        assertEquals(before.x + 24f, after.x, 0.01f)
+        assertEquals(before.y - 24f, after.y, 0.01f)
+        assertEquals(before.size + 16f, after.size, 0.01f)
+        assertEquals("today", tiles.field!!.tiles.maxByOrNull { it.z }!!.id)
+        tiles.nudge("today", -9_000f, 0f)
+        assertEquals(after.size / 2, tiles.field!!.tile("today")!!.x, 0.01f)
     }
 
     @Test

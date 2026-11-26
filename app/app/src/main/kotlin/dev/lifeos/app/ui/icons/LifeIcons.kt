@@ -147,6 +147,19 @@ object LifeIcons {
     val Search = icon("Search", line = "M4.5 10.5a6 6 0 1 0 12 0a6 6 0 1 0-12 0zM15 15l5 5")
     val Mic = icon("Mic", line = "M12 3.5a2.5 2.5 0 0 1 2.5 2.5v5a2.5 2.5 0 0 1-5 0V6A2.5 2.5 0 0 1 12 3.5zM6.5 11a5.5 5.5 0 0 0 11 0M12 16.5v4M9 20.5h6")
 
+    // ---- the home's own icons (#195), paths of prototype C
+    val Moon = icon("Moon", line = "M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z")
+    val Terminal = icon(
+        "Terminal",
+        line = "M6 5h12a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5H6a2.5 2.5 0 0 1-2.5-2.5v-9A2.5 2.5 0 0 1 6 5zM7.5 10l3 2.5-3 2.5M12.5 15.5h4",
+    )
+    val List = icon(
+        "List",
+        line = "M9 7h11M9 12h11M9 17h11",
+        solid = "M5 5.9a1.1 1.1 0 1 0 0 2.2a1.1 1.1 0 1 0 0-2.2zM5 10.9a1.1 1.1 0 1 0 0 2.2a1.1 1.1 0 1 0 0-2.2zM5 15.9a1.1 1.1 0 1 0 0 2.2a1.1 1.1 0 1 0 0-2.2z",
+    )
+    val Contrast = icon("Contrast", line = "M3.5 12a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0-17 0z", solid = "M12 3.5a8.5 8.5 0 0 1 0 17z")
+
     /** Four tiles in a grid: "Tidy up" on the home field (#192). */
     val Grid = icon("Grid", line = "M5.8 4h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8zM14.8 4h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8zM5.8 13h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8zM14.8 13h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8z")
     val Activity = icon("Activity", line = "M5 19.5v-6M12 19.5v-14M19 19.5v-9")

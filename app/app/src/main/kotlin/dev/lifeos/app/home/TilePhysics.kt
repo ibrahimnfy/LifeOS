@@ -41,6 +41,12 @@ data class Field(
     val atRest: Boolean get() = tiles.none { it.moving }
 }
 
+/**
+ * A tile's place in the default layout: its centre as fractions of the field and its width as a
+ * factor of the tidy cell.
+ */
+data class Spot(val id: String, val fx: Float, val fy: Float, val scale: Float)
+
 /** One frame: the field after it, whether anything still moves, and the tiles that hit an edge. */
 data class Step(val field: Field, val moving: Boolean, val hits: Set<String>)
 
@@ -82,18 +88,8 @@ object TilePhysics {
     const val TIDY_MS = 520f
     private const val TIDY_COLUMNS = 3
 
-    /** The default layout: centre as fractions of the field, and the size as a factor of the tidy cell. */
-    private val SCATTER = listOf(
-        floatArrayOf(0.50f, 0.17f, 1.50f),
-        floatArrayOf(0.30f, 0.43f, 1.25f),
-        floatArrayOf(0.76f, 0.40f, 1.00f),
-        floatArrayOf(0.68f, 0.64f, 1.15f),
-        floatArrayOf(0.26f, 0.69f, 1.00f),
-        floatArrayOf(0.50f, 0.88f, 0.82f),
-        floatArrayOf(0.18f, 0.90f, 0.85f),
-        floatArrayOf(0.84f, 0.88f, 0.80f),
-        floatArrayOf(0.85f, 0.15f, 0.78f),
-    )
+    /** Tidy never starts above this line: the field's captions stay free. */
+    const val TIDY_TOP = TOP_PAD + 28f
 
     // ---------------------------------------------------------------- limits
 
@@ -294,7 +290,7 @@ object TilePhysics {
         val rows = ceil(count / columns.toFloat()).toInt()
         val h = cell * HEIGHT_RATIO
         val left = (field.width - (columns * cell + (columns - 1) * TIDY_GAP)) / 2
-        val top = max(TOP_PAD, (field.height - (rows * h + (rows - 1) * TIDY_GAP)) / 2)
+        val top = max(if (field.height - TIDY_TOP >= rows * h + (rows - 1) * TIDY_GAP) TIDY_TOP else TOP_PAD, (field.height - (rows * h + (rows - 1) * TIDY_GAP)) / 2)
         // The grid's own size is used as it is (it may be below the pinch minimum on a small field).
         val grid = field.copy(minSize = min(field.minSize, cell))
         val known = field.tiles.associateBy { it.id }
@@ -316,20 +312,22 @@ object TilePhysics {
         ).copy(minSize = field.minSize)
     }
 
-    /** The default layout: tiles of different sizes spread over the field, the first ones largest. */
-    fun scatter(field: Field, ids: List<String>): Field {
-        val cell = (field.width - 2 * TIDY_MARGIN - 2 * TIDY_GAP) / TIDY_COLUMNS
+    /**
+     * The default layout: each tile at its own spot (see [Spot]), in different sizes. The
+     * stacking order is the order of [spots]: the last one is on top, as in the prototype.
+     */
+    fun scatter(field: Field, spots: List<Spot>): Field {
+        val cell = kotlin.math.floor((field.width - 2 * TIDY_MARGIN - 2 * TIDY_GAP) / TIDY_COLUMNS)
         return field.copy(
-            tiles = ids.mapIndexed { index, id ->
-                val spot = SCATTER[index % SCATTER.size]
+            tiles = spots.mapIndexed { index, spot ->
                 clamp(
                     field,
                     Tile(
-                        id = id,
-                        x = spot[0] * field.width,
-                        y = TOP_PAD + 20f + spot[1] * (field.height - 40f),
-                        size = cell * spot[2],
-                        z = ids.size - 1 - index,
+                        id = spot.id,
+                        x = spot.fx * field.width,
+                        y = TOP_PAD + 20f + spot.fy * (field.height - 40f),
+                        size = cell * spot.scale,
+                        z = index,
                     ),
                 )
             },
