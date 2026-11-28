@@ -916,3 +916,13 @@ Use `--fork-session` instead of refusing only if a diverging copy is acceptable.
     - Re-check all of this after CLI updates.
 15. **How does the bridge confirm its `--settings` deny file was applied?** Invalid settings are ignored silently in `-p` mode and the `init` event was not seen to list active rules. A startup self-test (ask for a read of a denied path and expect a `permission_denials` entry) would cost one small run.
 16. **Advisor in `-p` runs and its usage report** (section 8): how often a headless run consults the advisor, and whether its tokens appear in the `result` message. Check on the first real routine runs (`GET /models/routing` lists the models each job reported).
+
+### Follow-up: the bridge's own entry point (#201)
+
+At the owner's request the bridge now starts its sessions with `CLAUDE_CODE_ENTRYPOINT=lifeos`
+instead of `sdk-py` (`sdk_runner.ENTRYPOINT`). A session whose first record carries a
+non-SDK entry point is listed by `claude --resume` in its folder (observed above with a
+made-up value). The stream-json protocol and the permission host do not depend on the value:
+the core guardrail check, which exercises approvals and questions with the installed Claude
+Code, passed with it. Sessions made earlier keep their `sdk-py` records and stay out of the
+list.

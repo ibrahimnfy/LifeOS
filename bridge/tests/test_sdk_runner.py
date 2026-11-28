@@ -90,7 +90,9 @@ def test_launches_the_installed_cli_with_only_the_allow_listed_environment(
     assert set(entry["env"]) <= allowed
     for name in POISON:
         assert name not in env and name not in entry["env"]
-    assert entry["env"]["CLAUDE_CODE_ENTRYPOINT"] == "sdk-py"
+    # Never an SDK entry point: such sessions are hidden from the terminal's resume list (#201).
+    assert entry["env"]["CLAUDE_CODE_ENTRYPOINT"] == sdk_runner.ENTRYPOINT
+    assert not sdk_runner.ENTRYPOINT.startswith("sdk")
 
 
 def test_a_command_name_is_looked_up_in_path(sdk_settings, fake_claude, monkeypatch):

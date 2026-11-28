@@ -88,10 +88,16 @@ KEEPALIVE_SECONDS = 30.0
 CLOSED_REASONS = {ANSWERED: "answered", TIMEOUT: "timed_out"}
 INPUT_FLAGS = ("--input-format", "stream-json")
 
-# Set by the SDK's own launcher too: they mark the session as an SDK one and
-# ask for the session-state frames the SDK reads. They carry no secret.
+# The SDK's own launcher sets these too; they carry no secret. The entry point is the
+# bridge's own name and not the SDK's ("sdk-py"): Claude Code's resume list leaves out
+# every session whose first record names an SDK entry point, and the owner wants a chat
+# started from the phone to show in ``claude --resume`` of its folder like any other
+# (#201, the owner's decision of the thirteenth round). The protocol does not depend on
+# it: input and output are the stream-json flags, the permission host is the control
+# channel. The guardrail check was run again with this value.
+ENTRYPOINT = "lifeos"
 SDK_ENV = {
-    "CLAUDE_CODE_ENTRYPOINT": "sdk-py",
+    "CLAUDE_CODE_ENTRYPOINT": ENTRYPOINT,
     "CLAUDE_AGENT_SDK_VERSION": claude_agent_sdk.__version__,
     "CLAUDE_CODE_SDK_READS_SESSION_STATE": "1",
 }
