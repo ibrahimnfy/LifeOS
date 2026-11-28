@@ -139,6 +139,28 @@ class ListActionsTest {
         assertEquals(TaskLists.Deletion.Delete("local-a1"), TaskLists.deletion("local-a1", listOf(own(attempts = 1))))
     }
 
+    @Test
+    fun `a task deletion the end of the app interrupted is completed at the next start`() {
+        fun start(): Pair<Outbox, TaskDeletions> {
+            val outbox = Outbox(OutboxStore(File(folder.root, "outbox.json")), { 0L }) { }
+            var id = 0
+            return outbox to TaskDeletions(PendingDeleteStore(File(folder.root, "deleting-tasks.json")), outbox, { 0L }) { "d${id++}".padEnd(16, '0') }
+        }
+        val (outbox, deletions) = start()
+        deletions.begin("t-1", "Sample one")
+        deletions.begin("t-2", "Sample two")
+        assertTrue(deletions.undo("t-2"))
+        assertEquals(emptyList<OutboxItem>(), outbox.items.value)
+        // The app ended inside the undo time: the next start queues what was left, once.
+        val (later, again) = start()
+        assertEquals(setOf("t-1"), again.leftOver)
+        assertTrue(again.finishLeftOver())
+        assertEquals(listOf(OutboxItem.Kind.TASK_DELETE to "t-1"), later.items.value.map { it.kind to it.taskId })
+        assertEquals("Sample one", later.items.value.single().text)
+        assertFalse(start().second.finishLeftOver())
+        assertFalse(again.undo("t-1"))
+    }
+
     // ---- the outbox
 
     @Test

@@ -52,6 +52,7 @@ import dev.lifeos.app.data.NoteDeletions
 import dev.lifeos.app.data.NoteLists
 import dev.lifeos.app.data.PendingDeleteStore
 import dev.lifeos.app.data.Task
+import dev.lifeos.app.data.TaskDeletions
 import dev.lifeos.app.data.TaskLists
 import dev.lifeos.app.data.TaskNote
 import dev.lifeos.app.data.Outbox
@@ -685,6 +686,18 @@ class LifeOsCore(private val app: Application) {
 
     private val taskDeleteTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
+    /** Task deletions in their undo time, on storage: one the end of the app interrupted is completed at the next start. */
+    private val taskDeletions = TaskDeletions(
+        PendingDeleteStore(File(app.filesDir, "outbox/deleting-tasks.json")),
+        outbox,
+        System::currentTimeMillis,
+        { java.util.UUID.randomUUID().toString().replace("-", "").take(16) },
+    )
+
+    init {
+        taskDeletions.finishLeftOver()
+    }
+
     /**
      * Delete a task (#197): it disappears at once and, after [UNDO_MILLIS], the deletion is
      * sent (or queued), as a tick is. The computer moves it to its trash. A task made on this
@@ -693,18 +706,12 @@ class LifeOsCore(private val app: Application) {
     fun deleteTask(task: Task) {
         if (task.id in tickedState.value) return
         tickedState.value += setOf(task.id, taskIdNow(task.id))
+        taskDeletions.begin(task.id, task.title)
         taskDeleteTimers[task.id] = scope.launch {
             delay(UNDO_MILLIS)
             taskDeleteTimers.remove(task.id)
             val id = taskIdNow(task.id)
-            val stored = when (val plan = TaskLists.deletion(id, outbox.items.value)) {
-                is TaskLists.Deletion.Discard -> {
-                    outbox.discard(plan.itemId)
-                    false
-                }
-                is TaskLists.Deletion.Delete ->
-                    outbox.add(OutboxItem(newItemId(), OutboxItem.Kind.TASK_DELETE, System.currentTimeMillis(), text = task.title, taskId = plan.taskId))
-            }
+            val stored = taskDeletions.finish(task.id, id)
             tickedState.value -= setOf(task.id, id)
             if (stored && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
         }
@@ -715,6 +722,7 @@ class LifeOsCore(private val app: Application) {
         val timer = taskDeleteTimers.remove(task.id)
         if (timer != null) {
             timer.cancel()
+            taskDeletions.undo(task.id)
             tickedState.value -= setOf(task.id, taskIdNow(task.id))
             return true
         }
@@ -1443,6 +1451,7 @@ class LifeOsCore(private val app: Application) {
         deleteTimers.values.forEach { it.cancel() }
         deleteTimers.clear()
         noteDeletions.wipe()
+        taskDeletions.wipe()
         downloads.clear()
         chat.forget()
         coach.forget()
