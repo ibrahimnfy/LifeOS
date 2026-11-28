@@ -33,11 +33,39 @@ class MarkdownTest {
                 MdBlock.Item("•", 0, "Review the notes"),
                 MdBlock.Item("1.", 1, "first the short ones"),
                 MdBlock.Item("2.", 0, "Write the summary"),
-                MdBlock.Code("val x = 1\n  indented\n\n# not a heading"),
+                MdBlock.Code("val x = 1\n  indented\n\n# not a heading", "kotlin"),
                 MdBlock.Paragraph("Done."),
             ),
             Markdown.blocks(text),
         )
+    }
+
+    @Test
+    fun `a code block knows its language and ends only at its own fence`() {
+        // The word after the fence labels the block; what follows that word is dropped.
+        assertEquals(listOf(MdBlock.Code("ls -la", "bash")), Markdown.blocks("```bash\nls -la\n```"))
+        assertEquals(listOf(MdBlock.Code("x", "c++")), Markdown.blocks("``` c++ title=\"a.cpp\"\nx\n```"))
+        assertEquals(listOf(MdBlock.Code("x", "python")), Markdown.blocks("~~~python\nx\n~~~"))
+        assertEquals(listOf(MdBlock.Code("plain")), Markdown.blocks("```\nplain\n```"))
+        assertEquals(listOf(MdBlock.Code("x")), Markdown.blocks("```{.weird}\nx\n```"))
+        // A longer fence shows shorter ones, and a fence with a word, as its content.
+        val nested = "````markdown\nUse:\n```kotlin\nval x = 1\n```\n````\nAfter."
+        assertEquals(
+            listOf(MdBlock.Code("Use:\n```kotlin\nval x = 1\n```", "markdown"), MdBlock.Paragraph("After.")),
+            Markdown.blocks(nested),
+        )
+        assertEquals(listOf(MdBlock.Code("a\n~~~\nb")), Markdown.blocks("```\na\n~~~\nb\n```"))
+        assertEquals(listOf(MdBlock.Code("a\n```text\nb")), Markdown.blocks("```\na\n```text\nb\n```"))
+        // Two blocks keep their own words; an open one keeps its word while it is written.
+        assertEquals(
+            listOf(MdBlock.Code("a", "sh"), MdBlock.Paragraph("then"), MdBlock.Code("b", "json")),
+            Markdown.blocks("```sh\na\n```\nthen\n```json\nb\n```"),
+        )
+        assertEquals(listOf(MdBlock.Code("val x", "kotlin")), Markdown.blocks("```kotlin\nval x"))
+        // Code written between fences on one line is inline code, not the start of a block.
+        assertEquals(listOf(MdBlock.Paragraph("```ls -la```\nand more")), Markdown.blocks("```ls -la```\nand more"))
+        // Exactly what was written is what a copy gets: indentation and empty lines inside stay.
+        assertEquals(listOf(MdBlock.Code("  a\n\n\tb")), Markdown.blocks("```\n  a\n\n\tb\n\n```"))
     }
 
     @Test
