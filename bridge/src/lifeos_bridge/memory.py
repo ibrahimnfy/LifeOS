@@ -1106,6 +1106,43 @@ def agenda(memory: Path, today: date, days: int = 7) -> dict:
     }
 
 
+def task_history(memory: Path, today: date, days: int = 14) -> dict:
+    """Per day, how the tasks went (#206): the numbers the app's task score is made of.
+
+    For each of the last ``days`` days up to ``today`` (oldest first): ``due`` is how many
+    tasks, open or finished, are due that day; ``due_done`` how many of those were finished
+    on that day or before it; ``done_other`` how many other tasks were finished that day
+    (due on another day, or without a date). Counts only: no title leaves the memory.
+    A deleted task is in neither file and is not counted.
+    """
+
+    def day_of(task: Task, name: str) -> date | None:
+        try:
+            return date.fromisoformat(task.fields.get(name, ""))
+        except ValueError:
+            return None
+
+    open_due = [day_of(task, "due") for task in list_tasks(memory)]
+    finished = [
+        (day_of(task, "due"), day_of(task, "done"))
+        for line in read_text(memory / "tasks-done.md").splitlines()
+        if (task := parse_task(line)) is not None
+    ]
+    found = []
+    for back in range(days - 1, -1, -1):
+        day = today - timedelta(days=back)
+        due_done = sum(due == day and done is not None and done <= day for due, done in finished)
+        found.append(
+            {
+                "date": day.isoformat(),
+                "due": open_due.count(day) + sum(due == day for due, _ in finished),
+                "due_done": due_done,
+                "done_other": sum(done == day and due != day for due, done in finished),
+            }
+        )
+    return {"today": today.isoformat(), "days": found}
+
+
 # --------------------------------------------------------------------------- context
 
 

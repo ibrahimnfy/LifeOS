@@ -81,6 +81,8 @@ import dev.lifeos.app.ui.components.outcomeLine
 import dev.lifeos.app.data.step
 import dev.lifeos.app.ui.screens.SessionsScreen
 import dev.lifeos.app.ui.screens.ActivityScreen
+import dev.lifeos.app.ui.screens.ScoreDetailScreen
+import dev.lifeos.app.ui.screens.ScoresScreen
 import dev.lifeos.app.ui.screens.AllGradesScreen
 import dev.lifeos.app.ui.screens.AssignmentScreen
 import dev.lifeos.app.ui.screens.AllTasksScreen
@@ -479,10 +481,6 @@ fun LifeOsApp(
                     if (it == Tab.TODAY) todayList = false
                     navController.openTab(it)
                 },
-                onCapture = {
-                    capturePrefill = ""
-                    captureOpen = true
-                },
             )
         },
     ) { innerPadding ->
@@ -624,6 +622,38 @@ fun LifeOsApp(
                         onOpenCoach = openCoach,
                     )
                 }
+            }
+            // Scores (#206): the middle tab. Its "+" opens the command bar, as the old middle button did.
+            composable(Routes.SCORES) {
+                ScoresScreen(
+                    core = core,
+                    onConnectionClick = openSettings,
+                    onCapture = {
+                        capturePrefill = ""
+                        captureOpen = true
+                    },
+                    onPair = openPair,
+                    onOpenScore = { part, day -> navController.navigate(Routes.score(part, day)) { launchSingleTop = true } },
+                    onOpenSleep = { navController.navigate(Routes.ACTIVITY) { launchSingleTop = true } },
+                )
+            }
+            composable(
+                Routes.SCORE,
+                arguments = listOf(
+                    navArgument(Routes.SCORE_PART_ARG) { type = NavType.StringType },
+                    navArgument(Routes.SCORE_DAY_ARG) { type = NavType.StringType },
+                ),
+            ) { entry ->
+                ScoreDetailScreen(
+                    core = core,
+                    part = entry.arguments?.getString(Routes.SCORE_PART_ARG).orEmpty(),
+                    startDay = entry.arguments?.getString(Routes.SCORE_DAY_ARG).orEmpty(),
+                    onBack = { navController.popBackStack() },
+                    onConnectionClick = openSettings,
+                    onPair = openPair,
+                    onOpenScore = { part, day -> navController.navigate(Routes.score(part, day)) { launchSingleTop = true } },
+                    onOpenSleep = { navController.navigate(Routes.ACTIVITY) { launchSingleTop = true } },
+                )
             }
             composable(Routes.TASKS) {
                 TasksScreen(

@@ -85,6 +85,7 @@ SCREENS: dict[str, str] = {
     "courses": "COURSES",
     "grades": "GRADES",
     "activity": "ACTIVITY",
+    "scores": "SCORES",
     "settings": "SETTINGS",
     "models": "MODELS",
     "consolidation": "CONSOLIDATION",
@@ -291,6 +292,7 @@ ACTIONS: tuple[Action, ...] = (
         routes=(
             "GET /agenda",
             "GET /tasks",
+            "GET /tasks/history",
             "GET /coach/plan",
             "GET /coach/question",
             "GET /courses",
@@ -303,7 +305,8 @@ ACTIONS: tuple[Action, ...] = (
             "GET /models/routing",
             "GET /coach/settings",
         ),
-        screens=(*dict.fromkeys(SCREENS.values()), "CHAT_COACH", "CHAT_SESSIONS"),
+        # SCORE: one score in full, a tap away from the Scores tab.
+        screens=(*dict.fromkeys(SCREENS.values()), "CHAT_COACH", "CHAT_SESSIONS", "SCORE"),
     ),
     Action(
         "set_home_style",

@@ -125,6 +125,7 @@ documented here as they are built.
 | GET / POST | `/events` | yes | Lists or creates calendar events |
 | PATCH | `/events/{id}` | yes | Changes an event |
 | GET | `/agenda` | yes | Today's events and tasks, overdue tasks, the coming days |
+| GET | `/tasks/history` | yes | Per day: tasks due, finished in time, other tasks finished (counts for the app's task score) |
 | GET | `/memory/consolidation` | yes | The waiting consolidation proposal and its operations |
 | GET | `/projects` · `/projects/{id}` | yes | Projects: status, state, last activity, open tasks, sessions (no run) |
 | POST | `/memory/consolidation/approve` · `/reject` | yes | Approves (applies, one commit) or rejects operations, one by one or all |
@@ -1747,6 +1748,14 @@ git, or **has a git remote**: the memory must stay on the computer.
   today in the computer's local time) returns `events_today`, `tasks_today`,
   `tasks_overdue` and `upcoming` (`events` and task `deadlines` of the next
   `days` days).
+- `GET /tasks/history?day=YYYY-MM-DD&days=14` (both optional; at most 60
+  days) returns `{"today", "days": [{"date", "due", "due_done",
+  "done_other"}]}`, oldest day first, for the app's task score (#206):
+  `due` counts the tasks due that day (open or finished), `due_done` those
+  of them finished on that day or before it, `done_other` the other tasks
+  finished that day. Counts only: no title leaves the memory. A deleted
+  task is in neither file and is not counted; a task whose due date was
+  changed counts on its present date.
 
 - **Phone activity.** `POST /activity/usage` with `{"date",
   "screen_minutes", "unlocks", "apps": [{"label", "minutes"}]}` and

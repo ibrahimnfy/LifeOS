@@ -37,10 +37,14 @@ shows it, captures new input fast and reports phone activity.
 
 ## 2. Navigation
 
-*Approved by the owner.* A bottom bar with four destinations, plus a capture button that is always
-visible. Less-used screens live under "More" so the bar stays uncluttered.
-In visual direction D the bar is slim and shows icons only (each with an
-accessibility label), with the capture button in its centre.
+*Approved by the owner.* A bottom bar with five destinations. Less-used
+screens live under "More" so the bar stays uncluttered. In visual direction D
+the bar is slim and shows icons only (each with an accessibility label).
+Until #206 the middle place was a capture button ("+"); the owner replaced
+it with the **Scores** tab (section 3.10a). The capture sheet and command bar
+(section 3.4) now open from the home's own bar and from the "+" in the top
+bar of the Scores screen; text shared from another app and the home-screen
+shortcut still open the sheet directly.
 
 ```
 ┌──────────────────────────────────────────┐
@@ -48,9 +52,8 @@ accessibility label), with the capture button in its centre.
 │                                          │
 │              (screen content)            │
 │                                          │
-│                                   ( + )  │   capture button, on every tab
 ├──────────────────────────────────────────┤
-│   Today      Chat      Tasks      More   │
+│  Today    Chat    Scores   Tasks   More  │
 └──────────────────────────────────────────┘
 
 More → Sessions · Notes · Projects · Calendar · Courses · Activity · Settings
@@ -60,8 +63,9 @@ Why this shape:
 
 - **Today** is the start screen: it answers "what should I do now" without typing.
 - **Chat** and **Tasks** are the two things used many times a day.
-- **Capture** is a button, not a tab, because it is an action available
-  everywhere, not a place.
+- **Scores** sits in the middle (*set by the owner, #206*): the daily
+  scores are looked at every day. Capture is an action, not a place; it is
+  reached from the home's bar and from the Scores screen's top bar.
 - Sessions, Notes, Projects, Calendar, Courses and Activity are opened a few
   times a day at most; one extra tap is acceptable. Today links directly into each of them.
 - **A tab always opens its root screen** (*set by the owner, #166*): tapping
@@ -661,6 +665,74 @@ the platform the data comes from.*
   labelled), the charts, and the morning question (one inexact alarm,
   replanned after it rings, after a restart and after a clock or time-zone
   change; a silent notification only while last night has no entry).
+
+### 3.10a Scores (#206, built)
+
+- **Purpose:** one number per day, and what it is made of, so a good or a bad
+  day is seen at a glance and can be understood in one tap.
+- **Content:** the middle tab. One card per day of the last 7 days, today
+  first ("Today · so far"): a ring with the **day score** and three parts
+  side by side, each with its icon, its number, a thin bar and its name:
+  **Sleep** (violet), **Digital balance** (peach), **Tasks** (sky). A part
+  without data shows "–", never 0. A part is never told by colour alone.
+  A tap on the ring or on a part opens that score in full:
+  - the chosen day's number with its word (Good from 80, Fair from 60, Low
+    from 40, else Very low);
+  - **what went into it**: sleep (time slept, bed and wake time, the length
+    and regularity points), digital balance (screen time and unlocks with
+    their points), tasks (due that day, of those finished in time, other
+    tasks finished that day), the day (its three parts, each a link);
+  - the **trend** over 7 or 14 days: one bar per day on a fixed scale of 0
+    to 100, the chosen day in full colour with its number above it, the
+    average as a dashed line, a dot for a day without a score; a tap on a
+    day's column chooses that day;
+  - **how it is worked out**, in plain words.
+- **Formulas** (pure functions in `activity/Scores.kt`, tested in
+  `ScoresTest`; all targets are constants there):
+  - *Sleep* = 70 % length + 30 % regularity. Length: 100 between 7 and 9
+    hours, falling in a straight line to 0 at 4 hours and at 12 hours.
+    Regularity: how far bed time and wake time are, on average, from the
+    median of the other nights in the seven mornings before (at least 3 of
+    them): 100 up to 30 minutes off, 0 from 120 minutes. Without enough
+    other nights, length alone.
+  - *Digital balance* = 70 % screen time + 30 % unlocks. Screen time: 100
+    up to 3 hours, 0 from 8 hours. Unlocks: 100 up to 50, 0 from 150.
+  - *Tasks* = finished ÷ counted × 100. Counted: the tasks due that day
+    plus every other task finished that day. Finished: the due ones done on
+    that day or before, plus those others. Nothing due and nothing finished:
+    no score.
+  - *Day* = the mean of the parts that have a score.
+- **States:** no sleep entry (a card with "Enter sleep" that opens Activity
+  on its Sleep tab) · usage access missing (the Activity screen's card with
+  the button to the system setting) · no task numbers yet (not paired, the
+  computer cannot be reached with "Retry", or still on their way) · a saved
+  copy of the task numbers with its age · locked (nothing drawn).
+- **Data:** sleep and screen time from what the phone keeps (works offline);
+  the task counts from `GET /tasks/history` (counts only, no titles), with a
+  saved copy. Action: `open_screen` with `scores`.
+- **Manual check:**
+  1. The bottom bar shows Today, Chat, Scores, Tasks, More; the middle icon
+     is a gauge and opens Scores. There is no "+" in the bar.
+  2. On Scores, "+" in the top bar opens the capture sheet with the command
+     bar; on the tiles home its bar opens the same sheet. Sharing text from
+     another app into LifeOS still opens the sheet on Note with the text.
+  3. Seven day cards, today first. Enter last night on Activity → Sleep:
+     today's Sleep part shows a number; with 8 hours it is 100 while fewer
+     than 3 other nights are known.
+  4. Tap the Sleep part: the page shows the times, "Length" and
+     "Regularity" (or "Not yet: needs 3 other nights…"), a trend chart and
+     the formula. Tap another day's column: the card above changes to it.
+     Switch between 7 and 14 days.
+  5. Tap Digital: screen time and unlocks of that day with their points;
+     without usage access the card with the settings button shows instead.
+  6. Finish a task that is due today, pull down on Scores: the Tasks part of
+     today rises; its page lists due, finished in time and other finished.
+     A day with nothing due and nothing finished shows "–".
+  7. Tap the ring: the day's three parts, each opening its own page; the
+     day score is the mean of the parts that have a number.
+  8. Say "open my scores" in the command bar: the Scores tab opens.
+  9. Switch the app to Turkish and to the dark theme: every text is
+     translated ("Puanlar", "Dijital denge"), numbers stay readable.
 
 ### 3.11 Settings
 

@@ -21,6 +21,7 @@ object CommandRoutes {
         "courses" to Routes.COURSES,
         "grades" to Routes.GRADES,
         "activity" to Routes.ACTIVITY,
+        "scores" to Routes.SCORES,
         "settings" to Routes.SETTINGS,
         "models" to Routes.MODELS,
         "consolidation" to Routes.CONSOLIDATION,
