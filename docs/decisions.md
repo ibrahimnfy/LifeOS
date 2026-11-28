@@ -476,3 +476,11 @@ a new entry is added that says what changed and why.
 ## Owner answers recorded 2026-11-28 (thirteenth round, second part)
 
 - **#209 = A: the tasks screen is built as the calm grouped list** of the mockups (`docs/design/mockups/tasks/`, variant A): one card per group (Overdue, Today, Upcoming, No date) with sticky headers, rows of 64 dp, a prominent quick-add field on top, an edit page on tap, swipe right to complete and left to delete, and Undo. Built in #210.
+
+### Implementation choices of the thirteenth round, continued (agent; cheap to change)
+- **Scores (#206).** Each part is 0-100, pure functions in `activity/Scores.kt`; a part without data has no score (never 0) and the day's score is the mean of the parts that have one.
+  - **Sleep** = 70 % length + 30 % regularity; length alone until three other nights of the seven mornings before are known. Length: 100 between 7 and 9 hours, linear to 0 at 4 and at 12 hours. Regularity: mean distance of bed and wake time from the circular median of those nights; 100 up to 30 minutes, 0 from 120 minutes.
+  - **Digital balance** = 70 % screen time (100 up to 3 hours, 0 from 8 hours) + 30 % unlocks (100 up to 50, 0 from 150).
+  - **Tasks** = (due tasks finished on or before that day + other tasks finished that day) ÷ (tasks due that day + those others) × 100; no score when nothing was due and nothing finished. The bridge gives the counts per day (`GET /tasks/history`).
+  - **Words:** Good from 80, Fair from 60, Low from 40, else Very low. Today is labelled "so far". Colours: sleep violet, digital peach, tasks sky; each part always carries its icon, name and number.
+  - **The command bar after the "+" tab:** a "+" in the Scores top bar opens the capture sheet; the home has its own bar; sharing text from another app and the shortcut still open the capture page.
