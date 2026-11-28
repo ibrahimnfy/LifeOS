@@ -324,6 +324,41 @@ This is the supported way to get title, folder and last activity. **Not verified
 
 **Unknown**: whether `list_sessions()` includes sessions created by `claude -p`. The interactive picker and interactive `--continue` hide them [sessions]; the SDK page says nothing either way. After E2 the session's first lines carried one `cwd` and later lines another; which one `SDKSessionInfo.cwd` reports is also unknown.
 
+### Why a session started from the phone is not in the terminal's list (#201)
+
+Report: a conversation started from the phone in a project folder did not show in the terminal's `claude --resume` picker of that folder (Claude Code 2.1.332). Three explanations were checked.
+
+| Explanation | Result |
+|---|---|
+| The transcript is somewhere else (another folder, another configuration directory) | **No.** It is in `~/.claude/projects/<encoded folder>/<session id>.jsonl`, next to the terminal's own sessions of that folder, with the same `session-owner` line. |
+| The picker hides sessions that were not started in a terminal | **Yes**, and on purpose. |
+| The session cannot be resumed in a terminal at all | **No.** `claude --resume <id>` opens it with its whole conversation. |
+
+- **Documented** [sessions], "Where the session picker looks": "Claude Code leaves sessions created with `claude -p` or the Agent SDK out of the session picker and out of `claude --continue`. You can still resume one by passing its session ID to `claude --resume <session-id>`." (`claude -p --continue` does include them.) Sessions whose first prompt was `/loop` are left out too.
+- **Observed** (E4, below): which sessions the picker shows follows the `entrypoint` value on the session's **first** line that has one, and nothing else:
+
+  | Throwaway session | `entrypoint` on its lines | In the picker |
+  |---|---|---|
+  | started in a terminal | `cli` | yes |
+  | `claude -p` (also with `CLAUDE_CODE_ENTRYPOINT=cli`: print mode records `sdk-cli` anyway) | `sdk-cli` | no |
+  | `claude -p` with `CLAUDE_CODE_ENTRYPOINT=sdk-py` (what the bridge's SDK runner sets) | `sdk-py` | no |
+  | copy of the `sdk-py` one with every `entrypoint` rewritten to `cli` | `cli` | yes |
+  | copy with only `promptSource` / `turnOrigin` rewritten to `typed` / `human` | `sdk-py` | no |
+  | copy with only the first line's `entrypoint` rewritten to `cli` | `cli`, then `sdk-py` | yes |
+  | copy with only the last line's (or the later half's) `entrypoint` rewritten to `cli` | `sdk-py`, then `cli` | no |
+  | `claude -p` with `CLAUDE_CODE_ENTRYPOINT` set to a made-up, non-SDK name | that name | yes |
+
+  So: a session **started in a terminal and continued from the phone stays in the list**; a session **started from the phone stays out of it**, also after it was continued in a terminal by id. Widening the picker to all projects (`Ctrl+A`) and searching it for a hidden session's prompt do not bring hidden sessions back.
+- **Observed** (E4): `claude --resume <id>` of the `sdk-py` session, run in its folder, showed the earlier prompt and answer and waited for the next message. `user` lines of such a session carry `promptSource: "sdk"` and `turnOrigin: "sdk"`; a typed one has `"typed"` and `"human"`.
+
+**Consequences for the bridge.**
+
+- Nothing is wrong with where or how phone conversations are stored. The terminal's list leaves them out by design, so the bridge and the app name them instead: the session sheet of a chat shows the line `cd <folder> && claude --resume <id>` to copy ("Continue on the computer"), and `scripts/phone-chats` lists the hidden sessions of a folder in a terminal and resumes one (`-r`).
+- The last table row means the bridge *could* make its sessions appear by starting them with an entry-point name that is not an SDK one. **Not done**: the entry point is how Claude Code tells its clients apart (the installed CLI maps it to a client type and branches on the SDK values in many places; which behaviour of a run would change with another name is not documented, and the guardrail checks were verified under `sdk-py`), and the list hides SDK sessions on purpose. Naming the bridge as something it is not would need the owner's decision and a full guardrail check; it is not a setting to flip.
+- The other direction needs nothing special on the computer: the bridge reads history and last activity from the transcript itself, and a live process whose transcript another process appended to is restarted from the transcript (`LiveSession.changed_elsewhere`). The app looks at the thread again whenever its chat screen comes back (see `docs/chat-design.md`, 7.4).
+
+**E4** (five paid one-line runs on the small model in an empty scratch folder, every inherited `CLAUDE*` variable removed; the picker was opened in a pseudo-terminal, read, and closed with Ctrl+C without resuming anything; the edited copies were made only of the throwaway transcripts). Opening the scratch folder interactively needed the workspace trust prompt to be accepted once.
+
 ### Is a session bound to its working directory?
 
 - **Documented** [sessions], [headless]: "A session is a saved conversation tied to a project directory", but "You can run `claude --resume <session-id>` from any directory". The ID is looked up first in the current project directory and its git worktrees, then in every other project on the machine. The cross-project search resolves "only when exactly one other project holds a transcript with messages for it". Before v2.1.223 the search covered only the current project and its worktrees.
