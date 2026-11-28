@@ -26,7 +26,15 @@ from typing import Any
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from . import audit, moodle, moodle_login, moodle_sync, moodle_watch, resources
+from . import (
+    assignment_marks,
+    audit,
+    moodle,
+    moodle_login,
+    moodle_sync,
+    moodle_watch,
+    resources,
+)
 from .claude import ClaudeError
 
 CACHE_SECONDS = 600
@@ -153,11 +161,16 @@ def _records(state: dict) -> list[dict]:
     return sorted(moodle_sync.listed(state), key=lambda record: str(record.get("name", "")))
 
 
-def _upcoming(record: dict, now_ts: int, until_ts: int | None = None) -> list[dict]:
-    """Deadlines of a course that are still ahead, nearest first."""
+def _upcoming(
+    record: dict, now_ts: int, until_ts: int | None = None, marks: dict | None = None
+) -> list[dict]:
+    """Deadlines of a course that are still ahead, nearest first; without the assignments
+    the owner marked done or removed (#196)."""
     found = []
     for key, item in (record.get("deadlines") or {}).items():
         if item["at"] < now_ts or (until_ts is not None and item["at"] > until_ts):
+            continue
+        if marks and key.startswith("assign-") and key[7:].isdigit() and int(key[7:]) in marks:
             continue
         entry = {"name": item["name"], "due": item["at"], "due_iso": moodle.iso(item["at"])}
         if key.startswith("assign-") and key[7:].isdigit():
@@ -188,12 +201,23 @@ def _local_copy(record: dict, item: dict) -> Path | None:
     return path if path.resolve().is_relative_to(folder.resolve()) else None
 
 
-def summary_view(state: dict, now_ts: int) -> dict:
+def local_files(record: dict, assignment: dict) -> list[str]:
+    """The downloaded files of an assignment, as paths inside the course's folder."""
+    folder, files = _folder(record), record.get("files") or {}
+    found = []
+    for key in assignment.get("files") or []:
+        path = _local_copy(record, files[key]) if key in files and folder is not None else None
+        if path is not None:
+            found.append(path.resolve().relative_to(folder.resolve()).as_posix())
+    return found
+
+
+def summary_view(state: dict, now_ts: int, marks: dict | None = None) -> dict:
     until = now_ts + SUMMARY_DAYS * 86400
     deadlines = [
         {"course_id": record["id"], "course": record["name"], **item}
         for record in _records(state)
-        for item in _upcoming(record, now_ts, until)
+        for item in _upcoming(record, now_ts, until, marks)
     ]
     return {
         "configured": moodle_sync.configured(),
@@ -203,7 +227,7 @@ def summary_view(state: dict, now_ts: int) -> dict:
     }
 
 
-def list_view(state: dict, now_ts: int) -> dict:
+def list_view(state: dict, now_ts: int, marks: dict | None = None) -> dict:
     courses = []
     for record in _records(state):
         folder, new = _folder(record), _new(record)
@@ -212,7 +236,7 @@ def list_view(state: dict, now_ts: int) -> dict:
                 "id": record["id"],
                 "name": record["name"],
                 "shortname": record.get("shortname"),
-                "next_deadline": next(iter(_upcoming(record, now_ts)), None),
+                "next_deadline": next(iter(_upcoming(record, now_ts, None, marks)), None),
                 "new": new,
                 "has_new": any(new.values()),
                 "folder_exists": folder is not None and folder.is_dir(),
@@ -271,7 +295,8 @@ def announcements_view(state: dict, record: dict) -> dict:
     return {"course_id": record["id"], "announcements": items, **_envelope(state)}
 
 
-def _assignment_summary(item: dict) -> dict:
+def _assignment_summary(item: dict, marks: dict | None = None) -> dict:
+    mark = (marks or {}).get(item["id"])
     return {
         "id": item["id"],
         "name": item["name"],
@@ -285,16 +310,23 @@ def _assignment_summary(item: dict) -> dict:
         "submitted": (item.get("status") or {}).get("submission") == "submitted",
         "files": len(item.get("files") or []),
         "task": item.get("task"),  # the id of its task in the memory (see /tasks), or null
+        # The owner's own mark (#196): "done" (handed in, e.g. on paper), "removed", or null.
+        "mark": mark["mark"] if mark else None,
+        "marked_on": mark.get("on") if mark else None,
     }
 
 
-def assignments_view(state: dict, record: dict) -> dict:
-    items = [_assignment_summary(item) for item in record.get("assignments") or []]
+def assignments_view(state: dict, record: dict, marks: dict | None = None) -> dict:
+    """The course's assignments; removed ones are left out, done ones carry their mark."""
+    items = [_assignment_summary(item, marks) for item in record.get("assignments") or []]
+    items = [item for item in items if item["mark"] != "removed"]
     items.sort(key=lambda item: (item["due"] is None, item["due"] or 0))
     return {"course_id": record["id"], "assignments": items, **_envelope(state)}
 
 
-def assignment_view(state: dict, record: dict, assignment_id: int) -> dict:
+def assignment_view(
+    state: dict, record: dict, assignment_id: int, marks: dict | None = None
+) -> dict:
     """One assignment in full; its files download through the course file routes."""
     item = next((a for a in record.get("assignments") or [] if a["id"] == assignment_id), None)
     if item is None:
@@ -303,7 +335,7 @@ def assignment_view(state: dict, record: dict, assignment_id: int) -> dict:
     return {
         "course_id": record["id"],
         "course": record["name"],
-        **_assignment_summary(item),
+        **_assignment_summary(item, marks),
         "grading_due": item.get("grading_due"),
         "grading_due_iso": moodle.iso(item.get("grading_due")),
         "modified_iso": moodle.iso(item.get("modified")),
@@ -315,6 +347,15 @@ def assignment_view(state: dict, record: dict, assignment_id: int) -> dict:
         ],
         **_envelope(state),
     }
+
+
+def find_assignment(state: dict, course_id: int, assignment_id: int) -> dict:
+    """One synced assignment of a listed course; 404 when there is none."""
+    record = _record(state, course_id)
+    item = next((a for a in record.get("assignments") or [] if a["id"] == assignment_id), None)
+    if item is None:
+        raise ClaudeError("assignment_not_found", 404, "the course has no assignment with this id")
+    return item
 
 
 def _grades(record: dict) -> dict:
@@ -373,14 +414,18 @@ def courses_router() -> APIRouter:
     def now_ts() -> int:
         return int(time.time())
 
+    def marks(request: Request) -> dict:
+        settings = getattr(request.app.state, "settings", None)
+        return assignment_marks.safe_read(settings.ask_dir if settings is not None else None)
+
     @routes.get("/summary")
-    def courses_summary() -> dict:
+    def courses_summary(request: Request) -> dict:
         """Deadlines of all courses in the next two weeks, and how much is new."""
-        return summary_view(moodle_sync.load_state(), now_ts())
+        return summary_view(moodle_sync.load_state(), now_ts(), marks(request))
 
     @routes.get("")
-    def courses_list() -> dict:
-        return list_view(moodle_sync.load_state(), now_ts())
+    def courses_list(request: Request) -> dict:
+        return list_view(moodle_sync.load_state(), now_ts(), marks(request))
 
     @routes.get("/grades")
     def all_grades() -> dict:
@@ -416,14 +461,34 @@ def courses_router() -> APIRouter:
         return announcements_view(state, _record(state, course_id))
 
     @routes.get("/{course_id}/assignments")
-    def assignments(course_id: int) -> dict:
+    def assignments(course_id: int, request: Request) -> dict:
         state = moodle_sync.load_state()
-        return assignments_view(state, _record(state, course_id))
+        return assignments_view(state, _record(state, course_id), marks(request))
 
     @routes.get("/{course_id}/assignments/{assignment_id}")
-    def assignment(course_id: int, assignment_id: int) -> dict:
+    def assignment(course_id: int, assignment_id: int, request: Request) -> dict:
         state = moodle_sync.load_state()
-        return assignment_view(state, _record(state, course_id), assignment_id)
+        return assignment_view(state, _record(state, course_id), assignment_id, marks(request))
+
+    @routes.put("/{course_id}/assignments/{assignment_id}/mark")
+    async def mark_assignment(course_id: int, assignment_id: int, request: Request) -> dict:
+        """The owner's mark (#196). Body: ``{"mark": "done" | "removed" | null}``.
+
+        Answers ``{"mark", "previous", "task"}``; ``previous`` is what an undo puts back.
+        """
+        try:
+            body = await request.json()
+        except ValueError as exc:
+            raise ClaudeError("bad_request", 400, "the body must be JSON") from exc
+        if not isinstance(body, dict) or "mark" not in body:
+            raise ClaudeError("bad_request", 400, "`mark` is required")
+        state = moodle_sync.load_state()
+        item = find_assignment(state, course_id, assignment_id)
+        settings = request.app.state.settings
+        return await asyncio.to_thread(
+            assignment_marks.set_mark, settings.ask_dir, assignment_id, body["mark"],
+            task_id=item.get("task"),
+        )  # fmt: skip
 
     @routes.get("/{course_id}/grades")
     def grades(course_id: int) -> dict:

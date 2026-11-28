@@ -980,8 +980,14 @@ def _task_line(lines: list[str], task_id: str) -> int | None:
     return None
 
 
-def trash_task(memory: Path, task_id: str) -> Task:
-    """An open task taken back: its line moves to the trash, in one commit."""
+def trash_task(
+    memory: Path,
+    task_id: str,
+    message: str = "Take back an added task (moved to the trash)",
+    *,
+    commit_now: bool = True,
+) -> Task:
+    """An open task taken back or deleted: its line moves to the trash, in one commit."""
     with LOCK:
         check_repo(memory)
         path = memory / "tasks.md"
@@ -992,11 +998,46 @@ def trash_task(memory: Path, task_id: str) -> Task:
         task = parse_task(lines[index])
         _to_trash(memory, lines.pop(index))
         write_text(path, "\n".join(lines) + "\n")
-        commit(memory, "Take back an added task (moved to the trash)", ["tasks.md", TRASHED_LINES])
+        if commit_now:
+            commit(memory, message, ["tasks.md", TRASHED_LINES])
     return task
 
 
-def reopen_task(memory: Path, task_id: str) -> Task:
+def delete_task(memory: Path, task_id: str) -> Task:
+    """``DELETE /tasks/{id}`` (#197): the open task moves to the trash; a restore brings it back."""
+    return trash_task(memory, task_id, "Delete a task (moved to the trash)")
+
+
+def restore_task(memory: Path, task_id: str, *, commit_now: bool = True) -> Task:
+    """A deleted task back among the open ones (its last line in the trash), in one commit.
+
+    A task that is open already is answered as it is (a repeated undo changes nothing).
+    """
+    with LOCK:
+        check_repo(memory)
+        path = memory / "tasks.md"
+        current = read_text(path) or "# Tasks\n\n## Open\n"
+        open_lines = current.splitlines()
+        index = _task_line(open_lines, task_id)
+        if index is not None:
+            return parse_task(open_lines[index])
+        trash = memory / TRASHED_LINES
+        lines = read_text(trash).splitlines()
+        found = [i for i, line in enumerate(lines) if (t := parse_task(line)) and t.id == task_id]
+        if not found:
+            raise ClaudeError("task_not_found", 404, "no deleted task has this id")
+        task = parse_task(lines.pop(found[-1]))
+        task.done = False
+        if not current.endswith("\n"):
+            current += "\n"
+        write_text(path, current + task.line() + "\n")
+        write_text(trash, "\n".join(lines) + "\n")
+        if commit_now:
+            commit(memory, "Restore a deleted task", ["tasks.md", TRASHED_LINES])
+    return task
+
+
+def reopen_task(memory: Path, task_id: str, *, commit_now: bool = True) -> Task:
     """A finished task back among the open ones (without its ``done`` mark), in one commit."""
     with LOCK:
         check_repo(memory)
@@ -1014,7 +1055,8 @@ def reopen_task(memory: Path, task_id: str) -> Task:
             current += "\n"
         write_text(path, current + task.line() + "\n")
         write_text(archive, "\n".join(lines) + "\n")
-        commit(memory, "Reopen a task", ["tasks.md", "tasks-done.md"])
+        if commit_now:
+            commit(memory, "Reopen a task", ["tasks.md", "tasks-done.md"])
     return task
 
 

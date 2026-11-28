@@ -1763,6 +1763,21 @@ def create_app(settings: Settings) -> FastAPI:
     async def complete_task(task_id: str):
         return (await asyncio.to_thread(memory.complete_task, brain, task_id)).as_json()
 
+    @app.delete("/tasks/{task_id}")
+    async def delete_task(task_id: str):
+        """Move an open task to the memory folder's trash (#197); restore brings it back."""
+        return (await asyncio.to_thread(memory.delete_task, brain, task_id)).as_json()
+
+    @app.post("/tasks/{task_id}/restore")
+    async def restore_task(task_id: str):
+        """Bring a deleted task back among the open ones (undo)."""
+        return (await asyncio.to_thread(memory.restore_task, brain, task_id)).as_json()
+
+    @app.post("/tasks/{task_id}/reopen")
+    async def reopen_task(task_id: str):
+        """A finished task back among the open ones (the undo of a tick that already left)."""
+        return (await asyncio.to_thread(memory.reopen_task, brain, task_id)).as_json()
+
     @app.get("/events")
     async def list_events(start: str | None = None, end: str | None = None):
         """Events from ``start`` to ``end`` (dates, inclusive; default: today and 30 days)."""
@@ -2152,7 +2167,9 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/command")
     async def command(request: Request):
         """Body: ``{"request_id", "text" | "choice", "language"?, "now"?, "timezone"?,
-        "previous"?}``. Done actions with undo tokens, app actions, or one question."""
+        "previous"?, "coach_said"?}``. Done actions with undo tokens, app actions, or one
+        question; with what was understood, the part that is talk for the coach, and what
+        cannot be done."""
         body = await read_json_object(request)
         # No chat run slot: the bar's short runs have their own limit (command_bar._RUNS).
         return await command_bar.handle(

@@ -243,6 +243,12 @@ def _folder_item(settings: Settings, target: Target) -> dict:
     return {"path": str(target.path), "label": target.label, "kind": target.kind, "colour": colour}
 
 
+def course_folder(settings: Settings, course: int) -> dict | None:
+    """The ``folder`` item of a course's own folder of the sync, when a chat can start there."""
+    target = _course_sync_target(settings, course)
+    return _folder_item(settings, target) if target is not None else None
+
+
 def _add(settings: Settings, target: Target, by: str) -> bool:
     if settings.allowed_paths_file is None:
         raise ClaudeError("not_configured", 503, "no allowed-paths file is configured")

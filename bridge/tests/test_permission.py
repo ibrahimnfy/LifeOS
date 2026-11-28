@@ -329,7 +329,9 @@ def test_unsure_or_unavailable_means_read_only(bar, sessions, isolated_config):
     assert "send" not in plain.perform and "text" not in plain.perform
     # a blank chat, with a check that did not cover chat folders
     blank = actions.execute(context(bar), "new_chat", {"text": "write it", "changes": "may_change"})
-    assert blank.perform == {"action": "new_chat", "mode": "read_only", "text": "write it"}
+    assert blank.perform == {
+            "action": "new_chat", "mode": "read_only", "text": "write it", "send": True,
+        }  # fmt: skip
     capable.marker_path().unlink()  # capable mode is off on the computer
     off = actions.execute(
         context(bar), "continue_chat", {"chat": "billing", "changes": "may_change"}

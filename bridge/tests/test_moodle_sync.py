@@ -650,6 +650,42 @@ def test_assignments_name_their_task(site, configured, folder, brain, settings_,
     ]
 
 
+def test_an_assignment_marked_by_hand_leaves_the_lists_and_gets_no_task_again(
+    site, configured, folder, brain, settings_, auth, monkeypatch
+):
+    monkeypatch.setattr(time, "time", lambda: float(TS))
+    sync(folder, brain=brain)
+    client = TestClient(create_app(settings_))
+    task = homework_task(brain).id
+
+    def due_ids():
+        deadlines = client.get("/courses/summary", headers=auth).json()["deadlines"]
+        return [d.get("assignment_id") for d in deadlines]
+
+    assert 41 in due_ids()
+    put = client.put("/courses/5/assignments/41/mark", json={"mark": "done"}, headers=auth)
+    assert put.json() == {"mark": "done", "previous": None, "task": task}
+    assert 41 not in due_ids() and client.get("/tasks", headers=auth).json()["tasks"] == []
+    listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
+    assert next(a for a in listing if a["id"] == 41)["mark"] == "done"
+
+    client.put("/courses/5/assignments/41/mark", json={"mark": "removed"}, headers=auth)
+    listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
+    assert 41 not in [a["id"] for a in listing]
+    assert client.get("/courses/5/assignments/41", headers=auth).json()["mark"] == "removed"
+    sync(folder, when=later(7), brain=brain)  # the sync opens no task for it again
+    assert client.get("/tasks", headers=auth).json()["tasks"] == []
+
+    cleared = client.put("/courses/5/assignments/41/mark", json={"mark": None}, headers=auth)
+    assert cleared.json()["previous"] == "removed" and 41 in due_ids()
+    assert [t["id"] for t in client.get("/tasks", headers=auth).json()["tasks"]] == [task]
+    bad = client.put("/courses/5/assignments/41/mark", json={"mark": "x"}, headers=auth)
+    assert bad.status_code == 400
+    assert client.put("/courses/5/assignments/99/mark", json={"mark": "done"},
+                      headers=auth).status_code == 404  # fmt: skip
+    assert client.put("/courses/5/assignments/41/mark", json={}, headers=auth).status_code == 400
+
+
 def test_a_second_sync_without_changes_does_nothing(site, configured, folder, brain, notified):
     script, lines = notified
     sync(folder, script=script, brain=brain)
@@ -1530,7 +1566,8 @@ def test_assignment_endpoints(site, configured, folder, settings_, auth, monkeyp
     listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
     homework = next(a for a in listing if a["id"] == 41)
     assert set(homework) == {"id", "name", "opens", "opens_iso", "due", "due_iso", "cutoff",
-                             "cutoff_iso", "status", "submitted", "files", "task"}  # fmt: skip
+                             "cutoff_iso", "status", "submitted", "files", "task", "mark",
+                             "marked_on"}  # fmt: skip
     assert (homework["opens"], homework["cutoff"], homework["files"]) == (
         TS - 5 * DAY,
         TS + 6 * DAY,

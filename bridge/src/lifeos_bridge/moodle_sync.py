@@ -37,7 +37,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from . import memory, moodle, moodle_login, notifications, store
+from . import assignment_marks, memory, moodle, moodle_login, notifications, store
 from .claude import ClaudeError
 from .config import ENV_FILE_NAME, ConfigError, Settings, config_dir, read_env_file
 
@@ -1079,6 +1079,8 @@ def _write_task(run: Run, brain: Path, record: dict, item: dict) -> bool:
     if task is None:
         if submitted or not _still_open(item, run.now_ts):
             return False
+        if item["id"] in assignment_marks.safe_read(brain):
+            return False  # the owner marked it done or removed it (#196): no task again
         short = record.get("shortname", "").replace("^", "")[:40].strip()
         fields = {"due": due, "course": record["folder"], "assignment": marker}
         created = memory.add_synced_task(

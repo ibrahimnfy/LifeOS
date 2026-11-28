@@ -31,9 +31,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from . import (
     activity,
     allowed,
+    assignment_marks,
     folder_requests,
     folders,
     memory,
+    moodle_api,
     moodle_sync,
     permission,
     projects,
@@ -184,7 +186,14 @@ ACTIONS: tuple[Action, ...] = (
         "Tick an open task as done.",
         (Param("task", "text", "words that find the task", True),),
         undo="opens the task again",
-        routes=("POST /tasks/{task_id}/complete",),
+        routes=("POST /tasks/{task_id}/complete", "POST /tasks/{task_id}/reopen"),
+    ),
+    Action(
+        "delete_task",
+        "Delete an open task (it goes to the trash).",
+        (Param("task", "text", "words that find the task", True),),
+        undo="brings the task back",
+        routes=("DELETE /tasks/{task_id}", "POST /tasks/{task_id}/restore"),
     ),
     Action(
         "edit_task",
@@ -229,8 +238,12 @@ ACTIONS: tuple[Action, ...] = (
     ),
     Action(
         "new_chat",
-        "Open a new, blank chat with the assistant; text goes into its message field (not sent).",
-        (Param("text", "text", "what to ask, if the owner said", limit=TEXT), CHANGES_PARAM),
+        "Open a new, blank chat with the assistant; text is sent there at once as the owner's "
+        "first message (the work starts without retyping).",
+        (
+            Param("text", "text", "what to ask or do there, if the owner said", limit=TEXT),
+            CHANGES_PARAM,
+        ),
         routes=("POST /ask",),
         screens=("CHAT_THREAD",),
     ),
@@ -255,7 +268,7 @@ ACTIONS: tuple[Action, ...] = (
     Action(
         "work_in_folder",
         "Find a folder on the computer by name and start a chat there (it becomes allowed); "
-        "text goes into its message field (not sent).",
+        "text is sent there at once as the owner's first message.",
         (
             Param("folder", "text", "the folder's name", True, limit=200),
             Param("text", "text", "what to do there, if the owner said", limit=TEXT),
@@ -320,6 +333,31 @@ ACTIONS: tuple[Action, ...] = (
         screens=("ASSIGNMENT",),
     ),
     Action(
+        "mark_assignment",
+        "Mark a course assignment by hand: done (handed in, e.g. on paper, or finished), "
+        "removed (no longer shown), or open (the mark taken off). Its task follows.",
+        (
+            Param("assignment", "text", "words that find the assignment", True, limit=200),
+            Param("mark", "choice", "the mark", True, choices=("done", "removed", "open")),
+        ),
+        undo="puts the earlier mark back",
+        routes=("PUT /courses/{course_id}/assignments/{assignment_id}/mark",),
+    ),
+    Action(
+        "ask_course",
+        "Start a new chat in a course's folder on the computer (it can read the course's "
+        "downloaded files) and send text there at once as the owner's question. With "
+        "assignment the chat is told which assignment is meant and where its files are "
+        '("open a chat and explain the HW2 file": assignment "HW2", text "explain the file").',
+        (
+            Param("text", "text", "what to ask or do, in the owner's words", True, limit=TEXT),
+            Param("assignment", "text", "words that find the assignment", limit=200),
+            Param("course", "text", "the course's name or code (when no assignment)", limit=200),
+        ),
+        routes=("GET /folders",),
+        screens=("CHAT_THREAD",),
+    ),
+    Action(
         "open_project",
         "Open one project.",
         (Param("project", "text", "the project's name", True, limit=200),),
@@ -341,7 +379,8 @@ ACTIONS: tuple[Action, ...] = (
     ),
     Action(
         "sync_courses",
-        "Check the university site for new course material now.",
+        "Sync with Moodle, the university site, now: new course material, assignments, "
+        'deadlines and grades ("sync Moodle", "Moodle\'u eşitle", "check for new material").',
         routes=("POST /courses/refresh", "GET /courses/sync"),
     ),
     Action(
@@ -531,6 +570,7 @@ class Context:
     # The sessions no message can be sent to right now: answering here, or open in another
     # Claude Code process of the computer. ``None``: it could not be told (nothing is sent).
     busy: Callable[[], set[str] | None] = lambda: None
+    language: str = "en"  # the language of the request ("en" or "tr"), for texts the bridge adds
 
     @property
     def brain(self) -> Path:
@@ -882,6 +922,16 @@ def _complete_task(ctx: Context, p: dict) -> Outcome:
     return Outcome("complete_task", title=task.title, undo=_undo_token("complete_task", back))
 
 
+def _delete_task(ctx: Context, p: dict) -> Outcome:
+    task = _task(ctx, p, "delete_task")
+    memory.delete_task(ctx.brain, task.id)
+
+    def back() -> None:
+        memory.restore_task(ctx.brain, task.id)
+
+    return Outcome("delete_task", title=task.title, undo=_undo_token("delete_task", back))
+
+
 def _edit_task(ctx: Context, p: dict) -> Outcome:
     task = _task(ctx, p, "edit_task")
     changes: dict = {}
@@ -938,8 +988,18 @@ def _mode(ctx: Context, p: dict, folder: Path | None, kind: str | None = None) -
 
 def _new_chat(ctx: Context, p: dict) -> Outcome:
     mode = _mode(ctx, p, None)
-    perform = {"action": "new_chat", "mode": mode} | ({"text": p["text"]} if "text" in p else {})
+    perform = {"action": "new_chat", "mode": mode} | _sent(p.get("text"))
     return Outcome("new_chat", perform=perform, mode=mode)
+
+
+def _sent(text: str | None) -> dict:
+    """The ``perform`` fields of a text the app sends at once as the first message of the
+    chat it opens (#198). Written by the interpreter and sent by the app: never a message
+    the owner sent, whatever the app says when it arrives (``permission``)."""
+    if not text:
+        return {}
+    permission.remember(text)
+    return {"text": text, "send": True}
 
 
 def _continue_chat(ctx: Context, p: dict) -> Outcome:
@@ -989,9 +1049,7 @@ def _work_in_folder(ctx: Context, p: dict) -> Outcome:
             ])  # fmt: skip
         folder = switch["folder"]
     mode = _mode(ctx, p, Path(folder["path"]), folder.get("kind"))
-    perform = {"action": "new_chat_in", "folder": folder, "mode": mode}
-    if "text" in p:
-        perform["text"] = p["text"]
+    perform = {"action": "new_chat_in", "folder": folder, "mode": mode} | _sent(p.get("text"))
     return Outcome("work_in_folder", title=folder["label"], perform=perform, mode=mode)
 
 
@@ -1063,10 +1121,96 @@ def _open_project(ctx: Context, p: dict) -> Outcome:
                    perform={"action": "open_project", "project_id": project["id"]})  # fmt: skip
 
 
+def _assignment(ctx: Context, p: dict, action: str) -> tuple[dict, dict]:
+    """``(course record, assignment)`` the words name, among every synced assignment
+    (removed ones too: a mark can be taken off by name)."""
+    found = [(record, item) for record in _courses() for item in record.get("assignments") or []]
+    if "assignment_id" in p:
+        wanted = (p.get("course_id"), p["assignment_id"])
+        found = [(r, a) for r, a in found if (r["id"], a["id"]) == wanted]
+    else:
+        found = best(
+            found, p["assignment"],
+            lambda pair: f"{pair[1].get('name', '')} {pair[0].get('shortname') or ''} "
+                         f"{pair[0]['name']}",
+        )  # fmt: skip
+    return _one(
+        found, "assignment",
+        lambda pair: Option(_snippet(pair[1].get("name", "")), pair[0]["name"], action,
+                            {**_rest(p, "assignment"), "course_id": pair[0]["id"],
+                             "assignment_id": pair[1]["id"]}),
+        "assignment_not_found",
+    )  # fmt: skip
+
+
+def _mark_assignment(ctx: Context, p: dict) -> Outcome:
+    _record, item = _assignment(ctx, p, "mark_assignment")
+    mark = None if p["mark"] == "open" else p["mark"]
+    done = assignment_marks.set_mark(ctx.brain, item["id"], mark, task_id=item.get("task"))
+    previous = done["previous"]
+
+    def back() -> None:
+        assignment_marks.set_mark(ctx.brain, item["id"], previous, task_id=item.get("task"))
+
+    token = _undo_token("mark_assignment", back) if previous != mark else None
+    title = _snippet(item.get("name", ""))
+    return Outcome("mark_assignment", title=title, when=p["mark"], undo=token)
+
+
+ASK_COURSE_LINES = {
+    "en": ("Assignment: {name}", "Its files (paths in this folder): {files}"),
+    "tr": ("Ödev: {name}", "Dosyaları (bu klasördeki yolları): {files}"),  # noqa: RUF001
+}
+MAX_ASK_FILES = 20
+
+
+def _ask_course(ctx: Context, p: dict) -> Outcome:
+    """A new chat in the course's folder of the sync, with the question sent at once (#198).
+
+    Always read-only (a course's chats are). With an assignment the message names it and
+    lists its downloaded files by their paths inside that folder, so the chat finds them.
+    """
+    item = None
+    if "assignment" in p or "assignment_id" in p:
+        record, item = _assignment(ctx, p, "ask_course")
+    elif "course" in p or "course_id" in p:
+        records = _courses()
+        if "course_id" in p:
+            found = [r for r in records if r["id"] == p["course_id"]]
+        else:
+            found = best(records, p["course"], lambda r: f"{r.get('shortname') or ''} {r['name']}")
+        record = _one(found, "course",
+                      lambda r: Option(_snippet(r["name"]), r.get("shortname"), "ask_course",
+                                       {**_rest(p, "course"), "course_id": r["id"]}),
+                      "course_not_found")  # fmt: skip
+    else:
+        raise ClaudeError("course_not_found", 404, "ask_course needs an assignment or a course")
+    folder = folder_requests.course_folder(ctx.settings, record["id"])
+    if folder is None:
+        raise ClaudeError("course_folder_missing", 404, "the course has no synced folder here")
+    text = p["text"]
+    if item is not None:
+        name_line, files_line = ASK_COURSE_LINES.get(ctx.language, ASK_COURSE_LINES["en"])
+        text += "\n\n" + name_line.format(name=item.get("name", ""))
+        files = moodle_api.local_files(record, item)[:MAX_ASK_FILES]
+        if files:
+            text += "\n" + files_line.format(files=", ".join(files))
+        text = text[:TEXT]
+    perform = {"action": "new_chat_in", "folder": folder, "mode": "read_only"} | _sent(text)
+    title = item.get("name") if item is not None else record["name"]
+    return Outcome("ask_course", title=_snippet(title or ""), perform=perform, mode="read_only")
+
+
 def _sync_courses(ctx: Context, p: dict) -> Outcome:
+    """Start the course sync. One that is running already, or that was started a moment
+    ago, is what the owner asked for too: a success with a note (#198). ``when`` is the
+    last finished sync, for the confirmation line."""
     started = moodle_sync.start(ctx.settings)  # "started", "running", "too_soon", ...
-    ok = started in ("started", "running")
-    return Outcome("sync_courses", ok=ok, error=None if ok else started)
+    if started == "not_configured":
+        return Outcome("sync_courses", ok=False, error="moodle_not_signed_in")
+    last = moodle_sync.status().get("last_sync")
+    note = {"running": "sync_running", "too_soon": "sync_too_soon"}.get(started)
+    return Outcome("sync_courses", when=last, note=note)
 
 
 def _record_sleep(ctx: Context, p: dict) -> Outcome:
@@ -1083,6 +1227,7 @@ EXECUTORS: dict[str, Callable[[Context, dict], Outcome]] = {
     "cancel_reminder": _cancel_reminder,
     "add_task": _add_task,
     "complete_task": _complete_task,
+    "delete_task": _delete_task,
     "edit_task": _edit_task,
     "add_event": _add_event,
     "change_event": _change_event,
@@ -1092,6 +1237,8 @@ EXECUTORS: dict[str, Callable[[Context, dict], Outcome]] = {
     "stop_using_folder": _stop_using_folder,
     "open_course": _open_course,
     "open_assignment": _open_assignment,
+    "mark_assignment": _mark_assignment,
+    "ask_course": _ask_course,
     "open_project": _open_project,
     "record_sleep": _record_sleep,
     "sync_courses": _sync_courses,
@@ -1109,7 +1256,7 @@ PERFORMS = (
 )  # fmt: skip
 
 # Why an action did less than asked (``Outcome.note``); the app says each in its language.
-NOTES = ("chat_not_found", "chat_busy", "not_sent")
+NOTES = ("chat_not_found", "chat_busy", "not_sent", "sync_running", "sync_too_soon")
 
 
 def app_action(name: str, params: dict) -> Outcome:
