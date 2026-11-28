@@ -69,10 +69,13 @@ class InteractionsTest {
         advanceUntilIdle()
         assertEquals(json("""{"prompt":"Hi","stream":true,"folder":"/home/owner/brain","interactive":true,"new_session_id":"00000000-0000-4000-8000-000000000001"}"""), transport.calls.last().body)
 
+        // The switch is stored with the chat on the computer (#200).
+        transport.answer("PATCH /sessions/s-1", 200, """{"id":"s-1","capable":true}""")
         chat.setCapable(true)
         chat.send("Tidy up")
         advanceUntilIdle()
-        assertEquals(json("""{"prompt":"Tidy up","stream":true,"interactive":true,"mode":"capable"}"""), transport.calls.last().body)
+        assertEquals(json("""{"capable":true}"""), transport.calls.last { it.method == "PATCH" }.body)
+        assertEquals(json("""{"prompt":"Tidy up","stream":true,"interactive":true,"mode":"capable"}"""), transport.calls.last { it.method == "POST" }.body)
 
         // A new conversation is read-only again.
         chat.newChat(memory)

@@ -16,7 +16,8 @@ from test_ask import option, parse_sse
 @pytest.fixture
 def settings(settings):
     """Capable runs exist on the SDK runner only (#181)."""
-    return dataclasses.replace(settings, runner="sdk")
+    # A short wait for the owner: an approval card waits also without a client (#200).
+    return dataclasses.replace(settings, runner="sdk", interaction_timeout=1)
 
 
 @pytest.fixture
@@ -145,16 +146,16 @@ def test_allowed_command_is_audited_before_it_runs(client, auth, enable, isolate
     assert entry["session_id"] == response.json()["session_id"]
 
 
-def test_approval_required_command_is_refused_with_explanation(
+def test_approval_required_command_waits_and_is_refused_without_an_answer(
     client, auth, enable, isolated_config
 ):
     enable()
     response = ask(client, auth, "FAKE_TOOL git reset --hard")
     body = response.json()
     assert response.status_code == 200
-    assert "approval" in body["answer"]
+    assert "did not confirm" in body["answer"]
     assert body["refused_actions"] == ["force"]
-    # the gate sent it to the bridge, which could not ask anyone (not streamed): refused
+    # the gate sent it to the bridge; the card waited (#200) and nobody answered: refused
     decisions = [e["decision"] for e in audit_entries(isolated_config)]
     assert decisions == ["asked", "approval_requested", "refused"]
 
