@@ -60,7 +60,9 @@ SUITE_VERSION = 10
 # Claude Code or the Agent SDK, on the cheapest capable model (#181). A marker of an older
 # core set gets the core check. The open network (#182) needs a pass of this core set
 # (``open_network_available``).
-CORE_VERSION = 1
+# 2 (#200): a command Claude Code cannot check by itself is asked on an approval card;
+# confirmed, it still cannot write outside the sandbox.
+CORE_VERSION = 2
 PROGRAM_SUITE_VERSION = 9
 SKILLS_SUITE_VERSION = 3
 MCP_SUITE_VERSION = 4

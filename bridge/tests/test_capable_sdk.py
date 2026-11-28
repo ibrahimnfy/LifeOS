@@ -10,7 +10,7 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
-from lifeos_bridge import capable, claude, gate, runcontrol, sdk_runner, verify
+from lifeos_bridge import capable, claude, runcontrol, sdk_runner, verify
 from lifeos_bridge.app import create_app
 from lifeos_bridge.claude import ClaudeError
 
@@ -188,12 +188,15 @@ def test_capable_approval_through_the_api(sdk_settings, auth, ask_dir, marker, i
     }
 
 
-def test_a_non_streaming_capable_request_cannot_be_asked(sdk_settings, auth, marker):
+def test_a_non_streaming_capable_request_waits_for_the_owner_too(sdk_settings, auth, marker):
+    # Nobody streams the answer (#200): the card still waits (the phone gets a hint and
+    # finds it in the chat); without an answer it ends as a "no" when the time is up.
     marker()
+    quick = dataclasses.replace(sdk_settings, interaction_timeout=1)
     prompt = "FAKE_TOOL Bash " + json.dumps({"command": "rm old.txt"})
-    with TestClient(create_app(sdk_settings)) as client:
+    with TestClient(create_app(quick)) as client:
         response = client.post("/ask", headers=auth, json={"prompt": prompt, "mode": "capable"})
-    assert json.loads(response.json()["answer"])["message"] == gate.APPROVAL_NOTE
+    assert json.loads(response.json()["answer"])["message"] == sdk_runner.APPROVAL_TIMEOUT
 
 
 # ------------------------------------------------------------------- the probe suite
@@ -250,3 +253,24 @@ def test_verify_writes_the_sdk_marker(settings, isolated_config, monkeypatch, ma
     monkeypatch.setattr(verify.Suite, "run_all", lambda self, core=False: failed)
     assert verify.main([]) == verify.FAILED
     assert not capable.marker_path().exists()  # a failed guardrail switches it off
+
+
+def test_a_message_that_may_change_files_marks_its_chat(sdk_settings, auth, marker):
+    """The chat keeps its change permission (#200): a later read-only message, or the
+    app's lock, does not take it away; only the owner's switch does."""
+    from lifeos_bridge import session_meta
+
+    marker()
+    session_id = str(uuid.uuid4())
+    with TestClient(create_app(sdk_settings)) as client:
+        first = {"prompt": "hello", "new_session_id": session_id}
+        assert client.post("/ask", headers=auth, json=first).status_code == 200
+        assert session_meta.entry_for(session_id)["capable"] is False
+        url = f"/sessions/{session_id}/messages"
+        changed = client.post(url, headers=auth, json={"prompt": "change it", "mode": "capable"})
+        assert changed.status_code == 200
+        assert session_meta.entry_for(session_id)["capable"] is True
+        assert client.post(url, headers=auth, json={"prompt": "and read"}).status_code == 200
+        assert session_meta.entry_for(session_id)["capable"] is True
+        off = client.patch(f"/sessions/{session_id}", headers=auth, json={"capable": False})
+        assert off.status_code == 200 and off.json()["capable"] is False

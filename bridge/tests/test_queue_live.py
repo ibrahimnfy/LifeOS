@@ -156,3 +156,27 @@ def test_live_file_offers_and_one_session(client, auth, ask_dir, write_session, 
         assert name in one, name
     assert client.get("/sessions/00000000-0000-4000-8000-000000000000",
                       headers=auth).status_code == 404  # fmt: skip
+
+
+def test_only_the_last_progress_line_is_kept_for_a_late_attacher():
+    """What a run is doing (#199): followers get every line, a late one only the last."""
+
+    async def scenario():
+        hub = live.Live()
+        hub.begin("s")
+        assert hub.running("s")["progress"] is None
+        hub.publish("s", "delta", {"text": "a"})
+        for step in (1, 2, 3):
+            hub.publish("s", "progress", {"tool": "Bash", "detail": "", "steps": step})
+        assert hub.running("s")["progress"]["steps"] == 3
+        seen = []
+        async for event, payload in hub.follow("s"):
+            seen.append((event, payload))
+            if event == "replay_end":
+                hub.publish("s", "progress", {"tool": "Read", "detail": "a.md", "steps": 4})
+                hub.end("s")
+        return seen
+
+    seen = asyncio.run(scenario())
+    assert [event for event, _ in seen] == ["delta", "progress", "replay_end", "progress"]
+    assert seen[1][1]["steps"] == 3 and seen[-1][1]["steps"] == 4

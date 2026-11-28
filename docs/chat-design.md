@@ -270,7 +270,9 @@ The run waits, and its time limit is paused. The owner's answer is passed
 to the assistant, which continues. With no streaming client, the tool is
 refused at once with the plain-text instruction above, so a queued message
 or a non-streaming request behaves as before. No answer within the time
-limit counts as "no". Verified with the real CLI: a question with two
+limit counts as "no". (An approval card waits also without a streaming
+client since #200: the phone is told by a push hint and finds the card when
+the chat is opened.) Verified with the real CLI: a question with two
 options was answered by script, and the reply named the chosen option.
 In the same run, a read outside the folder was still denied and listed in
 `denied_tools`. API: `docs/bridge.md`, "Questions and approvals".
@@ -352,6 +354,23 @@ Three gaps the chat screen found, closed in the bridge:
 - **Send now in one request:** a waiting message's "Send now" calls
   `POST /sessions/{id}/queue/{qid}/send-now`; the current run is interrupted
   as with `"when": "now"`, and nothing is sent twice or deleted.
+- **A new message never interrupts by itself (#199).** A message sent while
+  a run is going waits in line and is sent when the run has ended; the line
+  says so ("the run goes on and is not interrupted"). Interrupting is its
+  own button on a waiting message, labelled "Interrupt now" while a run is
+  going (with a confirmation that names the consequence) and "Send now"
+  only while the line is on hold and nothing runs.
+- **What the run is doing (#199):** under "Working…" the chat shows the
+  run's last step and their number ("Editing a file: app.py · step 12"),
+  from the stream's `progress` events; after a reconnect from the followed
+  run or from `GET /sessions/{id}/queue`. Never a file's content.
+- **A run that paused at a limit (#199)** (the computer's limit of steps or
+  of time) offers "Continue", which sends "Continue where you stopped." in
+  the same conversation, instead of "Retry", which would send the first
+  message again and start the work from the top.
+- **"May change files" stays with the chat (#200):** the switch is stored
+  on the computer with the chat (`PATCH /sessions/{id}`, `capable`) and
+  comes back when the chat is opened again, after a lock or a restart.
 - **Resume does not wait:** `POST …/queue/resume` answers at once; the
   queued messages go out in the background.
 - **Answers to waiting messages, live:** the app attaches to

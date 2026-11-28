@@ -515,3 +515,88 @@ def test_api_cancel_and_send_now_use_the_interrupt(sdk_app, auth, ask_dir):
         time.sleep(0.02)
     assert any(entry.get("interrupt") for entry in log(ask_dir))
     assert len(launches(ask_dir)) == 1  # interrupted, not restarted
+
+
+# ------------------------------------------------------- runs that are not cut short (#199)
+
+
+def test_a_run_that_may_change_files_has_no_turn_limit_and_its_own_time_limit(sdk_settings):
+    capable_policy = claude.Policy(tools="Read", capable=True, settings_json="{}")
+    flags = claude.run_flags(sdk_settings, session_id="s", resume=False, policy=capable_policy)
+    assert "--max-turns" not in flags  # the work is not cut after 25 turns
+    read_only = claude.run_flags(sdk_settings, session_id="s", resume=False)
+    assert read_only[read_only.index("--max-turns") + 1] == "25"
+    limited = dataclasses.replace(sdk_settings, capable_max_turns=40)
+    flags = claude.run_flags(limited, session_id="s", resume=False, policy=capable_policy)
+    assert flags[flags.index("--max-turns") + 1] == "40"
+    assert (sdk_settings.capable_max_turns, sdk_settings.capable_timeout) == (0, 7200)
+
+    async def scenario(settings):
+        pool = sdk_runner.SdkPool(settings)
+        session_id, events = new_id(), []
+
+        async def stop_soon():
+            await asyncio.sleep(2.0)
+            await pool.live[session_id].stop(1.0)
+
+        stopper = asyncio.create_task(stop_soon())
+        async for event, payload in sdk_runner.stream(
+            pool, settings, "FAKE_SLEEP", session_id=session_id, resume=False,
+            policy=capable_policy,
+        ):  # fmt: skip
+            events.append((event, payload))
+        stopper.cancel()
+        await pool.close_all()
+        return events
+
+    # The short limit of read-only runs does not end a run that may change files...
+    patient = dataclasses.replace(sdk_settings, ask_timeout=1, capable_timeout=60)
+    events = asyncio.run(scenario(patient))
+    assert not (events[-1][0] == "error" and events[-1][1]["error"] == "timeout")
+    # ...and its own limit does.
+    hasty = dataclasses.replace(sdk_settings, ask_timeout=60, capable_timeout=1)
+    events = asyncio.run(scenario(hasty))
+    assert events[-1][0] == "error" and events[-1][1]["error"] == "timeout"
+
+
+def test_a_run_says_what_it_is_doing(sdk_settings):
+    async def scenario():
+        pool = sdk_runner.SdkPool(sdk_settings)
+        events = []
+        async for event, payload in sdk_runner.stream(
+            pool, sdk_settings, "FAKE_SKIPHOOK ls -la", session_id=new_id(), resume=False
+        ):
+            events.append((event, payload))
+        await pool.close_all()
+        return events
+
+    events = asyncio.run(scenario())
+    assert ("progress", {"tool": "Bash", "detail": "ls -la", "steps": 1}) in events
+    assert events[-1][0] == "done"
+
+
+def test_a_progress_line_names_the_step_briefly_and_never_a_content():
+    from claude_agent_sdk import AssistantMessage, TextBlock, ToolUseBlock
+
+    def after(*blocks, steps=0):
+        message = AssistantMessage(content=list(blocks), model="m")
+        return sdk_runner.progress_of(message, steps)
+
+    def call(name, **data):
+        return ToolUseBlock(id="t", name=name, input=data)
+
+    assert after(TextBlock(text="thinking aloud")) == (0, None)
+    edited = call("Edit", file_path="/work/project/app.py", old_string="a", new_string="SECRET")
+    assert after(edited, steps=4) == (5, {"tool": "Edit", "detail": "app.py", "steps": 5})
+    # A command is named by its own description, else by its first line, cut short.
+    described = call("Bash", command="python3 - <<'EOF'\nprint(1)\nEOF", description="Run it")
+    assert after(described)[1]["detail"] == "Run it"
+    long = after(call("Bash", command="x" * 300 + "\nsecond line"))[1]["detail"]
+    assert len(long) == sdk_runner.PROGRESS_DETAIL and long.endswith("…")
+    fetched = after(call("WebFetch", url="https://example.invalid/a/b?q=1"))[1]
+    assert fetched["detail"] == "example.invalid"
+    # Several calls in one message: every one is a step, the last one is named.
+    steps, line = after(call("Read", file_path="a.md"), call("Grep", pattern="todo"))
+    assert steps == 2 and line == {"tool": "Grep", "detail": "todo", "steps": 2}
+    other = after(call("mcp__x__y", anything="z"))[1]
+    assert other == {"tool": "mcp__x__y", "detail": "", "steps": 1}

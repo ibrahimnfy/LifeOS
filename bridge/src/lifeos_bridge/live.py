@@ -5,7 +5,9 @@ the queued messages the bridge sends by itself) publishes its events here.
 A client that attaches later (``GET /sessions/{id}/live``) first gets what
 the current run said so far, then its events as they come, until it ends.
 Text deltas are kept merged; at most :data:`MAX_TEXT` characters of a run are
-kept for a late attacher (later text still reaches attached clients).
+kept for a late attacher (later text still reaches attached clients). Of the
+run's ``progress`` lines (#199) only the last one is kept: a late attacher gets
+it at the end of the replay, and ``running`` carries it for a client that only asks.
 """
 
 from __future__ import annotations
@@ -27,7 +29,11 @@ class Live:
         run = self._runs.get(session_id)
         if run is None:
             return None
-        return {"queue_id": run["queue_id"], "started_at": run["started_at"]}
+        return {
+            "queue_id": run["queue_id"],
+            "started_at": run["started_at"],
+            "progress": run["progress"],
+        }
 
     def begin(self, session_id: str, queue_id: str | None = None) -> object:
         """Start publishing a run; the returned token ends exactly this run."""
@@ -38,6 +44,7 @@ class Live:
             "queue_id": queue_id,
             "started_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
             "events": [],
+            "progress": None,
             "text": 0,
             "truncated": False,
             "followers": set(),
@@ -52,6 +59,9 @@ class Live:
             follower.put_nowait((event, data))
         if event == "keepalive":
             return  # not worth replaying
+        if event == "progress":
+            run["progress"] = data  # only the last one matters to a late attacher
+            return
         events = run["events"]
         if event == "delta":
             text = str(data.get("text") or "")
@@ -91,6 +101,8 @@ class Live:
                 yield "replay_truncated", {}
             for item in replay:
                 yield item
+            if run["progress"] is not None:
+                yield "progress", run["progress"]
             # Everything after this is live (#157): the app can stop showing "catching up".
             yield "replay_end", {"events": len(replay)}
             while True:

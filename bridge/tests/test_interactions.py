@@ -158,7 +158,7 @@ def test_an_unanswered_question_times_out_as_no_and_pauses_the_run_limit(sdk_set
     }
 
 
-def test_any_other_prompt_is_denied_as_dont_ask_would(sdk_settings):
+def test_any_other_prompt_of_a_read_only_chat_is_denied_with_the_reason(sdk_settings):
     async def scenario():
         pool = sdk_runner.SdkPool(sdk_settings)
         events = await streamed(
@@ -172,8 +172,12 @@ def test_any_other_prompt_is_denied_as_dont_ask_would(sdk_settings):
     assert [e for e, _ in events] == ["done"]  # nothing was shown to the owner
     assert decision(events[-1][1]["answer"]) == {
         "behavior": "deny",
-        "message": sdk_runner.DENIED_NOTE,
+        "message": sdk_runner.READ_ONLY_NOTE,
     }
+    # The assistant can tell the owner what to switch (#200).
+    assert "read-only" in sdk_runner.READ_ONLY_NOTE and "may change files" in (
+        sdk_runner.READ_ONLY_NOTE
+    )
 
 
 def test_bash_is_never_approved_on_a_read_only_session(sdk_settings):
@@ -187,7 +191,10 @@ def test_bash_is_never_approved_on_a_read_only_session(sdk_settings):
 
     events = asyncio.run(scenario())
     assert [e for e, _ in events] == ["done"]
-    assert decision(events[-1][1]["answer"])["behavior"] == "deny"
+    assert decision(events[-1][1]["answer"]) == {
+        "behavior": "deny",
+        "message": sdk_runner.READ_ONLY_NOTE,
+    }
 
 
 def test_cancel_ends_a_waiting_question_as_no(sdk_settings):
@@ -216,7 +223,7 @@ def test_cancel_ends_a_waiting_question_as_no(sdk_settings):
 # ------------------------------------------------------------------- approvals
 
 
-async def capable_turn(settings, command, answer=None, *, answering=True):
+async def capable_turn(settings, command, answer=None, *, answering=True, tool="Bash", more=None):
     """A live session in capable mode (as #106 will start it) asked to run ``command``."""
     session_id = str(uuid.uuid4())
     asking = Interactions(settings.interaction_timeout)
@@ -229,7 +236,8 @@ async def capable_turn(settings, command, answer=None, *, answering=True):
         capable=True,
     )
     await live.start()
-    turn = await live.send(tool_prompt("Bash", {"command": command}), answering=answering)
+    tool_input = {"command": command} if tool == "Bash" else dict(command)
+    turn = await live.send(tool_prompt(tool, tool_input | (more or {})), answering=answering)
     shown = []
     while True:
         item = await asyncio.wait_for(turn.queue.get(), 10)
@@ -262,11 +270,79 @@ def test_a_refused_deletion_is_reported_to_the_assistant(sdk_settings, isolated_
     assert audit_entries(isolated_config)[-1]["decision"] == "refused"
 
 
-def test_without_a_client_an_approval_is_refused_as_today(sdk_settings, isolated_config):
-    _, shown, sent = asyncio.run(capable_turn(sdk_settings, "rm old.txt", answering=False))
+def test_an_approval_waits_also_when_no_client_streams(sdk_settings, isolated_config):
+    # The phone's connection was lost, or the message was not streamed (#200): the card
+    # still opens (push hint, GET /sessions/{id}/interactions) and the owner's yes counts.
+    _, shown, sent = asyncio.run(
+        capable_turn(sdk_settings, "rm old.txt", {"approve": True}, answering=False)
+    )
+    assert len(shown) == 1 and shown[0]["command"] == "rm old.txt"
+    assert sent == {"behavior": "allow", "updatedInput": {"command": "rm old.txt"}}
+    assert audit_entries(isolated_config)[-1]["why"] == "owner"
+    # ...and without an answer it ends as a "no" when the time is up, never as a yes.
+    quick = dataclasses.replace(sdk_settings, interaction_timeout=1)
+    _, shown, sent = asyncio.run(capable_turn(quick, "rm old.txt", answering=False))
+    assert len(shown) == 1
+    assert sent == {"behavior": "deny", "message": sdk_runner.APPROVAL_TIMEOUT}
+
+
+SCRIPT = "python3 - <<'EOF'\nfrom pathlib import Path\nPath('a.txt').write_text('x')\nEOF"
+
+
+def test_a_command_that_could_not_be_checked_is_asked_on_a_card(sdk_settings, isolated_config):
+    # An inline script: Claude Code cannot check it by itself and would prompt (#200).
+    _, shown, sent = asyncio.run(
+        capable_turn(sdk_settings, SCRIPT, {"approve": True}, more={"description": "Write a file"})
+    )
+    [card] = shown
+    assert card["kind"] == "approval" and card["category"] == "unchecked"
+    assert card["command"] == SCRIPT and card["folder"] == str(sdk_settings.ask_dir)
+    assert "description" not in card  # the owner is shown the command, never a model's summary
+    assert sent == {
+        "behavior": "allow",
+        "updatedInput": {"command": SCRIPT, "description": "Write a file"},
+    }
+    steps = [(e["decision"], e["category"]) for e in audit_entries(isolated_config)]
+    assert steps == [("approval_requested", "unchecked"), ("approved", "unchecked")]
+
+    _, _, refused = asyncio.run(capable_turn(sdk_settings, SCRIPT, {"approve": False}))
+    assert refused == {"behavior": "deny", "message": sdk_runner.APPROVAL_REFUSED}
+
+
+@pytest.mark.parametrize("command", ["sudo -n true", "systemctl --user stop x", "ls; su root"])
+def test_what_is_never_allowed_gets_no_card(sdk_settings, isolated_config, command):
+    _, shown, sent = asyncio.run(capable_turn(sdk_settings, command, {"approve": True}))
     assert shown == []
-    assert sent == {"behavior": "deny", "message": gate.APPROVAL_NOTE}
-    assert audit_entries(isolated_config)[-1]["why"] == "no_client"
+    assert sent["behavior"] == "deny" and gate.NEVER_NOTE in sent["message"]
+
+
+def test_a_command_outside_the_sandbox_gets_no_card(sdk_settings, isolated_config):
+    for more in ({"dangerouslyDisableSandbox": True}, {"run_in_background": True}):
+        _, shown, sent = asyncio.run(
+            capable_turn(sdk_settings, SCRIPT, {"approve": True}, more=more)
+        )
+        assert shown == [] and sent == {"behavior": "deny", "message": sdk_runner.UNSANDBOXED_NOTE}
+    _, shown, sent = asyncio.run(capable_turn(sdk_settings, "  ", {"approve": True}))
+    assert shown == [] and sent["behavior"] == "deny"
+
+
+@pytest.mark.parametrize(
+    ("tool", "tool_input"),
+    [
+        ("Edit", {"file_path": "/etc/hosts", "old_string": "a", "new_string": "b"}),
+        ("Write", {"file_path": "/var/outside.txt", "content": "x"}),
+        ("Read", {"file_path": "/etc/hostname"}),
+    ],
+)
+def test_file_tools_outside_the_folders_are_never_asked_about(
+    sdk_settings, isolated_config, tool, tool_input
+):
+    # File tools are not sandboxed: a yes would let them reach outside the run's folders.
+    _, shown, sent = asyncio.run(
+        capable_turn(sdk_settings, tool_input, {"approve": True}, tool=tool)
+    )
+    assert shown == []
+    assert sent == {"behavior": "deny", "message": sdk_runner.OUTSIDE_NOTE}
 
 
 def test_an_unanswered_approval_times_out_as_no(sdk_settings, isolated_config):
@@ -275,13 +351,6 @@ def test_an_unanswered_approval_times_out_as_no(sdk_settings, isolated_config):
     assert len(shown) == 1
     assert sent == {"behavior": "deny", "message": sdk_runner.APPROVAL_TIMEOUT}
     assert audit_entries(isolated_config)[-1]["why"] == "timeout"
-
-
-@pytest.mark.parametrize("command", ["sudo -n true", "ls -la", "systemctl --user stop x"])
-def test_only_approval_actions_can_be_asked_for(sdk_settings, isolated_config, command):
-    _, shown, sent = asyncio.run(capable_turn(sdk_settings, command, {"approve": True}))
-    assert shown == []
-    assert sent == {"behavior": "deny", "message": sdk_runner.DENIED_NOTE}
 
 
 def test_no_approval_without_an_audit_log(sdk_settings, isolated_config):

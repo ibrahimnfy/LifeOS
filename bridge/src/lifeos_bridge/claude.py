@@ -243,8 +243,11 @@ def run_flags(
         "--restricted",
         "--tools", tools,
         "--strict-mcp-config",
-        "--max-turns", str(settings.max_turns),
     ]  # fmt: skip
+    # A run that may change files is not cut short after a few turns (#199).
+    turns = settings.capable_max_turns if policy.capable else settings.max_turns
+    if turns:
+        command += ["--max-turns", str(turns)]
     if policy.capable and policy.mcp_config:
         command += ["--mcp-config", policy.mcp_config]
     if policy.plugin_dirs:

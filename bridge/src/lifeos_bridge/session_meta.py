@@ -30,6 +30,11 @@ DEFAULTS = {
     "effort": None,
     # Capable runs may use the skills and commands of the session's folder (#91).
     "skills": False,
+    # "May change files" (#200): the owner's choice for this chat, kept so that the app
+    # shows it again after a lock, a restart or on another day. It grants nothing by
+    # itself: every message still says its own mode, and every capable run passes the
+    # same checks (``permission``, ``capable.require_available``).
+    "capable": False,
 }
 CHOICE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._\[\]-]{0,63}")
 
@@ -77,7 +82,7 @@ def update_session(session_id: str, changes: dict) -> dict:
     """Apply ``title``, ``pinned``, ``notify_replies`` and the choices; ``None`` clears."""
     unknown = set(changes) - set(DEFAULTS)
     if unknown or not changes:
-        raise bad("allowed fields: title, pinned, notify_replies, model, effort, skills")
+        raise bad("allowed fields: title, pinned, notify_replies, model, effort, skills, capable")
     data = load()
     entry = _entry(data["sessions"].get(session_id))
     if "title" in changes:
@@ -89,7 +94,7 @@ def update_session(session_id: str, changes: dict) -> dict:
             if value is not None and (not isinstance(value, str) or not CHOICE.fullmatch(value)):
                 raise bad(f"`{choice}` must be a name or null")
             entry[choice] = value
-    for flag in ("pinned", "notify_replies", "skills"):
+    for flag in ("pinned", "notify_replies", "skills", "capable"):
         if flag in changes:
             if not isinstance(changes[flag], bool):
                 raise bad(f"`{flag}` must be true or false")
@@ -118,6 +123,7 @@ def describe(info: SessionInfo, *, in_use: bool, data: dict) -> dict:
     item["model"] = entry["model"]
     item["effort"] = entry["effort"]
     item["skills"] = entry["skills"]
+    item["capable"] = entry["capable"]
     return item
 
 

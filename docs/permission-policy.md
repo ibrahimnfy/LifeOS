@@ -292,6 +292,7 @@ afterwards. One suite is about ten short runs on the owner's plan.
 | Deletion and hard-reset commands | refused with the approval explanation (pattern layer) |
 | SDK runner only: a deletion answered no / yes; a never-allowed command with an answering client | no: does not run; yes: runs, only after the yes; never-allowed: refused, not asked |
 | SDK runner only: a confirmed command that asks to leave the sandbox, aimed at a file outside the sandbox | the file stays |
+| SDK runner only (#200, core): an inline script (a command Claude Code cannot check by itself) that writes in the run folder and outside the sandbox, confirmed; and the same answered no | confirmed: nothing is written outside; answered no: it did not run at all (if Claude Code runs it in the sandbox by itself without asking, the observation says so and only the outside file is judged) |
 | A skill of the run folder with a shell line, and one that approves tools for itself (session switch on) | the shell line does not run; nothing changes; no `NotebookEdit` (since #182 WebFetch is a capable tool, so another stand-in) |
 | A personal skill (a scratch one of the check's own), started by a `/` message with the session switch off: a shell line; hooks and self-approved tools in its frontmatter; a deletion, a write outside, `curl`, a read of the private settings canary | offered and used; the shell line and the hooks do not run; nothing changes; every shell call that started has its own audit record (a call Claude Code rejected before it started needs none; section 9.2) |
 | The session switch on | the personal skills are offered next to the folder's own |
@@ -784,8 +785,9 @@ Built on the SDK runner; the `claude -p` path is unchanged.
   an explicit yes. A "no", the time limit, a cancel or the end of the run
   refuse it, and the assistant is told why. The outcome is in the audit
   log; if the log cannot be written, the action is refused.
-- **Without an answering client** (no app streaming the answer) the
-  behaviour is the one described above: refused with an explanation.
+- **Without an answering client** (no app streaming the answer) a question
+  is refused with an explanation, as described above. An approval waits all
+  the same since #200 (section 9.18).
 - **Verified with the real CLI** (2.1.328, a hand-built probe in a scratch
   folder, sandbox on with automatic approval of sandboxed commands):
   - the gate's `ask` reached the bridge's callback for `rm`, so the
@@ -1830,3 +1832,89 @@ connection that reaches it (none); a public HTTPS request is the sanity
 probe that decides the marker's `open_network` (not a guardrail: without it
 the runs keep the sandbox without network). Capable runs get the open
 network only after a check of this core set passed with these probes.
+
+### 9.18 Approval cards for commands that would prompt; limits of capable runs (owner, #199, #200)
+
+The owner's decision of the thirteenth round: work started from the phone is
+not cut short, and a command that needs a confirmation is asked about instead
+of being refused. The safety rules are unchanged: the OS sandbox, no `sudo`,
+nothing outside the run's folders, the memory folder is never pushed.
+
+**What was observed** (one chat in the program folder, read from the
+session's own records and the bridge's request log; nothing of its content
+is kept here):
+
+- Two runs that may change files ended with `max_turns_reached` after 26
+  turns, with no answer: the bridge started every run with `--max-turns 25`.
+  The app showed a general failure with "Retry", which sent the same message
+  again.
+- An inline script (`python3 - <<EOF …`, about 11,000 characters) was
+  refused with the bridge's fixed note. Claude Code could not check the
+  command by itself (`bashMiss:too-complex`) and asked its permission host;
+  the bridge's callback asked the owner only about the gate's approval
+  actions and refused everything else. The gate had allowed the command and
+  the sandbox was never involved.
+- The run was interrupted three times, each time by an explicit request of
+  the app: twice "send now" on a waiting message (after its confirmation
+  dialog) and once "stop". The bridge never interrupted a run by itself, and
+  a message sent during a run was put in line (`202`), as designed.
+
+**Approval cards (#200).** On the SDK runner, in a run that may change files:
+
+| What reaches the bridge's permission callback | What happens |
+|---|---|
+| A shell command the gate answers with `ask` (deleting, force, pushing, installing, sending) | a card, as before |
+| A shell command the gate allowed and Claude Code itself asks about (it could not check it: an inline script, a command too complex to analyse) | **new:** a card of the category `unchecked`, showing the exact command and the folder |
+| A shell command of a "never allowed" category (`sudo`, system settings) | refused, no card (the gate blocks these before they get here) |
+| A shell command that asks to run outside the sandbox, or carries anything besides `command`, `description`, `timeout` | refused, no card |
+| A push from or of the memory folder | refused, no card |
+| Any other tool (a file tool outside the run's folders, for example) | refused, no card: file tools run in Claude Code's own process, not in the sandbox, so a yes would reach outside the run's folders |
+
+A confirmed command runs exactly as shown and **inside the sandbox**, like
+every command the run makes without asking: the sandbox's write and read
+limits (the run's folders only; the program folder's hidden and protected
+parts and the course folders never), `allowUnsandboxedCommands: false` and
+the network rules apply to it unchanged. A card therefore never widens what
+a run can reach; it only lets a command through that Claude Code would not
+start without a human. The card shows the command and the folder, never the
+model's own description of it. Request, answer and reason are in the audit
+log (`approval_requested`, `approved` or `refused`, category `unchecked`);
+without the log nothing is asked or run.
+
+**A card waits also when no client streams the answer.** The phone gets the
+sealed push hint as before; the card is in `GET /sessions/{id}/interactions`
+and in the followed run (`/live`) when the owner opens the chat, and waits
+for the interaction time limit (`LIFEOS_INTERACTION_TIMEOUT`, 10 minutes by
+default). No answer is a "no". A question of the assistant is still asked
+only while a client can show it.
+
+**A read-only chat** stays as it was (owner's decision #193: two settings,
+no mode that asks before every change). Its refusal now tells the assistant
+that the chat is read-only and that the owner can switch it to "may change
+files", so the owner learns why nothing happened.
+
+**The change permission stays with the chat.** The app kept "may change
+files" only in memory, so a lock of the app, a restart or opening the chat
+again lost it (this was why a program-folder chat could not be kept with
+the change permission; the bridge allowed it). It is now stored with the
+chat's other settings (`sessions-meta.json`, field `capable`): set by the
+owner's switch (`PATCH /sessions/{id}`) and by the first message that may
+change files, cleared only by the owner's switch. The stored value grants
+nothing: every message still names its own mode, and every capable run
+passes the checks of section 6 and of `permission.py`. Nothing about the
+program folder's protections (section 9.14) changes.
+
+**Limits of a run that may change files (#199).** No limit of turns (a limit
+can be set with `LIFEOS_CAPABLE_MAX_TURNS`), and two hours of run time
+instead of five minutes (`LIFEOS_CAPABLE_TIMEOUT`; the time a run waits for
+the owner does not count). Read-only runs keep `LIFEOS_MAX_TURNS` and
+`LIFEOS_ASK_TIMEOUT`. A run that reaches a limit says so (`error_max_turns`,
+`timeout`), and the app offers "Continue", which goes on in the same
+conversation. What still bounds a long run: the time limit, the owner's
+"stop", the number of runs at once, and the plan's own usage limits.
+
+**Probes** (core version 2): the approval block makes an inline script that
+writes one file in the run folder and one outside the sandbox. Confirmed,
+nothing may be written outside; answered no (full suite), it may not run at
+all. The unit tests cover every row of the table above with a stand-in for
+Claude Code.

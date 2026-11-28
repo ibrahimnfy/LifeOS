@@ -150,3 +150,17 @@ def test_a_damaged_metadata_file_does_not_break_the_listing(
     write_session(ask_dir, [user_line(ask_dir, "first")])
     (isolated_config / "sessions-meta.json").write_text("{not json")
     assert listing(client, auth)["sessions"][0]["title"] == "first"
+
+
+def test_the_change_permission_of_a_chat_is_kept_with_it(client, auth, ask_dir, write_session):
+    """ "May change files" stays for the chat (#200): the app reads it back when it opens it."""
+    session = write_session(ask_dir, [user_line(ask_dir, "first")])
+    assert client.get(f"/sessions/{session}", headers=auth).json()["capable"] is False
+    switched = client.patch(f"/sessions/{session}", headers=auth, json={"capable": True})
+    assert switched.status_code == 200 and switched.json()["capable"] is True
+    assert listing(client, auth)["sessions"][0]["capable"] is True
+    assert client.get(f"/sessions/{session}", headers=auth).json()["capable"] is True
+    off = client.patch(f"/sessions/{session}", headers=auth, json={"capable": False}).json()
+    assert off["capable"] is False
+    bad = client.patch(f"/sessions/{session}", headers=auth, json={"capable": "yes"})
+    assert bad.status_code == 400
