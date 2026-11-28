@@ -6,6 +6,16 @@ object Routes {
     const val COACH = "today/coach"
     const val CHAT = "chat"
     const val TASKS = "tasks"
+
+    /** The Scores tab (#206): the daily scores; a score's detail opens inside it. */
+    const val SCORES = "scores"
+
+    /** One score in full: [SCORE_PART_ARG] is a part's name or "day", [SCORE_DAY_ARG] the day it opens on. */
+    const val SCORE = "scores/{part}/{day}"
+    const val SCORE_PART_ARG = "part"
+    const val SCORE_DAY_ARG = "day"
+
+    fun score(part: String, day: String): String = "scores/$part/$day"
     const val MORE = "more"
     const val ALL_TASKS = "tasks/all"
     const val SETTINGS = "more/settings"
@@ -75,10 +85,11 @@ object Routes {
     }
 }
 
-/** The four destinations of the bottom bar, in display order. */
+/** The five destinations of the bottom bar, in display order. */
 enum class Tab(val route: String) {
     TODAY(Routes.TODAY),
     CHAT(Routes.CHAT),
+    SCORES(Routes.SCORES),
     TASKS(Routes.TASKS),
     MORE(Routes.MORE);
 

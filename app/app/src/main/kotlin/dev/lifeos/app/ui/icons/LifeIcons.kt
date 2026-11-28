@@ -56,12 +56,18 @@ object LifeIcons {
         "M3.7 12a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0-3.6 0zM10.2 12a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0-3.6 0z " +
             "M16.7 12a1.8 1.8 0 1 0 3.6 0a1.8 1.8 0 1 0-3.6 0z"
 
+    /** Scores (#206): a gauge, its needle pointing up and right. */
+    private const val SCORES =
+        "M5.1 17.5a8 8 0 1 1 13.8 0M12 14l3.4-4.6M10.6 14a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0-2.8 0z"
+
     val Today = icon("Today", line = TODAY)
     val TodayActive = icon("TodayActive", ACTIVE, line = TODAY)
     val Chat = icon("Chat", line = CHAT)
     val ChatActive = icon("ChatActive", ACTIVE, line = CHAT)
     val Tasks = icon("Tasks", line = TASKS)
     val TasksActive = icon("TasksActive", ACTIVE, line = TASKS)
+    val Scores = icon("Scores", line = SCORES)
+    val ScoresActive = icon("ScoresActive", ACTIVE, line = SCORES)
     val More = icon("More", solid = MORE)
     val MoreActive = icon("MoreActive", solid = MORE_ACTIVE)
 
@@ -168,6 +174,9 @@ object LifeIcons {
     /** Four tiles in a grid: "Tidy up" on the home field (#192). */
     val Grid = icon("Grid", line = "M5.8 4h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8zM14.8 4h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8zM5.8 13h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8zM14.8 13h3.4a1.8 1.8 0 0 1 1.8 1.8v3.4a1.8 1.8 0 0 1-1.8 1.8h-3.4a1.8 1.8 0 0 1-1.8-1.8v-3.4a1.8 1.8 0 0 1 1.8-1.8z")
     val Activity = icon("Activity", line = "M5 19.5v-6M12 19.5v-14M19 19.5v-9")
+
+    /** A phone: the digital balance part of the scores (#206). */
+    val Phone = icon("Phone", line = "M8.5 3.5h7A1.5 1.5 0 0 1 17 5v14a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 7 19V5a1.5 1.5 0 0 1 1.5-1.5zM11 17.5h2")
     val Settings = icon(
         "Settings",
         line = "M4 7.5h9M17 7.5h3M4 16.5h3M11 16.5h9M13 7.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0zM7 16.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0z",

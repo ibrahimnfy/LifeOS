@@ -4,6 +4,7 @@
     <string name="nav_today">Bugün</string>
     <string name="nav_chat">Sohbet</string>
     <string name="nav_tasks">Görevler</string>
+    <string name="nav_scores">Puanlar</string>
     <string name="nav_more">Daha fazla</string>
     <string name="nav_main">Ana gezinme</string>
     <string name="action_capture">Not, görev ya da yeni sohbet ekle</string>
@@ -456,6 +457,56 @@
         <item quantity="other">%d gün bekliyor</item>
     </plurals>
     <string name="activity_sync_now">Şimdi gönder</string>
+    <!-- Scores (#206): the daily scores and what they are made of -->
+    <string name="scores_intro">Her gün 0 ile 100 arası; yüksek olan iyi. Neyden oluştuğunu görmek için bir puana dokun.</string>
+    <string name="scores_overall">Günün puanı</string>
+    <string name="scores_part_sleep">Uyku</string>
+    <string name="scores_part_digital">Dijital denge</string>
+    <string name="scores_part_digital_short">Dijital</string>
+    <string name="scores_part_tasks">Görevler</string>
+    <string name="scores_none">–</string>
+    <string name="scores_no_score">Puan yok</string>
+    <string name="scores_so_far">şimdiye kadar</string>
+    <string name="scores_of_100">100 üzerinden %1$d</string>
+    <string name="scores_points">%1$d / 100</string>
+    <string name="scores_named">%1$s: %2$s</string>
+    <string name="scores_band_good">İyi</string>
+    <string name="scores_band_fair">Orta</string>
+    <string name="scores_band_low">Düşük</string>
+    <string name="scores_band_very_low">Çok düşük</string>
+    <string name="scores_more_title">Daha çok puan için</string>
+    <string name="scores_made_of">Neyden oluştu</string>
+    <string name="scores_how">Nasıl hesaplanır</string>
+    <string name="scores_trend">Gidişat</string>
+    <string name="scores_range_two_weeks">14 gün</string>
+    <string name="scores_average">Ortalama %1$d</string>
+    <plurals name="scores_trend_description">
+        <item quantity="one">Son günün %2$s değerini 0 ile 100 arasında gösteren çubuk grafik.</item>
+        <item quantity="other">Son %1$d günün günlük %2$s değerini 0 ile 100 arasında gösteren çubuk grafik; ortalama kesikli çizgiyle gösterilir. Seçmek için bir güne dokun.</item>
+    </plurals>
+    <string name="scores_trend_empty">Bu günlerde henüz puan yok.</string>
+    <string name="scores_today_note">Bugün daha bitmedi: bu puan gece yarısına kadar değişebilir.</string>
+    <string name="scores_sleep_slept">Uyku süresi</string>
+    <string name="scores_sleep_times">Yatış – kalkış</string>
+    <string name="scores_sleep_length">Süre</string>
+    <string name="scores_sleep_regular">Düzen</string>
+    <string name="scores_sleep_regular_value">%1$s · alışılmış saatlerinden %2$s sapma</string>
+    <string name="scores_sleep_regular_unknown">Henüz yok: önceki haftadan 3 gece daha gerekli</string>
+    <string name="scores_sleep_missing">Bu gece için uyku kaydı yok.</string>
+    <string name="scores_sleep_enter">Uykuyu gir</string>
+    <string name="scores_sleep_formula" formatted="false">%70 süre, %30 düzen. Süre 7 ile 9 saat arasında tam puandır; 4 saatte ve 12 saatte 0\'a doğrusal olarak düşer. Düzen, yatış ve kalkış saatlerin alışılmış saatlerine (önceki haftanın gecelerinin ortası) 30 dakikadan yakınken tam puandır, 2 saat sapmadan sonra 0\'dır. Başka 3 gece bilinene kadar yalnızca süre sayılır.</string>
+    <string name="scores_digital_unlocks">Kilit açma</string>
+    <string name="scores_digital_value">%1$s · %2$s</string>
+    <string name="scores_digital_missing">Bu gün için ölçüm yok.</string>
+    <string name="scores_digital_formula" formatted="false">%70 ekran süresi, %30 kilit açma. Ekran süresi 3 saate kadar tam puan, 8 saatten sonra 0. Kilit açma 50\'ye kadar tam puan, 150\'den sonra 0. Arası doğrusaldır.</string>
+    <string name="scores_tasks_due">O gün teslimi olan</string>
+    <string name="scores_tasks_due_done">Bunlardan zamanında biten</string>
+    <string name="scores_tasks_other">O gün biten diğer görevler</string>
+    <string name="scores_tasks_none">O gün teslimi olan ya da biten görev yok; bu yüzden görev puanı yok.</string>
+    <string name="scores_tasks_waiting">Görev sayıları bilgisayarından gelir ve henüz ulaşmadı.</string>
+    <string name="scores_tasks_formula">Biten ÷ sayılan × 100. Sayılan: o gün teslimi olan görevler ile o gün bitirdiğin diğer her şey. Biten: teslimi o gün olup o gün ya da daha önce bitenler ile o diğerleri. Teslimi olan da biten de yoksa puan yoktur.</string>
+    <string name="scores_overall_formula">O gün puanı olan parçaların ortalaması. Verisi olmayan parça hesaba katılmaz; hiçbir zaman 0 sayılmaz.</string>
+    <string name="scores_overall_missing">Bu gün için puan yok: uyku kaydı, ekran süresi ölçümü ve görev sayısı yok.</string>
 
     <string name="action_undo">Geri al</string>
     <string name="tasks_done_message">Tamamlandı olarak işaretlendi</string>

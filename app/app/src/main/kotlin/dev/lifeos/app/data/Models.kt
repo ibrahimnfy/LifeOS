@@ -548,6 +548,14 @@ class Endpoint<T>(
 object Endpoints {
     val tasks = Endpoint("tasks", "/tasks", serializer = TaskList.serializer())
     val agenda = Endpoint("agenda", "/agenda", serializer = Agenda.serializer())
+
+    /** Per day, how the tasks went (#206): counts for the task score, with a saved copy. */
+    val taskHistory = Endpoint(
+        "tasks-history",
+        "/tasks/history",
+        mapOf("days" to dev.lifeos.app.activity.Scores.TREND_DAYS.toString()),
+        dev.lifeos.app.activity.TaskHistory.serializer(),
+    )
     val plan = Endpoint("coach-plan", "/coach/plan", serializer = CoachPlan.serializer())
     val courseSummary = Endpoint("courses-summary", "/courses/summary", serializer = CourseSummary.serializer())
     val courses = Endpoint("courses", "/courses", serializer = CourseList.serializer())

@@ -1748,6 +1748,13 @@ def create_app(settings: Settings) -> FastAPI:
         """Open tasks, in the order of the file."""
         return {"tasks": [t.as_json() for t in await asyncio.to_thread(memory.list_tasks, brain)]}
 
+    @app.get("/tasks/history")
+    async def task_history(day: str | None = None, days: int = 14):
+        """Per day of the last ``days`` days: tasks due, those of them finished in time, and
+        other tasks finished that day (#206). Counts only; the app's task score reads them."""
+        days = max(1, min(days, 60))
+        return await asyncio.to_thread(memory.task_history, brain, read_day(day, "day"), days)
+
     @app.post("/tasks", status_code=201)
     async def add_task(request: Request):
         """Body: ``{"title", "due"?: "YYYY-MM-DD", "project"?, "course"?, "note"?, "client_id"?}``.

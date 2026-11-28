@@ -6,6 +6,7 @@
     <string name="nav_today">Today</string>
     <string name="nav_chat">Chat</string>
     <string name="nav_tasks">Tasks</string>
+    <string name="nav_scores">Scores</string>
     <string name="nav_more">More</string>
     <string name="nav_main">Main navigation</string>
     <string name="action_capture">Add a note, a task or a new chat</string>
@@ -458,6 +459,56 @@
         <item quantity="other">%d days waiting</item>
     </plurals>
     <string name="activity_sync_now">Send now</string>
+    <!-- Scores (#206): the daily scores and what they are made of -->
+    <string name="scores_intro">Each day from 0 to 100; higher is better. Tap a score to see what it is made of.</string>
+    <string name="scores_overall">Day score</string>
+    <string name="scores_part_sleep">Sleep</string>
+    <string name="scores_part_digital">Digital balance</string>
+    <string name="scores_part_digital_short">Digital</string>
+    <string name="scores_part_tasks">Tasks</string>
+    <string name="scores_none">–</string>
+    <string name="scores_no_score">No score</string>
+    <string name="scores_so_far">so far</string>
+    <string name="scores_of_100">%1$d of 100</string>
+    <string name="scores_points">%1$d / 100</string>
+    <string name="scores_named">%1$s: %2$s</string>
+    <string name="scores_band_good">Good</string>
+    <string name="scores_band_fair">Fair</string>
+    <string name="scores_band_low">Low</string>
+    <string name="scores_band_very_low">Very low</string>
+    <string name="scores_more_title">To get more scores</string>
+    <string name="scores_made_of">What went into it</string>
+    <string name="scores_how">How it is worked out</string>
+    <string name="scores_trend">Trend</string>
+    <string name="scores_range_two_weeks">14 days</string>
+    <string name="scores_average">Average %1$d</string>
+    <plurals name="scores_trend_description">
+        <item quantity="one">Bar chart of %2$s over the last day, from 0 to 100.</item>
+        <item quantity="other">Bar chart of %2$s per day over the last %1$d days, from 0 to 100, with the average as a dashed line. Tap a day to choose it.</item>
+    </plurals>
+    <string name="scores_trend_empty">No scores in these days yet.</string>
+    <string name="scores_today_note">Today is still running: this score can change until midnight.</string>
+    <string name="scores_sleep_slept">Slept</string>
+    <string name="scores_sleep_times">Bed – up</string>
+    <string name="scores_sleep_length">Length</string>
+    <string name="scores_sleep_regular">Regularity</string>
+    <string name="scores_sleep_regular_value">%1$s · %2$s off your usual times</string>
+    <string name="scores_sleep_regular_unknown">Not yet: needs 3 other nights in the week before</string>
+    <string name="scores_sleep_missing">No sleep entry for this night.</string>
+    <string name="scores_sleep_enter">Enter sleep</string>
+    <string name="scores_sleep_formula" formatted="false">70% length and 30% regularity. Length is full between 7 and 9 hours and falls in a straight line to 0 at 4 hours and at 12 hours. Regularity is full while bed and wake times are within 30 minutes of your usual ones (the middle of the nights in the week before) and 0 from 2 hours off. Until 3 other nights are known, length alone counts.</string>
+    <string name="scores_digital_unlocks">Unlocks</string>
+    <string name="scores_digital_value">%1$s · %2$s</string>
+    <string name="scores_digital_missing">Nothing was measured for this day.</string>
+    <string name="scores_digital_formula" formatted="false">70% screen time and 30% unlocks. Screen time is full up to 3 hours and 0 from 8 hours. Unlocks are full up to 50 and 0 from 150. Straight lines in between.</string>
+    <string name="scores_tasks_due">Due that day</string>
+    <string name="scores_tasks_due_done">Of those, finished in time</string>
+    <string name="scores_tasks_other">Other tasks finished that day</string>
+    <string name="scores_tasks_none">Nothing was due and nothing was finished, so this day has no task score.</string>
+    <string name="scores_tasks_waiting">The task numbers come from your computer and have not arrived yet.</string>
+    <string name="scores_tasks_formula">Finished ÷ counted × 100. Counted: the tasks due that day plus anything else you finished that day. Finished: the due ones done on that day or earlier, plus those others. A day with nothing due and nothing finished has no score.</string>
+    <string name="scores_overall_formula">The average of the parts that have a score that day. A part without data is left out; it never counts as 0.</string>
+    <string name="scores_overall_missing">No score for this day: there is no sleep entry, no screen time measurement and no task numbers.</string>
 
     <string name="action_undo">Undo</string>
     <string name="tasks_done_message">Marked as done</string>

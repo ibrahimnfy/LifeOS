@@ -168,6 +168,41 @@ def test_agenda_day_boundaries(client, auth, brain):
     assert [t["title"] for t in longer["upcoming"]["deadlines"]] == ["soon", "edge"]
 
 
+def test_task_history_counts_what_was_due_and_what_was_finished(client, auth, brain):
+    day = datetime.fromisoformat
+
+    def add(title, due=None):
+        return memory.add_task(brain, {"title": title, **({"due": due} if due else {})}, NOW)
+
+    in_time = add("in time", "2027-01-14")
+    early = add("early", "2027-01-15")
+    late = add("late", "2027-01-13")
+    undated = add("undated")
+    add("still open", "2027-01-14")
+    memory.complete_task(brain, in_time.id, day("2027-01-14T10:00:00+03:00"))
+    memory.complete_task(brain, early.id, day("2027-01-14T11:00:00+03:00"))
+    memory.complete_task(brain, late.id, day("2027-01-15T09:00:00+03:00"))
+    memory.complete_task(brain, undated.id, day("2027-01-15T09:30:00+03:00"))
+
+    body = client.get("/tasks/history", headers=auth, params={"day": "2027-01-15", "days": 3})
+    assert body.json() == {
+        "today": "2027-01-15",
+        "days": [
+            # due the 13th, finished the 15th: not kept on its day
+            {"date": "2027-01-13", "due": 1, "due_done": 0, "done_other": 0},
+            # two due (one still open), one of them finished; one other task finished early
+            {"date": "2027-01-14", "due": 2, "due_done": 1, "done_other": 1},
+            # due and finished the day before; the late one and the undated one finished today
+            {"date": "2027-01-15", "due": 1, "due_done": 1, "done_other": 2},
+        ],
+    }
+    assert "in time" not in body.text  # counts only
+    assert len(client.get("/tasks/history", headers=auth).json()["days"]) == 14
+    assert len(client.get("/tasks/history?days=500", headers=auth).json()["days"]) == 60
+    assert client.get("/tasks/history?day=x", headers=auth).status_code == 400
+    assert client.get("/tasks/history").status_code == 401
+
+
 def test_agenda_uses_the_local_date_not_utc(monkeypatch, brain):
     """Shortly after local midnight the agenda is already the new day, whatever UTC says."""
     from datetime import timedelta, timezone
