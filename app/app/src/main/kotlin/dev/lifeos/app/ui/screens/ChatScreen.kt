@@ -180,6 +180,12 @@ internal fun ColumnScope.ConversationPane(
     }
     // A run the app is not receiving: ask now and then, only while this screen is visible.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // The conversation may have gone on elsewhere, above all in a terminal on the computer
+    // (#201): one quiet look whenever this screen comes back and when the connection returns.
+    LaunchedEffect(state.generation, locked, reload) {
+        if (locked) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { chat.refresh() }
+    }
     LaunchedEffect(state.generation, state.phase == ChatPhase.ELSEWHERE, locked) {
         if (state.phase != ChatPhase.ELSEWHERE || locked) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {

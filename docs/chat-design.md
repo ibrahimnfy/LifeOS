@@ -425,7 +425,20 @@ How the app uses sections 3, 6 and 7.1 to 7.3 (details and manual checks:
   personal server's card and approval say they cover every folder; an
   `unsupported` personal server has no button). The session is
   read fresh (`GET /sessions/{id}`). The coach conversation's sheet has
-  neither the skills switch nor the MCP page.
+  neither the skills switch nor the MCP page. Last comes **Continue on the
+  computer** (#201): the line `cd <folder> && claude --resume <id>` to
+  select or copy, because the terminal's own list of sessions leaves out
+  conversations that were started from the phone
+  (`docs/research/claude-headless.md`, section 3). The folder is quoted for
+  the shell when it needs it; the coach conversation has no such row.
+- **A conversation that went on elsewhere** (#201), above all in a terminal
+  on the computer: whenever the chat screen comes back (the app returns,
+  the screen is opened again, the connection returns) and the conversation
+  is at rest, the app reads its last messages once, quietly, at most every
+  five seconds. Only when the computer has an owner message the screen does
+  not show, or the last one has got its answer, is the conversation read
+  again. The words of answers are not compared (long ones come back
+  shortened), so an unchanged thread never flickers.
 - **Cards** live in the conversation. Those of a run (question, approval)
   end with the run and the next message. Those that wait across runs (skill
   install, MCP approval) are read whenever a conversation is opened or read

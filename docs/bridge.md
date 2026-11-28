@@ -2793,6 +2793,33 @@ saved to `~/.config/lifeos/relay-check.json`. Run it on every network the
 computer is used on; a failed check is a result, not something to work
 around.
 
+## Continuing a phone conversation in a terminal
+
+A conversation started from the phone is an ordinary Claude Code session of
+its folder, but Claude Code's own list (`claude --resume` without an id,
+`/resume`) leaves out every session that was started through the Agent SDK
+or `claude -p` (documented behaviour; details and the experiment in
+`docs/research/claude-headless.md`, section 3). By id it resumes like any
+other. Two ways to get the id:
+
+- on the phone: the chat's sheet → **Continue on the computer** shows the
+  line `cd <folder> && claude --resume <id>` to copy;
+- on the computer: `scripts/phone-chats` (needs only Python 3, does not talk
+  to the bridge):
+
+```
+scripts/phone-chats               # this folder's hidden sessions, newest first, with their lines
+scripts/phone-chats <folder>      # the same for another folder
+scripts/phone-chats -r            # continue the newest one here
+scripts/phone-chats -r 3          # continue the third of the list
+```
+
+A session started in a terminal and continued from the phone is in Claude
+Code's own list anyway. What is written in the terminal shows on the phone
+the next time the chat is opened or the app comes back to it. While the
+terminal has the session open (`open_elsewhere` in `GET /sessions`), a
+message from the phone is refused; close it there first.
+
 ## Terminal client
 
 `scripts/ask` talks to the bridge from a terminal. It needs only Python 3

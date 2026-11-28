@@ -62,6 +62,7 @@ Early development. Work is tracked in
 | `bridge/` | Bridge server (see `docs/bridge.md`) |
 | `scripts/init-config.sh` | Creates the private config file with a random bridge token |
 | `scripts/ask` | Terminal client for the bridge |
+| `scripts/phone-chats` | Lists a folder's conversations that were started from the phone and continues one in the terminal |
 | `scripts/install-service.sh` | Installs the bridge as a systemd user service |
 | `scripts/sync-blocked.py` | Keeps `blocked` issue labels in sync with issue dependencies |
 
