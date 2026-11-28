@@ -2057,6 +2057,32 @@ not set) and `<field>_iso`, the same moment in local time.
   course, the calendar and the memory are the work of the course sync, see
   the next section.
 
+### Notes, tasks and assignment marks from the lists (#196, #197, #202)
+
+- `PATCH /notes/{id}` edits every note of the list: a capture (its id changes
+  with its text) and a topic note (`n-…`: the body is replaced, at most 20,000
+  characters; the front matter and the id stay, `updated` gets today's date).
+  A filed capture is not edited (404).
+- A topic note whose file name is not a valid id (an underscore, a space, a
+  letter outside ASCII) gets the id `n-x` and 16 hex digits of a digest of its
+  name; read, edit, delete and restore find the file by that id among the
+  files that exist, never by a path built from the id.
+- `DELETE /tasks/{id}` moves an open task to `.trash/removed-lines.md`;
+  `POST /tasks/{id}/restore` brings it back (a repeat changes nothing);
+  `POST /tasks/{id}/reopen` opens a finished task again.
+- `PUT /courses/{cid}/assignments/{aid}/mark` with `{"mark": "done" |
+  "removed" | null}` answers `{"mark", "previous", "task"}`. Marks are kept in
+  `courses/assignment-marks.md` of the memory folder; `done` completes the
+  assignment's task, `removed` moves it to the trash, `null` reverses either.
+  `GET /courses/{cid}/assignments` gives every item `mark` and `marked_on`,
+  and lists the removed ones apart under `removed`.
+
+Manual check, with the bridge's token:
+`curl -X PUT -H "Authorization: Bearer $TOKEN" -d '{"mark":"done"}'
+http://127.0.0.1:8787/courses/<cid>/assignments/<aid>/mark`, then
+`GET /courses/summary` no longer lists its deadline; the same call with
+`{"mark":null}` brings it back.
+
 ### Courses: sync, lists, downloads
 
 The bridge keeps the owner's courses current by itself and serves what the
