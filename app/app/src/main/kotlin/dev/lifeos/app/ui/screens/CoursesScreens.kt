@@ -38,6 +38,7 @@ import dev.lifeos.app.data.AllGrades
 import dev.lifeos.app.data.Announcements
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.Assignment
+import dev.lifeos.app.data.AssignmentMarks
 import dev.lifeos.app.data.Assignments
 import dev.lifeos.app.data.Course
 import dev.lifeos.app.data.CourseFile
@@ -53,6 +54,8 @@ import dev.lifeos.app.data.GradeItem
 import dev.lifeos.app.data.Grades
 import dev.lifeos.app.data.Materials
 import dev.lifeos.app.data.OpenResult
+import dev.lifeos.app.data.OutboxItem
+import dev.lifeos.app.data.SyncStart
 import dev.lifeos.app.data.SyncState
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
@@ -122,8 +125,11 @@ fun CoursesScreen(
     val courses by coursesModel.state.collectAsStateWithLifecycle()
     val reload by core.reload.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val outbox by core.outbox.items.collectAsStateWithLifecycle()
     var syncing by remember { mutableStateOf(false) }
     var sync by remember { mutableStateOf<SyncState?>(null) }
+    // How the last "Sync now" turned out (#207), said in words under the button.
+    var started by remember { mutableStateOf<SyncStart?>(null) }
     val refreshLists = {
         summaryModel.refresh()
         coursesModel.refresh()
@@ -137,25 +143,40 @@ fun CoursesScreen(
         }
     }
 
-    // The refresh action: start a sync on the computer, wait until it is over, then reload.
+    // Wait until the sync on the computer is over; every list reads again then (new tasks and
+    // deadlines too, not only this screen's).
+    suspend fun followSync() {
+        for (poll in 1..SYNC_POLLS) {
+            delay(SYNC_POLL_MILLIS)
+            val now = core.api.syncState()
+            sync = now
+            if (!now.running) break
+        }
+        core.memoryChanged()
+    }
+
+    // "Sync now": start a sync on the computer, wait until it is over, then reload.
     val startSync: () -> Unit = {
         if (!syncing) {
             syncing = true
+            started = null
             scope.launch {
                 try {
-                    try {
+                    val refused = try {
                         core.api.startSync()
+                        false
                     } catch (error: ApiException) {
-                        // 429: one is running already, or one just ran. Both are fine.
+                        // 429: one is running already, or one was started a moment ago.
                         if (error.status != 429) throw error
+                        true
                     }
-                    for (poll in 1..SYNC_POLLS) {
-                        delay(SYNC_POLL_MILLIS)
-                        val now = core.api.syncState()
-                        sync = now
-                        if (!now.running) break
-                    }
+                    val now = core.api.syncState()
+                    sync = now
+                    val outcome = SyncStart.of(refused, now)
+                    started = outcome
+                    if (outcome == SyncStart.STARTED || outcome == SyncStart.RUNNING) followSync()
                 } catch (_: ApiException) {
+                    started = SyncStart.UNREACHABLE
                 } finally {
                     syncing = false
                     refreshLists()
@@ -163,18 +184,29 @@ fun CoursesScreen(
             }
         }
     }
+    // A sync that runs already when the screen opens (the scheduled one, or one asked for by
+    // voice): the screen says so and reads the lists again when it is over.
+    LaunchedEffect(sync?.running == true, syncing) {
+        if (sync?.running == true && !syncing) {
+            try {
+                followSync()
+            } catch (_: ApiException) {
+            }
+            refreshLists()
+        }
+    }
 
-    val lastSync = (summary as? UiState.Content<CourseSummary>)?.data?.lastSync ?: (courses as? UiState.Content<CourseList>)?.data?.lastSync
-    val synced = if (summary is UiState.Content || courses is UiState.Content) {
+    val lastSync = sync?.lastSync ?: (summary as? UiState.Content<CourseSummary>)?.data?.lastSync ?: (courses as? UiState.Content<CourseList>)?.data?.lastSync
+    val synced = if (sync != null || summary is UiState.Content || courses is UiState.Content) {
         relativeIso(lastSync)?.let { stringResource(R.string.courses_last_sync, it) } ?: stringResource(R.string.courses_never_synced)
     } else {
         null
     }
+    val running = syncing || sync?.running == true
 
     Column(Modifier.fillMaxSize()) {
         TopBar(
             title = stringResource(R.string.more_courses),
-            subtitle = synced,
             onBack = onBack,
             onConnectionClick = onConnectionClick,
             actions = {
@@ -182,12 +214,6 @@ fun CoursesScreen(
                     text = stringResource(R.string.courses_all_grades),
                     enabled = summary !is UiState.NotPaired,
                     onClick = onGrades,
-                )
-                TopBarAction(
-                    LifeIcons.Refresh,
-                    stringResource(if (syncing) R.string.courses_syncing else R.string.courses_refresh),
-                    enabled = !syncing && summary !is UiState.NotPaired,
-                    onClick = startSync,
                 )
             },
         )
@@ -200,13 +226,35 @@ fun CoursesScreen(
                     .padding(top = 10.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                if (syncing) {
-                    Text(
-                        stringResource(R.string.courses_syncing),
-                        style = LifeType.small,
-                        color = colors.muted,
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                    )
+                if (summary !is UiState.NotPaired) {
+                    // The sync's state in words, and "Sync now" (#207).
+                    val words = when {
+                        running -> stringResource(R.string.courses_syncing)
+                        started == SyncStart.TOO_SOON -> stringResource(R.string.courses_sync_too_soon)
+                        started == SyncStart.UNREACHABLE -> stringResource(R.string.courses_sync_unreachable)
+                        started == SyncStart.STARTED || started == SyncStart.RUNNING -> stringResource(R.string.courses_sync_done)
+                        else -> null
+                    }
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(colors.surface2, RoundedCornerShape(16.dp))
+                            .padding(start = 14.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(synced ?: stringResource(R.string.courses_never_synced), style = LifeType.rowTitle, color = colors.text)
+                            words?.let { Text(it, style = LifeType.small, color = colors.muted) }
+                        }
+                        PillButton(
+                            text = stringResource(R.string.courses_sync_now),
+                            icon = LifeIcons.Refresh,
+                            enabled = !running && sync?.configured != false,
+                            onClickLabel = stringResource(R.string.courses_refresh),
+                            onClick = startSync,
+                        )
+                    }
                 }
                 if (summary !is UiState.NotPaired) {
                     // An expired sign-in is renewed right here (#100); other notices stay plain.
@@ -220,7 +268,11 @@ fun CoursesScreen(
                 }
                 // The summary card holds the upcoming deadlines and nothing else.
                 StateHost(summary, "", onRetry = refreshLists, onPair = onPair, skeletonRows = 2) { data: CourseSummary ->
-                    DeadlineCard(data.upcoming(System.currentTimeMillis() / 1000), onOpenDeadline)
+                    // Without the assignments marked done or removed a moment ago (#196): the computer
+                    // leaves them out itself once the mark has arrived.
+                    val upcoming = data.upcoming(System.currentTimeMillis() / 1000)
+                        .filter { deadline -> deadline.assignmentId?.let { AssignmentMarks.shown(it, null, outbox) } == null }
+                    DeadlineCard(upcoming, onOpenDeadline)
                 }
                 if (summary !is UiState.NotPaired && summary !is UiState.Error) {
                     // One "saved copy" line for the screen is enough: the summary above carries it.
@@ -672,39 +724,117 @@ internal fun Assignment.statusText(): String? = when {
     else -> stringResource(R.string.assignment_not_submitted)
 }
 
+/**
+ * A course's assignments. A swipe to the right marks one as done by hand, a swipe to the left
+ * removes it from the lists, each with Undo (#196); the removed ones are listed below and can
+ * be put back, so removing is never a one-way street.
+ */
 @Composable
 private fun AssignmentsTab(core: LifeOsCore, courseId: Long, onPair: () -> Unit, onOpenAssignment: (Long) -> Unit) {
     val colors = LifeTheme.colors
     val locale = appLocale()
-    val model = rememberLoad(core, Endpoints.assignments(courseId)) { a: Assignments -> a.assignments.isEmpty() }
+    val model = rememberLoad(core, Endpoints.assignments(courseId)) { a: Assignments -> a.assignments.isEmpty() && a.removed.isEmpty() }
     val state by model.state.collectAsStateWithLifecycle()
+    val outbox by core.outbox.items.collectAsStateWithLifecycle()
+    val undo = LocalUndo.current
+    val doneMessage = stringResource(R.string.tasks_done_message)
+    val removedMessage = stringResource(R.string.assignment_removed_message)
+    val backMessage = stringResource(R.string.assignment_back_message)
+    var showRemoved by rememberSaveable { mutableStateOf(false) }
     TabBody(state.isRefreshing, model::refresh) {
+        OutboxNotices(core, setOf(OutboxItem.Kind.ASSIGNMENT_MARK))
         StateHost(state, stringResource(R.string.course_assignments_empty), onRetry = model::refresh, onPair = onPair) { data: Assignments ->
-            LifeCard {
-                // Nearest deadline first; those without a date last.
-                data.assignments.sortedWith(compareBy({ it.due == null }, { -(it.due ?: 0) })).forEachIndexed { index, item ->
-                    if (index > 0) RowDivider(startIndent = 0.dp)
-                    // Tapping an assignment opens its detail.
+            val lists = AssignmentMarks.lists(data, outbox)
+            val server = (data.assignments + data.removed).associate { it.id to it.mark }
+            // [item] shows the mark it has now; Undo puts exactly that back.
+            fun mark(item: Assignment, mark: String?) {
+                core.markAssignment(courseId, item.id, mark, server[item.id], item.name)
+                val message = when (mark) {
+                    AssignmentMarks.DONE -> doneMessage
+                    AssignmentMarks.REMOVED -> removedMessage
+                    else -> backMessage
+                }
+                undo(message) { core.undoMark(courseId, item.id, item.mark, item.name) }
+            }
+            if (lists.listed.isEmpty()) EmptyLine(stringResource(R.string.course_assignments_empty))
+            if (lists.listed.isNotEmpty()) {
+                LifeCard {
+                    // Nearest deadline first; those without a date last.
+                    lists.listed.sortedWith(compareBy({ it.due == null }, { -(it.due ?: 0) })).forEachIndexed { index, item ->
+                        key(item.id) {
+                            if (index > 0) RowDivider(startIndent = 0.dp)
+                            val done = item.mark == AssignmentMarks.DONE
+                            val waiting = AssignmentMarks.pending(item.id, outbox) != null
+                            SwipeRow(
+                                right = if (done) {
+                                    SwipeAction(stringResource(R.string.assignment_take_back), LifeIcons.Undo) { mark(item, null) }
+                                } else {
+                                    SwipeAction(stringResource(R.string.assignment_done), LifeIcons.Check) { mark(item, AssignmentMarks.DONE) }
+                                },
+                                left = SwipeAction(stringResource(R.string.assignment_remove), LifeIcons.Trash, danger = true) { mark(item, AssignmentMarks.REMOVED) },
+                            ) { actions ->
+                                // Tapping an assignment opens its detail.
+                                Row(
+                                    actions
+                                        .fillMaxWidth()
+                                        .heightIn(min = 56.dp)
+                                        .clickable(role = Role.Button) { onOpenAssignment(item.id) }
+                                        .padding(vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    if (done) Icon(LifeIcons.Check, contentDescription = null, tint = colors.ok, modifier = Modifier.size(20.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(item.name, style = LifeType.rowTitle, color = if (done) colors.muted else colors.text)
+                                        Text(
+                                            listOfNotNull(
+                                                item.due?.let { stringResource(R.string.assignment_due, momentLabel(it, locale)) } ?: stringResource(R.string.assignment_no_due),
+                                                if (done) stringResource(R.string.assignment_marked_done_short) else item.statusText(),
+                                                stringResource(R.string.outbox_waiting).takeIf { waiting },
+                                            ).joinToString(" · "),
+                                            style = LifeType.small,
+                                            color = colors.muted,
+                                        )
+                                    }
+                                    Icon(LifeIcons.Chevron, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                Text(stringResource(R.string.assignment_swipe_hint), style = LifeType.small, color = colors.muted)
+            }
+            if (lists.removed.isNotEmpty()) {
+                LifeCard {
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                            .clickable(role = Role.Button) { onOpenAssignment(item.id) }
-                            .padding(vertical = 8.dp),
+                            .heightIn(min = 48.dp)
+                            .clickable(role = Role.Button) { showRemoved = !showRemoved },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(item.name, style = LifeType.rowTitle, color = colors.text)
-                            Text(
-                                listOfNotNull(
-                                    item.due?.let { stringResource(R.string.assignment_due, momentLabel(it, locale)) } ?: stringResource(R.string.assignment_no_due),
-                                    item.statusText(),
-                                ).joinToString(" · "),
-                                style = LifeType.small,
-                                color = colors.muted,
-                            )
+                        Text(
+                            stringResource(R.string.assignments_removed_title, lists.removed.size),
+                            style = LifeType.rowTitle,
+                            color = colors.text,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(stringResource(if (showRemoved) R.string.assignments_removed_hide else R.string.assignments_removed_show), style = LifeType.label, color = colors.muted)
+                    }
+                    if (showRemoved) {
+                        lists.removed.forEach { item ->
+                            key(item.id) {
+                                RowDivider(startIndent = 0.dp)
+                                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(item.name, style = LifeType.body, color = colors.muted, modifier = Modifier.weight(1f))
+                                    PillButton(
+                                        text = stringResource(R.string.assignment_put_back),
+                                        onClickLabel = stringResource(R.string.assignment_put_back_label, item.name),
+                                        onClick = { mark(item, null) },
+                                    )
+                                }
+                            }
                         }
-                        Icon(LifeIcons.Chevron, contentDescription = null, tint = colors.muted, modifier = Modifier.size(20.dp))
                     }
                 }
             }

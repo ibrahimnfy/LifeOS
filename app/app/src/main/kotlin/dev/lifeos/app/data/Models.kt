@@ -100,7 +100,9 @@ data class NoteSummary(
     val at: String? = null,
     val preview: String = "",
 ) {
-    val editable: Boolean get() = kind == "inbox"
+    /** Captures and topic notes can be edited (#202); a filed capture ([Note.filed]) cannot. */
+    val editable: Boolean get() = kind == "inbox" || kind == "topic"
+    val topic: Boolean get() = kind == "topic"
 }
 
 @Serializable
@@ -121,7 +123,8 @@ data class Note(
      */
     @SerialName("filed_in") val filedIn: String? = null,
 ) {
-    val editable: Boolean get() = kind == "inbox"
+    val editable: Boolean get() = kind == "inbox" || kind == "topic"
+    val topic: Boolean get() = kind == "topic"
     val filed: Boolean get() = kind == "filed"
 }
 
@@ -291,6 +294,9 @@ data class Assignment(
     val files: Int = 0,
     /** The id of its task in the memory, or null. */
     val task: String? = null,
+    /** The owner's own mark (#196): "done" (handed in, for example on paper), "removed", or null. */
+    val mark: String? = null,
+    @SerialName("marked_on") val markedOn: String? = null,
 )
 
 /** One assignment in full (`GET /courses/{id}/assignments/{aid}`); [description] is Markdown. */
@@ -310,6 +316,8 @@ data class AssignmentDetail(
     val description: String = "",
     val files: List<CourseFile> = emptyList(),
     val task: String? = null,
+    val mark: String? = null,
+    @SerialName("marked_on") val markedOn: String? = null,
 )
 
 /**
@@ -327,7 +335,11 @@ object AssignmentMatch {
 }
 
 @Serializable
-data class Assignments(val assignments: List<Assignment> = emptyList())
+data class Assignments(
+    val assignments: List<Assignment> = emptyList(),
+    /** The ones the owner removed from the lists (#196): shown apart, each can be put back. */
+    val removed: List<Assignment> = emptyList(),
+)
 
 /** What tapping a task opens (#167). */
 sealed interface TaskTarget {
@@ -395,6 +407,35 @@ data class SyncState(
     @SerialName("last_error") val lastError: String? = null,
     val stale: Boolean = false,
 )
+
+/** How a "Sync now" of the Courses screen turned out (#207); the screen says each in words. */
+enum class SyncStart {
+    /** A sync was started. */
+    STARTED,
+
+    /** One was running already: that one is followed instead. */
+    RUNNING,
+
+    /** One was started a moment ago and is over: the computer waits two minutes between two. */
+    TOO_SOON,
+
+    /** The site connection is not set up, or the sign-in is missing. */
+    NOT_SET_UP,
+
+    /** The computer could not be asked. */
+    UNREACHABLE,
+    ;
+
+    companion object {
+        /** [refused]: the computer answered "not now" (429); [now] is the sync's state right after. */
+        fun of(refused: Boolean, now: SyncState): SyncStart = when {
+            !now.configured -> NOT_SET_UP
+            !refused -> STARTED
+            now.running -> RUNNING
+            else -> TOO_SOON
+        }
+    }
+}
 
 /** The direct address of a file. [url] is as sensitive as a password: see [DownloadRules]. */
 @Serializable

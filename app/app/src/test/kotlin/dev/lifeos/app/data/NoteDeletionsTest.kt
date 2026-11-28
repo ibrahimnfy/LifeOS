@@ -105,9 +105,10 @@ class NoteDeletionsTest {
     }
 
     @Test
-    fun `nothing is deleted while an edit of the note is on its way`() {
+    fun `nothing is deleted while an edit of the note is being sent`() {
         val (outbox, deletions) = start()
-        outbox.add(OutboxItem("e1", OutboxItem.Kind.NOTE_EDIT, 0, text = "Changed", noteId = "i-aaaaaaaaaaaa", attempts = 1))
+        // Only the seconds it is being sent hold a deletion back (#202).
+        outbox.add(OutboxItem("e1", OutboxItem.Kind.NOTE_EDIT, 0, text = "Changed", noteId = "i-aaaaaaaaaaaa", sending = true))
         assertFalse(deletions.begin("i-aaaaaaaaaaaa", "Sample"))
         assertEquals(emptySet<String>(), deletions.hidden.value)
         // An edit that never left is dropped with the deletion.

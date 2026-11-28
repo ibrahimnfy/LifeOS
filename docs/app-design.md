@@ -819,6 +819,71 @@ Accessibility: text follows the system font size; all touch targets are at
 least 48 dp; charts have a text summary; colour is never the only signal
 (icons or labels accompany status colours); full TalkBack labels.
 
+### 4.1 Swipes, Undo and marks in the lists (#196, #197, #202, #207)
+
+**Swipe rows.** Tasks, a course's assignments and notes share one row
+component (`ui/components/SwipeRow.kt`):
+
+| List | Swipe right | Swipe left |
+|---|---|---|
+| Tasks (Today, Tasks, All tasks) | done | delete (to the computer's trash) |
+| A course's assignments | done by hand (a done one: take the mark back) | remove from the lists |
+| Notes (also those still waiting on the phone) | open the editor | delete (to the trash) |
+
+A row acts only when the finger lets go beyond a good third of its width (at
+least 96 dp); speed does not count, so a flick while scrolling deletes
+nothing, and dragging back cancels. The side that opens shows an icon and the
+words, and fills with colour once letting go would act. Screen readers get the
+same operations as custom actions of the row.
+
+**Undo.** One bar (`ui/components/Undo.kt`, `LocalUndo`) says what happened
+and offers Undo for about six seconds after a delete, a tick, a mark and after
+an action of the command bar (`LocalUndoCommand(line, token)` takes the
+computer's undo token; the coach conversation and the home's "Ask" use the
+same). The newest action is shown at once; an older bar steps aside.
+
+**Tasks.** A tick or a deletion leaves the list at once and is handed to the
+outbox when the undo time is over, so both work without a connection. A
+deletion in its undo time is kept on storage: if the app ends meanwhile, the
+next start completes it. An Undo after the item has left withdraws it from the
+outbox, or asks the computer to restore or reopen the task. The task card has
+"Delete task". A task that belongs to a course assignment is ticked or deleted
+through the assignment's mark (below), so its deadline goes with it.
+
+**Assignments marked by hand.** The assignment page has "Done" and "Remove"
+(work handed in on paper never shows as submitted on the site); a marked
+assignment says so and offers "Take back" / "Put back". Marks go through the
+outbox and show at once. The course's assignment tab lists the removed ones
+under "Removed (n)", each with "Put back".
+
+**Notes.** Every note of the list can be edited and deleted: captures and
+topic notes (a topic note's body, up to 20,000 characters). Delete is in the
+list (swipe), in the note page's top bar and below the note. It is refused
+only in the seconds an edit of the note is being sent; an edit that waits or
+whose answer was lost is dropped with the deletion. A filed capture (in no
+list) stays read-only.
+
+**Courses.** Under the title: the last sync time, "Sync now", and the state
+in words (syncing, a sync was started a moment ago, the computer cannot be
+reached, finished). A sync that runs when the screen opens is followed too;
+every list reads again when it ends.
+
+Manual check (phone):
+
+1. Notes: swipe a note left, tap Undo; swipe it left again and wait: it is
+   gone, and `.trash/inbox-deleted.md` in the memory folder has it. Swipe a
+   note right, change the text, save. Open a note: the bin in the top bar
+   deletes it. With a topic note: edit its body, then delete and undo.
+2. Tasks: swipe right (done) and Undo; swipe left (delete) and Undo; delete
+   one in airplane mode, switch the network on: it leaves the computer's list.
+   Delete one and close the app at once: after the next start it is deleted.
+3. An assignment: "Done" on its page, see its task and its deadline go, "Take
+   back" brings both; "Remove", then find it under "Removed (1)" on the
+   course's Assignments tab and put it back. Swipe both ways in that tab.
+4. Courses: "Sync now" once (it says "Syncing courses…", then finished), and
+   again within two minutes (it says a sync was started a moment ago).
+5. TalkBack: on a task row the actions menu offers "Done" and "Delete".
+
 ## 5. Visual direction
 
 The owner chose none of the first three proposals (A, B, C below, kept here

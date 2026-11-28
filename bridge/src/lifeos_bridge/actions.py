@@ -118,7 +118,7 @@ ACTIONS: tuple[Action, ...] = (
     ),
     Action(
         "edit_note",
-        "Replace the text of a captured note.",
+        "Replace the text of a note (a capture, or the body of a topic note).",
         (
             Param("note", "text", "words that find the note", True),
             Param("text", "text", "the new text", True, limit=TEXT),

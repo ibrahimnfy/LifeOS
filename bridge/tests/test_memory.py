@@ -300,7 +300,7 @@ def test_notes_can_be_listed_searched_read_and_edited(client, auth, brain):
     assert client.get(f"/notes/{notes[1]['id']}", headers=auth).status_code == 404  # old id is gone
     assert client.get("/notes/n-example-topic", headers=auth).json()["text"] == "A summary line."
     assert (
-        client.patch("/notes/n-example-topic", headers=auth, json={"text": "x"}).status_code == 400
+        client.patch("/notes/n-missing-topic", headers=auth, json={"text": "x"}).status_code == 404
     )
     for bad_id in ["i-unknown", "n-missing", "x", "n-../CLAUDE"]:
         assert client.get(f"/notes/{bad_id}", headers=auth).status_code == 404

@@ -670,8 +670,11 @@ def test_an_assignment_marked_by_hand_leaves_the_lists_and_gets_no_task_again(
     assert next(a for a in listing if a["id"] == 41)["mark"] == "done"
 
     client.put("/courses/5/assignments/41/mark", json={"mark": "removed"}, headers=auth)
-    listing = client.get("/courses/5/assignments", headers=auth).json()["assignments"]
+    answer = client.get("/courses/5/assignments", headers=auth).json()
+    listing = answer["assignments"]
     assert 41 not in [a["id"] for a in listing]
+    # Removed ones are listed apart, so the app can show where they went and put one back.
+    assert [(a["id"], a["mark"]) for a in answer["removed"]] == [(41, "removed")]
     assert client.get("/courses/5/assignments/41", headers=auth).json()["mark"] == "removed"
     sync(folder, when=later(7), brain=brain)  # the sync opens no task for it again
     assert client.get("/tasks", headers=auth).json()["tasks"] == []

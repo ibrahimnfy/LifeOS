@@ -68,6 +68,8 @@ fun TaskSheet(
     onDismiss: () -> Unit,
     onSave: (String, String?, String) -> Unit,
     onDone: () -> Unit,
+    /** Delete the task (#197); null: not offered. */
+    onDelete: (() -> Unit)? = null,
 ) {
     val colors = LifeTheme.colors
     var editing by rememberSaveable { mutableStateOf(false) }
@@ -143,6 +145,7 @@ fun TaskSheet(
             next?.trim()?.takeIf { it.isNotEmpty() }?.let { CardBlock(stringResource(R.string.task_next), it) }
             PrimaryButton(text = stringResource(R.string.task_edit_done), onClick = onDone)
             SecondaryButton(text = stringResource(R.string.task_edit), onClick = { editing = true })
+            onDelete?.let { SecondaryButton(text = stringResource(R.string.task_delete), danger = true, onClick = it) }
         }
     }
 
@@ -191,15 +194,15 @@ fun TaskNoteField(value: String, onChange: (String) -> Unit) {
     )
 }
 
-/** Edit the text of a captured note. */
+/** Edit the text of a note: a capture, or the body of a topic note ([max]: the longest it may get). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NoteEditSheet(text: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+fun NoteEditSheet(text: String, onDismiss: () -> Unit, max: Int = MAX_NOTE, onSave: (String) -> Unit) {
     var value by rememberSaveable { mutableStateOf(text) }
     EditSheetFrame(stringResource(R.string.note_edit_title), onDismiss) {
         OutlinedTextField(
             value = value,
-            onValueChange = { value = it.take(MAX_NOTE) },
+            onValueChange = { value = it.take(max) },
             textStyle = LifeType.body,
             minLines = 4,
             maxLines = 12,

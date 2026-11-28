@@ -75,6 +75,8 @@ object LifeIcons {
     val Refresh = icon("Refresh", line = "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4")
     val Download = icon("Download", line = "M12 4v11M7 10.5l5 5 5-5M5 19.5h14")
     val Close = icon("Close", line = "M6 6l12 12M18 6L6 18")
+    val Trash = icon("Trash", line = "M5 7h14M9.5 7V5h5v2M7 7l1 12h8l1-12M10 11v5M14 11v5")
+    val Undo = icon("Undo", line = "M8 7l-4 4 4 4M4 11h10a5 5 0 0 1 0 10h-3")
     val Clock = icon("Clock", line = "M4 12a8 8 0 1 0 16 0a8 8 0 1 0-16 0zM12 8v4.5l2.5 1.5")
     val Link = icon("Link", line = "M10 6H6v12h12v-4M13 5h6v6M19 5l-8 8")
     val Back = icon("Back", line = "M15 5l-7 7 7 7")

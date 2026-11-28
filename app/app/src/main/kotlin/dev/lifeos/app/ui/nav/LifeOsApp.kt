@@ -58,6 +58,8 @@ import dev.lifeos.app.ui.components.LocalLooks
 import dev.lifeos.app.ui.components.LocalOpenTask
 import dev.lifeos.app.ui.components.LocalSnackbar
 import dev.lifeos.app.ui.components.LocalUndo
+import dev.lifeos.app.ui.components.LocalUndoCommand
+import dev.lifeos.app.ui.components.UndoBar
 import dev.lifeos.app.ui.screens.ChatScreen
 import dev.lifeos.app.ui.screens.CoachScreen
 import dev.lifeos.app.ui.screens.HomeScreen
@@ -232,16 +234,13 @@ fun LifeOsApp(
         }
     }
 
+    // The one Undo bar (#207). Visible a little shorter than a tick or a deletion can be taken
+    // back in the core (its timers), so a tap on Undo always comes in time.
     val undoLabel = stringResource(R.string.action_undo)
-    val showUndo: (String, () -> Unit) -> Unit = { message, onUndo ->
-        scope.launch {
-            // Visible exactly as long as the tick can be taken back; the timer itself is the core's.
-            val result = withTimeoutOrNull(UNDO_MILLIS - 500) {
-                snackbarHostState.showSnackbar(message, actionLabel = undoLabel, duration = SnackbarDuration.Indefinite)
-            }
-            if (result == SnackbarResult.ActionPerformed) onUndo()
-        }
-    }
+    val undoFailed = stringResource(R.string.command_undo_failed)
+    val undoBar = remember(undoLabel) { UndoBar(snackbarHostState, scope, undoLabel, UNDO_MILLIS - 500) }
+    val showUndo: (String, () -> Unit) -> Unit = undoBar::offer
+    val showUndoCommand: (String, String) -> Unit = { line, token -> undoBar.offerCommand(line, token, undoFailed, core::undoCommand) }
     val locked by core.locked.collectAsStateWithLifecycle()
     val pairing by core.pairing.collectAsStateWithLifecycle()
     val looks by core.looks.collectAsStateWithLifecycle()
@@ -463,12 +462,18 @@ fun LifeOsApp(
                 if (first != null) {
                     val line = outcomeLine(commandContext, first, commandLocale)
                     val token = first.undo
-                    if (token != null) showUndo(line) { scope.launch { core.undoCommand(token) } } else showMessage(line)
+                    if (token != null) showUndoCommand(line, token) else showMessage(line)
                 }
             },
         )
     }
-    CompositionLocalProvider(LocalSnackbar provides showMessage, LocalUndo provides showUndo, LocalLooks provides looks, LocalOpenTask provides openTask) {
+    CompositionLocalProvider(
+        LocalSnackbar provides showMessage,
+        LocalUndo provides showUndo,
+        LocalUndoCommand provides showUndoCommand,
+        LocalLooks provides looks,
+        LocalOpenTask provides openTask,
+    ) {
     Scaffold(
         containerColor = LifeTheme.colors.bg,
         contentColor = LifeTheme.colors.text,

@@ -317,11 +317,19 @@ def _assignment_summary(item: dict, marks: dict | None = None) -> dict:
 
 
 def assignments_view(state: dict, record: dict, marks: dict | None = None) -> dict:
-    """The course's assignments; removed ones are left out, done ones carry their mark."""
-    items = [_assignment_summary(item, marks) for item in record.get("assignments") or []]
-    items = [item for item in items if item["mark"] != "removed"]
-    items.sort(key=lambda item: (item["due"] is None, item["due"] or 0))
-    return {"course_id": record["id"], "assignments": items, **_envelope(state)}
+    """The course's assignments; done ones carry their mark. The ones the owner removed are
+    left out of ``assignments`` and listed under ``removed``, so the app can show where they
+    went and put one back (#196)."""
+    every = [_assignment_summary(item, marks) for item in record.get("assignments") or []]
+    every.sort(key=lambda item: (item["due"] is None, item["due"] or 0))
+    items = [item for item in every if item["mark"] != "removed"]
+    removed = [item for item in every if item["mark"] == "removed"]
+    return {
+        "course_id": record["id"],
+        "assignments": items,
+        "removed": removed,
+        **_envelope(state),
+    }
 
 
 def assignment_view(

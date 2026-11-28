@@ -65,16 +65,41 @@ class NoteDeleteTest {
     }
 
     @Test
-    fun `no deletion while an edit is on its way or may have arrived`() {
-        for (pending in listOf(
-            edit("e1", "i-aaaaaaaaaaaa", sending = true),
-            edit("e1", "i-aaaaaaaaaaaa", state = OutboxItem.State.CHECK),
-            edit("e1", "i-aaaaaaaaaaaa", attempts = 1),
-        )) {
-            assertFalse(NoteLists.canDelete("i-aaaaaaaaaaaa", listOf(pending)))
-        }
+    fun `no deletion only in the seconds an edit is being sent`() {
+        assertFalse(NoteLists.canDelete("i-aaaaaaaaaaaa", listOf(edit("e1", "i-aaaaaaaaaaaa", sending = true))))
         // A refused edit changed nothing: the note can go.
         assertTrue(NoteLists.canDelete("i-aaaaaaaaaaaa", listOf(edit("e1", "i-aaaaaaaaaaaa", state = OutboxItem.State.FAILED))))
+    }
+
+    /**
+     * The reason a note could not be deleted (#202): an edit whose answer was lost stays in the
+     * outbox as "check" until the owner deals with its notice, and for all that time the note
+     * offered no "Delete" (and said nothing about it). Now the edit is dropped and the note
+     * deleted under the id the phone knows.
+     */
+    @Test
+    fun `a note with an unclear or delayed edit can be deleted, and the edit is dropped`() {
+        for (pending in listOf(
+            edit("e1", "i-aaaaaaaaaaaa", state = OutboxItem.State.CHECK, attempts = 1),
+            edit("e1", "i-aaaaaaaaaaaa", attempts = 1),
+        )) {
+            assertTrue(NoteLists.canDelete("i-aaaaaaaaaaaa", listOf(pending)))
+            assertEquals(NoteLists.Deletion.Delete("i-aaaaaaaaaaaa", dropEdit = "e1"), NoteLists.deletion("i-aaaaaaaaaaaa", listOf(pending)))
+        }
+        // A topic note keeps its id through an edit: the same holds for it.
+        val topic = edit("e2", "n-sample-topic", state = OutboxItem.State.CHECK, attempts = 1)
+        assertEquals(NoteLists.Deletion.Delete("n-sample-topic", dropEdit = "e2"), NoteLists.deletion("n-sample-topic", listOf(topic)))
+    }
+
+    @Test
+    fun `the deletion of a note with an unclear edit reaches the outbox without the edit`() {
+        val outbox = Outbox(OutboxStore(File(folder.root, "outbox.json")), { 0L }) { }
+        outbox.add(edit("e1", "i-aaaaaaaaaaaa", state = OutboxItem.State.CHECK, attempts = 1))
+        var id = 0
+        val deletions = NoteDeletions(PendingDeleteStore(File(folder.root, "deleting.json")), outbox, { 0L }, { "d${id++}".padEnd(16, '0') }) { null }
+        assertTrue(deletions.begin("i-aaaaaaaaaaaa", "Sample"))
+        assertTrue(deletions.finish("i-aaaaaaaaaaaa"))
+        assertEquals(listOf(OutboxItem.Kind.NOTE_DELETE to "i-aaaaaaaaaaaa"), outbox.items.value.map { it.kind to it.noteId })
     }
 
     @Test

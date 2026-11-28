@@ -49,6 +49,71 @@ class PendingDeleteStore(private val file: File) {
 }
 
 /**
+ * Deleting a task with a moment to undo (#197), kept on storage like a note's deletion: when
+ * the app ends inside the undo time, the next start completes it ([finishLeftOver]). An entry's
+ * [PendingDelete.noteId] is the task's id here, its label the task's title.
+ */
+class TaskDeletions(
+    private val store: PendingDeleteStore,
+    private val outbox: Outbox,
+    private val nowMillis: () -> Long,
+    private val newItemId: () -> String,
+) {
+    private var pending: List<PendingDelete> = store.load()
+
+    /** The tasks an earlier run left in their undo time: hidden until [finishLeftOver] ran. */
+    val leftOver: Set<String> get() = pending.map { it.noteId }.toSet()
+
+    private fun set(next: List<PendingDelete>) {
+        pending = next
+        store.save(next)
+    }
+
+    @Synchronized
+    fun begin(taskId: String, title: String) {
+        if (pending.none { it.noteId == taskId }) set(pending + PendingDelete(taskId, title.take(120), nowMillis()))
+    }
+
+    /** The owner took it back. False when it was handed to the outbox already. */
+    @Synchronized
+    fun undo(taskId: String): Boolean {
+        if (pending.none { it.noteId == taskId }) return false
+        set(pending.filterNot { it.noteId == taskId })
+        return true
+    }
+
+    /**
+     * The undo time is over: hand the deletion to the outbox under the id the task has now
+     * ([idNow]; see [TaskLists.deletion]). True when something was queued to send.
+     */
+    @Synchronized
+    fun finish(taskId: String, idNow: String = taskId): Boolean {
+        val entry = pending.firstOrNull { it.noteId == taskId } ?: return false
+        val queued = when (val plan = TaskLists.deletion(idNow, outbox.items.value)) {
+            is TaskLists.Deletion.Discard -> {
+                outbox.discard(plan.itemId)
+                false
+            }
+            is TaskLists.Deletion.Delete -> {
+                val there = outbox.items.value.any { it.kind == OutboxItem.Kind.TASK_DELETE && it.taskId == plan.taskId && it.state != OutboxItem.State.FAILED }
+                there || outbox.add(OutboxItem(newItemId(), OutboxItem.Kind.TASK_DELETE, nowMillis(), text = entry.label, taskId = plan.taskId))
+            }
+        }
+        set(pending.filterNot { it.noteId == taskId })
+        return queued
+    }
+
+    @Synchronized
+    fun finishLeftOver(): Boolean = pending.map { finish(it.noteId) }.any { it }
+
+    @Synchronized
+    fun wipe() {
+        pending = emptyList()
+        store.wipe()
+    }
+}
+
+/**
  * Deleting a note with a moment to undo (#184), so that the moment survives the end of the app
  * (#191). A deletion is written to storage when it [begin]s and leaves it when it is taken
  * back ([undo]) or handed to the outbox ([finish]). The timer between the two belongs to the
