@@ -590,6 +590,11 @@
     <string name="session_rename">Yeniden adlandır</string>
     <string name="session_rename_field">Başlık</string>
     <string name="session_rename_reset">Bilgisayarın bulduğu başlığı kullan</string>
+    <string name="session_computer">Bilgisayarda devam et</string>
+    <string name="session_computer_action_note">Bu sohbeti terminalde açan komut</string>
+    <string name="session_computer_note">Bu satırı bilgisayarda bir terminalde çalıştır. Claude Code\'un kendi listesi (claude --resume) telefondan başlatılan sohbetleri göstermez, ama bu sohbet kimliğiyle açılır. Orada yazdıkların burada da görünür.</string>
+    <string name="session_computer_copy">Komutu kopyala</string>
+    <string name="session_computer_copied">Kopyalandı</string>
     <string name="session_pin">Sabitle</string>
     <string name="session_unpin">Sabitlemeyi kaldır</string>
     <string name="session_edit_not_reached">Değiştirilmedi: bilgisayara şu an ulaşılamıyor.</string>

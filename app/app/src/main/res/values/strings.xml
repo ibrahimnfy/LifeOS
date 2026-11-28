@@ -592,6 +592,11 @@
     <string name="session_rename">Rename</string>
     <string name="session_rename_field">Title</string>
     <string name="session_rename_reset">Use the title the computer found</string>
+    <string name="session_computer">Continue on the computer</string>
+    <string name="session_computer_action_note">The command that opens this conversation in a terminal</string>
+    <string name="session_computer_note">Run this line in a terminal on the computer. Claude Code\'s own list (claude --resume) does not show conversations started from the phone, but this one opens with its id. What you write there shows here too.</string>
+    <string name="session_computer_copy">Copy the command</string>
+    <string name="session_computer_copied">Copied</string>
     <string name="session_pin">Pin</string>
     <string name="session_unpin">Unpin</string>
     <string name="session_edit_not_reached">Not changed: the computer cannot be reached right now.</string>

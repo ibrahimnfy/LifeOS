@@ -45,6 +45,7 @@ import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.ChatEndpoints
 import dev.lifeos.app.data.CoachEndpoints
 import dev.lifeos.app.data.CommandList
+import dev.lifeos.app.data.ComputerResume
 import dev.lifeos.app.data.skills
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.res.pluralStringResource
@@ -120,7 +121,7 @@ internal fun RefreshOnSessionChange(core: LifeOsCore, model: LoadModel<*>) {
     }
 }
 
-private enum class SessionSheetPage { MENU, RENAME, REMINDERS, REMINDER, MCP }
+private enum class SessionSheetPage { MENU, RENAME, REMINDERS, REMINDER, MCP, COMPUTER }
 
 /**
  * The sheet of the session [sessionId] (null: none is open), with what it needs from the
@@ -178,6 +179,8 @@ internal fun SessionSheet(
     var notify by remember(session.notifyReplies) { mutableStateOf(session.notifyReplies) }
     val title = session.shownTitle.ifEmpty { stringResource(R.string.sessions_untitled) }
     val api = core.api
+    // The line that resumes this conversation in a terminal on the computer (#201).
+    val resume = if (coach) null else ComputerResume.command(session.folder, session.id)
     when (page) {
         SessionSheetPage.MENU -> SheetFrame(title, onDismiss) {
             SheetAction(LifeIcons.Pen, stringResource(R.string.session_rename)) { page = SessionSheetPage.RENAME }
@@ -206,8 +209,14 @@ internal fun SessionSheet(
                 // The MCP servers the folder and the owner's personal settings declare (#153, #162): listed, approved one by one, revoked.
                 SheetAction(LifeIcons.Chip, stringResource(R.string.mcp_action), note = stringResource(R.string.mcp_action_note)) { page = SessionSheetPage.MCP }
             }
+            if (resume != null) {
+                SheetAction(LifeIcons.Terminal, stringResource(R.string.session_computer), note = stringResource(R.string.session_computer_action_note)) {
+                    page = SessionSheetPage.COMPUTER
+                }
+            }
         }
         SessionSheetPage.MCP -> McpSheet(core, session, onDismiss)
+        SessionSheetPage.COMPUTER -> ComputerResumeSheet(resume.orEmpty(), onDismiss)
         SessionSheetPage.REMINDERS -> RemindersSheet(
             reminders = reminders,
             onDismiss = onDismiss,
