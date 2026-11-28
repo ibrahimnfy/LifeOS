@@ -33,13 +33,6 @@
     <string name="task_overdue">Gecikti</string>
 
     <!-- Tasks -->
-    <string name="section_most_important">En önemliler</string>
-    <string name="section_most_important_note">asistanın sıralaması</string>
-    <string name="tasks_show_all">Tümünü göster (%1$d)</string>
-    <plurals name="tasks_footnote">
-        <item quantity="one">%1$d açık görevden %2$d tanesi gösteriliyor</item>
-        <item quantity="other">%1$d açık görevden %2$d tanesi gösteriliyor</item>
-    </plurals>
     <string name="tasks_all_title">Tüm görevler</string>
 
     <!-- Chat -->
@@ -205,9 +198,13 @@
     <string name="tasks_today">Bugün</string>
     <string name="tasks_upcoming">Yaklaşanlar</string>
     <string name="tasks_no_date">Tarihsiz</string>
+    <string name="tasks_add_hint">Görev ekle…</string>
+    <string name="tasks_add">Görevi ekle</string>
+    <string name="tasks_add_tomorrow">Yarın</string>
+    <string name="tasks_add_pick">Gün seç</string>
+    <string name="tasks_coach_order">Koç\'un sırasıyla</string>
     <string name="tasks_empty">Her şey tamam. Açık görev yok.</string>
     <string name="tasks_filter_empty">Bu filtreye uyan görev yok.</string>
-    <string name="tasks_just_added">Yeni eklenenler</string>
 
     <!-- Today additions -->
     <string name="today_empty">Bugün için bir şey yok.</string>
@@ -1193,8 +1190,26 @@
     <string name="command_result_work_in_folder">%1$s klasöründe çalışılıyor</string>
     <string name="command_result_stop_using_folder">%1$s artık kullanılmıyor</string>
     <string name="command_result_refresh_plan">Bugünün planı hazırlanıyor</string>
-    <string name="command_result_sync_courses">Dersler kontrol ediliyor</string>
     <string name="command_result_record_sleep">Uyku kaydedildi: %2$s</string>
+    <string name="command_result_delete_task">Görev silindi: %1$s</string>
+    <string name="command_result_mark_done">Hallettim olarak işaretlendi: %1$s</string>
+    <string name="command_result_mark_removed">Listelerden kaldırıldı: %1$s</string>
+    <string name="command_result_mark_open">İşaret geri alındı: %1$s</string>
+    <string name="command_result_ask_course">Yeni sohbette soruldu: %1$s</string>
+    <string name="command_result_sync_started">Moodle eşitlemesi başladı</string>
+    <string name="command_result_sync_running">Moodle eşitlemesi zaten sürüyor</string>
+    <string name="command_result_sync_too_soon">Moodle eşitlemesi az önce başladı</string>
+    <string name="command_result_sync_last">%1$s · son eşitleme %2$s</string>
+    <string name="command_result_moodle_signin">Moodle girişi yapılmamış. Dersler ekranından giriş yap.</string>
+    <string name="command_result_course_folder">Bu dersin bilgisayarda eşitlenmiş klasörü henüz yok.</string>
+    <string name="command_understood">Anladığım: %1$s</string>
+    <string name="command_understanding">Anlıyorum…</string>
+    <string name="command_asking_coach">Koç\'a soruluyor…</string>
+    <string name="command_coach_answer">Koç</string>
+    <string name="command_open_coach">Sohbeti aç</string>
+    <string name="command_coach_draft">Koç şu an meşgul. Mesajın yazı alanında duruyor.</string>
+    <string name="command_panel_close">Cevabı kapat</string>
+    <string name="chat_speak">Mesajını söyle</string>
     <string name="command_result_open">%1$s açılıyor</string>
     <string name="command_result_opening">Açılıyor</string>
     <string name="command_result_new_chat">Yeni sohbet</string>

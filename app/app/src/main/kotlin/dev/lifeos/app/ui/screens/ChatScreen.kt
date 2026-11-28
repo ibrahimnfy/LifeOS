@@ -69,6 +69,10 @@ import dev.lifeos.app.data.CommandList
 import dev.lifeos.app.data.Commands
 import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.data.UiState
+import dev.lifeos.app.ui.components.AskPhase
+import dev.lifeos.app.ui.components.AskResult
+import dev.lifeos.app.ui.components.CoachAct
+import dev.lifeos.app.ui.components.rememberSpeech
 import dev.lifeos.app.ui.components.rememberLoad
 import dev.lifeos.app.data.ChatFailure
 import dev.lifeos.app.data.ChatFolder
@@ -160,6 +164,13 @@ internal fun ColumnScope.ConversationPane(
     onSwitch: (ChatSwitch) -> Unit,
     modes: Boolean = true,
     empty: @Composable ColumnScope.(onPrompt: (String) -> Unit) -> Unit = { EmptyChat(it) },
+    /**
+     * The coach conversation (#204): a message goes here first instead of straight to the
+     * chat (the command interpreter reads it; what is talk comes back through `chat.send`).
+     */
+    route: ((String) -> Unit)? = null,
+    /** What the interpreter did for earlier messages, as cards in the thread (the coach only). */
+    acts: List<CoachAct> = emptyList(),
 ) {
     val state by chat.state.collectAsStateWithLifecycle()
     val paired = core.pairing.collectAsStateWithLifecycle().value != null
@@ -247,7 +258,7 @@ internal fun ColumnScope.ConversationPane(
         snapshotFlow { scroll.isScrollInProgress }.first { !it }
         scroll.scrollTo(scroll.value + (after - before))
     }
-    LaunchedEffect(state.generation, state.messages.lastOrNull()?.key, state.interactions.size) { follow = true }
+    LaunchedEffect(state.generation, state.messages.lastOrNull()?.key, state.interactions.size, acts.size) { follow = true }
     var confirmStop by rememberSaveable { mutableStateOf(false) }
     Column(
         modifier = Modifier
@@ -262,12 +273,12 @@ internal fun ColumnScope.ConversationPane(
             !paired -> NotPairedNotice(onPair)
             state.loading && state.messages.isEmpty() -> SkeletonCard(rows = 2)
             state.loadProblem != null -> ErrorNotice(checkNotNull(state.loadProblem), 0, onRetry = chat::load)
-            state.isEmpty && state.loaded -> {
+            state.isEmpty && state.loaded && acts.isEmpty() -> {
                 // A chat a switch started without a request (#187) still says where it came from.
                 state.origin?.let { StartedFromLine(it, onSwitch) }
                 empty { draft = it }
             }
-            else -> Thread(core, state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true }, onSwitch = onSwitch)
+            else -> Thread(core, state, chat, onSessions = onSessions, onOlder = older, onStop = { confirmStop = true }, onSwitch = onSwitch, acts = acts)
         }
     }
     if (paired && state.queue.isNotEmpty()) QueueList(state, chat, locked)
@@ -315,6 +326,17 @@ internal fun ColumnScope.ConversationPane(
             )
         }
     }
+    // A typed or spoken message on its way: to the interpreter first in the coach conversation.
+    val deliver: (String) -> Boolean = { text ->
+        when {
+            text.isBlank() -> false
+            route != null -> {
+                route(text)
+                true
+            }
+            else -> chat.send(text)
+        }
+    }
     Composer(
         draft = draft,
         onDraftChange = { draft = it },
@@ -322,7 +344,9 @@ internal fun ColumnScope.ConversationPane(
         canSend = paired && (state.canSend || state.canQueue) && draft.isNotBlank(),
         // While an answer is awaited the message waits in line on the computer.
         sendLabel = stringResource(if (state.canQueue) R.string.chat_queue_add else R.string.chat_send),
-        onSend = { if (chat.send(draft)) draft = "" },
+        onSend = { if (deliver(draft)) draft = "" },
+        // Spoken messages (#204): the phone's own recogniser; what it heard is sent by itself.
+        onSpeak = rememberSpeech(core::openingSystemScreen) { heard -> if (!deliver(heard)) draft = listOf(draft.trim(), heard).filter { it.isNotEmpty() }.joinToString(" ") }.takeIf { paired && !locked },
     )
     if (confirmStop && state.canStop && !locked) {
         ConfirmDialog(
@@ -379,7 +403,12 @@ internal fun EmptyChat(onPrompt: (String) -> Unit) {
 }
 
 @Composable
-private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, onSessions: () -> Unit, onOlder: () -> Unit, onStop: () -> Unit, onSwitch: (ChatSwitch) -> Unit) {
+private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, onSessions: () -> Unit, onOlder: () -> Unit, onStop: () -> Unit, onSwitch: (ChatSwitch) -> Unit, acts: List<CoachAct> = emptyList()) {
+    // Cards of what the interpreter did (#204), each below the message that was the last one then.
+    val keys = state.messages.mapTo(HashSet()) { it.key }
+    val actsAfter: @Composable (Long?) -> Unit = { key ->
+        acts.filter { if (key == null) it.afterKey == null else it.afterKey == key }.forEach { act -> key(act.id) { CoachActCard(act) } }
+    }
     if (state.loadingOlder) {
         SystemLine(stringResource(R.string.chat_older_loading))
     } else if (state.olderExist) {
@@ -404,6 +433,7 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
         }
     }
     val answer = state.messages.lastOrNull()?.takeIf { !it.fromOwner }
+    actsAfter(null)
     state.messages.forEach { message ->
         // Coach (#114): from this message on it is a renewed session; what stands above was tidied up.
         if (message.key == state.renewedAt) SystemLine(renewedLine(state.tidied))
@@ -419,7 +449,10 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
             // This answer's switch started another chat (#187): it continued there.
             message.continuedIn?.let { ContinuedInLine(it, onSwitch) }
         }
+        actsAfter(message.key)
     }
+    // Those whose message is no longer on the screen (the conversation was read again) come last.
+    acts.filter { it.afterKey != null && it.afterKey !in keys }.forEach { act -> key(act.id) { CoachActCard(act) } }
     if (answer == null) cards(settled)
     // Conversations the last answer offers to go to (#164): the owner picks one.
     state.choices?.let { offer -> SwitchCard(offer, onPick = onSwitch) }
@@ -452,6 +485,26 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
     if (progress != null && state.phase != ChatPhase.IDLE && !asked && !state.stopping) ProgressLine(progress)
     val continueText = stringResource(R.string.chat_continue_message)
     state.failure?.let { FailureNotice(it, chat::retry, { chat.continueRun(continueText) }, chat::dismissFailure, onSessions) }
+}
+
+/**
+ * A message to the coach that held something to do (#204): the owner's words, then what the
+ * interpreter understood and did, each with Undo, or its one question. Nothing here was done
+ * by the coach: actions only ever come from the owner's own message.
+ */
+@Composable
+private fun CoachActCard(act: CoachAct) {
+    val colors = LifeTheme.colors
+    OwnerBubble(ChatMessage(-act.id, true, act.text))
+    if (act.ask.phase != AskPhase.Idle) {
+        AskResult(
+            act.ask,
+            Modifier
+                .fillMaxWidth()
+                .border(1.dp, colors.divider, RoundedCornerShape(16.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+        )
+    }
 }
 
 /** "Editing a file: app.py · step 12": the run's last step, briefly (#199). Never a file's content. */
@@ -752,7 +805,15 @@ private fun ChatProblem.textRes(): Int = when (this) {
 }
 
 @Composable
-private fun Composer(draft: String, onDraftChange: (String) -> Unit, canSend: Boolean, sendLabel: String, onSend: () -> Unit, commandLength: Int = 0) {
+private fun Composer(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    canSend: Boolean,
+    sendLabel: String,
+    onSend: () -> Unit,
+    commandLength: Int = 0,
+    onSpeak: (() -> Unit)? = null,
+) {
     val colors = LifeTheme.colors
     val shape = RoundedCornerShape(24.dp)
     Row(
@@ -791,6 +852,19 @@ private fun Composer(draft: String, onDraftChange: (String) -> Unit, canSend: Bo
                 visualTransformation = remember(commandLength, colors.link) { CommandHighlight(commandLength, colors.link) },
                 modifier = Modifier.fillMaxWidth(),
             )
+        }
+        if (onSpeak != null) {
+            val speak = stringResource(R.string.chat_speak)
+            Box(
+                modifier = Modifier
+                    .size(LifeDimens.minTouch)
+                    .clip(CircleShape)
+                    .clickable(onClickLabel = speak, role = Role.Button, onClick = onSpeak)
+                    .semantics { contentDescription = speak },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(LifeIcons.Mic, contentDescription = null, tint = colors.muted, modifier = Modifier.size(22.dp))
+            }
         }
         Box(
             modifier = Modifier

@@ -70,9 +70,14 @@ fun TaskSheet(
     onDone: () -> Unit,
     /** Delete the task (#197); null: not offered. */
     onDelete: (() -> Unit)? = null,
+    /**
+     * A tap opens the edit page at once (#210): the form with the title, the date and the
+     * note, and under it Mark as done and Delete; there is no card to read first.
+     */
+    editFirst: Boolean = false,
 ) {
     val colors = LifeTheme.colors
-    var editing by rememberSaveable { mutableStateOf(false) }
+    var editing by rememberSaveable { mutableStateOf(editFirst) }
     // The form's values; Cancel puts them back.
     var text by rememberSaveable { mutableStateOf(title) }
     var day by rememberSaveable { mutableStateOf(due) }
@@ -110,15 +115,23 @@ fun TaskSheet(
                 enabled = text.isNotBlank() && changed,
                 onClick = { onSave(text.trim(), day, noteText.trim()) },
             )
-            SecondaryButton(
-                text = stringResource(R.string.action_cancel),
-                onClick = {
-                    text = title
-                    day = due
-                    noteText = note.orEmpty()
-                    editing = false
-                },
-            )
+            if (editFirst) {
+                // The edit page is the task's page: what the card offered stands under the form.
+                if (look != null && lookName != null) CourseLabel(look, lookName)
+                next?.trim()?.takeIf { it.isNotEmpty() }?.let { CardBlock(stringResource(R.string.task_next), it) }
+                SecondaryButton(text = stringResource(R.string.task_edit_done), onClick = onDone)
+                onDelete?.let { SecondaryButton(text = stringResource(R.string.task_delete), danger = true, onClick = it) }
+            } else {
+                SecondaryButton(
+                    text = stringResource(R.string.action_cancel),
+                    onClick = {
+                        text = title
+                        day = due
+                        noteText = note.orEmpty()
+                        editing = false
+                    },
+                )
+            }
             Text(stringResource(R.string.task_edit_hint), style = LifeType.small, color = colors.muted)
         } else {
             if (look != null && lookName != null) CourseLabel(look, lookName)

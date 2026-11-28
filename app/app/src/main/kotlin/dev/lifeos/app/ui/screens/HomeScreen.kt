@@ -97,7 +97,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
@@ -122,6 +121,28 @@ import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import dev.lifeos.app.data.ChatPhase
+import dev.lifeos.app.data.CommandBar
+import dev.lifeos.app.ui.components.Ask
+import dev.lifeos.app.ui.components.AskPhase
+import dev.lifeos.app.ui.components.AskResult
+import dev.lifeos.app.ui.components.CommandHooks
+import dev.lifeos.app.ui.components.LocalSnackbar
+import dev.lifeos.app.ui.components.MarkdownText
+import dev.lifeos.app.ui.components.TopBarAction
+import dev.lifeos.app.ui.components.rememberSpeech
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
 import dev.lifeos.app.data.Agenda
@@ -268,7 +289,9 @@ fun HomeScreen(
     onPair: () -> Unit,
     onOpen: (HomeTile, RevealOrigin?) -> Unit,
     onOpenConsolidation: () -> Unit,
-    onCommand: () -> Unit,
+    /** The command interpreter and the app's way to do what it hands over (#205). */
+    hooks: CommandHooks,
+    onOpenCoach: () -> Unit,
     onToggleTheme: () -> Unit,
 ) {
     val colors = LifeTheme.colors
@@ -381,16 +404,37 @@ fun HomeScreen(
                     view.announceForAccessibility(tidied)
                 }
             }
-            CommandDock(
+            // "Ask" (#205): a real message field with microphone and send. The answer shows in a
+            // panel above it, on this page; talk goes to the coach and its answer comes back here.
+            val languageTag = appLocale().toLanguageTag()
+            val coachBusy = stringResource(R.string.command_coach_draft)
+            val showMessage = LocalSnackbar.current
+            val ask = remember(hooks) {
+                Ask(
+                    launch = core::inBackground,
+                    hooks = hooks,
+                    languageTag = { languageTag },
+                    perform = hooks.perform,
+                    onTalk = { talk -> core.askCoach(talk) { showMessage(coachBusy) } },
+                )
+            }
+            Column(
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .onSizeChanged { dockHeight = it.height }
+                    .imePadding()
                     .semantics {
                         isTraversalGroup = true
                         traversalIndex = 2f
                     },
-                onCommand,
-            )
+            ) {
+                AskPanel(core, ask, onOpenCoach)
+                CommandDock(
+                    Modifier.onSizeChanged { dockHeight = it.height },
+                    working = ask.working,
+                    onSpeak = rememberSpeech(core::openingSystemScreen) { ask.send(it) },
+                    onSend = { ask.send(it) },
+                )
+            }
         }
     }
 }
@@ -925,13 +969,77 @@ private fun TidyButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
 }
 
 /**
- * The command bar at the bottom of the home, as in the prototype: the gradient ring, the spark,
- * the invitation and the microphone, on a fade into the page colour. It is the door to the
- * app's command bar: a tap opens it (the capture sheet) with the keyboard and the microphone.
+ * The answer of the home's "Ask" (#205), above its bar: what was understood and done, each
+ * with Undo, the one question, what cannot be done; and for talk the coach's answer, here.
+ * Hidden while there is nothing to show.
  */
 @Composable
-private fun CommandDock(modifier: Modifier = Modifier, onCommand: () -> Unit) {
+private fun AskPanel(core: LifeOsCore, ask: Ask, onOpenCoach: () -> Unit) {
+    if (ask.phase == AskPhase.Idle) return
     val colors = LifeTheme.colors
+    val talked = ask.talked
+    val coach by core.coach.state.collectAsStateWithLifecycle()
+    val shape = RoundedCornerShape(20.dp)
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp)
+            .heightIn(max = 340.dp)
+            .background(colors.surface, shape)
+            .border(1.dp, colors.divider, shape)
+            .verticalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 6.dp, top = 6.dp, bottom = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                ask.asked.orEmpty(),
+                style = LifeType.small,
+                color = colors.muted,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            TopBarAction(LifeIcons.Close, stringResource(R.string.command_panel_close), enabled = !ask.working, onClick = ask::clear)
+        }
+        AskResult(ask, Modifier.fillMaxWidth().padding(end = 10.dp))
+        if (talked != null) {
+            // The coach's answer to the talk: the message after the owner's, as it arrives.
+            val at = coach.messages.indexOfLast { it.fromOwner && it.text == talked }
+            val answer = if (at >= 0) coach.messages.drop(at + 1).firstOrNull { !it.fromOwner && it.text.isNotBlank() } else null
+            Text(stringResource(R.string.command_coach_answer), style = LifeType.rowTitle, color = colors.text, modifier = Modifier.semantics { heading() })
+            if (answer != null) {
+                MarkdownText(answer.text, Modifier.fillMaxWidth().padding(end = 10.dp))
+            }
+            if (answer == null || coach.phase != ChatPhase.IDLE) {
+                Text(
+                    stringResource(R.string.command_asking_coach),
+                    style = LifeType.small,
+                    color = colors.muted,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+            LinkAction(stringResource(R.string.command_open_coach), onClick = onOpenCoach)
+        }
+    }
+}
+
+/**
+ * The command bar at the bottom of the home (#205): the prototype's gradient ring and spark
+ * around a real message field, with the microphone and send. What is typed or spoken goes to
+ * the command interpreter; its answer shows in the panel above ([AskPanel]).
+ */
+@Composable
+private fun CommandDock(modifier: Modifier = Modifier, working: Boolean, onSpeak: () -> Unit, onSend: (String) -> Unit) {
+    val colors = LifeTheme.colors
+    var text by rememberSaveable { mutableStateOf("") }
+    val canSend = text.isNotBlank() && !working
+    val send = {
+        if (canSend) {
+            onSend(text)
+            text = ""
+        }
+    }
     Box(
         modifier
             .fillMaxWidth()
@@ -948,21 +1056,68 @@ private fun CommandDock(modifier: Modifier = Modifier, onCommand: () -> Unit) {
                 .background(colors.gradient, RoundedCornerShape(28.dp))
                 .padding(LifeDimens.ring)
                 .background(colors.surface, RoundedCornerShape(25.dp))
-                .clickable(onClickLabel = stringResource(R.string.home_command_label), role = Role.Button, onClick = onCommand)
                 .padding(start = 6.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { Icon(LifeIcons.Spark, contentDescription = null, tint = colors.muted) }
-            Text(
-                text = stringResource(R.string.home_command_hint),
-                style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium),
-                color = colors.muted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Box(Modifier.size(LifeDimens.minTouch), contentAlignment = Alignment.Center) { Icon(LifeIcons.Mic, contentDescription = null, tint = colors.text) }
+            val label = stringResource(R.string.home_command_label)
+            Box(
+                Modifier
+                    .weight(1f)
+                    .padding(vertical = 10.dp),
+            ) {
+                if (text.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.home_command_hint),
+                        style = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.Medium),
+                        color = colors.muted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                BasicTextField(
+                    value = text,
+                    onValueChange = { text = it.take(CommandBar.MAX_TEXT) },
+                    textStyle = TextStyle(fontSize = 16.sp, color = colors.text),
+                    cursorBrush = SolidColor(colors.primary),
+                    maxLines = 4,
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { send() }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { contentDescription = label },
+                )
+            }
+            val speak = stringResource(R.string.command_speak)
+            Box(
+                Modifier
+                    .size(LifeDimens.minTouch)
+                    .clip(CircleShape)
+                    .clickable(enabled = !working, onClickLabel = speak, role = Role.Button, onClick = onSpeak)
+                    .semantics { contentDescription = speak },
+                contentAlignment = Alignment.Center,
+            ) { Icon(LifeIcons.Mic, contentDescription = null, tint = colors.text) }
+            val sendLabel = stringResource(R.string.chat_send)
+            Box(
+                Modifier
+                    .size(LifeDimens.minTouch)
+                    .clip(CircleShape)
+                    .clickable(enabled = canSend, onClickLabel = sendLabel, role = Role.Button, onClick = send)
+                    .semantics {
+                        contentDescription = sendLabel
+                        if (!canSend) disabled()
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .alpha(if (canSend) 1f else 0.45f)
+                        .background(colors.primary, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(LifeIcons.Send, contentDescription = null, tint = colors.onPrimary, modifier = Modifier.size(18.dp)) }
+            }
         }
     }
 }

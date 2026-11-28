@@ -96,6 +96,11 @@ class CommandHooks(
     val leave: (CommandAnswer) -> Unit,
     /** Speech recognition is about to cover the app: it may come back without a lock. */
     val systemScreen: () -> Unit = {},
+    /**
+     * The part of a request that is conversation goes to the coach (#204); with `true` the
+     * coach conversation is opened too (the request held nothing else to show).
+     */
+    val talk: (String, Boolean) -> Unit = { _, _ -> },
 )
 
 /** The bar's state while a request is on its way and after. */
@@ -150,29 +155,10 @@ fun CaptureSheet(
     val undoFailed = stringResource(R.string.command_undo_failed)
     val showMessage = LocalSnackbar.current
 
-    // Speech (#185): the phone's own recogniser, in the app's language, offline when it can.
-    // LifeOS gets only the text; the audio goes to the recognition service of the phone.
-    val listen = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        val heard = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()?.trim()
-        if (!heard.isNullOrEmpty()) text = listOf(text.trim(), heard).filter { it.isNotEmpty() }.joinToString(" ")
-    }
-    val speechPrompt = stringResource(R.string.command_speak_prompt)
-    val startListening: () -> Unit = {
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            val language = CommandBar.speechLanguage(locale.toLanguageTag())
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, speechPrompt)
-        }
-        try {
-            hooks.systemScreen()
-            listen.launch(intent)
-        } catch (_: ActivityNotFoundException) {
-            showMessage(noSpeech)
-        }
+    // Speech (#185, #204): the phone's own recogniser, Turkish first with English beside it,
+    // offline when it can. LifeOS gets only the text; the audio goes to the phone's recogniser.
+    val startListening = rememberSpeech(hooks.systemScreen) { heard ->
+        text = listOf(text.trim(), heard).filter { it.isNotEmpty() }.joinToString(" ")
     }
 
     fun send(request: Sent) {
@@ -187,6 +173,17 @@ fun CaptureSheet(
                     sheetState.hide()
                     hooks.leave(answer)
                     return@launch
+                }
+                // Conversation goes to the coach (#204); alone, it takes the owner there.
+                val talk = answer.talk?.takeIf { it.isNotBlank() }
+                if (talk != null) {
+                    val alone = !CommandBar.shows(answer)
+                    if (alone) sheetState.hide()
+                    hooks.talk(talk, alone)
+                    if (alone) {
+                        onDismiss()
+                        return@launch
+                    }
                 }
                 answerText = ""
                 BarState.Answered(answer)
@@ -419,6 +416,12 @@ private fun CommandPart(
         }
         is BarState.Answered -> {
             Column(Modifier.semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // What was understood, briefly (#207), then what was done.
+                bar.answer.understood?.takeIf { it.isNotBlank() }?.let {
+                    Text(stringResource(R.string.command_understood, it), style = LifeType.small, color = colors.muted)
+                }
+                bar.answer.cannot?.takeIf { it.isNotBlank() }?.let { Text(it, style = LifeType.body, color = colors.badge) }
+                if (!bar.answer.talk.isNullOrBlank()) Text(stringResource(R.string.command_asking_coach), style = LifeType.small, color = colors.muted)
                 bar.answer.results.forEach { outcome ->
                     val line = outcomeLine(context, outcome, locale)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -445,7 +448,7 @@ private fun CommandPart(
 }
 
 @Composable
-private fun RowScope.UndoButton(label: String, onClick: () -> Unit) {
+internal fun RowScope.UndoButton(label: String, onClick: () -> Unit) {
     val colors = LifeTheme.colors
     Box(
         modifier = Modifier
@@ -462,7 +465,7 @@ private fun RowScope.UndoButton(label: String, onClick: () -> Unit) {
 
 /** The one question: its options (each a button), and for the model's question an answer field. */
 @Composable
-private fun QuestionPart(question: CommandQuestion, answerText: String, onAnswerText: (String) -> Unit, onPick: (dev.lifeos.app.data.CommandOption) -> Unit, onAnswer: () -> Unit) {
+internal fun QuestionPart(question: CommandQuestion, answerText: String, onAnswerText: (String) -> Unit, onPick: (dev.lifeos.app.data.CommandOption) -> Unit, onAnswer: () -> Unit) {
     val colors = LifeTheme.colors
     val asked = question.text ?: stringResource(pickQuestion(question.kind))
     Text(asked, style = LifeType.rowTitle, color = colors.text, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
@@ -516,6 +519,8 @@ fun outcomeLine(context: Context, outcome: CommandOutcome, locale: Locale): Stri
     if (!outcome.ok) {
         val reason = when {
             outcome.error == "time_in_past" -> R.string.command_result_past
+            outcome.error == "moodle_not_signed_in" -> R.string.command_result_moodle_signin
+            outcome.error == "course_folder_missing" -> R.string.command_result_course_folder
             outcome.error.orEmpty().endsWith("_not_found") -> R.string.command_result_not_found
             else -> R.string.command_result_failed
         }
@@ -553,7 +558,27 @@ fun outcomeLine(context: Context, outcome: CommandOutcome, locale: Locale): Stri
         "work_in_folder" -> context.getString(R.string.command_result_work_in_folder, title)
         "stop_using_folder" -> context.getString(R.string.command_result_stop_using_folder, title)
         "refresh_plan" -> context.getString(R.string.command_result_refresh_plan)
-        "sync_courses" -> context.getString(R.string.command_result_sync_courses)
+        // A running or just started sync is what was asked for too (#198); the last finished one is named.
+        "sync_courses" -> {
+            val line = context.getString(
+                when (outcome.note) {
+                    "sync_running" -> R.string.command_result_sync_running
+                    "sync_too_soon" -> R.string.command_result_sync_too_soon
+                    else -> R.string.command_result_sync_started
+                },
+            )
+            if (moment != null) context.getString(R.string.command_result_sync_last, line, moment) else line
+        }
+        "delete_task" -> context.getString(R.string.command_result_delete_task, title)
+        "mark_assignment" -> context.getString(
+            when (outcome.moment) {
+                "done" -> R.string.command_result_mark_done
+                "removed" -> R.string.command_result_mark_removed
+                else -> R.string.command_result_mark_open
+            },
+            title,
+        )
+        "ask_course" -> context.getString(R.string.command_result_ask_course, title)
         "record_sleep" -> context.getString(R.string.command_result_record_sleep, title, moment ?: outcome.moment.orEmpty())
         "set_home_style" -> context.getString(R.string.command_result_home_style)
         else -> if (title.isNotBlank()) context.getString(R.string.command_result_open, title) else context.getString(R.string.command_result_opening)

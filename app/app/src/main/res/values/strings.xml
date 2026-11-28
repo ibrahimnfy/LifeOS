@@ -35,13 +35,6 @@
     <string name="task_overdue">Overdue</string>
 
     <!-- Tasks -->
-    <string name="section_most_important">Most important</string>
-    <string name="section_most_important_note">ordered by the assistant</string>
-    <string name="tasks_show_all">Show all (%1$d)</string>
-    <plurals name="tasks_footnote">
-        <item quantity="one">%2$d of %1$d open task shown</item>
-        <item quantity="other">%2$d of %1$d open tasks shown</item>
-    </plurals>
     <string name="tasks_all_title">All tasks</string>
 
     <!-- Chat -->
@@ -207,9 +200,13 @@
     <string name="tasks_today">Today</string>
     <string name="tasks_upcoming">Upcoming</string>
     <string name="tasks_no_date">No date</string>
+    <string name="tasks_add_hint">Add a task…</string>
+    <string name="tasks_add">Add the task</string>
+    <string name="tasks_add_tomorrow">Tomorrow</string>
+    <string name="tasks_add_pick">Pick a day</string>
+    <string name="tasks_coach_order">In the coach\'s order</string>
     <string name="tasks_empty">All clear. No open tasks.</string>
     <string name="tasks_filter_empty">No tasks for this filter.</string>
-    <string name="tasks_just_added">Just added</string>
 
     <!-- Today additions -->
     <string name="today_empty">Nothing for today.</string>
@@ -1195,8 +1192,26 @@
     <string name="command_result_work_in_folder">Working in %1$s</string>
     <string name="command_result_stop_using_folder">No longer using %1$s</string>
     <string name="command_result_refresh_plan">Preparing today\'s plan</string>
-    <string name="command_result_sync_courses">Checking the courses</string>
     <string name="command_result_record_sleep">Sleep recorded: %2$s</string>
+    <string name="command_result_delete_task">Task deleted: %1$s</string>
+    <string name="command_result_mark_done">Marked as done: %1$s</string>
+    <string name="command_result_mark_removed">Removed from the lists: %1$s</string>
+    <string name="command_result_mark_open">Mark taken off: %1$s</string>
+    <string name="command_result_ask_course">Asked in a new chat: %1$s</string>
+    <string name="command_result_sync_started">Moodle sync started</string>
+    <string name="command_result_sync_running">A Moodle sync is already running</string>
+    <string name="command_result_sync_too_soon">A Moodle sync was started a moment ago</string>
+    <string name="command_result_sync_last">%1$s · last sync %2$s</string>
+    <string name="command_result_moodle_signin">Not signed in to Moodle. Sign in on the Courses screen.</string>
+    <string name="command_result_course_folder">This course has no synced folder on the computer yet.</string>
+    <string name="command_understood">Understood: %1$s</string>
+    <string name="command_understanding">Understanding…</string>
+    <string name="command_asking_coach">Asking the coach…</string>
+    <string name="command_coach_answer">Coach</string>
+    <string name="command_open_coach">Open the conversation</string>
+    <string name="command_coach_draft">The coach is busy. Your message is in its field.</string>
+    <string name="command_panel_close">Close the answer</string>
+    <string name="chat_speak">Speak your message</string>
     <string name="command_result_open">Opening %1$s</string>
     <string name="command_result_opening">Opening</string>
     <string name="command_result_new_chat">New chat</string>

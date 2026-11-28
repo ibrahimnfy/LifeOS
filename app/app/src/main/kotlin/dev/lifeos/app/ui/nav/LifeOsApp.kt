@@ -390,8 +390,13 @@ fun LifeOsApp(
                 openRoute(Routes.NOTES)
             }
             // The chats the bar opens start with the change permission it picked (#190).
+            // With `send` the text is the chat's first message, sent at once (#198).
             "new_chat" -> {
-                core.chat.newChat(draft = outcome.field("text"), capable = outcome.capable)
+                if (outcome.flag("send") && ChatSwitch.forwardOf(outcome.field("text")) != null) {
+                    core.chat.startFrom(null, outcome.field("text"), origin = null, capable = outcome.capable)
+                } else {
+                    core.chat.newChat(draft = outcome.field("text"), capable = outcome.capable)
+                }
                 openChat()
             }
             "ask_coach" -> {
@@ -419,7 +424,12 @@ fun LifeOsApp(
             }
             "new_chat_in" -> {
                 val folder = outcome.folder()?.let { runCatching { BridgeJson.decodeFromJsonElement(SwitchFolder.serializer(), it) }.getOrNull() }
-                core.chat.newChat(folder?.asFolder(), draft = outcome.field("text"), capable = outcome.capable && folder?.kind != FolderKinds.COURSE)
+                val capable = outcome.capable && folder?.kind != FolderKinds.COURSE
+                if (outcome.flag("send") && ChatSwitch.forwardOf(outcome.field("text")) != null) {
+                    core.chat.startFrom(folder?.asFolder(), outcome.field("text"), origin = null, capable = capable)
+                } else {
+                    core.chat.newChat(folder?.asFolder(), draft = outcome.field("text"), capable = capable)
+                }
                 openChat()
             }
             "open_course" -> outcome.number("course_id")?.let { id ->
@@ -454,6 +464,10 @@ fun LifeOsApp(
             undo = core::undoCommand,
             systemScreen = core::openingSystemScreen,
             perform = { performCommand(it) },
+            talk = { text, open ->
+                core.askCoach(text)
+                if (open) openCoach()
+            },
             leave = { answer: CommandAnswer ->
                 captureOpen = false
                 answer.results.filter { it.ok && it.performs in CommandBar.NAVIGATING }.forEach { performCommand(it) }
@@ -539,10 +553,8 @@ fun LifeOsApp(
                             onPair = openPair,
                             onConnectionClick = openSettings,
                             onOpenConsolidation = openConsolidation,
-                            onCommand = {
-                                capturePrefill = ""
-                                captureOpen = true
-                            },
+                            hooks = commandHooks,
+                            onOpenCoach = openCoach,
                             onToggleTheme = { onThemeChange(if (dark) ThemeSetting.LIGHT else ThemeSetting.DARK) },
                             // Each tile opens a screen the app already has; Back returns to the tiles.
                             onOpen = { tile, origin ->
@@ -589,6 +601,7 @@ fun LifeOsApp(
                         onPair = openPair,
                         onSessions = { navController.navigate(Routes.CHAT_SESSIONS) { launchSingleTop = true } },
                         onSwitch = switchTo,
+                        hooks = commandHooks,
                     )
                 }
             }

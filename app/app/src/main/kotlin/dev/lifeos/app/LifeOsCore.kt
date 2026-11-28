@@ -791,6 +791,30 @@ class LifeOsCore(private val app: Application) {
         }
     }
 
+    /** Work that must not end with the screen that started it (a request of the coach or the home's bar). */
+    fun inBackground(block: suspend () -> Unit) {
+        scope.launch { block() }
+    }
+
+    /**
+     * Conversation for the coach from outside its screen (#204, #205): the coach conversation
+     * is read if it was not yet, then [text] is sent (or put in line while the coach answers).
+     * [onDraft]: it could not be sent and waits in the coach's message field.
+     */
+    fun askCoach(text: String, onDraft: () -> Unit = {}) {
+        scope.launch {
+            if (!coach.state.value.loaded && !coach.state.value.loading) coach.load()
+            val ready = withTimeoutOrNull(COACH_READY_MILLIS) { coach.state.first { it.canSend || it.canQueue } }
+            if (ready == null || !coach.send(text)) {
+                coach.offerDraft(text)
+                onDraft()
+            }
+        }
+    }
+
+    /** What the interpreter did for messages written to the coach, as cards in its conversation (#204). */
+    val coachActs = androidx.compose.runtime.mutableStateListOf<dev.lifeos.app.ui.components.CoachAct>()
+
     /** Take one action of the bar back. True when the computer did. */
     suspend fun undoCommand(token: String): Boolean = try {
         api.commandUndo(token).undone.also { if (it) reloadState.value++ }
@@ -1481,6 +1505,9 @@ class LifeOsCore(private val app: Application) {
         const val CHECK_TIMEOUT_MILLIS = 20_000L
         const val SUBMIT_WAIT_MILLIS = 8_000L
         const val RECHECK_MILLIS = 60_000L
+
+        /** How long a message for the coach waits for its conversation to be read. */
+        const val COACH_READY_MILLIS = 15_000L
 
         /** When the network comes back: how often the computer is asked, and the pause in between. */
         const val NETWORK_BACK_CHECKS = 3

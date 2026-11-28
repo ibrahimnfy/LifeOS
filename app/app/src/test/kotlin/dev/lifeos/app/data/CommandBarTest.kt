@@ -126,4 +126,31 @@ class CommandBarTest {
         assertEquals("Wed 20 Jan", whenLabel("2027-01-20", locale, istanbul))
         assertNull(whenLabel(null, locale, istanbul))
     }
+
+    @Test
+    fun `a reply to the coach carries the coach's last message, and an answer says what it understood`() {
+        val said = "x".repeat(CommandBar.MAX_SAID) + " Shall I add it?"
+        val reply = CommandBar.body("d".repeat(32), "yes, add it", null, "en", now, coachSaid = said)
+        val sent = (reply["coach_said"] as JsonPrimitive).content
+        assertEquals(CommandBar.MAX_SAID, sent.length)
+        assertTrue(sent.endsWith("Shall I add it?"))
+        // Never with a pick (the question was the computer's own), never when there is none.
+        assertNull(CommandBar.body("e".repeat(32), null, "token", "en", now, coachSaid = said)["coach_said"])
+        assertNull(CommandBar.body("f".repeat(32), "hello", null, "en", now, coachSaid = " ")["coach_said"])
+
+        val both = BridgeJson.decodeFromString(
+            CommandAnswer.serializer(),
+            """{"request_id":"r","results":[{"action":"add_task","ok":true,"title":"Buy milk","undo":"t"}],"question":null,
+               "understood":"Add a task: buy milk","talk":"How did I sleep?","cannot":null}""",
+        )
+        assertEquals("Add a task: buy milk", both.understood)
+        assertEquals("How did I sleep?", both.talk)
+        assertTrue(CommandBar.shows(both))
+        val talk = BridgeJson.decodeFromString(CommandAnswer.serializer(), """{"results":[],"talk":"How are you?"}""")
+        assertFalse(CommandBar.shows(talk)) // only conversation: nothing for the bar to show
+        val cannot = BridgeJson.decodeFromString(CommandAnswer.serializer(), """{"results":[],"cannot":"The app cannot send e-mail."}""")
+        assertTrue(CommandBar.shows(cannot))
+        assertEquals("tr-TR", CommandBar.SPEECH_FIRST)
+        assertEquals(listOf("en-US"), CommandBar.SPEECH_ALSO.toList())
+    }
 }

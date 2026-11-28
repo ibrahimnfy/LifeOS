@@ -73,6 +73,12 @@ data class CommandAnswer(
     val question: CommandQuestion? = null,
     val previous: CommandPrevious? = null,
     val repeat: Boolean = false,
+    /** One sentence of what the computer understood the owner wants (#204); null for a pick. */
+    val understood: String? = null,
+    /** The part of the request that is conversation for the coach, in the owner's words (#204). */
+    val talk: String? = null,
+    /** What was asked that no action can do, and why (#204). */
+    val cannot: String? = null,
 )
 
 @Serializable
@@ -86,6 +92,13 @@ object CommandBar {
     /** The speech recogniser's language: the app's (Turkish or English), with a region. */
     fun speechLanguage(tag: String): String = if (language(tag) == "tr") "tr-TR" else "en-US"
 
+    /**
+     * What the recogniser listens for (#204, the owner's choice): Turkish first, English as an
+     * additional language, whatever the app's language is.
+     */
+    const val SPEECH_FIRST = "tr-TR"
+    val SPEECH_ALSO = arrayOf("en-US")
+
     /** Zone names the computer knows (as for reminders); others are left out. */
     private val REGION = Regex("[A-Za-z_]+(/[A-Za-z0-9_+-]+)+")
 
@@ -93,7 +106,15 @@ object CommandBar {
      * A request: [text] typed or spoken, or the [choice] of a question's option. [requestId] is
      * the phone's: a repeat after a lost answer gets the stored answer, nothing is done twice.
      */
-    fun body(requestId: String, text: String?, choice: String?, languageTag: String, now: ZonedDateTime, previous: CommandPrevious? = null): JsonObject = buildJsonObject {
+    fun body(
+        requestId: String,
+        text: String?,
+        choice: String?,
+        languageTag: String,
+        now: ZonedDateTime,
+        previous: CommandPrevious? = null,
+        coachSaid: String? = null,
+    ): JsonObject = buildJsonObject {
         put("request_id", JsonPrimitive(requestId))
         if (text != null) put("text", JsonPrimitive(text.trim().take(MAX_TEXT)))
         if (choice != null) put("choice", JsonPrimitive(choice))
@@ -107,7 +128,12 @@ object CommandBar {
                 put("question", JsonPrimitive(previous.question))
             })
         }
+        // A reply in the coach conversation (#204): the coach's last message, as context only.
+        if (text != null && !coachSaid.isNullOrBlank()) put("coach_said", JsonPrimitive(coachSaid.trim().takeLast(MAX_SAID)))
     }
+
+    /** Whether an answer did or asked anything the bar shows (results, a question, or what it cannot do). */
+    fun shows(answer: CommandAnswer): Boolean = answer.results.isNotEmpty() || answer.question != null || !answer.cannot.isNullOrBlank()
 
     /** The outcome that moves the owner to another screen (the bar then closes), if any. */
     fun navigation(answer: CommandAnswer): CommandOutcome? = answer.results.firstOrNull { it.ok && it.performs in NAVIGATING }
@@ -134,6 +160,7 @@ object CommandBar {
     )
 
     const val MAX_TEXT = 2000
+    const val MAX_SAID = 2000
 
     fun now(zone: ZoneId = ZoneId.systemDefault()): ZonedDateTime = ZonedDateTime.now(zone)
 }

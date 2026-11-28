@@ -884,6 +884,66 @@ Manual check (phone):
    again within two minutes (it says a sync was started a moment ago).
 5. TalkBack: on a task row the actions menu offers "Done" and "Delete".
 
+### 4.2 Asking: the coach, the home's bar and the microphone (#198, #204, #205, built)
+
+**One interpreter, three doors.** The "+" sheet's **Ask**, the home's bar and every message
+to the coach go to `POST /command`: a cheap model without tools turns the owner's words into
+actions of the registry. Its answer says what it **understood** (one line), what it **did**
+(one line per action, each with **Undo** when it can be taken back), what it **cannot** do,
+the part that is **talk**, and at most one question.
+
+- **Coach conversation.** A message is read by the interpreter first, with the coach's last
+  answer as context only (so "yes, add it" resolves). What is to be done is done and shown as
+  a card in the conversation: the owner's words, "Understood: …", the lines with Undo. What is
+  talk goes on to the coach as the message. A message can be both. The coach itself never
+  acts: an action only ever comes from the owner's own message. When the interpreter cannot
+  be reached or does not understand, the whole message is plain talk. The cards live on the
+  phone until the app ends; they are not part of the coach's transcript. The coach answers in
+  writing only.
+- **Home.** The bar at the bottom is a real message field with a microphone and send. The
+  answer shows in a panel above the bar, on the home: the same lines with Undo, the question
+  with its options, and for talk the coach's answer as it arrives, with "Open the
+  conversation". The panel closes with its ✕. Actions that open a screen still open it.
+- **The "+" sheet.** As before, plus the "Understood" line; talk goes to the coach (alone, it
+  opens the coach conversation).
+- **Chats the bar opens (#198).** `new_chat`, `work_in_folder` and `ask_course` send their
+  text at once as the chat's first message (a relayed message). A text too long to be sent
+  that way waits in the chat's field.
+- **Microphone.** In the coach conversation, in every chat's message field, in the home's bar
+  and in the "+" sheet: the phone's own recogniser (`RecognizerIntent`, prefer offline,
+  Turkish first with English as additional language; no microphone permission, no cost). In
+  chats and on the home the recognised text is sent by itself; in the "+" sheet it is put
+  into the field, because the sheet also saves notes and tasks.
+
+**Manual check (phone).**
+1. Home: type "yarın dişçiyi ara diye görev ekle" and send: the panel shows "Understood",
+   "Task added: …" and Undo; Undo removes the task. Speak "Moodle'u eşitle": the panel says the
+   sync started (or is running), with the last sync.
+2. Home: ask "bu hafta nasıl uyudum?": the panel shows "Asking the coach…" and then the
+   coach's answer; "Open the conversation" shows the same exchange.
+3. Coach: write "yarın 10'da toplantı ekle, bir de bugün neye odaklanmalıyım?": a card with the
+   event and Undo appears, and the question goes to the coach. Answer a proposal of the coach
+   with "evet ekle": the proposed thing is added by a card, with Undo.
+4. Any chat: tap the microphone, speak: the message is sent without touching send.
+5. "+" → Ask: "open a chat and explain the HW2 file" (with a synced course): a chat opens in
+   the course's folder and the question is already sent, with the assignment's files named.
+
+### 4.3 Tasks screen (#210, built: the owner's choice A)
+
+A quick-add field on top (title, then Add or the keyboard's Done; while a title is written
+the chips Today, Tomorrow and "Pick a day" choose its date, none means no date). Below it the
+open tasks in four groups, **Overdue, Today, Upcoming, No date**, one card per group under a
+header with the count that stays at the top while its group scrolls. Rows are at least 64 dp
+high. A tap opens the task's **edit page** at once (title, date, note, Save; under them the
+coach's next step, Mark as done and Delete). Swipe right completes, swipe left deletes, each
+with Undo (4.1). Inside a group the coach's order is kept when there is a plan; "In the
+coach's order" at the bottom opens the plan's own list.
+
+**Manual check (phone).** Add "Süt al" with "Tomorrow": it appears under Upcoming, also
+offline ("Waiting to sync"). Tap it: the edit page opens; change the date to today and save:
+it moves to Today. Swipe it right, then Undo; swipe it left, then Undo. Scroll a long list:
+the group's header stays on top.
+
 ## 5. Visual direction
 
 The owner chose none of the first three proposals (A, B, C below, kept here

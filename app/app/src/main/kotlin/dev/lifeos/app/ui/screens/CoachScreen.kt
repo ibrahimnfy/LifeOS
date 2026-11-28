@@ -37,6 +37,11 @@ import dev.lifeos.app.data.CoachChatView
 import dev.lifeos.app.data.JobUsage
 import dev.lifeos.app.data.UsageNumbers
 import dev.lifeos.app.ui.components.MarkdownText
+import dev.lifeos.app.data.CommandBar
+import dev.lifeos.app.ui.components.Ask
+import dev.lifeos.app.ui.components.AskPhase
+import dev.lifeos.app.ui.components.CoachAct
+import dev.lifeos.app.ui.components.CommandHooks
 import dev.lifeos.app.ui.components.SecondaryButton
 import dev.lifeos.app.ui.components.TopBar
 import dev.lifeos.app.ui.components.TopBarAction
@@ -63,6 +68,8 @@ fun CoachScreen(
     onSessions: () -> Unit,
     /** Another conversation the coach was asked to open (#164): it opens in Chat. */
     onSwitch: (dev.lifeos.app.data.ChatSwitch) -> Unit = {},
+    /** The command interpreter and the app's way to do what it hands over (#204); null: plain conversation. */
+    hooks: CommandHooks? = null,
 ) {
     val chat = core.coach
     val state by chat.state.collectAsStateWithLifecycle()
@@ -83,7 +90,46 @@ fun CoachScreen(
             actions = { TopBarAction(LifeIcons.Activity, stringResource(R.string.coach_about), enabled = view != null, onClick = { about = true }) },
         )
         if (view != null) UsageStrip(view, onClick = { about = true })
-        ConversationPane(core, chat, onPair = onPair, onSessions = onSessions, onSwitch = onSwitch, modes = false, empty = { CoachEmpty(view, it) })
+        // Every message passes the command interpreter first (#204): what is to be done is done
+        // (shown as a card with Undo), what is talk goes on to the coach. The interpreter gets
+        // the coach's last answer as context only, so "yes, add it" can be resolved; an action
+        // never comes from the coach itself. A request the interpreter could not answer (no
+        // connection, not understood) is plain talk.
+        val languageTag = appLocale().toLanguageTag()
+        val route: ((String) -> Unit)? = hooks?.let { known ->
+            { text ->
+                val said = chat.state.value.messages.lastOrNull { !it.fromOwner && it.text.isNotBlank() }?.text
+                val last = chat.state.value.messages.lastOrNull()?.key
+                val id = System.nanoTime()
+                lateinit var act: CoachAct
+                val ask = Ask(
+                    launch = core::inBackground,
+                    hooks = known,
+                    languageTag = { languageTag },
+                    perform = known.perform,
+                    onTalk = { talk -> core.askCoach(talk) },
+                    coachSaid = { said },
+                    onFailed = { whole, _ ->
+                        core.coachActs.remove(act)
+                        core.askCoach(whole)
+                        true
+                    },
+                )
+                act = CoachAct(id, last, text.trim(), ask)
+                core.coachActs.add(act)
+                while (core.coachActs.size > MAX_ACTS) core.coachActs.removeAt(0)
+                ask.send(text)
+            }
+        }
+        // A message that was only talk leaves no card: its bubble in the conversation is the message.
+        val acts = core.coachActs.filter { act ->
+            val phase = act.ask.phase
+            phase !is AskPhase.Answered || CommandBar.shows(phase.answer)
+        }
+        ConversationPane(
+            core, chat, onPair = onPair, onSessions = onSessions, onSwitch = onSwitch, modes = false, empty = { CoachEmpty(view, it) },
+            route = route, acts = acts,
+        )
     }
     if (about && view != null && !locked) {
         CoachSheet(
@@ -234,3 +280,6 @@ private fun SheetHeading(text: String) {
             .semantics { heading() },
     )
 }
+
+/** The cards of interpreted coach messages kept on the phone (they live until the app ends). */
+private const val MAX_ACTS = 30
