@@ -69,6 +69,10 @@ is the words that name the chat (its subject, title or folder), message is X in 
 words, self-contained, without the part that names the chat. Never do X yourself with other \
 actions and never answer it. Work to do in a folder is work_in_folder with text; a question \
 or work for a new chat is new_chat with text.
+- A chat about a course, an assignment (homework, "HW2", "ödev") or a course's files is \
+ask_course, never new_chat: assignment or course is the owner's words that name it, text is \
+what to ask or do there ("open a chat and explain the HW2 file": assignment "HW2", text \
+"explain the file").
 - new_chat, continue_chat and work_in_folder take "changes", the only chat setting you pick. \
 Decide it from the owner's request alone: "may_change" only when the request clearly asks for \
 work that edits, creates or deletes files or runs commands (fix, implement, write the code, \

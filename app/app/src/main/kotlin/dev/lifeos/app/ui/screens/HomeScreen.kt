@@ -409,12 +409,22 @@ fun HomeScreen(
             val languageTag = appLocale().toLanguageTag()
             val coachBusy = stringResource(R.string.command_coach_draft)
             val showMessage = LocalSnackbar.current
-            val ask = remember(hooks) {
+            // One Ask for as long as the home is shown: the app's hooks are a new object on every
+            // recomposition of the root, so they are read through a state and never a key.
+            val currentHooks by rememberUpdatedState(hooks)
+            val currentLanguage by rememberUpdatedState(languageTag)
+            val ask = remember {
                 Ask(
                     launch = core::inBackground,
-                    hooks = hooks,
-                    languageTag = { languageTag },
-                    perform = hooks.perform,
+                    hooks = CommandHooks(
+                        run = { currentHooks.run(it) },
+                        newRequestId = { currentHooks.newRequestId() },
+                        undo = { currentHooks.undo(it) },
+                        perform = { currentHooks.perform(it) },
+                        leave = {},
+                    ),
+                    languageTag = { currentLanguage },
+                    perform = { currentHooks.perform(it) },
                     onTalk = { talk -> core.askCoach(talk) { showMessage(coachBusy) } },
                 )
             }
