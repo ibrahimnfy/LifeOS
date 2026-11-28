@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+"""Conversations of a folder that were started from the phone, to continue in a terminal.
+
+  scripts/phone-chats               list them for the current folder, newest first
+  scripts/phone-chats <folder>      the same for another folder
+  scripts/phone-chats -r [N]        continue the N-th of the list here (default: the newest)
+
+Why: Claude Code's own list (`claude --resume` without an id, `/resume`) leaves out
+every session that was started through the Agent SDK or `claude -p`, which is how the
+LifeOS bridge starts a conversation from the phone. Such a session is stored in its
+folder like any other and resumes by id: `claude --resume <id>`. This script shows
+exactly those sessions with their ids. A session that was started in a terminal and
+continued from the phone is in Claude Code's own list already.
+
+Reads only the beginning and end of the transcripts under ~/.claude/projects (or
+$CLAUDE_CONFIG_DIR/projects). Titles are the owner's own words; they are printed to
+this terminal and nowhere else. Needs only Python 3.
+"""
+
+import argparse
+import json
+import os
+import re
+import shlex
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HEAD_BYTES = 256 * 1024
+TAIL_BYTES = 256 * 1024
+TITLE_KEYS = ("customTitle", "aiTitle", "summary")
+SESSION_ID = re.compile(r"^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
+TITLE_LENGTH = 70
+
+
+def projects_dir() -> Path:
+    base = os.environ.get("CLAUDE_CONFIG_DIR")
+    return (Path(base) if base else Path.home() / ".claude") / "projects"
+
+
+def json_lines(chunk: bytes) -> list[dict]:
+    found = []
+    for raw in chunk.splitlines():
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            continue  # a line cut by the chunk's edge, or not JSON
+        if isinstance(line, dict):
+            found.append(line)
+    return found
+
+
+def prompt_text(line: dict) -> str | None:
+    message = line.get("message")
+    if line.get("type") != "user" or not isinstance(message, dict):
+        return None
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = [b.get("text") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+        return next((t for t in texts if isinstance(t, str) and t.strip()), None)
+    return None
+
+
+def read_session(path: Path) -> dict | None:
+    """Id, title and last activity of a transcript that Claude Code's own list hides."""
+    if not SESSION_ID.match(path.stem):
+        return None
+    try:
+        size = path.stat().st_size
+        modified = path.stat().st_mtime
+        with path.open("rb") as handle:
+            head = handle.read(HEAD_BYTES)
+            tail = b""
+            if size > HEAD_BYTES:
+                handle.seek(max(HEAD_BYTES, size - TAIL_BYTES))
+                tail = handle.read()
+    except OSError:
+        return None
+    head_lines, tail_lines = json_lines(head), json_lines(tail)
+    # The list goes by how the session was started: the entry point of its first line.
+    started = next((line["entrypoint"] for line in head_lines if "entrypoint" in line), None)
+    if not isinstance(started, str) or not started.startswith("sdk-"):
+        return None
+    title = None
+    for line in reversed(head_lines + tail_lines):  # the latest title wins
+        named = (line[k] for k in TITLE_KEYS if isinstance(line.get(k), str) and line[k])
+        title = next(named, None)
+        if title:
+            break
+    if not title:
+        title = next((text for line in head_lines if (text := prompt_text(line))), None)
+    title = " ".join((title or "(untitled)").split())
+    if len(title) > TITLE_LENGTH:
+        title = title[: TITLE_LENGTH - 1] + "…"
+    return {"id": path.stem, "title": title, "modified": modified}
+
+
+def sessions_of(folder: Path) -> list[dict]:
+    directory = projects_dir() / re.sub(r"[^A-Za-z0-9]", "-", str(folder))
+    try:
+        files = list(directory.glob("*.jsonl"))
+    except OSError:
+        return []
+    found = [info for path in files if (info := read_session(path)) is not None]
+    return sorted(found, key=lambda info: info["modified"], reverse=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Conversations of a folder that were started from the phone."
+    )
+    parser.add_argument("folder", nargs="?", default=".", help="the folder (default: this one)")
+    parser.add_argument(
+        "-r", "--resume", nargs="?", type=int, const=1, metavar="N",
+        help="continue the N-th of the list in this terminal (default: the newest)",
+    )  # fmt: skip
+    args = parser.parse_args()
+    folder = Path(args.folder).expanduser().resolve()
+    if not folder.is_dir():
+        print(f"not a folder: {folder}", file=sys.stderr)
+        return 2
+    found = sessions_of(folder)
+    if not found:
+        print("No conversation in this folder was started from the phone.")
+        return 0
+    if args.resume is not None:
+        if not 1 <= args.resume <= len(found):
+            print(f"there are {len(found)} conversations; pick 1 to {len(found)}", file=sys.stderr)
+            return 2
+        os.chdir(folder)
+        os.execvp("claude", ["claude", "--resume", found[args.resume - 1]["id"]])  # noqa: S606, S607
+    here = folder == Path.cwd().resolve()
+    for number, info in enumerate(found, 1):
+        when = datetime.fromtimestamp(info["modified"]).strftime("%Y-%m-%d %H:%M")
+        command = f"claude --resume {info['id']}"
+        if not here:
+            command = f"cd {shlex.quote(str(folder))} && {command}"
+        print(f"{number:>3}  {when}  {info['title']}\n       {command}")
+    print("\nContinue one here: scripts/phone-chats -r <number>")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

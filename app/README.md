@@ -1607,6 +1607,30 @@ Paired (no model run is started by any step), or on an emulator with the
 7. Flight mode, then **Pin**: "Not changed: the computer cannot be reached
    right now." and the list is as before.
 
+### Continuing a chat on the computer and back (#201)
+
+Paired, with a chat that was started from the phone in a project folder
+(steps 3 and 4 each start one short model run in the terminal):
+
+1. In the chat, open its sheet (the dots above the composer) → the last row
+   is **Continue on the computer**; tap it: a note, the line
+   `cd <folder> && claude --resume <id>` (selectable) and **Copy the
+   command**; the button then says "Copied". A folder whose path has a space
+   is in single quotes. The coach conversation's sheet has no such row.
+2. On the computer, in that folder: `claude --resume` (the list) does **not**
+   show the chat; this is Claude Code's own rule for conversations started
+   outside a terminal. `scripts/phone-chats` lists it with the same line,
+   and `scripts/phone-chats -r` opens the newest one.
+3. Paste the copied line into a terminal: the conversation opens with its
+   earlier messages. Write one message there, wait for the answer, and leave
+   Claude Code (while it is open there, a message from the phone is refused).
+4. On the phone, with the chat still on screen from step 1: leave the app
+   and come back (or open another tab and return): within a moment the
+   message and answer from the terminal are in the thread. Nothing flickers
+   when nothing new was written.
+5. Send a message from the phone: the answer continues the same
+   conversation, with what was said in the terminal.
+
 ### Moving between conversations by asking, and a chat's files (#163, #164, #168)
 
 Paired with a bridge that has #163 and #164, in a new blank chat (each step
