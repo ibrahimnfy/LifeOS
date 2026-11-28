@@ -1720,7 +1720,8 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.patch("/notes/{note_id}")
     async def update_note(note_id: str, request: Request):
-        """Change the text of a captured note. Body: ``{"text": str}``."""
+        """Change the text of a note. Body: ``{"text": str}``. A capture gets a new id
+        with its text; a topic note keeps its id and its front matter (#202)."""
         data = await read_json_object(request)
         return await asyncio.to_thread(memory.update_note, brain, note_id, data.get("text"))
 

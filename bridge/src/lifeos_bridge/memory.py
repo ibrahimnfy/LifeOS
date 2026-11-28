@@ -26,6 +26,7 @@ from .claude import ClaudeError
 LOCK = threading.RLock()
 GIT_IDENTITY = ("-c", "user.name=lifeos-bridge", "-c", "user.email=lifeos-bridge@localhost")
 MAX_TEXT = 4000
+MAX_TOPIC_TEXT = 20000  # the body of a topic note edited from the phone (#202)
 MAX_TITLE = 200
 CONTEXT_LIMIT = 60_000  # characters of memory added to a prompt
 
@@ -320,15 +321,51 @@ def _filed_entries(text: str) -> list[dict]:
     return [e for e in entries if e["filed_in"]]
 
 
+TOPIC_STEM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,80}$")
+_DIGEST_STEM = re.compile(r"^x[0-9a-f]{16}$")
+
+
+def _topic_id(stem: str) -> str:
+    """The id of a topic note: ``n-`` and its file name, when that fits the form of an id.
+
+    A file with any other name (an underscore, a space, a letter outside ASCII: files made
+    by hand) gets ``n-x`` and a digest of its name, so that it can be opened, edited and
+    deleted like every other note of the list (#202)."""
+    if TOPIC_STEM.fullmatch(stem) and not _DIGEST_STEM.fullmatch(stem):
+        return f"n-{stem}"
+    return "n-x" + hashlib.sha256(stem.encode()).hexdigest()[:16]
+
+
+def _topic_file(folder: Path, note_id: str) -> Path | None:
+    """The file in ``folder`` (the notes, or their trash) that ``note_id`` names."""
+    if not folder.is_dir():
+        return None
+    root = folder.resolve()
+    for path in sorted(folder.glob("*.md")):
+        if path.name == "README.md" or not path.is_file():
+            continue
+        if path.resolve().is_relative_to(root) and _topic_id(path.stem) == note_id:
+            return path
+    return None
+
+
+def _split_topic(text: str) -> tuple[str, str]:
+    """``(front matter with its closing line, body)``; no front matter: ``("", text)``."""
+    if text.startswith("---") and "\n---" in text[3:]:
+        head, body = text.split("\n---", 1)
+        return head + "\n---", body
+    return "", text
+
+
 def _topic_note(path: Path) -> dict:
     text = read_text(path)
-    body = text.split("\n---", 1)[1] if text.startswith("---") and "\n---" in text[3:] else text
+    body = _split_topic(text)[1]
     title = re.search(r"^title:\s*(.+)$", text, re.MULTILINE) if text.startswith("---") else None
     updated = (
         re.search(r"^updated:\s*(\S+)$", text, re.MULTILINE) if text.startswith("---") else None
     )
     return {
-        "id": f"n-{path.stem}",
+        "id": _topic_id(path.stem),
         "kind": "topic",
         "title": (title.group(1).strip() if title else path.stem)[:MAX_TITLE],
         "at": updated.group(1) if updated else None,
@@ -366,9 +403,9 @@ def get_note(memory: Path, note_id: str) -> dict:
     if not NOTE_ID.fullmatch(note_id):
         raise ClaudeError("note_not_found", 404, "unknown note")
     if note_id.startswith("n-"):
-        for path in _note_files(memory):
-            if path.stem == note_id[2:]:
-                return _topic_note(path)
+        path = _topic_file(memory / "notes", note_id)
+        if path is not None:
+            return _topic_note(path)
     else:
         for entry in _inbox_entries(read_text(memory / "inbox.md")):
             if entry["id"] == note_id:
@@ -381,14 +418,37 @@ def get_note(memory: Path, note_id: str) -> dict:
     raise ClaudeError("note_not_found", 404, "unknown note")
 
 
+def _update_topic_note(memory: Path, note_id: str, text: str) -> dict:
+    """Replace the body of a topic note (#202). Its front matter stays (``updated`` gets
+    today's date when it has one), and so does its id: that is its file's name."""
+    if len(text) > MAX_TOPIC_TEXT:
+        raise bad(f"`text` is longer than {MAX_TOPIC_TEXT} characters")
+    with LOCK:
+        check_repo(memory)
+        path = _topic_file(memory / "notes", note_id)
+        if path is None:
+            raise ClaudeError("note_not_found", 404, "unknown note")
+        front, _body = _split_topic(read_text(path))
+        if front:
+            today = now_local().date().isoformat()
+            front = re.sub(r"^updated:\s*\S+$", f"updated: {today}", front, count=1, flags=re.M)
+        body = "\n".join(line.rstrip() for line in text.strip().splitlines())
+        write_text(path, (front + "\n\n" if front else "") + body + "\n")
+        commit(memory, "Edit a note", [f"notes/{path.name}"])
+        return _topic_note(path)
+
+
 def update_note(memory: Path, note_id: str, text: object) -> dict:
-    """Change the text of an inbox capture. Its id changes with its text."""
+    """Change the text of a note: an inbox capture (its id changes with its text) or the
+    body of a topic note (its id stays). A filed capture is in no list and stays as it is."""
     if not isinstance(text, str) or not text.strip():
         raise bad("`text` must be non-empty text")
+    if note_id.startswith("n-"):
+        if not NOTE_ID.fullmatch(note_id):
+            raise ClaudeError("note_not_found", 404, "unknown note")
+        return _update_topic_note(memory, note_id, text)
     if len(text) > MAX_TEXT:
         raise bad(f"`text` is longer than {MAX_TEXT} characters")
-    if note_id.startswith("n-"):
-        raise bad("topic notes are edited on the computer for now")
     with LOCK:
         check_repo(memory)
         path = memory / "inbox.md"
@@ -449,7 +509,7 @@ def delete_note(memory: Path, note_id: str) -> dict:
     with LOCK:
         check_repo(memory)
         if note_id.startswith("n-"):
-            source = next((p for p in _note_files(memory) if p.stem == note_id[2:]), None)
+            source = _topic_file(memory / "notes", note_id)
             if source is None:
                 raise ClaudeError("note_not_found", 404, "unknown note")
             folder = memory / TRASH_NOTES
@@ -495,20 +555,19 @@ def restore_note(memory: Path, note_id: str) -> dict:
     with LOCK:
         check_repo(memory)
         if note_id.startswith("n-"):
-            stem = note_id[2:]
-            source = memory / TRASH_NOTES / f"{stem}.md"
-            target = memory / "notes" / f"{stem}.md"
-            if not source.is_file():  # the id's form allows no path separator or dot
-                if target.is_file():
+            # Found by its id among the files that are there: never a path made from the id.
+            source = _topic_file(memory / TRASH_NOTES, note_id)
+            if source is None:
+                if _topic_file(memory / "notes", note_id) is not None:
                     return get_note(memory, note_id) | {"restored": True, "repeat": True}
                 raise ClaudeError("note_not_found", 404, "unknown note")
+            target = memory / "notes" / source.name
             if target.exists():
                 raise ClaudeError("note_exists", 409, "a note with this name exists again")
             target.parent.mkdir(parents=True, exist_ok=True)
+            trashed = f"{TRASH_NOTES}/{source.name}"
             source.replace(target)
-            commit(
-                memory, "Restore a deleted note", [f"notes/{stem}.md", f"{TRASH_NOTES}/{stem}.md"]
-            )
+            commit(memory, "Restore a deleted note", [f"notes/{target.name}", trashed])
             reminders.note_restored(note_id)
             return get_note(memory, note_id) | {"restored": True, "repeat": False}
         trash = memory / DELETED_FILE
