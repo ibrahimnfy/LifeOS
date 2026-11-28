@@ -8,8 +8,11 @@ sealed interface MdBlock {
     /** A list item: [marker] is "•" or the item's own number ("2."); [level] 0 is the outermost list. */
     data class Item(val marker: String, val level: Int, val text: String) : MdBlock
 
-    /** A fenced block, shown in a fixed-width font exactly as written. */
-    data class Code(val text: String) : MdBlock
+    /**
+     * A fenced block, shown in a fixed-width font exactly as written. [language]: the word
+     * after the opening fence ("kotlin", "bash"), when there is one; it only labels the block.
+     */
+    data class Code(val text: String, val language: String? = null) : MdBlock
 }
 
 /** A run of text inside a block. [link]: a web address the text leads to. */
@@ -23,7 +26,8 @@ data class MdSpan(val text: String, val bold: Boolean = false, val code: Boolean
  * with an open fence, an open `**` or half a link, is shown as far as it goes.
  */
 object Markdown {
-    private val FENCE = Regex("^\\s*(```|~~~).*$")
+    private val FENCE = Regex("^\\s*(`{3,}|~{3,})(.*)$")
+    private val LANGUAGE = Regex("^[A-Za-z0-9+#._-]{1,24}")
     private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
     private val BULLET = Regex("^(\\s*)[-*+•]\\s+(.*)$")
     private val NUMBERED = Regex("^(\\s*)(\\d{1,4})[.)]\\s+(.*)$")
@@ -37,6 +41,8 @@ object Markdown {
         val blocks = mutableListOf<MdBlock>()
         val paragraph = StringBuilder()
         var code: StringBuilder? = null
+        var fence = ""
+        var language: String? = null
         var inItem = false
 
         fun flush() {
@@ -46,19 +52,23 @@ object Markdown {
 
         for (line in text.replace("\r\n", "\n").split('\n')) {
             val open = code
+            // "```code```" on one line is inline code, not a fence.
+            val marker = FENCE.matchEntire(line)?.takeUnless { it.groupValues[1][0] == '`' && '`' in it.groupValues[2] }
             if (open != null) {
-                if (FENCE.matches(line)) {
-                    blocks += MdBlock.Code(open.toString().trimEnd('\n'))
+                if (marker != null && closes(marker, fence)) {
+                    blocks += MdBlock.Code(open.toString().trimEnd('\n'), language)
                     code = null
                 } else {
                     open.append(line).append('\n')
                 }
                 continue
             }
-            if (FENCE.matches(line)) {
+            if (marker != null) {
                 flush()
                 inItem = false
                 code = StringBuilder()
+                fence = marker.groupValues[1]
+                language = LANGUAGE.find(marker.groupValues[2].trim())?.value
                 continue
             }
             if (line.isBlank()) {
@@ -99,8 +109,17 @@ object Markdown {
         }
         flush()
         // A fence that is still open (the answer is being written): what there is so far.
-        code?.let { blocks += MdBlock.Code(it.toString().trimEnd('\n')) }
+        code?.let { blocks += MdBlock.Code(it.toString().trimEnd('\n'), language) }
         return blocks
+    }
+
+    /**
+     * A fence closes the block that [opened] with the same mark, at least as long, and
+     * nothing after it: so a block can show shorter fences, and "```text", as its content.
+     */
+    private fun closes(marker: MatchResult, opened: String): Boolean {
+        val mark = marker.groupValues[1]
+        return mark[0] == opened[0] && mark.length >= opened.length && marker.groupValues[2].isBlank()
     }
 
     private fun level(indent: String): Int = (indent.replace("\t", "  ").length / 2).coerceAtMost(MAX_LEVEL)

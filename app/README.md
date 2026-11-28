@@ -1853,6 +1853,25 @@ On an emulator with `sample_data`: a session without the switch lists
 three folder entries come first and the personal "summarise" is completed as
 `/personal:summarise `.
 
+### Copying messages and code blocks (#208)
+
+1. In a conversation with an answer, tap the small copy icon under the
+   answer: it turns into a check mark for two seconds (on Android 13 and
+   later the system also shows its own clipboard note). Paste in another
+   app: the answer arrives as it was written, with its Markdown marks.
+2. Tap the copy icon under one of your own messages and paste: your text.
+   A long press on a bubble still selects a part of the text.
+3. Ask for something with code ("show a short bash script and a JSON
+   example, each in its own code block"). Each block has a header with its
+   language on the left and **Copy** on the right; **Copy** turns into
+   **Copied** and a paste gives exactly that block's content, without the
+   fences. A long line scrolls sideways inside its block.
+4. While an answer is being written neither its copy icon nor the **Copy**
+   of its blocks is there; they appear when the answer is complete. An
+   answer that was cut off can be copied as far as it goes.
+5. The same in the coach conversation. With TalkBack the controls are read
+   as "Copy message" and "Copy code", and "Copied" after a tap.
+
 ### Files in chat
 
 1. In a conversation in a folder with a small text file (there is no folder
