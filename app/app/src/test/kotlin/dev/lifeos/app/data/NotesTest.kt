@@ -33,8 +33,9 @@ class NotesTest {
         transport.answer("GET /notes/i-aaaaaaaaaaaa", 200, """{"id":"i-aaaaaaaaaaaa","kind":"inbox","title":null,"at":"2027-01-15 09:30","text":"First line\nsecond line"}""")
         val notes = api.get(Endpoints.notes).first.notes
         assertEquals(listOf("i-aaaaaaaaaaaa", "n-sample-topic"), notes.map { it.id })
+        // Every note of the list can be edited (#202): a capture and a topic note.
         assertTrue(notes[0].editable)
-        assertFalse(notes[1].editable)
+        assertTrue(notes[1].editable && notes[1].topic && !notes[0].topic)
         assertEquals(emptyMap<String, String>(), transport.calls.last().query)
 
         api.get(Endpoints.noteSearch("sample"))
@@ -86,14 +87,15 @@ class NotesTest {
     }
 
     @Test
-    fun `a capture can be edited unless an earlier edit is already on its way, a topic note never`() {
+    fun `a capture can be edited unless an earlier edit is already on its way`() {
         val notes = BridgeJson.decodeFromString(NoteList.serializer(), listAnswer).notes
         val capture = notes[0]
         assertTrue(NoteLists.canEdit(capture, emptyList()))
         assertTrue(NoteLists.canEdit(capture, listOf(edit(capture.id, "waiting"))))
         assertFalse(NoteLists.canEdit(capture, listOf(edit(capture.id, "sending", sending = true))))
         assertFalse(NoteLists.canEdit(capture, listOf(edit(capture.id, "unclear", OutboxItem.State.CHECK))))
-        assertFalse(NoteLists.canEdit(notes[1], emptyList()))
+        // A topic note too (#202; see ListActionsTest for its rules).
+        assertTrue(NoteLists.canEdit(notes[1], emptyList()))
     }
 
     @Test

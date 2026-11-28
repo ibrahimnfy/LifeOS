@@ -149,6 +149,27 @@ class Api(private val transport: Transport) {
         call("POST", "/tasks/$id/complete", timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }
 
+    /** A finished task back among the open ones (the undo of a tick that already left the phone). */
+    suspend fun reopenTask(id: String) {
+        call("POST", "/tasks/$id/reopen", timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
+    /** Move an open task to the computer's trash (#197). A task that is not open answers 404. */
+    suspend fun deleteTask(id: String) {
+        call("DELETE", "/tasks/$id", timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
+    /** Bring a deleted task back (the undo of a deletion that already left the phone). */
+    suspend fun restoreTask(id: String) {
+        call("POST", "/tasks/$id/restore", timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
+    /** Mark a course assignment by hand (#196): "done", "removed", or null to take the mark off. */
+    suspend fun markAssignment(courseId: Long, assignmentId: Long, mark: String?) {
+        val body = buildJsonObject { put("mark", mark?.let { JsonPrimitive(it) } ?: JsonNull) }
+        call("PUT", "/courses/$courseId/assignments/$assignmentId/mark", body = body, timeoutMillis = WRITE_TIMEOUT_MILLIS)
+    }
+
     suspend fun createEvent(draft: EventDraft) {
         call("POST", "/events", body = draft.createBody(), timeoutMillis = WRITE_TIMEOUT_MILLIS)
     }

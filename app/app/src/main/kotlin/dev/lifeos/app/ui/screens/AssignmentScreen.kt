@@ -34,7 +34,9 @@ import dev.lifeos.app.R
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.Assignment
 import dev.lifeos.app.data.AssignmentDetail
+import dev.lifeos.app.data.AssignmentMarks
 import dev.lifeos.app.data.AssignmentMatch
+import dev.lifeos.app.data.OutboxItem
 import dev.lifeos.app.data.Dates
 import dev.lifeos.app.data.Endpoints
 import dev.lifeos.app.ui.components.MarkdownText
@@ -120,8 +122,10 @@ fun AssignmentScreen(
                     .padding(top = 6.dp, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
+                OutboxNotices(core, setOf(OutboxItem.Kind.ASSIGNMENT_MARK))
                 StateHost(state, stringResource(R.string.assignment_not_found), onRetry = model::refresh, onPair = onPair, skeletonRows = 4) { item: AssignmentDetail ->
                     DueTicket(courseId, item)
+                    MarkByHand(core, courseId, item)
                     if (item.description.isNotBlank()) {
                         LifeCard {
                             SectionHeader(title = stringResource(R.string.assignment_instructions), icon = LifeIcons.Notes)
@@ -140,6 +144,63 @@ fun AssignmentScreen(
                     SubmissionCard(item)
                 }
             }
+        }
+    }
+}
+
+/**
+ * The owner's own mark (#196): "Done" for work that is finished or handed in another way (the
+ * site never shows paper as submitted), "Remove" to drop it from the lists. A marked
+ * assignment says so and offers the way back. The mark is shown at once and sent through the
+ * outbox; its task and its deadline follow on the computer.
+ */
+@Composable
+private fun MarkByHand(core: LifeOsCore, courseId: Long, item: AssignmentDetail) {
+    val colors = LifeTheme.colors
+    val outbox by core.outbox.items.collectAsStateWithLifecycle()
+    val undo = LocalUndo.current
+    val shown = AssignmentMarks.shown(item.id, item.mark, outbox)
+    val waiting = AssignmentMarks.pending(item.id, outbox) != null
+    val doneMessage = stringResource(R.string.tasks_done_message)
+    val removedMessage = stringResource(R.string.assignment_removed_message)
+    val backMessage = stringResource(R.string.assignment_back_message)
+    fun mark(mark: String?) {
+        core.markAssignment(courseId, item.id, mark, item.mark, item.name)
+        val message = when (mark) {
+            AssignmentMarks.DONE -> doneMessage
+            AssignmentMarks.REMOVED -> removedMessage
+            else -> backMessage
+        }
+        undo(message) { core.undoMark(courseId, item.id, shown, item.name) }
+    }
+    if (shown == null) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryButton(text = stringResource(R.string.assignment_done), onClick = { mark(AssignmentMarks.DONE) }, modifier = Modifier.weight(1f))
+            SecondaryButton(text = stringResource(R.string.assignment_remove), danger = true, onClick = { mark(AssignmentMarks.REMOVED) }, modifier = Modifier.weight(1f))
+        }
+        Text(stringResource(R.string.assignment_mark_hint), style = LifeType.small, color = colors.muted)
+        return
+    }
+    val done = shown == AssignmentMarks.DONE
+    LifeCard {
+        MarkRow(
+            title = stringResource(if (done) R.string.assignment_marked_done else R.string.assignment_marked_removed),
+            subtitle = listOfNotNull(
+                item.markedOn?.takeIf { item.mark == shown }?.let { dueLabel(it) ?: it },
+                stringResource(R.string.outbox_waiting).takeIf { waiting },
+            ).joinToString(" · ").ifEmpty { null },
+        ) {
+            if (done) CheckMark(true) else IconMark(LifeIcons.Trash)
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SecondaryButton(
+            text = stringResource(if (done) R.string.assignment_take_back else R.string.assignment_put_back),
+            onClick = { mark(null) },
+            modifier = Modifier.weight(1f),
+        )
+        if (done) {
+            SecondaryButton(text = stringResource(R.string.assignment_remove), danger = true, onClick = { mark(AssignmentMarks.REMOVED) }, modifier = Modifier.weight(1f))
         }
     }
 }

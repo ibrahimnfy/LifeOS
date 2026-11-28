@@ -87,8 +87,12 @@ object TaskLists {
      * alone carries none).
      */
     fun open(tasks: List<Task>, outbox: List<OutboxItem>, justTicked: Set<String> = emptySet()): List<Task> {
-        val ticked = outbox.filter { it.kind == OutboxItem.Kind.COMPLETE && it.state != OutboxItem.State.FAILED }.mapNotNull { it.taskId }.toSet()
-        return tasks.filter { !it.done && it.id !in ticked && it.id !in justTicked }.map { task ->
+        // Ticked or deleted here (#197), and waiting or unclear: gone from the lists already.
+        val ticked = outbox.filter { (it.kind == OutboxItem.Kind.COMPLETE || it.kind == OutboxItem.Kind.TASK_DELETE) && it.state != OutboxItem.State.FAILED }
+            .mapNotNull { it.taskId }.toSet()
+        // The task of an assignment the owner just marked done or removed (#196) goes with it.
+        val marked = AssignmentMarks.closedTaskMarkers(outbox)
+        return tasks.filter { !it.done && it.id !in ticked && it.id !in justTicked && it.assignment?.trim() !in marked }.map { task ->
             val edited = pendingEdit(task.id, outbox)?.let { task.copy(title = it.text, due = it.due) } ?: task
             pendingNote(task.id, outbox)?.let { edited.copy(note = TaskNote.of(it.note)) } ?: edited
         }
@@ -101,6 +105,27 @@ object TaskLists {
     /** The latest edit of a task that has not been confirmed yet (a refused one does not count). */
     fun pendingEdit(taskId: String, outbox: List<OutboxItem>): OutboxItem? =
         outbox.lastOrNull { it.kind == OutboxItem.Kind.TASK_EDIT && it.taskId == taskId && it.state != OutboxItem.State.FAILED }
+
+    /** What deleting a task does to what waits on this phone (#197), see [deletion]. */
+    sealed interface Deletion {
+        /** A task made here that never left the phone: it is simply dropped from the outbox. */
+        data class Discard(val itemId: String) : Deletion
+
+        /**
+         * Delete [taskId] on the computer. For a task made here that may have reached the
+         * computer already, [taskId] is its "local-" name: the deletion waits behind it and
+         * follows it once the computer confirms it ([Outbox.retarget]).
+         */
+        data class Delete(val taskId: String) : Deletion
+    }
+
+    /** [taskId]: the id the task has now (see [LocalItems.currentId]). */
+    fun deletion(taskId: String, outbox: List<OutboxItem>): Deletion {
+        if (!LocalItems.isWaiting(taskId)) return Deletion.Delete(taskId)
+        val own = outbox.firstOrNull { it.kind == OutboxItem.Kind.TASK && LocalItems.PREFIX + it.id == taskId } ?: return Deletion.Delete(taskId)
+        val untouched = own.state == OutboxItem.State.WAITING && !own.sending && own.attempts == 0
+        return if (untouched || own.state == OutboxItem.State.FAILED) Deletion.Discard(own.id) else Deletion.Delete(taskId)
+    }
 
     /** New tasks that have not reached the computer yet, oldest first. They have no id: read-only. */
     fun waiting(outbox: List<OutboxItem>): List<OutboxItem> =

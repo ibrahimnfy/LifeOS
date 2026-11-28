@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lifeos.app.LifeOsCore
 import dev.lifeos.app.R
+import dev.lifeos.app.data.AssignmentMarks
 import dev.lifeos.app.data.BridgeJson
 import dev.lifeos.app.data.CoachPlan
 import dev.lifeos.app.data.Dates
@@ -33,6 +34,7 @@ import dev.lifeos.app.data.Task
 import dev.lifeos.app.data.TaskList
 import dev.lifeos.app.data.TaskLists
 import dev.lifeos.app.data.TaskSection
+import dev.lifeos.app.data.TaskTarget
 import dev.lifeos.app.data.UiState
 import dev.lifeos.app.ui.components.*
 import dev.lifeos.app.ui.icons.LifeIcons
@@ -42,7 +44,9 @@ import dev.lifeos.app.ui.theme.LifeType
 import kotlinx.coroutines.launch
 
 private const val MOST_IMPORTANT = 5
-private val TASK_KINDS = setOf(OutboxItem.Kind.TASK, OutboxItem.Kind.COMPLETE, OutboxItem.Kind.TASK_EDIT)
+private val TASK_KINDS = setOf(
+    OutboxItem.Kind.TASK, OutboxItem.Kind.COMPLETE, OutboxItem.Kind.TASK_EDIT, OutboxItem.Kind.TASK_DELETE, OutboxItem.Kind.ASSIGNMENT_MARK,
+)
 
 @Composable
 fun TaskSection.title(): String = stringResource(
@@ -66,6 +70,8 @@ fun OpenTaskRow(core: LifeOsCore, task: Task) {
     val open = LocalOpenTask.current
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
     val message = stringResource(R.string.tasks_done_message)
+    val deletedMessage = stringResource(R.string.task_deleted)
+    val removedMessage = stringResource(R.string.assignment_removed_message)
     val overdue = Dates.sectionOf(task.due, today()) == TaskSection.OVERDUE
     val pending = LocalItems.isWaiting(task) || TaskLists.pendingEdit(task.id, outbox) != null
     // The course or project: a small label in its colour (the same colour as on Courses).
@@ -74,20 +80,45 @@ fun OpenTaskRow(core: LifeOsCore, task: Task) {
         dueLabel(task.due).takeIf { !overdue || task.due != null },
         stringResource(R.string.outbox_waiting).takeIf { pending },
     )
-    TaskRow(
-        title = task.title,
-        subtitle = parts.joinToString(" · ").ifEmpty { null },
-        done = false,
-        overdue = overdue,
-        onToggle = {
-            // The computer cannot reopen a task, so the tick is sent only after the undo time.
+    // A course assignment's task (#196): done and delete are the assignment's marks, so its
+    // deadline leaves the lists with it and the course sync does not bring the task back.
+    val assignment = TaskTarget.of(task, looks::match) as? TaskTarget.AssignmentPage
+    val complete: () -> Unit = {
+        if (assignment != null) {
+            core.markAssignment(assignment.courseId, assignment.assignmentId, AssignmentMarks.DONE, null, task.title)
+            undo(message) { core.undoMark(assignment.courseId, assignment.assignmentId, null, task.title) }
+        } else {
+            // Sent only after the undo time: until then nothing has left the phone.
             core.tick(task)
             undo(message) { core.undoTick(task) }
-        },
-        onOpen = { open(task) },
-        look = looks.forTask(task),
-        lookName = looks.nameFor(task),
-    )
+        }
+    }
+    val delete: () -> Unit = {
+        if (assignment != null) {
+            core.markAssignment(assignment.courseId, assignment.assignmentId, AssignmentMarks.REMOVED, null, task.title)
+            undo(removedMessage) { core.undoMark(assignment.courseId, assignment.assignmentId, null, task.title) }
+        } else {
+            core.deleteTask(task)
+            undo(deletedMessage) { core.undoDeleteTask(task) }
+        }
+    }
+    // Swipe right: done; swipe left: delete (to the computer's trash), each with Undo (#197, #207).
+    SwipeRow(
+        right = SwipeAction(stringResource(R.string.swipe_done), LifeIcons.Check, onAction = complete),
+        left = SwipeAction(stringResource(if (assignment != null) R.string.assignment_remove else R.string.swipe_delete), LifeIcons.Trash, danger = true, onAction = delete),
+    ) { actions ->
+        TaskRow(
+            title = task.title,
+            subtitle = parts.joinToString(" · ").ifEmpty { null },
+            done = false,
+            overdue = overdue,
+            onToggle = { complete() },
+            onOpen = { open(task) },
+            look = looks.forTask(task),
+            lookName = looks.nameFor(task),
+            modifier = actions,
+        )
+    }
 }
 
 /** The name on a task's label: its course as the course list calls it, or its project. */
@@ -113,6 +144,7 @@ fun TaskCardSheet(core: LifeOsCore, task: Task, scope: kotlinx.coroutines.Corout
     val looks = LocalLooks.current
     val outbox by core.outbox.items.collectAsStateWithLifecycle()
     val message = stringResource(R.string.tasks_done_message)
+    val deletedMessage = stringResource(R.string.task_deleted)
     val savedText = stringResource(R.string.capture_saved)
     val waitingText = stringResource(R.string.capture_waiting)
     TaskSheet(
@@ -133,6 +165,11 @@ fun TaskCardSheet(core: LifeOsCore, task: Task, scope: kotlinx.coroutines.Corout
             onClose()
             core.tick(task)
             undo(message) { core.undoTick(task) }
+        },
+        onDelete = {
+            onClose()
+            core.deleteTask(task)
+            undo(deletedMessage) { core.undoDeleteTask(task) }
         },
     )
 }

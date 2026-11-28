@@ -46,6 +46,13 @@ data class OutboxItem(
     /** A new note's reminder (#185): the time with its offset, and the phone's zone name ([zone]). */
     val remindAt: String? = null,
     val zone: String? = null,
+    /**
+     * A course assignment's mark by hand (#196): its course and id, and [mark] ("done",
+     * "removed", or null: the mark is taken off). [text] is the assignment's name, for display.
+     */
+    val courseId: Long? = null,
+    val assignmentId: Long? = null,
+    val mark: String? = null,
 ) {
     @Serializable
     enum class Kind {
@@ -53,6 +60,12 @@ data class OutboxItem(
 
         /** A note to move to the computer's trash (#184); [noteId] names it ("local-…" for one made here). */
         NOTE_DELETE,
+
+        /** A task to move to the computer's trash (#197); [taskId] names it. */
+        TASK_DELETE,
+
+        /** A course assignment marked by hand (#196): [courseId], [assignmentId] and [mark]. */
+        ASSIGNMENT_MARK,
     }
 
     @Serializable
@@ -76,13 +89,18 @@ data class OutboxItem(
 
     /**
      * Sending it twice does no harm, so an uncertain attempt is simply repeated: ticks, task
-     * edits, event changes, note deletions (a second one finds nothing, which is the same
-     * outcome) and new notes and tasks with a [clientId] (the computer answers a repeat with the
-     * item it already stored). A note edit is not: the note's id changes with its text, so a
-     * repeat cannot find it.
+     * edits, event changes, note and task deletions (a second one finds nothing, which is the
+     * same outcome), an assignment's mark (the same mark again changes nothing) and new notes
+     * and tasks with a [clientId] (the computer answers a repeat with the item it already
+     * stored). The edit of a capture is not: its id changes with its text, so a repeat cannot
+     * find it. A topic note keeps its id ([NoteLists.isTopic]), so its edit is repeated too.
      */
     val repeatable: Boolean
-        get() = kind == Kind.COMPLETE || kind == Kind.EVENT_UPDATE || kind == Kind.TASK_EDIT || kind == Kind.NOTE_DELETE || clientId != null
+        get() = when (kind) {
+            Kind.COMPLETE, Kind.EVENT_UPDATE, Kind.TASK_EDIT, Kind.NOTE_DELETE, Kind.TASK_DELETE, Kind.ASSIGNMENT_MARK -> true
+            Kind.NOTE_EDIT -> noteId?.let(NoteLists::isTopic) == true
+            else -> clientId != null
+        }
 }
 
 /** The outbox on storage: one JSON file, replaced atomically on every change. */
@@ -165,6 +183,20 @@ class Outbox(
     }
 
     /**
+     * Take back something that has not left the phone: the item is removed only while no
+     * attempt was made (it is certain the computer never saw it). True when it was removed.
+     */
+    fun withdraw(id: String): Boolean {
+        var removed = false
+        update { items ->
+            items.filterNot { item ->
+                (item.id == id && !item.sending && item.attempts == 0 && item.state == OutboxItem.State.WAITING).also { if (it) removed = true }
+            }
+        }
+        return removed
+    }
+
+    /**
      * Put a "check" or "failed" item back in line. For "check" this is allowed only once the
      * earlier attempt can no longer be accepted by the computer ([SETTLE_MILLIS] after it).
      */
@@ -243,12 +275,12 @@ class Outbox(
 
     /**
      * "Not found" can mean an earlier attempt arrived: a ticked task is no longer open, a
-     * deleted note is gone (or was never there: either way there is nothing left to delete), and
+     * deleted note or task is gone (or was never there: either way there is nothing left to delete), and
      * an edited note has a new id. For a note edit this holds only after an attempt that left the
      * phone without an answer ([OutboxItem.attempts] counts only those).
      */
     private fun alreadyDone(item: OutboxItem, error: ApiException): Boolean = error.status == 404 && when (item.kind) {
-        OutboxItem.Kind.COMPLETE, OutboxItem.Kind.NOTE_DELETE -> true
+        OutboxItem.Kind.COMPLETE, OutboxItem.Kind.NOTE_DELETE, OutboxItem.Kind.TASK_DELETE -> true
         OutboxItem.Kind.NOTE_EDIT -> item.attempts > 0
         else -> false
     }

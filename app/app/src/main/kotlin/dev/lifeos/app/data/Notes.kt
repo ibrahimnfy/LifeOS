@@ -7,6 +7,21 @@ data class NoteRow(val note: NoteSummary, val text: String, val pending: OutboxI
 
 /** What the Notes screen shows while writes are still on their way. */
 object NoteLists {
+    /** A topic note's id (a file of the memory's notes folder): it stays when the note is edited. */
+    fun isTopic(noteId: String): Boolean = noteId.startsWith("n-")
+
+    /** The longest text a note may get: a capture's, or a topic note's body (the bridge's limits). */
+    fun maxText(noteId: String): Int = if (isTopic(noteId)) MAX_TOPIC_NOTE else MAX_NOTE
+
+    const val MAX_NOTE = 4000
+    const val MAX_TOPIC_NOTE = 20000
+
+    /** The list's preview holds the start of a note ([PREVIEW] characters): shorter means all of it. */
+    const val PREVIEW = 280
+
+    /** The whole text of a note of the list when its preview is all of it, else null (ask the computer). */
+    fun wholeText(note: NoteSummary): String? = note.preview.takeIf { it.length < PREVIEW }
+
     /** Notes captured on this phone that the computer does not have yet, newest first. */
     fun waiting(outbox: List<OutboxItem>): List<OutboxItem> =
         outbox.filter { it.kind == OutboxItem.Kind.NOTE && it.state == OutboxItem.State.WAITING }.reversed()
@@ -46,7 +61,7 @@ object NoteLists {
          */
         data class Delete(val noteId: String, val dropEdit: String? = null) : Deletion
 
-        /** An edit of it is on its way or may have arrived: its id is not known, so not now. */
+        /** An edit of it is being sent this very moment: its outcome is seconds away, so not now. */
         data object NotNow : Deletion
     }
 
@@ -63,21 +78,31 @@ object NoteLists {
             return if (untouched || own.state == OutboxItem.State.FAILED) Deletion.Discard(own.id) else Deletion.Delete(noteId)
         }
         val edit = pendingEdit(noteId, outbox) ?: return Deletion.Delete(noteId)
-        return if (edit.state == OutboxItem.State.WAITING && !edit.sending && edit.attempts == 0) Deletion.Delete(noteId, edit.id) else Deletion.NotNow
+        // An edit of it waits. While it is being sent nothing is certain for a few seconds.
+        // Otherwise the edit is dropped and the note deleted under the id the phone knows: an
+        // edit that never left, or was answered "later", did not change it; one whose answer
+        // was lost ("check") may have given a capture a new id, and then the deletion finds
+        // nothing and the note stays in the list with its new text, to be deleted from there.
+        // Before #202 that uncertain edit hid "Delete" until the owner had dealt with its
+        // notice: a note that could not be deleted, with no word of why.
+        return if (edit.sending) Deletion.NotNow else Deletion.Delete(noteId, edit.id)
     }
 
-    /** Whether the note screen offers "Delete" now: not while an edit of the note is on its way. */
+    /** Whether a note can be deleted now: always, except in the seconds an edit of it is being sent. */
     fun canDelete(noteId: String, outbox: List<OutboxItem>): Boolean = deletion(noteId, outbox) != Deletion.NotNow
 
     /**
-     * Whether a capture can be edited now: a topic note never (it is edited on the computer),
-     * a capture unless an earlier edit already left the phone and is not confirmed (the
-     * computer gives the note a new id with every edit, so a second one would miss it).
+     * Whether a note can be edited now. Every note of the list can (#202): a capture, and a
+     * topic note (its body). Not a filed capture (it is in no list; its words live in a topic
+     * file), and not a capture whose earlier edit already left the phone and is not confirmed:
+     * the computer gives a capture a new id with every edit, so a second one would miss it. A
+     * topic note keeps its id, so only an edit that is being sent right now holds the next back.
      */
     fun canEdit(note: NoteSummary, outbox: List<OutboxItem>): Boolean {
         if (!note.editable) return false
         val pending = pendingEdit(note.id, outbox) ?: return true
-        return pending.state == OutboxItem.State.WAITING && !pending.sending
+        if (pending.sending) return false
+        return isTopic(note.id) || pending.state == OutboxItem.State.WAITING
     }
 
     /** The computer's search rule, for the saved copy while the computer cannot be asked. */

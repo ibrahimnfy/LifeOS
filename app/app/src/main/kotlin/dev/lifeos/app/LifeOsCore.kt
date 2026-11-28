@@ -20,6 +20,7 @@ import dev.lifeos.app.push.PushNotifier
 import dev.lifeos.app.push.PushSetup
 import kotlinx.serialization.json.buildJsonObject
 import dev.lifeos.app.data.AppRelease
+import dev.lifeos.app.data.AssignmentMarks
 import dev.lifeos.app.data.Api
 import dev.lifeos.app.data.ApiException
 import dev.lifeos.app.data.CoachMessage
@@ -456,6 +457,8 @@ class LifeOsCore(private val app: Application) {
                 // The note has a new id now: a deletion queued behind the edit follows it (#184).
                 api.editNote(before, item.text)?.let { after -> if (after != before) outbox.retargetNote(before, after) }
             }
+            OutboxItem.Kind.TASK_DELETE -> toTask(checkNotNull(item.taskId)) { api.deleteTask(it) }
+            OutboxItem.Kind.ASSIGNMENT_MARK -> api.markAssignment(checkNotNull(item.courseId), checkNotNull(item.assignmentId), item.mark)
             OutboxItem.Kind.NOTE_DELETE -> {
                 val id = checkNotNull(item.noteId)
                 if (!LocalItems.isWaiting(id)) {
@@ -643,12 +646,110 @@ class LifeOsCore(private val app: Application) {
         }
     }
 
-    /** The owner took the tick back in time. False if it was already on its way. */
+    /**
+     * The owner took the tick back. In its undo time nothing has left the phone; a tick that
+     * is already in the outbox is withdrawn, and one the computer already has is undone there
+     * (the task is opened again).
+     */
     fun undoTick(task: Task): Boolean {
-        val timer = tickTimers.remove(task.id) ?: return false
-        timer.cancel()
-        tickedState.value -= setOf(task.id, taskIdNow(task.id))
+        val timer = tickTimers.remove(task.id)
+        if (timer != null) {
+            timer.cancel()
+            tickedState.value -= setOf(task.id, taskIdNow(task.id))
+            return true
+        }
+        return takeBack(task, OutboxItem.Kind.COMPLETE) { api.reopenTask(it) }
+    }
+
+    /**
+     * Take back a tick or a deletion of [task] whose undo time is over: the waiting item is
+     * withdrawn if it never left the phone; otherwise the computer is asked to reverse it
+     * ([reverse], once what is on its way has arrived).
+     */
+    private fun takeBack(task: Task, kind: OutboxItem.Kind, reverse: suspend (String) -> Unit): Boolean {
+        val id = taskIdNow(task.id)
+        val waiting = outbox.items.value.lastOrNull { it.kind == kind && it.taskId == id }
+        if (waiting != null && outbox.withdraw(waiting.id)) return true
+        if (LocalItems.isWaiting(id)) return false
+        scope.launch {
+            try {
+                if (waiting != null) outbox.drain()
+                reverse(id)
+                reloadState.value++
+            } catch (_: ApiException) {
+                // Not reachable right now: the task stays as the computer has it.
+            }
+        }
         return true
+    }
+
+    private val taskDeleteTimers = java.util.concurrent.ConcurrentHashMap<String, Job>()
+
+    /**
+     * Delete a task (#197): it disappears at once and, after [UNDO_MILLIS], the deletion is
+     * sent (or queued), as a tick is. The computer moves it to its trash. A task made on this
+     * phone that never left it is simply dropped ([TaskLists.deletion]).
+     */
+    fun deleteTask(task: Task) {
+        if (task.id in tickedState.value) return
+        tickedState.value += setOf(task.id, taskIdNow(task.id))
+        taskDeleteTimers[task.id] = scope.launch {
+            delay(UNDO_MILLIS)
+            taskDeleteTimers.remove(task.id)
+            val id = taskIdNow(task.id)
+            val stored = when (val plan = TaskLists.deletion(id, outbox.items.value)) {
+                is TaskLists.Deletion.Discard -> {
+                    outbox.discard(plan.itemId)
+                    false
+                }
+                is TaskLists.Deletion.Delete ->
+                    outbox.add(OutboxItem(newItemId(), OutboxItem.Kind.TASK_DELETE, System.currentTimeMillis(), text = task.title, taskId = plan.taskId))
+            }
+            tickedState.value -= setOf(task.id, id)
+            if (stored && connectionState.value == ConnectionState.CONNECTED && outbox.drain() > 0) reloadState.value++
+        }
+    }
+
+    /** The owner took the deletion back (see [undoTick]): the computer restores a task it already moved to the trash. */
+    fun undoDeleteTask(task: Task): Boolean {
+        val timer = taskDeleteTimers.remove(task.id)
+        if (timer != null) {
+            timer.cancel()
+            tickedState.value -= setOf(task.id, taskIdNow(task.id))
+            return true
+        }
+        return takeBack(task, OutboxItem.Kind.TASK_DELETE) { api.restoreTask(it) }
+    }
+
+    /**
+     * Mark a course assignment by hand (#196): "done", "removed", or null to take the mark
+     * off. [server] is the mark the computer's list shows for it now. The mark goes through
+     * the outbox (it works while the computer cannot be reached) and is shown at once
+     * ([AssignmentMarks.shown]); the computer makes the assignment's task follow.
+     */
+    fun markAssignment(courseId: Long, assignmentId: Long, mark: String?, server: String?, name: String) {
+        val plan = AssignmentMarks.plan(assignmentId, mark, server, outbox.items.value)
+        plan.withdraw.forEach { outbox.withdraw(it) }
+        if (plan.send) sendMark(courseId, assignmentId, mark, name)
+    }
+
+    /**
+     * Undo of a mark: one that never left the phone is withdrawn; otherwise the mark the
+     * assignment had before ([previous]) is sent after it.
+     */
+    fun undoMark(courseId: Long, assignmentId: Long, previous: String?, name: String) {
+        val last = AssignmentMarks.pending(assignmentId, outbox.items.value)
+        if (last != null && outbox.withdraw(last.id)) return
+        sendMark(courseId, assignmentId, previous, name)
+    }
+
+    private fun sendMark(courseId: Long, assignmentId: Long, mark: String?, name: String) {
+        val item = OutboxItem(
+            newItemId(), OutboxItem.Kind.ASSIGNMENT_MARK, System.currentTimeMillis(),
+            text = name, courseId = courseId, assignmentId = assignmentId, mark = mark,
+        )
+        // Stored at once, so every list shows the mark; sent by the app, not by the screen.
+        if (outbox.add(item)) scope.launch { sendWaiting(item.id) }
     }
 
     /**
@@ -719,8 +820,9 @@ class LifeOsCore(private val app: Application) {
     }
 
     /**
-     * Change the text of a captured note. An edit of the same note that is still waiting is
-     * replaced instead (see [NoteLists.canEdit] for when editing is not possible).
+     * Change the text of a note: a capture, or the body of a topic note (#202). An edit of the
+     * same note that is still waiting is replaced instead (see [NoteLists.canEdit] for when
+     * editing is not possible).
      */
     suspend fun editNote(noteId: String, text: String): Boolean {
         val waiting = NoteLists.pendingEdit(noteId, outbox.items.value)
@@ -774,6 +876,12 @@ class LifeOsCore(private val app: Application) {
         }
         return true
     }
+
+    /**
+     * Change the text of a note captured here that has not left the phone yet (#202): it simply
+     * leaves with the new text. False once it is on its way.
+     */
+    fun reviseWaitingNote(itemId: String, text: String): Boolean = outbox.revise(itemId, text, unsentOnly = true)
 
     /** The owner took the deletion back in time. False if it was already on its way. */
     fun undoDeleteNote(noteId: String): Boolean {
