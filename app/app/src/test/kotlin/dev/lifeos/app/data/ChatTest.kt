@@ -601,6 +601,61 @@ class ChatTest {
     }
 
     @Test
+    fun `a conversation that went on on the computer is read again when it is shown again`() = runTest {
+        val chat = chat()
+        val session = SessionSummary("s-1", "Shared", "/home/owner/project-alpha", folderLabel = "project-alpha")
+        history("Earlier" to "Answer")
+        running(false)
+        chat.open(session)
+        advanceUntilIdle()
+        val shown = chat.state.value.messages
+        // Nothing new on the computer: one quiet look, and the thread on screen stays as it is.
+        var calls = transport.calls.size
+        chat.refresh()
+        advanceUntilIdle()
+        assertEquals(calls + 1, transport.calls.size)
+        assertEquals("/sessions/s-1/history", transport.calls.last().path)
+        assertEquals(shown, chat.state.value.messages)
+        // Coming back again at once asks nothing.
+        chat.refresh()
+        assertEquals(calls + 1, transport.calls.size)
+        // The computer shortens a long answer when it reads it back: not a reason to read again.
+        history("Earlier" to "Ans")
+        testScheduler.advanceTimeBy(Chat.REFRESH_MILLIS)
+        chat.refresh()
+        advanceUntilIdle()
+        assertEquals(shown, chat.state.value.messages)
+        // The owner went on in a terminal: the new messages show.
+        history("Earlier" to "Answer", "From the terminal" to "Done there")
+        testScheduler.advanceTimeBy(Chat.REFRESH_MILLIS)
+        chat.refresh()
+        advanceUntilIdle()
+        assertEquals(listOf("me:Earlier", "it:Answer", "me:From the terminal", "it:Done there"), texts(chat))
+        assertEquals(ChatPhase.IDLE, chat.state.value.phase)
+    }
+
+    @Test
+    fun `an answer that was finished on the computer shows when the conversation comes back`() = runTest {
+        val chat = chat()
+        history("Earlier" to "Answer", "Asked there" to "")
+        running(false)
+        chat.open(SessionSummary("s-1", "Shared", "/home/owner/project-alpha", folderLabel = "project-alpha"))
+        advanceUntilIdle()
+        assertEquals("me:Asked there", texts(chat).last())
+        history("Earlier" to "Answer", "Asked there" to "Answered there")
+        chat.refresh()
+        advanceUntilIdle()
+        assertEquals("it:Answered there", texts(chat).last())
+        // While a message of the phone is on its way, nothing is asked on the side.
+        testScheduler.advanceTimeBy(Chat.REFRESH_MILLIS)
+        answerWith("s-1", "Hello there")
+        assertTrue(chat.send("And now from the phone"))
+        val calls = transport.calls.size
+        chat.refresh()
+        assertEquals(calls, transport.calls.size)
+    }
+
+    @Test
     fun `unpairing forgets the conversation and its file entry`() = runTest {
         val chat = chat()
         chat.newChat(memory)

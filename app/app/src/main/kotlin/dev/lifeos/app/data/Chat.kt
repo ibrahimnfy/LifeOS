@@ -435,6 +435,9 @@ class Chat(
     @Volatile
     private var doubted = false
 
+    /** When [refresh] last looked at the computer's thread ([uptimeMillis]). */
+    private var lastLook = Long.MIN_VALUE / 2
+
     /** The stream of the message that was sent has named its session: what runs now is the message itself. */
     @Volatile
     private var named = false
@@ -679,6 +682,47 @@ class Chat(
         val id = current.sessionId ?: current.startingId ?: return
         if (current.phase != ChatPhase.ELSEWHERE || current.loading) return
         read(current.generation, id, wholeThread = false)
+    }
+
+    /**
+     * The conversation is on screen again (the app or its screen came back, the connection
+     * returned): it may have gone on somewhere else meanwhile, above all in a terminal on the
+     * computer (#201). One quiet look at its last messages; only when the computer has
+     * something the screen does not show is the conversation read again ([load]). Nothing is
+     * asked while a message is on its way, an answer arrives or the thread is read anyway.
+     */
+    suspend fun refresh() {
+        if (coach) return
+        val current = mutable.value
+        val id = current.sessionId ?: return
+        if (!quiet(current)) return
+        val now = uptimeMillis()
+        if (now - lastLook < REFRESH_MILLIS) return
+        lastLook = now
+        val page = attempt { api.history(id) }.getOrNull() ?: return
+        val state = mutable.value
+        if (state.generation != current.generation || state.sessionId != id || !quiet(state)) return
+        if (wentOn(state.messages, page)) load()
+    }
+
+    /** Shown in full and at rest: nothing is being sent, received, read or reported. */
+    private fun quiet(state: ChatState): Boolean =
+        state.loaded && !state.loading && state.phase == ChatPhase.IDLE && state.failure == null && awaiting == null
+
+    /**
+     * Does the computer's thread hold something the shown one does not? Told by the owner's
+     * messages and by whether the last one has its answer: the words of an answer are not
+     * compared, since the computer shortens long ones when it reads them back.
+     */
+    private fun wentOn(shown: List<ChatMessage>, page: HistoryPage): Boolean {
+        val theirs = page.exchanges.filter { it.user.isNotBlank() }
+        if (theirs.isEmpty()) return false
+        val ours = shown.filter { it.fromOwner }.takeLast(theirs.size)
+        if (ours.size < theirs.size) return true
+        if (theirs.indices.any { !same(theirs[it].user, ours[it].text) }) return true
+        val last = bubbles(HistoryPage(listOf(page.exchanges.last()))).lastOrNull() ?: return false
+        val end = shown.lastOrNull() ?: return true
+        return last.fromOwner != end.fromOwner || last.incomplete != end.incomplete
     }
 
     private suspend fun read(generation: Int, known: String, wholeThread: Boolean) {
@@ -1911,6 +1955,9 @@ class Chat(
 
         /** How long the answer may take to say that it was stopped before the app asks instead. */
         private const val STOP_WAIT_MILLIS = 12_000L
+
+        /** [refresh] looks at most this often, however often the screen comes back. */
+        const val REFRESH_MILLIS = 5_000L
 
         /** How long after "Send them" or "Send now" the app first looks whether the line moves. */
         private const val RESUME_LOOK_MILLIS = 1_500L
