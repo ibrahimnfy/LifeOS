@@ -272,6 +272,15 @@ style).*
   what it learns about the owner goes to the memory, so it improves over
   time. Its plan usage is shown in its header, separate from the morning
   run.
+- **Copying (#208, built):** every message, the owner's and the assistant's,
+  has a quiet copy icon under its bubble that copies the message as it was
+  written (an answer with its Markdown marks). A fenced code block is shown
+  with a header: its language on the left, its own **Copy** on the right,
+  which copies only that block; long lines scroll sideways. After a copy the
+  control shows a check mark for two seconds and the app shows no message
+  of its own (Android 13 and later show the system's). An answer that is
+  still being written has no copy controls until it is complete. The same
+  in the coach conversation. Manual check: `app/README.md`.
 - **New chat:** opens a blank chat at once; there is no folder picker
   (*set by the owner, #166*). Its first message is sent without a folder and
   the computer gives the chat its own new, empty folder (#163). The owner

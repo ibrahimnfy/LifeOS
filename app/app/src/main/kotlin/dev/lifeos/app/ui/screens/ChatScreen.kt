@@ -82,6 +82,7 @@ import dev.lifeos.app.data.Interaction
 import dev.lifeos.app.data.SkillInstall
 import dev.lifeos.app.ui.components.ErrorNotice
 import dev.lifeos.app.ui.components.LifeCard
+import dev.lifeos.app.ui.components.CopyIcon
 import dev.lifeos.app.ui.components.MarkdownText
 import dev.lifeos.app.ui.components.NotPairedNotice
 import dev.lifeos.app.ui.components.PrimaryButton
@@ -402,7 +403,11 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
         if (message.fromOwner) {
             OwnerBubble(message)
         } else {
-            if (message.text.isNotBlank() || message.files.isNotEmpty()) AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE)
+            // The answer that is being written gets its copy controls when it is complete (#208).
+            val writing = message === answer && state.phase != ChatPhase.IDLE
+            if (message.text.isNotBlank() || message.files.isNotEmpty()) {
+                AnswerWithFiles(core, message, cutOff = message.incomplete && state.phase == ChatPhase.IDLE, writing = writing)
+            }
             // This answer's switch started another chat (#187): it continued there.
             message.continuedIn?.let { ContinuedInLine(it, onSwitch) }
         }
@@ -523,51 +528,70 @@ private fun ModeRow(capable: Boolean, enabled: Boolean, onChange: (Boolean) -> U
     }
 }
 
-/** The owner's message: to the right, on the surface colour, with one tight corner. */
+/**
+ * The owner's message: to the right, on the surface colour, with one tight corner. Under it
+ * the quiet copy control (#208); a long press still selects a part of the text.
+ */
 @Composable
 private fun OwnerBubble(message: ChatMessage) {
     val colors = LifeTheme.colors
     val you = stringResource(R.string.chat_you)
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-        Spacer(Modifier.weight(1f))
-        SelectionContainer(Modifier.weight(4f, fill = false)) {
-            Text(
-                text = message.text,
-                style = LifeType.body,
-                color = colors.text,
-                modifier = Modifier
-                    .background(colors.surface, RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp))
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                    .semantics { contentDescription = "$you: ${message.text}" },
-            )
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Spacer(Modifier.weight(1f))
+            SelectionContainer(Modifier.weight(4f, fill = false)) {
+                Text(
+                    text = message.text,
+                    style = LifeType.body,
+                    color = colors.text,
+                    modifier = Modifier
+                        .background(colors.surface, RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .semantics { contentDescription = "$you: ${message.text}" },
+                )
+            }
         }
+        if (message.text.isNotBlank()) CopyMessage(message.text)
     }
 }
 
-/** The assistant's answer: to the left, outlined, rendered as Markdown. */
+/**
+ * The assistant's answer: to the left, outlined, rendered as Markdown. Under it the quiet copy
+ * control, which copies the answer as it was written (its Markdown); each code block in it has
+ * its own. [writing]: the answer is still arriving, so nothing of it is offered for copying yet.
+ */
 @Composable
-private fun AssistantBubble(message: ChatMessage, cutOff: Boolean) {
+private fun AssistantBubble(message: ChatMessage, cutOff: Boolean, writing: Boolean) {
     val colors = LifeTheme.colors
     val shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
-    Row(Modifier.fillMaxWidth()) {
-        Column(
-            Modifier
-                .weight(9f, fill = false)
-                .border(1.dp, colors.divider, shape)
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            SelectionContainer { MarkdownText(message.text) }
-            if (cutOff) Text(stringResource(R.string.chat_incomplete), style = LifeType.small, color = colors.muted)
+    Column(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth()) {
+            Column(
+                Modifier
+                    .weight(9f, fill = false)
+                    .border(1.dp, colors.divider, shape)
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SelectionContainer { MarkdownText(message.text, codeCopy = !writing) }
+                if (cutOff) Text(stringResource(R.string.chat_incomplete), style = LifeType.small, color = colors.muted)
+            }
+            Spacer(Modifier.weight(1f))
         }
-        Spacer(Modifier.weight(1f))
+        if (!writing && message.text.isNotBlank()) CopyMessage(message.text)
     }
+}
+
+/** The copy control of one message, a little under its bubble. */
+@Composable
+private fun CopyMessage(text: String) {
+    CopyIcon(text = text, label = stringResource(R.string.chat_copy_message), modifier = Modifier.padding(top = 2.dp))
 }
 
 /** The files offered with an answer, one card each, under the answer. */
 @Composable
-private fun AnswerWithFiles(core: LifeOsCore, message: ChatMessage, cutOff: Boolean) {
-    if (message.text.isNotBlank() || cutOff) AssistantBubble(message, cutOff)
+private fun AnswerWithFiles(core: LifeOsCore, message: ChatMessage, cutOff: Boolean, writing: Boolean) {
+    if (message.text.isNotBlank() || cutOff) AssistantBubble(message, cutOff, writing)
     // MCP servers this answer used (#153): they ran outside the sandbox, and the answer says so.
     if (message.servers.isNotEmpty()) {
         Text(

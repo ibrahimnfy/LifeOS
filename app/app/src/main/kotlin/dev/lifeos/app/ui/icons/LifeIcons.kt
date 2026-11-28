@@ -74,6 +74,11 @@ object LifeIcons {
     val Back = icon("Back", line = "M15 5l-7 7 7 7")
     val Chevron = icon("Chevron", line = "M9 5l7 7-7 7")
     val Check = icon("Check", 2.5f, line = "M5 12.5l4.5 4.5L19 7.5")
+    val Copy = icon(
+        "Copy",
+        line = "M10.5 9h8a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5h-8A1.5 1.5 0 0 1 9 18.5v-8A1.5 1.5 0 0 1 10.5 9z " +
+            "M6 15h-.5A1.5 1.5 0 0 1 4 13.5v-8A1.5 1.5 0 0 1 5.5 4h8A1.5 1.5 0 0 1 15 5.5V6",
+    )
     val Send = icon("Send", 2f, line = "M12 19V5M6 11l6-6 6 6")
 
     val Sessions = icon("Sessions", line = "M3.5 12a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0-17 0zM12 7v5l3.2 2")

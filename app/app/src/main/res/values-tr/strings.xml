@@ -561,6 +561,10 @@
     <string name="chat_elsewhere">Bilgisayar bunun üzerinde hâlâ çalışıyor. Cevap hazır olunca burada görünecek. %1$s</string>
     <string name="chat_elsewhere_unreachable">Bilgisayar şu an cevap vermiyor. Uygulama sormaya devam ediyor; başlamış bir çalışma orada sürer.</string>
     <string name="chat_incomplete">Bu cevap yarıda kesildi.</string>
+    <string name="chat_copy_message">Mesajı kopyala</string>
+    <string name="chat_copy">Kopyala</string>
+    <string name="chat_copy_code">Kodu kopyala</string>
+    <string name="chat_copied">Kopyalandı</string>
     <string name="chat_open_sessions">Oturumları aç</string>
     <string name="chat_dismiss">Kapat</string>
     <string name="chat_fail_not_reached">Gönderilmedi: bilgisayara şu an ulaşılamıyor. Mesajın aşağıdaki kutuya geri kondu; bağlantı gelince gönder.</string>
