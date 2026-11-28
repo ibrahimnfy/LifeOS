@@ -442,6 +442,9 @@ data class Interaction(
     companion object {
         const val DELETION = "deletion"
 
+        /** A command Claude Code could not check by itself (#200): asked on a card, never run without a yes. */
+        const val UNCHECKED = "unchecked"
+
         /** The computer's default when it names no times. */
         private const val DEFAULT_WAIT_MILLIS = 600_000L
 

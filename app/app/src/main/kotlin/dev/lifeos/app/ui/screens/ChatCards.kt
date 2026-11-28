@@ -220,6 +220,10 @@ private fun ColumnScope.Approval(interaction: Interaction, open: Boolean, onAppr
     if (interaction.isDeletion) {
         Text(text = stringResource(R.string.approval_warning_deletion), style = LifeType.label, color = colors.badge)
     }
+    if (interaction.category == Interaction.UNCHECKED) {
+        // A command Claude Code could not check by itself (#200): it runs only with a yes.
+        Text(text = stringResource(R.string.approval_unchecked_note), style = LifeType.small, color = colors.muted)
+    }
     Exact(stringResource(R.string.approval_command), interaction.command)
     if (interaction.folder.isNotBlank()) Exact(stringResource(R.string.approval_folder), interaction.folder)
     interaction.network?.let { push ->
@@ -246,6 +250,7 @@ private fun Interaction.titleRes(): Int = when (category) {
     "install" -> R.string.approval_title_install
     "message" -> R.string.approval_title_message
     "network" -> R.string.approval_title_network
+    Interaction.UNCHECKED -> R.string.approval_title_unchecked
     else -> R.string.approval_title_other
 }
 

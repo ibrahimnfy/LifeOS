@@ -53,6 +53,7 @@ def test_lists_title_folder_and_last_activity_newest_first(client, auth, ask_dir
         "model": None,
         "effort": None,
         "skills": False,
+        "capable": False,
         "folder_key": str(ask_dir),
         "folder_label": ask_dir.name,
         "kind": "memory",

@@ -55,6 +55,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -76,6 +77,7 @@ import dev.lifeos.app.data.ChatPhase
 import dev.lifeos.app.data.ChatProblem
 import dev.lifeos.app.data.ChatState
 import dev.lifeos.app.data.ChatSwitch
+import dev.lifeos.app.data.RunProgress
 import dev.lifeos.app.data.CoachCompacted
 import dev.lifeos.app.data.Looks
 import dev.lifeos.app.data.Interaction
@@ -445,7 +447,43 @@ private fun ColumnScope.Thread(core: LifeOsCore, state: ChatState, chat: Chat, o
         }
         ChatPhase.IDLE -> Unit
     }
-    state.failure?.let { FailureNotice(it, chat::retry, chat::dismissFailure, onSessions) }
+    // What the run is doing right now (#199), while it is not waiting for the owner.
+    val progress = state.progress
+    if (progress != null && state.phase != ChatPhase.IDLE && !asked && !state.stopping) ProgressLine(progress)
+    val continueText = stringResource(R.string.chat_continue_message)
+    state.failure?.let { FailureNotice(it, chat::retry, { chat.continueRun(continueText) }, chat::dismissFailure, onSessions) }
+}
+
+/** "Editing a file: app.py · step 12": the run's last step, briefly (#199). Never a file's content. */
+@Composable
+private fun ProgressLine(progress: RunProgress) {
+    val what = stringResource(RunProgressText.labelRes(progress.tool))
+    val line = RunProgressText.line(what, progress.detail)
+    Text(
+        text = if (progress.steps > 0) stringResource(R.string.chat_progress_line, line, progress.steps) else line,
+        style = LifeType.small,
+        color = LifeTheme.colors.muted,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(start = 26.dp, bottom = 2.dp),
+    )
+}
+
+/** Which words name a step of each tool; pure, so it is tested without a screen. */
+internal object RunProgressText {
+    fun labelRes(tool: String): Int = when {
+        tool == "Bash" -> R.string.chat_progress_command
+        tool == "Read" -> R.string.chat_progress_read
+        tool == "Edit" || tool == "NotebookEdit" -> R.string.chat_progress_edit
+        tool == "Write" -> R.string.chat_progress_write
+        tool == "Grep" || tool == "Glob" -> R.string.chat_progress_search
+        tool == "WebFetch" || tool == "WebSearch" -> R.string.chat_progress_web
+        tool == "Agent" || tool == "Task" -> R.string.chat_progress_helper
+        else -> R.string.chat_progress_step
+    }
+
+    /** "Editing a file: app.py", or only the words when the step has no detail. */
+    fun line(what: String, detail: String): String = if (detail.isBlank()) what else "$what: ${detail.trim()}"
 }
 
 /** Coach: what the tidying up at this place did, as the computer said it with the answer (#156). */
@@ -651,7 +689,7 @@ internal fun SystemLine(text: String) {
 }
 
 @Composable
-private fun FailureNotice(failure: ChatFailure, onRetry: () -> Unit, onDismiss: () -> Unit, onSessions: () -> Unit) {
+private fun FailureNotice(failure: ChatFailure, onRetry: () -> Unit, onContinue: () -> Unit, onDismiss: () -> Unit, onSessions: () -> Unit) {
     val colors = LifeTheme.colors
     LifeCard {
         Column(Modifier.padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -664,7 +702,12 @@ private fun FailureNotice(failure: ChatFailure, onRetry: () -> Unit, onDismiss: 
             // The computer's own reason (its words, in English), where it helps to fix it there.
             failure.detail?.let { Text(text = stringResource(R.string.chat_fail_reason, it), style = LifeType.small, color = colors.muted) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (failure.prompt != null) {
+                // A run that paused at a limit goes on where it stopped (#199); sending the
+                // same message again would start the work from the top.
+                val paused = failure.problem == ChatProblem.STEP_LIMIT || failure.problem == ChatProblem.TOO_LONG
+                if (paused) {
+                    PrimaryButton(text = stringResource(R.string.chat_continue), onClick = onContinue, modifier = Modifier.weight(1f))
+                } else if (failure.prompt != null) {
                     PrimaryButton(text = stringResource(R.string.action_retry), onClick = onRetry, modifier = Modifier.weight(1f))
                 }
                 if (failure.problem == ChatProblem.NO_ANSWER) {
@@ -690,6 +733,7 @@ private fun ChatProblem.textRes(): Int = when (this) {
     ChatProblem.NOT_SET_UP -> R.string.chat_fail_not_set_up
     ChatProblem.CHAT_ROOT_UNUSABLE -> R.string.chat_fail_chat_root
     ChatProblem.TOO_LONG -> R.string.chat_fail_too_long
+    ChatProblem.STEP_LIMIT -> R.string.chat_fail_step_limit
     ChatProblem.STOPPED -> R.string.chat_fail_stopped
     ChatProblem.COMPACTING -> R.string.coach_fail_compacting
     ChatProblem.STOPPED_HERE -> R.string.chat_fail_stopped_here

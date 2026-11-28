@@ -25,6 +25,10 @@ DEFAULT_PORT = 8787
 DEFAULT_ASK_TIMEOUT = 300
 DEFAULT_MAX_CONCURRENT = 2
 DEFAULT_MAX_TURNS = 25
+# Runs that may change files (#199): work is not cut short. No limit of turns unless one
+# is set, and two hours of run time (waiting for the owner does not count).
+DEFAULT_CAPABLE_MAX_TURNS = 0
+DEFAULT_CAPABLE_TIMEOUT = 2 * 3600
 RUNNERS = ("cli", "sdk")
 DEFAULT_SDK_IDLE_MINUTES = 15
 DEFAULT_SDK_MAX_LIVE = 3
@@ -51,6 +55,9 @@ class Settings:
     ask_timeout: int = DEFAULT_ASK_TIMEOUT
     max_concurrent: int = DEFAULT_MAX_CONCURRENT
     max_turns: int = DEFAULT_MAX_TURNS
+    # The same two limits for runs that may change files; 0 turns: no limit.
+    capable_max_turns: int = DEFAULT_CAPABLE_MAX_TURNS
+    capable_timeout: int = DEFAULT_CAPABLE_TIMEOUT
     claude_bin: str = "claude"
     # How conversations run: "cli" starts `claude -p` per message; "sdk" keeps
     # one Agent SDK client per active session (read-only runs only).
@@ -264,6 +271,12 @@ def load_settings(environ: Mapping[str, str] | None = None) -> Settings:
         ask_timeout=_int_setting(values, "LIFEOS_ASK_TIMEOUT", DEFAULT_ASK_TIMEOUT, 5, 3600),
         max_concurrent=_int_setting(values, "LIFEOS_MAX_CONCURRENT", DEFAULT_MAX_CONCURRENT, 1, 16),
         max_turns=_int_setting(values, "LIFEOS_MAX_TURNS", DEFAULT_MAX_TURNS, 1, 200),
+        capable_max_turns=_int_setting(
+            values, "LIFEOS_CAPABLE_MAX_TURNS", DEFAULT_CAPABLE_MAX_TURNS, 0, 10000
+        ),
+        capable_timeout=_int_setting(
+            values, "LIFEOS_CAPABLE_TIMEOUT", DEFAULT_CAPABLE_TIMEOUT, 60, 86400
+        ),
         claude_bin=values.get("LIFEOS_CLAUDE_BIN") or "claude",
         runner=runner,
         sdk_idle_seconds=60

@@ -15,13 +15,25 @@ What is different from ``claude -p``:
 - Cancel and "send now" use the SDK's own interrupt; the process is
   terminated only when the turn does not end within the grace period.
 
-Questions and approvals (#105): the process starts in the default
+Questions and approvals (#105, #200): the process starts in the default
 permission mode with the bridge as the permission host, so the assistant's
-structured questions, and in capable runs the actions that need the owner's
-confirmation, come to ``LiveSession._can_use_tool``. That callback denies
-everything else, exactly as ``dontAsk`` would. A question waits for the
-owner (``interactions``) only while a client streams the answer; otherwise
-it is refused at once with the explanation of a ``claude -p`` run.
+structured questions, and in capable runs every shell command that would
+prompt, come to ``LiveSession._can_use_tool``. In a capable run such a
+command becomes an approval card on the phone: one of the gate's approval
+actions (deleting, force, pushing, installing, sending), or a command Claude
+Code could not check by itself (an inline script, for example). It runs only
+after the owner's explicit yes, and then inside the sandbox like every other
+command. Never asked, always refused: what the gate never allows (sudo,
+system settings), a command outside the sandbox, a push of the memory
+folder, and every call of another tool that would prompt (a file tool
+outside the run's folders: file tools are not sandboxed). A read-only run
+is told that the chat is read-only and how the owner can change that.
+
+A question waits for the owner (``interactions``) only while a client
+streams the answer; otherwise it is refused at once with the explanation of
+a ``claude -p`` run. An approval always waits, up to the interaction
+timeout: the phone gets a push hint, and the card is in
+``GET /sessions/{id}/interactions`` when the owner opens the chat.
 
 What is the same: the restriction flags and the environment. The SDK's own
 process launcher is not used. It passes the bridge's whole environment on
@@ -50,11 +62,13 @@ from typing import Any
 
 import claude_agent_sdk
 from claude_agent_sdk import (
+    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
     ResultMessage,
     StreamEvent,
     ToolResultBlock,
+    ToolUseBlock,
     Transport,
     UserMessage,
 )
@@ -104,9 +118,29 @@ def resolve_cli(settings: Settings) -> str:
     return str(path)
 
 
-# What the assistant reads when the bridge says no. Calls that would prompt
-# are denied, as in a ``dontAsk`` run.
-DENIED_NOTE = "Denied: runs from the phone never ask for permissions beyond what they already have."
+# What the assistant reads when the bridge says no.
+# A read-only chat (#200): the owner learns why nothing happened and what to switch.
+READ_ONLY_NOTE = (
+    "Denied: this chat is read-only and works only inside its own folder, so nothing is "
+    "changed and no command runs. Do not try another way. Tell the owner that the chat is "
+    'read-only and that switching it to "may change files" in the chat\'s settings on the '
+    "phone lets you do this; then wait for the owner."
+)
+# A capable run: only shell commands can be confirmed; they run inside the sandbox.
+OUTSIDE_NOTE = (
+    "Denied: this would reach outside the folders of this chat, and nothing outside them "
+    "is read or changed from the phone (only a shell command can be confirmed by the owner, "
+    "and it runs inside the sandbox). Do not try another way; tell the owner exactly what "
+    "you needed and why."
+)
+AUDIT_NOTE = (
+    "Blocked: the audit log could not be written, so nothing that needs the owner's "
+    "confirmation may run. Stop and tell the owner that the audit log is unavailable."
+)
+MALFORMED_NOTE = "Denied: the call could not be read, so it cannot be shown to the owner."
+# A command Claude Code would have asked about by itself (it could not check it, as with
+# an inline script): the owner confirms it on a card (#200).
+UNCHECKED = ("unchecked", "a command that could not be checked automatically")
 NO_CLIENT_QUESTION = (
     "The owner cannot answer structured questions right now. Ask in your reply instead: one "
     "clear question with the choices as a short lettered list (A, B, C)."
@@ -305,6 +339,52 @@ def observed(message: UserMessage) -> dict:
             ]
         },
     }
+
+
+PROGRESS_DETAIL = 80  # characters of a step's detail the phone is shown
+# What names a step of each tool, in the order tried. Never a file's content.
+PROGRESS_KEYS = {
+    "Bash": ("description", "command"),
+    "Read": ("file_path",),
+    "Edit": ("file_path",),
+    "Write": ("file_path",),
+    "NotebookEdit": ("notebook_path",),
+    "Grep": ("pattern",),
+    "Glob": ("pattern",),
+    "WebFetch": ("url",),
+    "WebSearch": ("query",),
+    "Agent": ("description",),
+    "Task": ("description",),
+    "Skill": ("skill",),
+}
+PROGRESS_FILE_TOOLS = ("Read", "Edit", "Write", "NotebookEdit")
+
+
+def progress_of(message: AssistantMessage, steps: int) -> tuple[int, dict | None]:
+    """The run's short "what it is doing" line (#199) after ``message``: the last tool it
+    calls, with one short detail (a command's own description, a file's name, a search
+    pattern), and how many steps the run has made. Sent to the phone only; never logged.
+    """
+    content = message.content if isinstance(message.content, list) else []
+    calls = [block for block in content if isinstance(block, ToolUseBlock)]
+    if not calls:
+        return steps, None
+    steps += len(calls)
+    call = calls[-1]
+    data = call.input if isinstance(call.input, dict) else {}
+    detail = ""
+    for key in PROGRESS_KEYS.get(call.name, ()):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            detail = value.strip().splitlines()[0]
+            break
+    if call.name in PROGRESS_FILE_TOOLS:
+        detail = detail.rstrip("/").rsplit("/", 1)[-1]
+    elif call.name == "WebFetch":
+        detail = detail.split("://", 1)[-1].split("/", 1)[0]
+    if len(detail) > PROGRESS_DETAIL:
+        detail = detail[: PROGRESS_DETAIL - 1] + "…"
+    return steps, {"tool": call.name, "detail": detail, "steps": steps}
 
 
 def result_payload(message: ResultMessage) -> dict:
@@ -530,20 +610,30 @@ class LiveSession:
 
     # -- the permission host ----------------------------------------------------
     async def _can_use_tool(self, tool_name: str, tool_input: dict, context: Any):
-        """Every call that would prompt comes here. Default: deny, as ``dontAsk`` does."""
+        """Every call that would prompt comes here. Nothing runs without the owner's yes:
+        a shell command of a capable run is asked on a card, everything else is refused."""
+        refusal = OUTSIDE_NOTE if self.capable else READ_ONLY_NOTE
         try:
             if tool_name == claude.QUESTION_TOOL:
                 return await self._question(tool_input)
             if self.capable and tool_name == "Bash":
                 return await self._approval(tool_input)
         except Exception:  # anything unexpected is a "no"
-            return PermissionResultDeny(message=DENIED_NOTE)
-        return PermissionResultDeny(message=DENIED_NOTE)
+            return PermissionResultDeny(message=refusal)
+        return PermissionResultDeny(message=refusal)
 
     async def _ask(self, kind: str, data: dict) -> tuple[str, dict | None]:
-        """Show the owner a question or approval and wait; ``("no_client", None)`` if nobody can."""
+        """Show the owner a question or approval and wait.
+
+        A question is asked only while a client streams the answer and can show it
+        (``("no_client", None)`` otherwise: the assistant then asks in plain text). An
+        approval always waits (#200): the phone gets a push hint and finds the card
+        when the owner opens the chat, also after its connection was lost.
+        """
         turn = self._turn
-        if turn is None or not turn.answering or turn.over.is_set():
+        if turn is None or turn.over.is_set():
+            return "no_client", None
+        if kind != APPROVAL and not turn.answering:
             return "no_client", None
         interaction = self.asking.open(self.session_id, kind, data)
         started = time.monotonic()
@@ -566,7 +656,7 @@ class LiveSession:
     async def _question(self, tool_input: dict):
         data = interactions.question_data(tool_input)
         if data is None:
-            return PermissionResultDeny(message=DENIED_NOTE)
+            return PermissionResultDeny(message=MALFORMED_NOTE)
         outcome, answer = await self._ask(QUESTION, data)
         if outcome == "no_client":
             return PermissionResultDeny(message=NO_CLIENT_QUESTION)
@@ -580,16 +670,23 @@ class LiveSession:
         return PermissionResultAllow(updated_input=updated)
 
     async def _approval(self, tool_input: dict):
-        """An action the gate sent here (``ask``): runs only after the owner's explicit yes."""
+        """A shell command that would prompt: it runs only after the owner's explicit yes.
+
+        Either an action the gate sent here (``ask``), or a command Claude Code itself
+        could not check (:data:`UNCHECKED`). What the gate never allows stays refused.
+        """
         command = str(tool_input.get("command") or "")
+        if not command.strip():
+            return PermissionResultDeny(message=MALFORMED_NOTE)
         if set(tool_input) - APPROVABLE_KEYS or tool_input.get("dangerouslyDisableSandbox"):
             # The owner sees the command and the folder; nothing else may ride along
             # (above all no request to run outside the sandbox).
             return PermissionResultDeny(message=UNSANDBOXED_NOTE)
         found = gate.classify(command)
-        if found is None or found[2] != gate.APPROVAL_NOTE:
-            return PermissionResultDeny(message=DENIED_NOTE)  # only approval actions are asked
-        category, reason, _note = found
+        if found is not None and found[2] != gate.APPROVAL_NOTE:
+            # Never allowed (the gate refuses it before it gets here): no card.
+            return PermissionResultDeny(message=f"Refused: {found[1]}. {found[2]}")
+        category, reason = found[:2] if found is not None else UNCHECKED
         record = {
             "session_id": self.session_id,
             "cwd": str(self.launch.cwd),
@@ -603,20 +700,20 @@ class LiveSession:
             _audit(record, "refused", "memory folder")
             return PermissionResultDeny(message=MEMORY_PUSH_NOTE)
         if not _audit(record, "approval_requested"):
-            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+            return PermissionResultDeny(message=AUDIT_NOTE)
         card = {"tool": "Bash", "command": command, "folder": str(self.launch.cwd),
                 "category": category, "reason": reason}  # fmt: skip
         outcome, answer = await self._ask(APPROVAL, card)
         approved = outcome == ANSWERED and bool(answer and answer.get("approve"))
         why = "owner" if outcome == ANSWERED else outcome
         if not _audit(record, "approved" if approved else "refused", why):
-            return PermissionResultDeny(message=gate.APPROVAL_NOTE)
+            return PermissionResultDeny(message=AUDIT_NOTE)
         if approved:
             # Exactly what was shown; it runs inside the sandbox, with the run's network
             # (the open network of #182 when the check proved it).
             return PermissionResultAllow(updated_input=tool_input)
         if outcome == "no_client":
-            return PermissionResultDeny(message=gate.APPROVAL_NOTE)  # today's refusal
+            return PermissionResultDeny(message=APPROVAL_REFUSED)  # the turn was over
         note = APPROVAL_TIMEOUT if outcome == TIMEOUT else APPROVAL_REFUSED
         return PermissionResultDeny(message=note)
 
@@ -762,9 +859,11 @@ async def _events(
     advisor: str | None = None,
     job: str = "chat",
 ) -> AsyncIterator[tuple[str, Any]]:
-    """``delta`` and ``interaction`` events, then ``("done", RunResult)``; failures raise.
+    """``delta``, ``progress`` and ``interaction`` events, then ``("done", RunResult)``;
+    failures raise.
 
-    The time limit does not run while the owner is being asked.
+    The time limit does not run while the owner is being asked. A run that may change
+    files has the longer limit of its own (``capable_timeout``, #199).
     """
     launch = Launch(
         cwd=cwd or settings.ask_dir,
@@ -780,7 +879,9 @@ async def _events(
     turn = await live.send(prompt, answering=answering)
     final: ResultMessage | None = None
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + settings.ask_timeout
+    limit = settings.capable_timeout if policy.capable else settings.ask_timeout
+    deadline = loop.time() + limit
+    steps = 0
     try:
         while final is None:
             if turn.waiting:
@@ -804,6 +905,10 @@ async def _events(
                 final = item
             elif isinstance(item, UserMessage) and observer is not None:
                 observer(observed(item))  # may raise ClaudeError to stop the run
+            elif isinstance(item, AssistantMessage):
+                steps, progress = progress_of(item, steps)
+                if progress is not None:
+                    yield "progress", progress
             elif isinstance(item, StreamEvent):
                 inner = item.event or {}
                 delta = inner.get("delta") or {}
@@ -863,7 +968,7 @@ async def stream(
         # Closed at once when the caller goes away, so an abandoned turn is ended now.
         async with contextlib.aclosing(events):
             async for event, payload in events:
-                if event in ("delta", "interaction", "interaction_closed", "keepalive"):
+                if event in ("delta", "progress", "interaction", "interaction_closed", "keepalive"):
                     yield event, payload
                     continue
                 result: RunResult = payload

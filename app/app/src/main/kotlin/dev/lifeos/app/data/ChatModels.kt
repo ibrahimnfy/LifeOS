@@ -74,6 +74,8 @@ data class SessionSummary(
     val effort: String? = null,
     /** The owner switched the folder's skills and commands on for this session. */
     val skills: Boolean = false,
+    /** "May change files" as the owner set it for this chat (#200); it stays with the chat. */
+    val capable: Boolean = false,
     /** What the computer found as the title, whatever the owner named the session. */
     @SerialName("detected_title") val detectedTitle: String = "",
     /**
@@ -185,10 +187,24 @@ data class QueuedData(val id: String = "", val prompt: String = "")
  * that. [paused]: why the queue is on hold ("cancel", "error", "restart"), else null.
  */
 @Serializable
-data class RunState(val running: Boolean = false, val paused: String? = null, val queue: List<QueuedData> = emptyList()) {
+data class RunState(
+    val running: Boolean = false,
+    val paused: String? = null,
+    val queue: List<QueuedData> = emptyList(),
+    /** What the run is doing right now (#199); null when the computer does not say. */
+    val progress: RunProgress? = null,
+) {
     /** An answer is still to come: a run is in progress, or a message waits for its turn. */
     val busy: Boolean get() = running || (queue.isNotEmpty() && paused == null)
 }
+
+/**
+ * What a run is doing right now (#199), as its `progress` events and `GET /sessions/{id}/queue`
+ * say it: the [tool] of its last step, one short [detail] (a command's own description, a
+ * file's name, what is searched for; never a file's content) and how many [steps] it has made.
+ */
+@Serializable
+data class RunProgress(val tool: String = "", val detail: String = "", val steps: Int = 0)
 
 // ---------------------------------------------------------------- the coach conversation (#114)
 

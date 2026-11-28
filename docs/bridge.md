@@ -208,7 +208,21 @@ How a prompt runs:
   variables of the bridge's own environment are not passed on, so runs use
   the Claude Code login of the owner's account.
 - At most `LIFEOS_MAX_CONCURRENT` runs at a time, and one per session.
-- A run that exceeds `LIFEOS_ASK_TIMEOUT` seconds is stopped.
+- A run that exceeds `LIFEOS_ASK_TIMEOUT` seconds is stopped, and one that
+  exceeds `LIFEOS_MAX_TURNS` turns ends with `error_max_turns`. A run that
+  may change files is not cut short (#199): it has no limit of turns unless
+  `LIFEOS_CAPABLE_MAX_TURNS` sets one, and `LIFEOS_CAPABLE_TIMEOUT` seconds
+  of run time (two hours by default; waiting for the owner does not count).
+- **Progress (#199).** A streamed run on the SDK runner sends
+  `progress {"tool", "detail", "steps"}` whenever the assistant calls a
+  tool: the tool's name, one short detail (a command's own description or
+  its first line, a file's name without its folder, a search pattern, a web
+  host; at most 80 characters, never a file's content) and the number of
+  tool calls so far. A client that attaches later gets the last one at the
+  end of the replay of `GET /sessions/{id}/live`, and
+  `GET /sessions/{id}/queue` carries it as `progress` (null when nothing
+  runs). It is sent to the phone only (sealed, like the answer) and never
+  logged.
 
 Errors are JSON `{"error": "<code>", "message": "<text>"}`:
 
@@ -1302,9 +1316,16 @@ A run can stop and wait for the owner, in two cases:
 
 How it reaches the owner:
 
-- Only while a client streams the answer **and opts in** (`"stream":
+- **An approval always waits (#200)**, also when no client streams the
+  answer or the phone's connection was lost: the phones get the push hint,
+  the card is listed by `GET /sessions/{id}/interactions`, and a followed
+  run replays it. Since #200 a card is also opened for a shell command that
+  Claude Code itself would ask about (category `unchecked`: it could not
+  check the command, as with an inline script); see `permission-policy.md`,
+  section 9.18. A **question** is asked only while a client streams the
+  answer **and opts in** (`"stream":
   true, "interactive": true`, also through the relay; a client without
-  question cards leaves it out), the stream carries an event
+  question cards leaves it out). The stream then carries an event
   `interaction {"id", "session_id", "kind": "question"|"approval", ...,
   "created_at", "expires_at"}`. A question carries `questions: [{"question",
   "header", "multi_select", "options": [{"label", "description"}]}]`; an
@@ -1553,8 +1574,14 @@ switch for reply notifications.
 
 - `PATCH /sessions/{id}` accepts any of `{"title": "…" | null,
   "pinned": true | false, "notify_replies": true | false}` (and `model`,
-  `effort`, `skills`) and returns the session as in the list. `null`
-  returns to the detected title.
+  `effort`, `skills`, `capable`) and returns the session as in the list.
+  `null` returns to the detected title.
+- **`capable` (#200)** is the chat's "may change files" switch as the owner
+  left it, so the app shows it again after a lock, a restart or on another
+  day. The first message of a chat that may change files sets it; only the
+  owner's switch clears it. It grants nothing by itself: every message
+  still carries its own `mode`, and every capable run passes its checks.
+  The coach conversation cannot be switched (`400`).
 - **Custom session groups were removed (#164).** `/session-groups` no
   longer exists (`404`), and `group` is not a field any more (`400` in a
   `PATCH`, like any unknown field). The app shows sessions by folder

@@ -101,6 +101,8 @@ internal fun QueueList(state: ChatState, chat: Chat, locked: Boolean) {
             QueuedRow(
                 row,
                 canSendNow = state.canStop || (idle && hold != null),
+                // While a run is going on, the button says what it does: it interrupts (#199).
+                interrupts = !idle,
                 onEdit = { editing = row.key },
                 onRemove = { chat.removeQueued(row.key) },
                 onSendNow = { if (idle) chat.sendNow(row.key) else sendingNow = row.key },
@@ -124,7 +126,7 @@ internal fun QueueList(state: ChatState, chat: Chat, locked: Boolean) {
         ConfirmDialog(
             title = stringResource(R.string.chat_send_now_title),
             text = stringResource(R.string.chat_send_now_text),
-            confirm = stringResource(R.string.chat_send_now),
+            confirm = stringResource(R.string.chat_interrupt_now),
             onDismiss = { sendingNow = null },
             onConfirm = {
                 sendingNow = null
@@ -135,7 +137,7 @@ internal fun QueueList(state: ChatState, chat: Chat, locked: Boolean) {
 }
 
 @Composable
-private fun QueuedRow(row: QueuedMessage, canSendNow: Boolean, onEdit: () -> Unit, onRemove: () -> Unit, onSendNow: () -> Unit) {
+private fun QueuedRow(row: QueuedMessage, canSendNow: Boolean, interrupts: Boolean, onEdit: () -> Unit, onRemove: () -> Unit, onSendNow: () -> Unit) {
     val colors = LifeTheme.colors
     Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
         Text(text = row.prompt, style = LifeType.body, color = colors.text, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -148,7 +150,7 @@ private fun QueuedRow(row: QueuedMessage, canSendNow: Boolean, onEdit: () -> Uni
             )
         } else {
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                if (canSendNow) LinkAction(stringResource(R.string.chat_send_now), onClick = onSendNow)
+                if (canSendNow) LinkAction(stringResource(if (interrupts) R.string.chat_interrupt_now else R.string.chat_send_now), onClick = onSendNow)
                 LinkAction(stringResource(R.string.note_edit), onClick = onEdit)
                 LinkAction(stringResource(R.string.chat_queue_remove), onClick = onRemove)
             }

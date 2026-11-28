@@ -829,6 +829,12 @@ def create_app(settings: Settings) -> FastAPI:
             if is_capable:
                 # The SDK runner only (#181), after a guardrail check passed there.
                 await capable.check_available(settings, cwd)
+                if not chosen["capable"] and not data.get("_queued"):
+                    # The chat keeps its change permission (#200): the app shows it
+                    # again when the chat is opened later.
+                    await asyncio.to_thread(
+                        session_meta.update_session, session_id, {"capable": True}
+                    )
                 watch = capable.AuditWatch(session_id)
                 # The owner's personal skills and MCP servers (#162): in every capable
                 # run, once the check with their probes has passed.
@@ -1204,9 +1210,13 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.get("/sessions/{session_id}/queue")
     async def show_queue(session_id: str):
-        """Whether the session is answering, and the messages waiting for it."""
+        """Whether the session is answering, and the messages waiting for it.
+
+        ``progress``: what the run is doing right now (#199: its last tool, one short
+        detail and the number of steps so far), or null."""
         return {
             "running": session_id in slots.active,
+            "progress": (live_runs.running(session_id) or {}).get("progress"),
             "paused": control.paused.get(session_id),
             "queue": [control.public(e) for e in control.queue(session_id)],
             "last": control.outcomes.get(session_id),
@@ -1615,13 +1625,20 @@ def create_app(settings: Settings) -> FastAPI:
         """Set the owner's title, pin or reply-notification switch for a session.
 
         Body: any of ``{"title": str|null, "pinned": bool, "notify_replies": bool,
-        "model", "effort", "skills"}``. Only the bridge's own metadata changes.
+        "model", "effort", "skills", "capable"}``. Only the bridge's own metadata changes.
+        ``capable`` (#200) is the chat's "may change files" switch as the owner set it:
+        the app shows it again when the chat is opened; the messages still carry their
+        own mode and every capable run passes its checks.
         """
         changes = await read_json_object(request)
         read_model_choice(changes)  # refuses unknown models and effort levels
         info = known_session(session_id)
         if info is None:
             raise ClaudeError("session_not_found", 404, "unknown session")
+        if changes.get("capable") is True and info.id == await asyncio.to_thread(
+            coach_chat.current_id
+        ):
+            raise ClaudeError("bad_request", 400, "the coach conversation is read-only")
         session_meta.update_session(info.id, changes)
         item = session_meta.describe(info, in_use=info.id in slots.active, data=session_meta.load())
         return item | (await asyncio.to_thread(folders.Folders, settings)).describe(info)

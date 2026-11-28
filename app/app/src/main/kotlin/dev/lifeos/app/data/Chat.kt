@@ -169,6 +169,9 @@ enum class ChatProblem {
     /** The run took longer than the computer allows and was stopped. */
     TOO_LONG,
 
+    /** The run reached the computer's limit of steps and paused (#199): "Continue" lets it go on. */
+    STEP_LIMIT,
+
     /** The run was stopped (cancelled) on the computer. */
     STOPPED,
 
@@ -313,6 +316,8 @@ data class ChatState(
      * every new conversation.
      */
     val capable: Boolean = false,
+    /** What the run in progress is doing right now (#199); shown under "Working…". */
+    val progress: RunProgress? = null,
     /** The conversation's own model and effort (null: the default for chat sessions). */
     val choice: ModelChoice = ModelChoice(),
     /** Whether [choice] is what the computer has for this session (a restored conversation learns it from the session list). */
@@ -523,7 +528,8 @@ class Chat(
         open(session, memory)
         val state = mutable.value
         if (state.sessionId != session.id) return
-        setCapable(capable)
+        // The bar's pick for this request; the owner's own switch is what is stored with the chat.
+        mutable.update { it.copy(capable = capable) }
         val message = text?.trim()?.takeIf { it.isNotEmpty() } ?: return
         if (!send) return offerDraft(message)
         if (state.loaded && !state.loading) {
@@ -581,13 +587,19 @@ class Chat(
         stopWork()
         val folder = ChatFolder.of(session, memory)
         mutable.update {
-            ChatState(generation = it.generation + 1, sessionId = session.id, folder = folder, loaded = false, choice = ModelChoice(session.model, session.effort))
+            // "May change files" stays with the chat (#200): it comes back as the owner left it.
+            ChatState(generation = it.generation + 1, sessionId = session.id, folder = folder, loaded = false, choice = ModelChoice(session.model, session.effort), capable = session.capable)
         }
         store.save(folder.pointer(session.id))
         load()
     }
 
-    /** The app was locked: nothing of the conversation stays in memory; a run goes on on the computer. */
+    /**
+     * The app was locked: nothing of the conversation stays in memory; a run goes on on the
+     * computer. "May change files" is not kept here either: what the owner set for the chat is
+     * stored on the computer and read again with the conversation (#200), while a permission
+     * the command bar picked for a message that never left is dropped with that message.
+     */
     fun onLocked() {
         val lostFirst = mutable.value.let { it.phase != ChatPhase.IDLE && it.sessionId == null }
         stopWork()
@@ -667,7 +679,9 @@ class Chat(
             if (state.sessionId != id) return@change state
             val folder = state.folder?.refreshed(session) ?: state.folder
             if (folder != state.folder) moved = folder
-            val chosen = if (choiceEdits == edits) state.copy(choice = ModelChoice(session.model, session.effort), choiceKnown = true) else state
+            // Also "may change files" (#200): what the owner set for this chat earlier holds,
+            // unless it was switched here since the question was asked.
+            val chosen = if (choiceEdits == edits) state.copy(choice = ModelChoice(session.model, session.effort), choiceKnown = true, capable = state.capable || session.capable) else state
             chosen.copy(folder = folder)
         }
         moved?.let { store.save(it.pointer(id)) }
@@ -1024,7 +1038,7 @@ class Chat(
             state.queue.filter { it.id.isNotEmpty() && it.id !in still }.forEach { taken[it.id] = it }
             while (taken.size > MAX_QUEUED * 2) taken.remove(taken.keys.first())
         }
-        return state.copy(queue = rows + onTheWay, queueHold = listed.paused.takeIf { rows.isNotEmpty() })
+        return state.copy(queue = rows + onTheWay, queueHold = listed.paused.takeIf { rows.isNotEmpty() }, progress = if (listed.running) listed.progress ?: state.progress else state.progress)
     }
 
     private fun since(state: ChatState): Long = if (state.phase == ChatPhase.IDLE || state.sinceMillis == 0L) nowMillis() else state.sinceMillis
@@ -1181,6 +1195,7 @@ class Chat(
                 failure = state.failure?.takeIf { row == null || it.problem != ChatProblem.STOPPED_HERE },
                 // Another run begins: a card of the answer before belonged to that answer.
                 choices = null,
+                progress = null,
             )
         }
         return prompt to known
@@ -1237,6 +1252,7 @@ class Chat(
                 switchTo = null,
                 choices = null,
                 forwardedKey = key.takeIf { forwarded },
+                progress = null,
                 // What the computer said last: the next message is tidied up first. Its stream confirms it.
                 tidying = coach && it.coach?.dueForCompaction == true,
                 // As on the computer: the hold a stop put on the queue ends with the owner's next message.
@@ -1615,8 +1631,39 @@ class Chat(
 
     // ------------------------------------------------------------------ questions and approvals
 
-    /** "May make changes" for this conversation, from the next message on. */
-    fun setCapable(on: Boolean) = mutable.update { if (coach) it else it.copy(capable = on) }
+    /**
+     * "May make changes" for this conversation, from the next message on. It stays with the
+     * chat (#200): for a session the computer knows it is stored there, so a lock, a restart of
+     * the app or opening the chat another day brings it back; a new conversation's first
+     * message that may change files stores it.
+     */
+    fun setCapable(on: Boolean) {
+        if (coach) return
+        val state = mutable.value
+        if (state.capable == on) return
+        val generation = state.generation
+        choiceEdits++
+        change(generation) { it.copy(capable = on) }
+        val id = state.sessionId ?: return
+        launchSide {
+            val body = buildJsonObject { put("capable", JsonPrimitive(on)) }
+            if (attempt { api.patchSession(id, body) }.isFailure) {
+                change(generation) { it.copy(capable = !on, failure = ChatFailure(ChatProblem.SETTING_FAILED)) }
+            }
+        }
+    }
+
+    /**
+     * "Continue" after a run that paused at the computer's limit of steps or of time (#199):
+     * [text] (the app's words for "go on where you stopped") is sent as the next message, so
+     * the work goes on in the same conversation instead of starting again.
+     */
+    fun continueRun(text: String) {
+        val problem = mutable.value.failure?.problem ?: return
+        if (problem != ChatProblem.STEP_LIMIT && problem != ChatProblem.TOO_LONG) return
+        mutable.update { it.copy(failure = null) }
+        send(text)
+    }
 
     /** Yes or no to an action that needs the owner's approval. Only an explicit tap leads here. */
     fun answerApproval(id: String, approve: Boolean) =
@@ -1783,6 +1830,15 @@ class Chat(
                     change(generation) { it.copy(messages = put(it.messages, ChatMessage(answer, false, text)), phase = ChatPhase.ANSWERING) }
                 }
             }
+            // What the run is doing right now (#199): a short line under "Working…".
+            "progress" -> {
+                val progress = try {
+                    BridgeJson.decodeFromJsonElement(RunProgress.serializer(), event.data)
+                } catch (_: Exception) {
+                    return false
+                }
+                change(generation) { it.copy(progress = progress) }
+            }
             "interaction" -> {
                 val asked = try {
                     BridgeJson.decodeFromJsonElement(InteractionData.serializer(), event.data)
@@ -1835,6 +1891,7 @@ class Chat(
                         loaded = true,
                         stopping = false,
                         tidying = false,
+                        progress = null,
                         interactions = closed(state.interactions).let { cards -> cards + proposed.filter { new -> cards.none { it.id == new.id } } },
                         switchTo = direct,
                         switchAt = if (direct != null) uptimeMillis() else state.switchAt,
@@ -1851,7 +1908,7 @@ class Chat(
                     // The owner stopped it from here: that is what was asked for, not a failure to retry.
                     val failure = if (problem == ChatProblem.STOPPED && state.stopping) ChatFailure(ChatProblem.STOPPED_HERE) else ChatFailure(problem, prompt, detail = detailOf(problem, data.text("message")))
                     // The run had started: the message is part of the conversation, a retry is a new message.
-                    state.copy(messages = messages, phase = ChatPhase.IDLE, stopping = false, tidying = false, failure = failure, interactions = closed(state.interactions))
+                    state.copy(messages = messages, phase = ChatPhase.IDLE, stopping = false, tidying = false, progress = null, failure = failure, interactions = closed(state.interactions))
                 }
                 return true
             }
@@ -2055,6 +2112,7 @@ class Chat(
             "capable_mode_unavailable" -> ChatProblem.CAPABLE_OFF
             "claude_not_found", "working_directory_missing", "not_configured" -> ChatProblem.NOT_SET_UP
             "timeout" -> ChatProblem.TOO_LONG
+            "error_max_turns" -> ChatProblem.STEP_LIMIT
             "cancelled" -> ChatProblem.STOPPED
             COMPACTION_RUNNING -> ChatProblem.COMPACTING
             "prompt_too_large", "too_large" -> ChatProblem.TOO_LARGE
